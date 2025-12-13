@@ -1,0 +1,2680 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ktl Log Mirror</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --surface: rgba(255,255,255,0.9);
+      --surface-soft: rgba(255,255,255,0.82);
+      --border: rgba(15,23,42,0.12);
+      --text: #0f172a;
+      --muted: rgba(15,23,42,0.65);
+      --accent: #2563eb;
+      --chip-bg: rgba(37,99,235,0.08);
+      --chip-text: #1d4ed8;
+      --warn: #fbbf24;
+      --fail: #ef4444;
+      --ease: cubic-bezier(.16,1,.3,1);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      padding: 48px 56px 72px;
+      background: radial-gradient(circle at 20% 20%, #ffffff, #e9edf5 45%, #dce3f1);
+      color: var(--text);
+    }
+    .chrome { max-width: 1600px; margin: 0 auto; }
+    header {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:1.5rem;
+      margin-bottom:32px;
+    }
+    body[data-filters-enabled="false"] header {
+      justify-content:flex-end;
+    }
+    body.popout-mode header {
+      display:none;
+    }
+    body.popout-mode {
+      padding:16px 24px 32px;
+    }
+    body.popout-mode .layout {
+      margin-top:0;
+    }
+    body.popout-mode .filter-panel,
+    body.popout-mode .heatmap-panel,
+    body.popout-mode .timeline-panel,
+    body.popout-mode .graph-panel,
+    body.popout-mode .header-actions {
+      display:none !important;
+    }
+    body.popout-mode .log-panel {
+      min-height:calc(100vh - 40px);
+    }
+    h1 { font-size:2.4rem; font-weight:600; letter-spacing:-0.04em; margin:0; }
+    .subtitle { font-size:1rem; color:var(--muted); margin:0; }
+    .status-chip {
+      border-radius:999px;
+      border:1px solid rgba(37,99,235,0.2);
+      padding:0.4rem 1rem;
+      font-weight:600;
+      color:var(--chip-text);
+      background:var(--chip-bg);
+    }
+    .header-actions {
+      display:flex;
+      align-items:center;
+      gap:0.75rem;
+    }
+    .icon-button {
+      border-radius:999px;
+      border:1px solid rgba(15,23,42,0.15);
+      background:rgba(15,23,42,0.02);
+      color:var(--muted);
+      width:40px;
+      height:40px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:1rem;
+      cursor:pointer;
+      transition:all 140ms var(--ease);
+    }
+    .icon-button:hover,
+    .icon-button:focus-visible {
+      border-color:var(--accent);
+      color:var(--accent);
+      background:rgba(37,99,235,0.08);
+    }
+    .filter-toggle {
+      border-radius:999px;
+      border:1px solid rgba(15,23,42,0.15);
+      background:rgba(15,23,42,0.02);
+      color:var(--muted);
+      letter-spacing:0.12em;
+      text-transform:uppercase;
+      font-size:0.78rem;
+      padding:0.35rem 1.1rem;
+      cursor:pointer;
+      transition:all 140ms var(--ease);
+    }
+    .filter-toggle.active {
+      border-color:var(--accent);
+      color:var(--accent);
+      background:rgba(37,99,235,0.08);
+    }
+    .layout { display:flex; flex-direction:column; gap:22px; }
+    @media (max-width: 1100px) {
+      body { padding:32px 24px 48px; }
+      .layout { gap:18px; }
+    }
+    .panel {
+      border-radius:28px;
+      padding:32px;
+      background:var(--surface);
+      border:1px solid var(--border);
+      backdrop-filter:blur(18px);
+      box-shadow:0 40px 80px rgba(16,23,36,0.12);
+    }
+    .log-panel {
+      padding:32px;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .log-feed {
+      font-family: SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono',monospace;
+      padding:24px 32px 32px;
+      max-height:70vh;
+      overflow:auto;
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+      background:linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.7));
+    }
+    .log-entry { border-left:4px solid rgba(37,99,235,0.35); padding-left:1rem; transition:opacity 140ms ease; }
+    .log-entry.hidden { display:none; }
+    .log-entry.focused {
+      background:rgba(37,99,235,0.04);
+      border-left-color:var(--accent);
+    }
+    .log-entry .meta { font-size:0.9rem; color:var(--muted); margin-bottom:0.35rem; display:flex; flex-wrap:wrap; gap:0.5rem; }
+    .chip-inline {
+      border-radius:999px;
+      padding:0.15rem 0.75rem;
+      background:var(--chip-bg);
+      color:var(--chip-text);
+      font-size:0.8rem;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+    }
+    .log-line {
+      font-size:0.95rem;
+      line-height:1.45;
+      color:var(--text);
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+    .filter-panel h2 { margin:0; font-size:1.2rem; letter-spacing:0.02em; }
+    .filter-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:0.8rem;
+      margin-bottom:0.85rem;
+    }
+    .filter-search-row {
+      display:flex;
+      gap:0.6rem;
+      align-items:center;
+      margin-bottom:0.35rem;
+    }
+    .filter-search-row input[type="search"] {
+      flex:1;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:0.58rem 1.1rem;
+      font-size:1rem;
+      background:rgba(255,255,255,0.9);
+      color:var(--text);
+    }
+    .filter-hint { font-size:0.85rem; color:var(--muted); margin:0 0 0.8rem; }
+    .search-chip-tray {
+      display:flex;
+      flex-wrap:wrap;
+      gap:0.4rem;
+      margin-bottom:0.6rem;
+      min-height:1.2rem;
+    }
+    .search-chip-tray .chip-button {
+      text-transform:none;
+      letter-spacing:0.02em;
+    }
+    .filter-grid {
+      display:flex;
+      gap:1.25rem;
+      flex-wrap:wrap;
+    }
+    body[data-filters-enabled="false"] .filter-panel {
+      padding-top:24px;
+      padding-bottom:24px;
+    }
+    body[data-filters-enabled="false"] .filter-head,
+    body[data-filters-enabled="false"] .filter-hint {
+      display:none;
+    }
+    body[data-filters-enabled="false"] .filter-toggle {
+      display:none;
+    }
+    body[data-filters-enabled="false"] .filter-grid,
+    body[data-filters-enabled="false"] .chip-stack,
+    body[data-filters-enabled="false"] .chip-stack-head,
+    body[data-filters-enabled="false"] .chip-meta,
+    body[data-filters-enabled="false"] .chip-tray {
+      display:none;
+    }
+    body.filters-collapsed .filter-panel {
+      display:none;
+    }
+    .chip-stack {
+      flex:1 1 260px;
+      display:flex;
+      flex-direction:column;
+      gap:0.5rem;
+    }
+    .chip-stack-head {
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+      gap:0.4rem;
+      letter-spacing:0.12em;
+      font-size:0.8rem;
+      color:var(--muted);
+    }
+    .chip-meta { font-size:0.75rem; letter-spacing:0.14em; color:var(--muted); }
+    .chip-tray { display:flex; flex-wrap:wrap; gap:0.45rem; }
+    .chip-button {
+      border-radius:999px;
+      border:1px solid rgba(15,23,42,0.15);
+      background:rgba(15,23,42,0.02);
+      color:var(--muted);
+      font-size:0.78rem;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      padding:0.25rem 0.9rem;
+      cursor:pointer;
+    }
+    .chip-button.active {
+      border-color:var(--accent);
+      color:var(--accent);
+      background:rgba(37,99,235,0.08);
+    }
+    .placeholder { font-size:0.85rem; color:var(--muted); margin:0; }
+    .link-button {
+      border:none;
+      background:none;
+      color:var(--accent);
+      font-weight:600;
+      cursor:pointer;
+      padding:0;
+    }
+    .follow-indicator {
+      align-self:flex-end;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--surface-soft);
+      color:var(--muted);
+      font-size:1.2rem;
+      width:48px;
+      height:48px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+    .follow-indicator.hidden { display:none; }
+    .build-metrics {
+      display:flex;
+      gap:1rem;
+      flex-wrap:wrap;
+      align-items:flex-start;
+    }
+    .build-metrics.hidden { display:none; }
+    .timeline-panel {
+      position:relative;
+      padding:32px;
+      background:linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,255,255,0.64));
+      border:1px solid rgba(255,255,255,0.45);
+      box-shadow:0 32px 60px rgba(15,23,42,0.08);
+      overflow:hidden;
+    }
+    .timeline-panel::before {
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius:inherit;
+      background:radial-gradient(circle at 20% 0%, rgba(255,255,255,0.9), rgba(255,255,255,0));
+      pointer-events:none;
+      opacity:0.9;
+    }
+    .timeline-panel.hidden {
+      display:none;
+    }
+    .timeline-head {
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:1rem;
+      margin-bottom:18px;
+      position:relative;
+      z-index:1;
+    }
+    .timeline-copy .eyebrow {
+      margin:0;
+      text-transform:uppercase;
+      letter-spacing:0.24em;
+      font-size:0.72rem;
+      color:var(--muted);
+    }
+    .timeline-track {
+      position:relative;
+      width:100%;
+      height:44px;
+      border-radius:999px;
+      background:linear-gradient(180deg, rgba(12,12,16,0.08), rgba(12,12,16,0.2));
+      border:1px solid rgba(15,15,20,0.25);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -2px 6px rgba(0,0,0,0.2);
+      overflow:hidden;
+      cursor:pointer;
+      backdrop-filter:blur(4px);
+    }
+    .timeline-track::after {
+      content:"";
+      position:absolute;
+      inset:0;
+      background:linear-gradient(90deg, rgba(255,255,255,0.08), rgba(255,255,255,0));
+      pointer-events:none;
+    }
+    .timeline-track canvas {
+      position:absolute;
+      top:0;
+      left:0;
+      width:100%;
+      height:100%;
+      pointer-events:none;
+    }
+    .timeline-scrubber {
+      position:absolute;
+      top:50%;
+      width:18px;
+      height:32px;
+      border-radius:12px;
+      border:1px solid rgba(15,23,42,0.22);
+      background:linear-gradient(180deg, #fdfdfd 0%, #e7edf5 35%, #aeb7c6 60%, #f4f7fb 100%);
+      transform:translate(-50%,-50%);
+      box-shadow:0 10px 24px rgba(37,99,235,0.3), inset 0 1px 0 rgba(255,255,255,0.8);
+      outline:none;
+    }
+    .timeline-scrubber::before,
+    .timeline-scrubber::after {
+      content:"";
+      position:absolute;
+      inset:3px;
+      border-radius:8px;
+    }
+    .timeline-scrubber::before {
+      background:repeating-linear-gradient(125deg, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.25) 3px, rgba(15,23,42,0.1) 6px);
+      opacity:0.35;
+    }
+    .timeline-scrubber::after {
+      inset:5px 6px;
+      border-radius:6px;
+      background:linear-gradient(180deg, rgba(37,99,235,0.22), rgba(37,99,235,0.05));
+      box-shadow:inset 0 1px 2px rgba(255,255,255,0.6);
+    }
+    .timeline-scrubber:focus-visible {
+      box-shadow:0 0 0 3px rgba(37,99,235,0.35), 0 10px 24px rgba(37,99,235,0.3);
+    }
+    .timeline-tooltip {
+      position:absolute;
+      top:-56px;
+      padding:0.35rem 0.9rem;
+      border-radius:999px;
+      background:rgba(15,23,42,0.92);
+      color:#fff;
+      font-size:0.78rem;
+      pointer-events:none;
+      white-space:nowrap;
+      box-shadow:0 16px 32px rgba(15,23,42,0.2);
+      transform:translate(-50%,-4px);
+      opacity:0;
+      transition:opacity 160ms var(--ease), transform 160ms var(--ease);
+    }
+    .timeline-tooltip::after {
+      content:"";
+      position:absolute;
+      bottom:-6px;
+      left:50%;
+      transform:translateX(-50%);
+      border-width:6px 6px 0 6px;
+      border-style:solid;
+      border-color:rgba(15,23,42,0.92) transparent transparent transparent;
+    }
+    .timeline-tooltip.is-visible {
+      opacity:1;
+      transform:translate(-50%, -10px);
+    }
+    .timeline-tooltip[hidden] { display:none; }
+    .graph-panel {
+      padding:28px 32px;
+    }
+    .graph-panel.hidden {
+      display:none;
+    }
+    .graph-node-list {
+      display:flex;
+      flex-wrap:wrap;
+      gap:0.45rem;
+    }
+    .graph-node-pill {
+      border:1px solid rgba(15,23,42,0.15);
+      border-radius:999px;
+      padding:0.4rem 1rem;
+      font-size:0.85rem;
+      cursor:pointer;
+      background:rgba(248,250,252,0.7);
+      transition:background 140ms var(--ease), border-color 140ms var(--ease), color 140ms var(--ease);
+    }
+    .graph-node-pill:hover,
+    .graph-node-pill:focus-visible {
+      border-color:var(--accent);
+      color:var(--accent);
+      outline:none;
+    }
+    .graph-node-pill.status-failed {
+      border-color:#ef4444;
+      color:#ef4444;
+    }
+    .graph-node-pill.status-running {
+      border-color:var(--accent);
+      color:var(--accent);
+    }
+    .graph-node-pill.status-cached {
+      border-color:#0ea5e9;
+      color:#0ea5e9;
+    }
+    .graph-node-pill.status-completed {
+      border-color:rgba(15,23,42,0.2);
+      color:#0f172a;
+      background:linear-gradient(180deg, #fdfefe, #e0e5ee);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,0.8), inset 0 -1px 0 rgba(15,23,42,0.08);
+    }
+    .graph-node-pill.active {
+      background:rgba(37,99,235,0.08);
+      border-color:var(--accent);
+      color:var(--accent);
+    }
+    .metric-chip {
+      border-radius:18px;
+      padding:0.4rem 1rem;
+      background:rgba(15,23,42,0.04);
+      border:1px solid rgba(15,23,42,0.08);
+      min-width:140px;
+      display:flex;
+      flex-direction:column;
+      gap:0.15rem;
+    }
+    .metric-chip.status-chip {
+      min-width:160px;
+    }
+    .metric-label {
+      font-size:0.75rem;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .metric-value {
+      font-size:1.2rem;
+      font-weight:600;
+      color:var(--text);
+    }
+    .status-pill {
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:0.2rem 0.9rem;
+      border-radius:999px;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      font-size:0.85rem;
+      font-weight:600;
+      border:1px solid transparent;
+    }
+    .status-pill.status-building {
+      color:#1d4ed8;
+      background:rgba(37,99,235,0.12);
+      border-color:rgba(37,99,235,0.3);
+    }
+    .status-pill.status-success {
+      color:#047857;
+      background:rgba(16,185,129,0.15);
+      border-color:rgba(16,185,129,0.35);
+    }
+    .status-pill.status-failed {
+      color:#b91c1c;
+      background:rgba(239,68,68,0.15);
+      border-color:rgba(239,68,68,0.35);
+    }
+    .panel-heading {
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap:1rem;
+      margin-bottom:1.25rem;
+    }
+    .panel-heading h2 {
+      margin:0;
+      font-size:1.25rem;
+      letter-spacing:0.02em;
+    }
+    .eyebrow {
+      text-transform:uppercase;
+      letter-spacing:0.2em;
+      font-size:0.75rem;
+      color:var(--muted);
+      margin:0 0 0.35rem;
+    }
+    .heatmap-panel { display:none; }
+    .heatmap-panel.active { display:block; }
+    .service-grid {
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+      gap:1rem;
+    }
+    .score-card {
+      border-radius:24px;
+      padding:24px;
+      background:var(--surface-soft);
+      border:1px solid rgba(15,23,42,0.08);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);
+      display:flex;
+      flex-direction:column;
+      gap:0.6rem;
+      min-height:160px;
+    }
+    .score-card.pass { border-color:rgba(34,197,94,0.35); }
+    .score-card.warn { border-color:rgba(251,191,36,0.6); }
+    .score-card.fail { border-color:rgba(239,68,68,0.65); }
+    .score-card-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:0.75rem;
+    }
+    .score-card-head .label {
+      font-size:0.95rem;
+      font-weight:600;
+      letter-spacing:0.04em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .score-badge {
+      border-radius:999px;
+      padding:0.2rem 0.8rem;
+      border:1px solid rgba(15,23,42,0.12);
+      font-size:0.7rem;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .score-card.fail .score-badge { color:var(--fail); border-color:rgba(239,68,68,0.5); }
+    .score-card.warn .score-badge { color:var(--warn); border-color:rgba(251,191,36,0.5); }
+    .score-card strong {
+      font-size:2rem;
+      letter-spacing:-0.03em;
+      margin:0;
+    }
+    .score-card.pass strong { color:#0f172a; }
+    .score-card.warn strong { color:#b45309; }
+    .score-card.fail strong { color:#b91c1c; }
+    .score-card .meta {
+      margin:0;
+      font-size:0.9rem;
+      color:var(--muted);
+    }
+    .summary {
+      margin:0;
+      font-size:0.9rem;
+      color:var(--muted);
+    }
+    .summary.failure { color:var(--fail); font-weight:600; }
+    .hotspot-list {
+      list-style:none;
+      margin:0.5rem 0 0;
+      padding:0;
+      display:flex;
+      flex-direction:column;
+      gap:0.35rem;
+    }
+    .hotspot-row {
+      display:flex;
+      justify-content:space-between;
+      font-size:0.85rem;
+      color:var(--muted);
+    }
+    .hotspot-name { flex:1; margin-right:0.5rem; }
+    .hotspot-meta { font-weight:600; color:#0f172a; }
+    .sr-only {
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      white-space:nowrap;
+      border:0;
+    }
+  </style>
+</head>
+<body data-filters-enabled="{{if .FiltersEnabled}}true{{else}}false{{end}}">
+  <div class="chrome">
+    <header>
+      {{if .FiltersEnabled}}
+      <div class="header-copy">
+        {{if .Title}}<h1>{{.Title}}</h1>{{end}}
+        {{if .ClusterInfo}}<p class="subtitle">{{.ClusterInfo}}</p>{{end}}
+      </div>
+      {{end}}
+      <div class="header-actions">
+        <button id="popoutTrigger" class="icon-button" type="button" aria-label="Open pop-out window" title="Pop out log feed">⇱</button>
+        <button id="filterToggle" class="filter-toggle" type="button" aria-expanded="false" aria-controls="filterPanel">Filters</button>
+        <div class="status-chip" id="statusChip">Connecting…</div>
+      </div>
+    </header>
+    <div class="layout">
+      <section id="buildMetrics" class="panel build-metrics hidden" aria-live="polite">
+        <div class="metric-chip">
+          <span class="metric-label">Cache hits</span>
+          <span class="metric-value" id="metricCacheHits">0</span>
+        </div>
+        <div class="metric-chip">
+          <span class="metric-label">Cache misses</span>
+          <span class="metric-value" id="metricCacheMisses">0</span>
+        </div>
+        <div class="metric-chip">
+          <span class="metric-label">Elapsed</span>
+          <span class="metric-value" id="metricElapsed">—</span>
+        </div>
+        <div class="metric-chip status-chip">
+          <span class="metric-label">Status</span>
+          <span class="metric-value status-pill status-building" id="metricStatus">Building</span>
+        </div>
+      </section>
+      <section class="panel filter-panel" id="filterPanel">
+        <div class="filter-head">
+          <h2>Filters</h2>
+          <button id="clearFilters" type="button" class="link-button">Reset</button>
+        </div>
+        <label class="sr-only" for="filterSearch">Add log filter</label>
+        <div class="filter-search-row">
+          <input id="filterSearch" type="search" placeholder="Search logs" autocomplete="off" />
+        </div>
+        <div class="search-chip-tray" id="searchChipTray" role="list" aria-label="Search filters"></div>
+        <p class="filter-hint">Prefixes: <code>ns:</code> namespace, <code>pod:</code> pod, <code>c:</code> container, <code>src:</code> source. Use <code>!token</code> to exclude.</p>
+        <div class="filter-grid">
+          <div class="chip-stack">
+            <div class="chip-stack-head">
+              <span class="chip-meta" id="namespaceMeta">0 ACTIVE</span>
+            </div>
+            <div id="namespaceFilters" class="chip-tray" role="group" aria-label="Namespace filters"></div>
+          </div>
+          <div class="chip-stack">
+            <div class="chip-stack-head">
+              <span class="chip-meta" id="podMeta">0 ACTIVE</span>
+            </div>
+            <div id="podFilters" class="chip-tray" role="group" aria-label="Pod filters"></div>
+          </div>
+        </div>
+      </section>
+      <section class="panel heatmap-panel" id="heatmapPanel" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Compose Heatmap</p>
+            <h2>Service Builds</h2>
+          </div>
+          <span class="chip-inline" id="heatmapSummaryChip">Awaiting services</span>
+        </div>
+        <div class="service-grid" id="heatmapGrid" role="list"></div>
+      </section>
+      <section class="panel graph-panel hidden" id="graphPanel" aria-hidden="true">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Build Graph</p>
+          </div>
+          <span class="chip-inline" id="graphSummaryChip">Initializing…</span>
+        </div>
+        <div class="graph-node-list" id="graphNodeList"></div>
+      </section>
+      <section class="panel timeline-panel hidden" id="timelinePanel" aria-hidden="true">
+        <div class="timeline-head">
+          <div class="timeline-copy">
+            <p class="eyebrow">Log Timeline</p>
+          </div>
+        </div>
+        <div class="timeline-track" id="timelineTrack">
+          <canvas id="timelineCanvas" aria-hidden="true"></canvas>
+          <div id="timelineScrubber" class="timeline-scrubber" role="slider" aria-label="Log timeline" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" tabindex="0"></div>
+        </div>
+        <div id="timelineTooltip" class="timeline-tooltip" hidden></div>
+      </section>
+      <section class="panel log-panel" aria-live="polite">
+        <div id="logFeed" class="log-feed"></div>
+        <button id="resumeAutoScroll" type="button" class="follow-indicator hidden" aria-label="Resume auto-scroll" title="Resume auto-scroll">
+          <span aria-hidden="true">⤓</span>
+          <span class="sr-only">Resume auto-scroll</span>
+        </button>
+      </section>
+    </div>
+  </div>
+  <script>
+    (function() {
+      const feed = document.getElementById('logFeed');
+      const statusChip = document.getElementById('statusChip');
+      const filterSearch = document.getElementById('filterSearch');
+      const searchChipTray = document.getElementById('searchChipTray');
+      const namespaceFilters = document.getElementById('namespaceFilters');
+      const podFilters = document.getElementById('podFilters');
+      const namespaceMeta = document.getElementById('namespaceMeta');
+      const podMeta = document.getElementById('podMeta');
+      const clearFiltersBtn = document.getElementById('clearFilters');
+      const resumeAutoScrollBtn = document.getElementById('resumeAutoScroll');
+      const filterToggle = document.getElementById('filterToggle');
+      const popoutTrigger = document.getElementById('popoutTrigger');
+      const buildMetricsPanel = document.getElementById('buildMetrics');
+      const timelinePanel = document.getElementById('timelinePanel');
+      const timelineTrack = document.getElementById('timelineTrack');
+      const timelineCanvas = document.getElementById('timelineCanvas');
+      const timelineScrubber = document.getElementById('timelineScrubber');
+      const timelineTooltip = document.getElementById('timelineTooltip');
+      const graphPanel = document.getElementById('graphPanel');
+      const graphSummaryChip = document.getElementById('graphSummaryChip');
+      const graphNodeList = document.getElementById('graphNodeList');
+      const metricHitsEl = document.getElementById('metricCacheHits');
+      const metricMissesEl = document.getElementById('metricCacheMisses');
+      const metricElapsedEl = document.getElementById('metricElapsed');
+      const metricStatusEl = document.getElementById('metricStatus');
+      const heatmapPanel = document.getElementById('heatmapPanel');
+      const heatmapGrid = document.getElementById('heatmapGrid');
+      const heatmapSummaryChip = document.getElementById('heatmapSummaryChip');
+      const chipFiltersEnabled = document.body.dataset.filtersEnabled !== 'false';
+      const urlParams = new URLSearchParams(window.location.search || '');
+      const popoutMode = urlParams.has('popout');
+      const inlineMetricsEnabled = !chipFiltersEnabled && !!buildMetricsPanel;
+      const buildMetrics = {
+        container: buildMetricsPanel,
+        hitsEl: metricHitsEl,
+        missesEl: metricMissesEl,
+        elapsedEl: metricElapsedEl,
+        statusEl: metricStatusEl,
+        cacheHits: 0,
+        cacheMisses: 0,
+        elapsedLabel: '—',
+        startedAt: null,
+        timer: null,
+        complete: false,
+        failureDetail: '',
+        status: 'building',
+        statusLocked: false,
+      };
+      const stats = {
+        lines: 0,
+        namespaces: new Map(),
+        pods: new Map(),
+      };
+      const entries = [];
+      const selectedNamespaces = new Set();
+      const selectedPods = new Set();
+      const searchChipState = new Map();
+      const heatmapState = new Map();
+      let visibleCount = 0;
+      let namespaceDirty = false;
+      let podDirty = false;
+      const MAX_ENTRIES = 600;
+      const FILTER_REFRESH_INTERVAL = 40;
+      const ANSI_PATTERN = /\x1B\[([0-9;]*)m/g;
+      const ANSI_BASE_COLORS = ['#0f172a','#ef4444','#22c55e','#eab308','#2563eb','#9333ea','#0ea5e9','#f8fafc'];
+      const ANSI_BRIGHT_COLORS = ['#475569','#f87171','#4ade80','#fde047','#60a5fa','#d8b4fe','#5eead4','#ffffff'];
+      const ANSI_SIMPLE_PALETTE = ANSI_BASE_COLORS.concat(ANSI_BRIGHT_COLORS);
+      const ANSI_LEVELS = [0,95,135,175,215,255];
+      const SEARCH_PREFIXES = new Set(['ns','namespace','pod','c','container','src','source','glyph']);
+      const POD_VALUE_SEPARATOR = '::';
+      const TIMELINE_EVENT_TYPES = {
+        STATUS: 'status',
+        CACHE_HIT: 'cache-hit',
+        CACHE_MISS: 'cache-miss',
+        FAIL: 'fail',
+      };
+      const TIMELINE_COLORS = {
+        'status': '#111111',
+        'cache-hit': '#1c1c1c',
+        'cache-miss': '#2a2a2a',
+        'fail': '#050505',
+      };
+      let autoScrollEnabled = true;
+      let autoScrollPaused = false;
+      let filtersCollapsed = true;
+      const timelineState = {
+        events: [],
+        start: null,
+        end: null,
+        pendingRender: false,
+        dragging: false,
+        highlightedEntry: null,
+        hoverId: null,
+      };
+      const graphState = {
+        nodes: [],
+        dirty: false,
+        pendingRender: false,
+        activeNodeId: null,
+      };
+      let timelineTooltipHideTimeout = null;
+
+      if (popoutMode) {
+        document.body.classList.add('popout-mode');
+      }
+
+      if (inlineMetricsEnabled && buildMetrics.container) {
+        buildMetrics.container.classList.remove('hidden');
+        setBuildStatus('building');
+      }
+
+      if (chipFiltersEnabled) {
+        renderNamespaceChips(true);
+        renderPodChips(true);
+        updateFilterMeta();
+      }
+      updateVisibilityStats();
+      updateAutoScrollUI();
+      if (timelineTrack && timelineScrubber) {
+        initTimeline();
+      }
+
+      if (filterToggle) {
+        if (popoutMode) {
+          setFiltersCollapsed(true);
+          filterToggle.setAttribute('hidden', 'true');
+          filterToggle.setAttribute('aria-hidden', 'true');
+        } else if (chipFiltersEnabled) {
+          setFiltersCollapsed(true);
+          filterToggle.removeAttribute('hidden');
+          filterToggle.removeAttribute('aria-hidden');
+          filterToggle.addEventListener('click', () => {
+            setFiltersCollapsed(!filtersCollapsed);
+          });
+        } else {
+          setFiltersCollapsed(false);
+          filterToggle.setAttribute('hidden', 'true');
+          filterToggle.setAttribute('aria-hidden', 'true');
+        }
+      } else {
+        document.body.classList.remove('filters-collapsed');
+      }
+
+      if (feed) {
+        feed.addEventListener('scroll', handleFeedScroll, { passive: true });
+      }
+      if (resumeAutoScrollBtn) {
+        resumeAutoScrollBtn.addEventListener('click', () => {
+          autoScrollPaused = false;
+          autoScrollEnabled = true;
+          updateAutoScrollUI();
+          maybeScrollToBottom(true);
+        });
+      }
+      if (popoutTrigger) {
+        if (popoutMode) {
+          popoutTrigger.setAttribute('hidden', 'true');
+        } else {
+          popoutTrigger.addEventListener('click', openPopoutWindow);
+        }
+      }
+
+      function setFiltersCollapsed(collapsed) {
+        filtersCollapsed = collapsed;
+        document.body.classList.toggle('filters-collapsed', collapsed);
+        if (filterToggle) {
+          filterToggle.setAttribute('aria-expanded', String(!collapsed));
+          filterToggle.classList.toggle('active', !collapsed);
+        }
+      }
+
+      function openPopoutWindow() {
+        const features = 'width=1100,height=700,resizable=yes,scrollbars=yes';
+        const target = resolvePopoutURL();
+        window.open(target, 'ktl-log-popout', features);
+      }
+
+      function resolvePopoutURL() {
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('popout', '1');
+          url.hash = '';
+          return url.toString();
+        } catch (_) {
+          const base = window.location.pathname || '/';
+          return base + '?popout=1';
+        }
+      }
+
+      function escapeHTML(text) {
+        if (text == null) return '';
+        return text.replace(/[&<>]/g, function(ch) {
+          if (ch === '&') return '&amp;';
+          if (ch === '<') return '&lt;';
+          if (ch === '>') return '&gt;';
+          return ch;
+        });
+      }
+
+      function cloneStyle(style) {
+        return {
+          color: style.color,
+          bg: style.bg,
+          bold: style.bold,
+          italic: style.italic,
+          underline: style.underline,
+        };
+      }
+
+      function styleToCSS(style) {
+        const parts = [];
+        if (style.color) parts.push('color:' + style.color);
+        if (style.bg) parts.push('background-color:' + style.bg);
+        if (style.bold) parts.push('font-weight:600');
+        if (style.italic) parts.push('font-style:italic');
+        if (style.underline) parts.push('text-decoration:underline');
+        return parts.join(';');
+      }
+
+      function clampColor(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return 0;
+        return Math.max(0, Math.min(255, num));
+      }
+
+      function ansiSimpleColor(code) {
+        if (code >= 30 && code <= 37) {
+          return ANSI_BASE_COLORS[code - 30];
+        }
+        if (code >= 90 && code <= 97) {
+          return ANSI_BRIGHT_COLORS[code - 90];
+        }
+        return null;
+      }
+
+      function ansiSimpleBackground(code) {
+        if (code >= 40 && code <= 47) {
+          return ANSI_BASE_COLORS[code - 40];
+        }
+        if (code >= 100 && code <= 107) {
+          return ANSI_BRIGHT_COLORS[code - 100];
+        }
+        return null;
+      }
+
+      function ansi256Color(index) {
+        const num = Number(index);
+        if (!Number.isFinite(num)) return null;
+        if (num >= 0 && num <= 15) {
+          return ANSI_SIMPLE_PALETTE[num];
+        }
+        if (num >= 16 && num <= 231) {
+          let remaining = num - 16;
+          const r = Math.floor(remaining / 36);
+          remaining -= r * 36;
+          const g = Math.floor(remaining / 6);
+          const b = remaining - g * 6;
+          return 'rgb(' + ANSI_LEVELS[r] + ',' + ANSI_LEVELS[g] + ',' + ANSI_LEVELS[b] + ')';
+        }
+        if (num >= 232 && num <= 255) {
+          const gray = 8 + (num - 232) * 10;
+          return 'rgb(' + gray + ',' + gray + ',' + gray + ')';
+        }
+        return null;
+      }
+
+      function ansiToHTML(input) {
+        if (!input || input.indexOf('\x1b[') === -1) {
+          return null;
+        }
+        ANSI_PATTERN.lastIndex = 0;
+        let lastIndex = 0;
+        let segments = [];
+        let style = { color: null, bg: null, bold: false, italic: false, underline: false };
+        let match;
+        while ((match = ANSI_PATTERN.exec(input)) !== null) {
+          if (match.index > lastIndex) {
+            segments.push({ text: input.slice(lastIndex, match.index), style: cloneStyle(style) });
+          }
+          applyCodes(match[1]);
+          lastIndex = ANSI_PATTERN.lastIndex;
+        }
+        if (lastIndex < input.length) {
+          segments.push({ text: input.slice(lastIndex), style: cloneStyle(style) });
+        }
+        const html = segments.map(segment => {
+          if (!segment.text) return '';
+          const escaped = escapeHTML(segment.text);
+          const css = styleToCSS(segment.style);
+          return css ? '<span style="' + css + '">' + escaped + '</span>' : escaped;
+        }).join('');
+        return html || null;
+
+        function applyCodes(codeStr) {
+          const parts = codeStr && codeStr.length ? codeStr.split(';') : ['0'];
+          for (let i = 0; i < parts.length; i++) {
+            const raw = parts[i];
+            const code = raw === '' ? 0 : Number(raw);
+            if (Number.isNaN(code)) {
+              continue;
+            }
+            switch (code) {
+              case 0:
+                style = { color: null, bg: null, bold: false, italic: false, underline: false };
+                break;
+              case 1:
+                style.bold = true;
+                break;
+              case 3:
+                style.italic = true;
+                break;
+              case 4:
+                style.underline = true;
+                break;
+              case 22:
+                style.bold = false;
+                break;
+              case 23:
+                style.italic = false;
+                break;
+              case 24:
+                style.underline = false;
+                break;
+              case 39:
+                style.color = null;
+                break;
+              case 49:
+                style.bg = null;
+                break;
+              case 7: {
+                const fg = style.color;
+                style.color = style.bg || '#0f172a';
+                style.bg = fg || '#f8fafc';
+                break;
+              }
+              default:
+                if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+                  const fg = ansiSimpleColor(code);
+                  if (fg) style.color = fg;
+                } else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
+                  const bg = ansiSimpleBackground(code);
+                  if (bg) style.bg = bg;
+                } else if (code === 38 || code === 48) {
+                  const isForeground = code === 38;
+                  const mode = Number(parts[++i] || 0);
+                  if (mode === 2) {
+                    const r = clampColor(parts[++i]);
+                    const g = clampColor(parts[++i]);
+                    const b = clampColor(parts[++i]);
+                    const color = 'rgb(' + r + ',' + g + ',' + b + ')';
+                    if (isForeground) {
+                      style.color = color;
+                    } else {
+                      style.bg = color;
+                    }
+                  } else if (mode === 5) {
+                    const idx = Number(parts[++i]);
+                    const color = ansi256Color(idx);
+                    if (color) {
+                      if (isForeground) {
+                        style.color = color;
+                      } else {
+                        style.bg = color;
+                      }
+                    }
+                  }
+                }
+                break;
+            }
+          }
+        }
+      }
+
+      function renderANSIInto(element, ansiText, fallbackText) {
+        if (!element) return;
+        const html = ansiToHTML(ansiText);
+        if (html) {
+          element.innerHTML = html;
+        } else {
+          element.textContent = fallbackText || ansiText || '';
+        }
+      }
+
+      function parseTimestamp(value) {
+        if (!value) {
+          return null;
+        }
+        if (value instanceof Date) {
+          return value;
+        }
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          return new Date(value);
+        }
+        const text = String(value).trim();
+        if (!text) {
+          return null;
+        }
+        const parsed = Date.parse(text);
+        if (Number.isNaN(parsed)) {
+          return null;
+        }
+        return new Date(parsed);
+      }
+
+      function updateBuildMetrics(log) {
+        if (!inlineMetricsEnabled || !buildMetrics.container || !log) {
+          return;
+        }
+        if (!buildMetrics.startedAt) {
+          const start = parseTimestamp(log.timestamp || log.ts);
+          buildMetrics.startedAt = start || new Date();
+          startBuildElapsedTimer();
+          setBuildStatus('building');
+        }
+        const lineText = String(log.message || log.line || log.raw || '');
+        const normalizedLine = lineText.toLowerCase();
+        const source = (log.source || '').toLowerCase();
+        const failureDetail = captureFailureDetail(lineText);
+        if (failureDetail) {
+          buildMetrics.failureDetail = failureDetail;
+        }
+        if (source === 'diagnostic') {
+          if (normalizedLine.includes('cache hit')) {
+            buildMetrics.cacheHits += 1;
+            renderBuildMetrics();
+          } else if (normalizedLine.includes('cache miss')) {
+            buildMetrics.cacheMisses += 1;
+            renderBuildMetrics();
+          }
+        }
+        if (normalizedLine.startsWith('summary:')) {
+          const idx = lineText.indexOf('{');
+          if (idx !== -1) {
+            try {
+              const summary = JSON.parse(lineText.slice(idx));
+              if (Number.isFinite(summary.cacheHits)) {
+                buildMetrics.cacheHits = summary.cacheHits;
+              }
+              if (Number.isFinite(summary.cacheMisses)) {
+                buildMetrics.cacheMisses = summary.cacheMisses;
+              }
+              renderBuildMetrics();
+            } catch (_) {
+              // ignore parse issues
+            }
+          }
+        }
+        if (normalizedLine.startsWith('build failed')) {
+          const failedMatch = lineText.match(/Build failed after\s+([^:]+)/i);
+          if (failedMatch && failedMatch[1]) {
+            buildMetrics.elapsedLabel = failedMatch[1].trim();
+          }
+          buildMetrics.complete = true;
+          buildMetrics.statusLocked = true;
+          stopBuildElapsedTimer();
+          setBuildStatus('failed', buildMetrics.failureDetail || failureDetail || 'Build failed');
+          renderBuildMetrics();
+          return;
+        }
+        if (normalizedLine.startsWith('build finished in')) {
+          buildMetrics.elapsedLabel = lineText.replace(/^build finished in/i, '').trim();
+          buildMetrics.complete = true;
+          buildMetrics.statusLocked = true;
+          stopBuildElapsedTimer();
+          setBuildStatus('success');
+          renderBuildMetrics();
+          return;
+        }
+      }
+
+      function renderBuildMetrics() {
+        if (!inlineMetricsEnabled || !buildMetrics.container) {
+          return;
+        }
+        buildMetrics.container.classList.remove('hidden');
+        if (buildMetrics.hitsEl) {
+          buildMetrics.hitsEl.textContent = buildMetrics.cacheHits.toLocaleString();
+        }
+        if (buildMetrics.missesEl) {
+          buildMetrics.missesEl.textContent = buildMetrics.cacheMisses.toLocaleString();
+        }
+        if (buildMetrics.elapsedEl) {
+          if (buildMetrics.elapsedLabel && buildMetrics.elapsedLabel !== '—') {
+            buildMetrics.elapsedEl.textContent = buildMetrics.elapsedLabel;
+          } else if (buildMetrics.startedAt) {
+            const delta = Date.now() - buildMetrics.startedAt.getTime();
+            buildMetrics.elapsedEl.textContent = formatDuration(delta) || '—';
+          } else {
+            buildMetrics.elapsedEl.textContent = '—';
+          }
+        }
+      }
+
+      function recordTimelineSample(data, entryRecord) {
+        if (!timelineTrack || !timelineCanvas || !data || !entryRecord) {
+          return;
+        }
+        const sample = classifyTimelineSample(entryRecord);
+        if (!sample) {
+          return;
+        }
+        const ts = entryRecord.timestamp || parseTimestamp(data.ts || data.timestamp) || new Date();
+        if (!ts) {
+          return;
+        }
+        if (!timelineState.start || ts < timelineState.start) {
+          timelineState.start = ts;
+        }
+        if (!timelineState.end || ts > timelineState.end) {
+          timelineState.end = ts;
+        }
+        timelineState.events.push({
+          ts,
+          type: sample.type,
+          label: sample.label,
+        });
+        const limit = 800;
+        if (timelineState.events.length > limit) {
+          timelineState.events.splice(0, timelineState.events.length - limit);
+          timelineState.start = timelineState.events[0]?.ts || timelineState.start;
+        }
+        updateTimelineVisibility();
+        scheduleTimelineRender();
+        if (!timelineState.dragging) {
+          setScrubberRatio(1, false);
+        }
+      }
+
+      function classifyTimelineSample(entryRecord) {
+        if (!entryRecord || !entryRecord.data) {
+          return null;
+        }
+        const data = entryRecord.data;
+        const normalizedLine = (entryRecord.normalized && entryRecord.normalized.line) || '';
+        const source = (data.source || '').toLowerCase();
+        const container = (data.container || '').toLowerCase();
+        const glyph = (data.glyph || '').trim();
+        const rawLabel = data.line || data.raw || '';
+        const label = formatTimelineLabel(rawLabel);
+        if (!rawLabel) {
+          return null;
+        }
+        if (normalizedLine.includes('cache hit')) {
+          return { type: TIMELINE_EVENT_TYPES.CACHE_HIT, label };
+        }
+        if (normalizedLine.includes('cache miss')) {
+          return { type: TIMELINE_EVENT_TYPES.CACHE_MISS, label };
+        }
+        if (glyph === '✖' || normalizedLine.startsWith('build failed')) {
+          return { type: TIMELINE_EVENT_TYPES.FAIL, label };
+        }
+        if (glyph === '⚠' || normalizedLine.includes('failed') || normalizedLine.includes('error:')) {
+          return { type: TIMELINE_EVENT_TYPES.FAIL, label };
+        }
+        if (source === 'build' && container === 'status') {
+          return { type: TIMELINE_EVENT_TYPES.STATUS, label };
+        }
+        if (chipFiltersEnabled || inlineMetricsEnabled) {
+          return { type: TIMELINE_EVENT_TYPES.STATUS, label };
+        }
+        return null;
+      }
+
+      function formatTimelineLabel(value) {
+        if (!value) {
+          return '';
+        }
+        const trimmed = value.trim();
+        const limit = 140;
+        if (trimmed.length <= limit) {
+          return trimmed;
+        }
+        return trimmed.slice(0, limit - 1) + '…';
+      }
+
+      function getTimelineBeamIntensity(type) {
+        switch (type) {
+          case TIMELINE_EVENT_TYPES.FAIL:
+            return 1.2;
+          case TIMELINE_EVENT_TYPES.CACHE_MISS:
+            return 0.9;
+          case TIMELINE_EVENT_TYPES.CACHE_HIT:
+            return 0.65;
+          case TIMELINE_EVENT_TYPES.STATUS:
+          default:
+            return 0.4;
+        }
+      }
+
+      function colorWithAlpha(hex, alpha) {
+        const rgb = hexToRgb(hex);
+        const clamped = Math.max(0, Math.min(1, alpha || 0));
+        if (!rgb) {
+          return 'rgba(0,0,0,' + clamped + ')';
+        }
+        return 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + clamped + ')';
+      }
+
+      function hexToRgb(hex) {
+        if (typeof hex !== 'string') {
+          return null;
+        }
+        let value = hex.trim();
+        if (value.startsWith('#')) {
+          value = value.slice(1);
+        }
+        if (value.length === 3) {
+          value = value.split('').map(ch => ch + ch).join('');
+        }
+        if (value.length !== 6) {
+          return null;
+        }
+        const num = Number.parseInt(value, 16);
+        if (Number.isNaN(num)) {
+          return null;
+        }
+        return {
+          r: (num >> 16) & 255,
+          g: (num >> 8) & 255,
+          b: num & 255,
+        };
+      }
+
+      function updateTimelineVisibility() {
+        if (!timelinePanel) {
+          return;
+        }
+        if (timelineState.events.length === 0) {
+          timelinePanel.classList.add('hidden');
+          timelinePanel.setAttribute('aria-hidden', 'true');
+        } else {
+          timelinePanel.classList.remove('hidden');
+          timelinePanel.removeAttribute('aria-hidden');
+        }
+      }
+
+      function scheduleTimelineRender() {
+        if (timelineState.pendingRender || !timelineTrack || !timelineCanvas) {
+          return;
+        }
+        timelineState.pendingRender = true;
+        window.requestAnimationFrame(renderTimeline);
+      }
+
+      function renderTimeline() {
+        timelineState.pendingRender = false;
+        if (!timelineTrack || !timelineCanvas || timelineState.events.length === 0) {
+          return;
+        }
+        const width = timelineTrack.clientWidth;
+        const height = timelineTrack.clientHeight;
+        if (!width || !height) {
+          return;
+        }
+        const dpr = window.devicePixelRatio || 1;
+        timelineCanvas.width = width * dpr;
+        timelineCanvas.height = height * dpr;
+        timelineCanvas.style.width = width + 'px';
+        timelineCanvas.style.height = height + 'px';
+        const ctx = timelineCanvas.getContext('2d');
+        if (!ctx) {
+          return;
+        }
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, width, height);
+        ctx.clearRect(0, 0, width, height);
+        const baseGrad = ctx.createLinearGradient(0, height - 6, 0, height);
+        baseGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        baseGrad.addColorStop(1, 'rgba(0,0,0,0.35)');
+        ctx.fillStyle = baseGrad;
+        ctx.fillRect(0, height - 8, width, height);
+        const events = timelineState.events;
+        let lastBeamX = -Infinity;
+        const MIN_BEAM_GAP = 36;
+        for (let i = 0; i < events.length; i++) {
+          const ev = events[i];
+          const ratio = timeToRatio(ev.ts);
+          const x = Math.max(1, Math.min(width - 1, ratio * width));
+          if (x - lastBeamX < MIN_BEAM_GAP) {
+            continue;
+          }
+          lastBeamX = x;
+          const gradient = ctx.createLinearGradient(x, 0, x, height);
+          const color = TIMELINE_COLORS[ev.type] || '#1a1a1a';
+          const intensity = getTimelineBeamIntensity(ev.type);
+          gradient.addColorStop(0, colorWithAlpha(color, 0));
+          gradient.addColorStop(0.35, colorWithAlpha(color, 0.25 * intensity));
+          gradient.addColorStop(0.85, colorWithAlpha(color, 0.55 * intensity));
+          gradient.addColorStop(1, colorWithAlpha(color, 0));
+          ctx.strokeStyle = gradient;
+          ctx.lineWidth = Math.max(2, 3 * intensity);
+          ctx.beginPath();
+          ctx.moveTo(x, 6);
+          ctx.lineTo(x, height - 6);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function timeToRatio(ts) {
+        if (!timelineState.start || !timelineState.end) {
+          return 1;
+        }
+        const start = timelineState.start.getTime();
+        const end = timelineState.end.getTime();
+        if (end <= start) {
+          return 1;
+        }
+        return (ts.getTime() - start) / (end - start);
+      }
+
+      function ratioToTimestamp(ratio) {
+        if (!timelineState.start || !timelineState.end) {
+          return null;
+        }
+        const start = timelineState.start.getTime();
+        const end = timelineState.end.getTime();
+        const clamped = Math.min(1, Math.max(0, ratio));
+        return new Date(start + (end - start) * clamped);
+      }
+
+      function setScrubberRatio(ratio, updateAria = true) {
+        if (!timelineScrubber || !timelineTrack) {
+          return;
+        }
+        const clamped = Math.min(1, Math.max(0, ratio));
+        timelineScrubber.style.left = (clamped * 100) + '%';
+        if (updateAria) {
+          timelineScrubber.setAttribute('aria-valuenow', Math.round(clamped * 100));
+        }
+      }
+
+      function handleTimelinePointerDown(event) {
+        if (!timelineTrack) {
+          return;
+        }
+        timelineState.dragging = true;
+        autoScrollPaused = true;
+        autoScrollEnabled = false;
+        updateAutoScrollUI();
+        document.addEventListener('mousemove', handleTimelinePointerMove);
+        document.addEventListener('mouseup', handleTimelinePointerUp);
+        document.addEventListener('touchmove', handleTimelinePointerMove, { passive: false });
+        document.addEventListener('touchend', handleTimelinePointerUp);
+        handleTimelinePointerMove(event);
+        event.preventDefault();
+      }
+
+      function handleTimelinePointerMove(event) {
+        if (!timelineTrack) {
+          return;
+        }
+        const clientX = (event.touches && event.touches.length > 0) ? event.touches[0].clientX : event.clientX;
+        const rect = timelineTrack.getBoundingClientRect();
+        if (!rect.width) {
+          return;
+        }
+        let ratio = (clientX - rect.left) / rect.width;
+        ratio = Math.min(1, Math.max(0, ratio));
+        setScrubberRatio(ratio);
+        const targetTs = ratioToTimestamp(ratio);
+        if (timelineState.dragging && targetTs) {
+          seekTimelineRatio(ratio, true);
+          showTimelineTooltipAt(clientX, targetTs);
+        }
+      }
+
+      function handleTimelinePointerUp() {
+        document.removeEventListener('mousemove', handleTimelinePointerMove);
+        document.removeEventListener('mouseup', handleTimelinePointerUp);
+        document.removeEventListener('touchmove', handleTimelinePointerMove);
+        document.removeEventListener('touchend', handleTimelinePointerUp);
+        timelineState.dragging = false;
+        hideTimelineTooltip();
+      }
+
+      function handleTimelineTrackClick(event) {
+        if (timelineState.dragging) {
+          return;
+        }
+        const rect = timelineTrack.getBoundingClientRect();
+        if (!rect.width) {
+          return;
+        }
+        const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        setScrubberRatio(ratio);
+        seekTimelineRatio(ratio, true);
+      }
+
+      function handleTimelineHover(event) {
+        if (!timelineTrack || timelineState.dragging || timelineState.events.length === 0) {
+          return;
+        }
+        const rect = timelineTrack.getBoundingClientRect();
+        if (!rect.width) {
+          return;
+        }
+        const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+        const nearest = findNearestTimelineEvent(ratio);
+        if (nearest) {
+          showTimelineTooltipForEvent(nearest, event.clientX);
+        }
+      }
+
+      function handleTimelineLeave() {
+        if (timelineState.dragging) {
+          return;
+        }
+        hideTimelineTooltip();
+      }
+
+      function findNearestTimelineEvent(ratio) {
+        if (timelineState.events.length === 0 || ratio == null) {
+          return null;
+        }
+        let best = null;
+        let bestDiff = Infinity;
+        for (let i = 0; i < timelineState.events.length; i++) {
+          const ev = timelineState.events[i];
+          const evRatio = timeToRatio(ev.ts);
+          const diff = Math.abs(evRatio - ratio);
+          if (diff < bestDiff) {
+            best = { ...ev, ratio: evRatio };
+            bestDiff = diff;
+          }
+        }
+        return best;
+      }
+
+      function seekTimelineRatio(ratio, fromUser = false) {
+        const targetTs = ratioToTimestamp(ratio);
+        if (!targetTs) {
+          return;
+        }
+        scrollFeedToTimestamp(targetTs, fromUser);
+      }
+
+      function scrollFeedToTimestamp(targetTs, fromUser) {
+        if (!targetTs || entries.length === 0) {
+          return;
+        }
+        let candidate = entries[entries.length - 1];
+        for (let i = 0; i < entries.length; i++) {
+          const entry = entries[i];
+          if (!entry.timestamp) {
+            continue;
+          }
+          if (entry.timestamp >= targetTs) {
+            candidate = entry;
+            break;
+          }
+        }
+        if (!candidate || !candidate.element) {
+          return;
+        }
+        autoScrollEnabled = false;
+        autoScrollPaused = true;
+        updateAutoScrollUI();
+        candidate.element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        highlightTimelineEntry(candidate);
+      }
+
+      function highlightTimelineEntry(entry) {
+        if (timelineState.highlightedEntry && timelineState.highlightedEntry.element) {
+          timelineState.highlightedEntry.element.classList.remove('focused');
+        }
+        timelineState.highlightedEntry = entry;
+        if (entry && entry.element) {
+          entry.element.classList.add('focused');
+        }
+        syncGraphHighlight(entry);
+      }
+
+      function showTimelineTooltipAt(clientX, timestamp) {
+        if (!timelineTooltip) {
+          return;
+        }
+        revealTimelineTooltip();
+        timelineTooltip.textContent = timestamp.toLocaleTimeString();
+        positionTimelineTooltip(clientX);
+      }
+
+      function showTimelineTooltipForEvent(eventData, clientX) {
+        if (!timelineTooltip || !eventData) {
+          return;
+        }
+        const timeLabel = eventData.ts.toLocaleTimeString();
+        revealTimelineTooltip();
+        timelineTooltip.textContent = timeLabel + ' · ' + eventData.label;
+        const rect = timelineTrack.getBoundingClientRect();
+        const x = clientX || (rect.left + eventData.ratio * rect.width);
+        positionTimelineTooltip(x);
+      }
+
+      function positionTimelineTooltip(clientX) {
+        if (!timelineTooltip || !timelineTrack) {
+          return;
+        }
+        const rect = timelineTrack.getBoundingClientRect();
+        if (!rect.width) {
+          return;
+        }
+        const x = Math.min(rect.right - 8, Math.max(rect.left + 8, clientX));
+        timelineTooltip.style.left = (x - rect.left) + 'px';
+      }
+
+      function hideTimelineTooltip() {
+        concealTimelineTooltip();
+      }
+
+      function revealTimelineTooltip() {
+        if (!timelineTooltip) {
+          return;
+        }
+        window.clearTimeout(timelineTooltipHideTimeout);
+        timelineTooltip.hidden = false;
+        requestAnimationFrame(() => {
+          timelineTooltip.classList.add('is-visible');
+        });
+      }
+
+      function concealTimelineTooltip() {
+        if (!timelineTooltip) {
+          return;
+        }
+        timelineTooltip.classList.remove('is-visible');
+        window.clearTimeout(timelineTooltipHideTimeout);
+        timelineTooltipHideTimeout = window.setTimeout(() => {
+          timelineTooltip.hidden = true;
+        }, 170);
+      }
+
+      function initTimeline() {
+        window.addEventListener('resize', scheduleTimelineRender);
+        timelineTrack.addEventListener('mousedown', handleTimelinePointerDown);
+        timelineTrack.addEventListener('touchstart', function(event) {
+          handleTimelinePointerDown(event);
+        }, { passive: false });
+        timelineTrack.addEventListener('click', handleTimelineTrackClick);
+        timelineTrack.addEventListener('mousemove', handleTimelineHover);
+        timelineTrack.addEventListener('mouseleave', handleTimelineLeave);
+        timelineScrubber.addEventListener('keydown', function(event) {
+          const step = (event.shiftKey ? 0.1 : 0.05);
+          if (event.key === 'ArrowLeft') {
+            const current = Number(timelineScrubber.getAttribute('aria-valuenow') || '100') / 100;
+            const next = Math.max(0, current - step);
+            setScrubberRatio(next);
+            seekTimelineRatio(next, true);
+            event.preventDefault();
+          } else if (event.key === 'ArrowRight') {
+            const current = Number(timelineScrubber.getAttribute('aria-valuenow') || '100') / 100;
+            const next = Math.min(1, current + step);
+            setScrubberRatio(next);
+            seekTimelineRatio(next, true);
+            event.preventDefault();
+          }
+        });
+        updateTimelineVisibility();
+        setScrubberRatio(1, false);
+      }
+
+      function handleGraphSnapshot(snapshot) {
+        if (!graphPanel || !snapshot) {
+          return;
+        }
+        const rawNodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : [];
+        const visibleNodes = rawNodes
+          .filter(node => {
+            if (!node || !node.id) {
+              return false;
+            }
+            const label = (node.label || '').trim();
+            if (!label) {
+              return false;
+            }
+            if (label.startsWith('[internal')) {
+              return false;
+            }
+            return true;
+          })
+          .map(node => ({
+            id: node.id,
+            label: node.label || node.id,
+            status: (node.status || (node.cached ? 'cached' : 'pending')).toLowerCase(),
+            cached: !!node.cached,
+            current: Number(node.current) || 0,
+            total: Number(node.total) || 0,
+            error: node.error || '',
+          }));
+        graphState.nodes = visibleNodes;
+        graphState.dirty = true;
+        updateGraphSummary();
+        updateGraphVisibility();
+        scheduleGraphRender();
+      }
+
+      function updateGraphSummary() {
+        if (!graphSummaryChip) {
+          return;
+        }
+        const total = graphState.nodes.length;
+        if (!total) {
+          graphSummaryChip.textContent = 'Awaiting vertices';
+          return;
+        }
+        let completed = 0;
+        let failed = 0;
+        graphState.nodes.forEach(node => {
+          if (node.status === 'failed') {
+            failed += 1;
+          } else if (node.status === 'completed' || node.status === 'cached') {
+            completed += 1;
+          }
+        });
+        const parts = [total + ' steps'];
+        if (completed) {
+          parts.push(completed + ' done');
+        }
+        if (failed) {
+          parts.push(failed + ' failed');
+        }
+        graphSummaryChip.textContent = parts.join(' · ');
+      }
+
+      function updateGraphVisibility() {
+        if (!graphPanel) {
+          return;
+        }
+        if (graphState.nodes.length === 0) {
+          graphPanel.classList.add('hidden');
+          graphPanel.setAttribute('aria-hidden', 'true');
+        } else {
+          graphPanel.classList.remove('hidden');
+          graphPanel.removeAttribute('aria-hidden');
+        }
+      }
+
+      function scheduleGraphRender() {
+        if (!graphState.dirty || graphState.pendingRender || graphState.nodes.length === 0) {
+          return;
+        }
+        graphState.pendingRender = true;
+        window.requestAnimationFrame(renderGraphList);
+      }
+
+      function renderGraphList() {
+        graphState.pendingRender = false;
+        if (!graphState.dirty || graphState.nodes.length === 0 || !graphNodeList) {
+          return;
+        }
+        graphState.dirty = false;
+        graphNodeList.innerHTML = '';
+        const nodes = graphState.nodes.slice();
+        nodes.sort((a, b) => {
+          const order = statusRank(a.status) - statusRank(b.status);
+          if (order === 0) {
+            return a.label.localeCompare(b.label);
+          }
+          return order;
+        });
+        nodes.forEach(node => {
+          const pill = document.createElement('button');
+          pill.type = 'button';
+          pill.className = 'graph-node-pill status-' + (node.status || 'pending');
+          pill.dataset.nodeId = node.id;
+          pill.textContent = node.label;
+          pill.addEventListener('click', () => focusEntryForNode(node));
+          graphNodeList.appendChild(pill);
+        });
+        applyGraphNodeHighlight();
+      }
+
+      function statusRank(status) {
+        switch (status) {
+          case 'failed':
+            return 0;
+          case 'running':
+            return 1;
+          case 'cached':
+            return 2;
+          case 'completed':
+            return 3;
+          default:
+            return 4;
+        }
+      }
+
+      function focusEntryForNode(node) {
+        if (!node || !node.label) {
+          return;
+        }
+        const targetLabel = node.label.toLowerCase();
+        let candidate = null;
+        for (let i = 0; i < entries.length; i++) {
+          const entry = entries[i];
+          if (!entry || !entry.data) continue;
+          const podLabel = (entry.data.pod || '').toLowerCase();
+          if (podLabel === targetLabel) {
+            candidate = entry;
+            break;
+          }
+        }
+        if (!candidate) {
+          return;
+        }
+        autoScrollEnabled = false;
+        autoScrollPaused = true;
+        updateAutoScrollUI();
+        candidate.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        highlightTimelineEntry(candidate);
+      }
+
+      function syncGraphHighlight(entry) {
+        if (!entry || !entry.data) {
+          graphState.activeNodeId = null;
+          applyGraphNodeHighlight();
+          return;
+        }
+        const targetLabel = (entry.data.pod || '').trim().toLowerCase();
+        if (!targetLabel) {
+          graphState.activeNodeId = null;
+          applyGraphNodeHighlight();
+          return;
+        }
+        let matchId = null;
+        graphState.nodes.forEach(node => {
+          if (!matchId && node.label && node.label.toLowerCase() === targetLabel) {
+            matchId = node.id;
+          }
+        });
+        graphState.activeNodeId = matchId;
+        applyGraphNodeHighlight();
+      }
+
+      function applyGraphNodeHighlight() {
+        if (graphSvg) {
+          graphSvg.querySelectorAll('.graph-node').forEach(group => {
+            const nodeId = group.dataset.nodeId;
+            const circle = group.querySelector('circle');
+            if (nodeId && nodeId === graphState.activeNodeId) {
+              group.classList.add('active');
+              if (circle) circle.classList.add('active');
+            } else {
+              group.classList.remove('active');
+              if (circle) circle.classList.remove('active');
+            }
+          });
+        }
+        if (graphNodeList) {
+          graphNodeList.querySelectorAll('.graph-node-pill').forEach(pill => {
+            if (pill.dataset.nodeId === graphState.activeNodeId) {
+              pill.classList.add('active');
+            } else {
+              pill.classList.remove('active');
+            }
+          });
+        }
+      }
+
+      function setBuildStatus(state, detailOverride) {
+        if (!inlineMetricsEnabled || !buildMetrics.statusEl) {
+          return;
+        }
+        let next = 'building';
+        const normalized = (state || '').toLowerCase();
+        if (normalized === 'success' || normalized === 'succeeded' || normalized === 'ok') {
+          next = 'success';
+        } else if (normalized === 'failed' || normalized === 'failure' || normalized === 'error') {
+          next = 'failed';
+        }
+        buildMetrics.status = next;
+        const label = next === 'success' ? 'Success' : next === 'failed' ? 'Failed' : 'Building';
+        buildMetrics.statusEl.textContent = label;
+        buildMetrics.statusEl.classList.remove('status-building', 'status-success', 'status-failed');
+        buildMetrics.statusEl.classList.add('status-' + next);
+        if (next === 'failed') {
+          const detail = detailOverride || buildMetrics.failureDetail || '';
+          if (detail) {
+            buildMetrics.failureDetail = detail;
+            buildMetrics.statusEl.setAttribute('title', detail);
+            buildMetrics.statusEl.setAttribute('aria-label', label + ': ' + detail);
+          } else {
+            buildMetrics.statusEl.removeAttribute('title');
+            buildMetrics.statusEl.setAttribute('aria-label', label);
+          }
+        } else {
+          buildMetrics.failureDetail = '';
+          buildMetrics.statusEl.removeAttribute('title');
+          buildMetrics.statusEl.setAttribute('aria-label', label);
+        }
+      }
+
+      function captureFailureDetail(line) {
+        if (!line) {
+          return '';
+        }
+        const trimmed = line.trim();
+        if (trimmed.toLowerCase().startsWith('failed ')) {
+          const match = trimmed.match(/^Failed\s+([^:]+)(?::\s*(.+))?/i);
+          if (match) {
+            const step = (match[1] || '').trim();
+            const message = (match[2] || '').trim();
+            if (step) {
+              return message ? step + ': ' + message : step;
+            }
+          }
+        }
+        const summaryMatch = trimmed.match(/Build failed(?: after [^:]+)?:\s*(.+)$/i);
+        if (summaryMatch && summaryMatch[1]) {
+          return summaryMatch[1].trim();
+        }
+        return '';
+      }
+
+      function startBuildElapsedTimer() {
+        if (!inlineMetricsEnabled || buildMetrics.timer || !buildMetrics.startedAt) {
+          return;
+        }
+        buildMetrics.timer = setInterval(() => {
+          if (buildMetrics.complete) {
+            return;
+          }
+          renderBuildMetrics();
+        }, 1000);
+      }
+
+      function stopBuildElapsedTimer() {
+        if (buildMetrics.timer) {
+          clearInterval(buildMetrics.timer);
+          buildMetrics.timer = null;
+        }
+      }
+
+      function handleHeatmapSummary(summary) {
+        if (!summary || !summary.service) {
+          return;
+        }
+        heatmapState.set(summary.service, summary);
+        renderHeatmap();
+      }
+
+      function renderHeatmap() {
+        if (!heatmapPanel || !heatmapGrid) {
+          return;
+        }
+        if (heatmapState.size === 0) {
+          heatmapPanel.classList.remove('active');
+          heatmapPanel.setAttribute('hidden', 'true');
+          heatmapGrid.innerHTML = '';
+          if (heatmapSummaryChip) {
+            heatmapSummaryChip.textContent = 'Awaiting services';
+          }
+          return;
+        }
+        heatmapPanel.classList.add('active');
+        heatmapPanel.removeAttribute('hidden');
+        if (heatmapSummaryChip) {
+          const count = heatmapState.size;
+          heatmapSummaryChip.textContent = count + (count === 1 ? ' service' : ' services');
+        }
+        const rows = Array.from(heatmapState.values());
+        rows.sort((a, b) => {
+          const order = { fail: 0, warn: 1, pass: 2 };
+          const diff = (order[(a && (a.status || '').toLowerCase())] ?? 3) - (order[(b && (b.status || '').toLowerCase())] ?? 3);
+          if (diff !== 0) return diff;
+          if (a && b && a.service && b.service) {
+            return a.service.localeCompare(b.service);
+          }
+          return 0;
+        });
+        heatmapGrid.innerHTML = '';
+        rows.forEach(summary => {
+          heatmapGrid.appendChild(renderHeatmapCard(summary));
+        });
+      }
+
+      function renderHeatmapCard(summary) {
+        const card = document.createElement('article');
+        card.className = 'score-card ' + resolveStatusClass(summary && summary.status);
+        card.setAttribute('data-service', summary && summary.service ? summary.service : '');
+        const head = document.createElement('div');
+        head.className = 'score-card-head';
+        const label = document.createElement('span');
+        label.className = 'label';
+        label.textContent = summary && summary.service ? summary.service : 'service';
+        const badge = document.createElement('span');
+        badge.className = 'score-badge';
+        badge.textContent = (summary && summary.status ? summary.status : 'pass').toUpperCase();
+        head.appendChild(label);
+        head.appendChild(badge);
+        card.appendChild(head);
+
+        const totalLayers = Number(summary && summary.stepsTotal) || 0;
+        const cachedLayers = Number(summary && summary.stepsCached) || 0;
+        const cachedPercent = totalLayers > 0 ? Math.round((cachedLayers / totalLayers) * 100) : (summary && summary.cacheHits ? 100 : 0);
+        const strong = document.createElement('strong');
+        strong.textContent = cachedPercent + '% cached';
+        card.appendChild(strong);
+
+        const meta = document.createElement('p');
+        meta.className = 'meta';
+        meta.textContent = [
+          (summary && typeof summary.cacheHits === 'number' ? summary.cacheHits : 0) + ' hits',
+          (summary && typeof summary.cacheMisses === 'number' ? summary.cacheMisses : 0) + ' misses',
+          (Number(summary && summary.stepsExecuted) || 0) + ' executed',
+        ].join(' · ');
+        card.appendChild(meta);
+
+        if (summary && Array.isArray(summary.hotspots) && summary.hotspots.length) {
+          const list = document.createElement('ul');
+          list.className = 'hotspot-list';
+          summary.hotspots.forEach(h => {
+            if (!h) return;
+            const row = document.createElement('li');
+            row.className = 'hotspot-row';
+            const name = document.createElement('span');
+            name.className = 'hotspot-name';
+            name.textContent = h.name || 'layer';
+            const metaSpan = document.createElement('span');
+            metaSpan.className = 'hotspot-meta';
+            metaSpan.textContent = formatDuration(h.durationMs);
+            row.appendChild(name);
+            row.appendChild(metaSpan);
+            list.appendChild(row);
+          });
+          card.appendChild(list);
+        }
+
+        const summaryLine = document.createElement('p');
+        summaryLine.className = 'summary';
+        const durationText = formatDuration(summary && summary.durationMs);
+        summaryLine.textContent = 'Duration ' + durationText + ' · ' + (Number(summary && summary.stepsExecuted) || 0) + ' executed / ' + (Number(summary && summary.stepsCached) || 0) + ' cached';
+        card.appendChild(summaryLine);
+        if (summary && summary.failedStep) {
+          const failureLine = document.createElement('p');
+          failureLine.className = 'summary failure';
+          failureLine.textContent = summary.failedStep + ': ' + (summary.failureMessage || 'failed');
+          card.appendChild(failureLine);
+        }
+        return card;
+      }
+
+      function resolveStatusClass(status) {
+        const value = (status || '').toLowerCase();
+        if (value === 'fail' || value === 'failure' || value === 'error') return 'fail';
+        if (value === 'warn' || value === 'warning') return 'warn';
+        return 'pass';
+      }
+
+      function formatDuration(value) {
+        const ms = Number(value);
+        if (!Number.isFinite(ms) || ms <= 0) {
+          return '—';
+        }
+        if (ms < 1000) {
+          return Math.round(ms) + ' ms';
+        }
+        const seconds = ms / 1000;
+        if (seconds < 60) {
+          return seconds >= 10 ? Math.round(seconds) + ' s' : seconds.toFixed(1) + ' s';
+        }
+        const minutes = Math.floor(seconds / 60);
+        const remaining = Math.round(seconds % 60);
+        if (minutes >= 60) {
+          const hours = Math.floor(minutes / 60);
+        const remMinutes = minutes % 60;
+          return hours + 'h ' + remMinutes + 'm';
+        }
+        return minutes + 'm ' + (remaining < 10 ? '0' : '') + remaining + 's';
+      }
+
+      function makePodValue(namespace, pod) {
+        return encodeURIComponent(namespace || '') + POD_VALUE_SEPARATOR + encodeURIComponent(pod || '');
+      }
+
+      function decodePodValue(value) {
+        const idx = value.indexOf(POD_VALUE_SEPARATOR);
+        const rawNs = idx === -1 ? value : value.slice(0, idx);
+        const rawPod = idx === -1 ? '' : value.slice(idx + POD_VALUE_SEPARATOR.length);
+        return {
+          namespace: decodeURIComponent(rawNs || ''),
+          pod: decodeURIComponent(rawPod || ''),
+        };
+      }
+
+      function formatNamespaceDisplay(ns) {
+        return ns ? ns : '(default)';
+      }
+
+      function formatPodDisplay(ns, pod) {
+        const podLabel = pod || '(pod)';
+        const nsLabel = formatNamespaceDisplay(ns);
+        return podLabel + ' · ' + nsLabel;
+      }
+
+      function updateEventStats(log) {
+        eventStats.lines += 1;
+        const namespace = log.namespace || '';
+        const podValue = makeEventPodValue(namespace, log.pod || '');
+        const nsCount = eventStats.namespaces.get(namespace) || 0;
+        eventStats.namespaces.set(namespace, nsCount + 1);
+        if (nsCount === 0) {
+          eventNamespaceDirty = true;
+        }
+        const podCount = eventStats.pods.get(podValue) || 0;
+        eventStats.pods.set(podValue, podCount + 1);
+        if (podCount === 0) {
+          eventPodDirty = true;
+        }
+        maybeRenderEventNamespaceChips();
+        maybeRenderEventPodChips();
+        updateEventFilterMeta();
+      }
+
+      function updateStats(data) {
+        if (!chipFiltersEnabled) {
+          return;
+        }
+        stats.lines += 1;
+        const namespace = data.namespace || '';
+        const podValue = makePodValue(namespace, data.pod || '');
+        const nsCount = stats.namespaces.get(namespace) || 0;
+        stats.namespaces.set(namespace, nsCount + 1);
+        if (nsCount === 0) namespaceDirty = true;
+        const podCount = stats.pods.get(podValue) || 0;
+        stats.pods.set(podValue, podCount + 1);
+        if (podCount === 0) podDirty = true;
+        maybeRenderNamespaceChips();
+        maybeRenderPodChips();
+        updateFilterMeta();
+      }
+
+
+      function appendEntry(data) {
+        if (data && typeof data.source === 'string' && data.source.toLowerCase() === 'heatmap') {
+          const payload = data.raw || data.line || '';
+          if (payload) {
+            try {
+              const parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+              handleHeatmapSummary(parsed);
+            } catch (err) {
+              console.warn('heatmap parse error', err);
+            }
+          }
+          return;
+        }
+        if (data && typeof data.source === 'string' && data.source.toLowerCase() === 'graph') {
+          const payload = data.raw || data.line || data.lineAnsi || '';
+          if (payload) {
+            try {
+              const parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+              handleGraphSnapshot(parsed);
+            } catch (err) {
+              console.warn('graph parse error', err);
+            }
+          }
+          return;
+        }
+
+        if (inlineMetricsEnabled) {
+          updateBuildMetrics(data);
+        }
+
+        const entry = document.createElement('article');
+        entry.className = 'log-entry';
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const badge = document.createElement('span');
+        badge.className = 'chip-inline';
+        badge.textContent = (data.glyph || '●') + ' ' + (data.source || 'pod');
+        meta.appendChild(badge);
+        const stamp = document.createElement('span');
+        stamp.textContent = (data.displayTs || data.ts || '') + ' · ' + (data.namespace || '-') + '/' + (data.pod || '-') + ' [' + (data.container || '-') + ']';
+        meta.appendChild(stamp);
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        const ansiSource = data.lineAnsi || data.raw || '';
+        const fallbackText = data.line || data.raw || '';
+        renderANSIInto(line, ansiSource, fallbackText);
+        entry.appendChild(meta);
+        entry.appendChild(line);
+        feed.appendChild(entry);
+
+        const normalized = {
+          namespace: (data.namespace || '').toLowerCase(),
+          pod: (data.pod || '').toLowerCase(),
+          container: (data.container || '').toLowerCase(),
+          source: (data.source || '').toLowerCase(),
+          glyph: (data.glyph || '').toLowerCase(),
+          line: (fallbackText || '').toLowerCase(),
+        };
+        const podValue = makePodValue(data.namespace || '', data.pod || '');
+        const entryRecord = {
+          element: entry,
+          data,
+          timestamp: parseTimestamp(data.ts || data.timestamp) || new Date(),
+          normalized,
+          keys: {
+            namespace: data.namespace || '',
+            podValue,
+          },
+          visible: true,
+        };
+        entries.push(entryRecord);
+        recordTimelineSample(data, entryRecord);
+        if (entries.length > MAX_ENTRIES) {
+          trimEntries();
+        }
+        applyFiltersToEntry(entryRecord);
+      }
+
+      function trimEntries() {
+        while (entries.length > MAX_ENTRIES) {
+          const entry = entries.shift();
+          if (!entry) continue;
+          if (entry.element && entry.element.parentNode === feed) {
+            feed.removeChild(entry.element);
+          }
+          if (entry.visible) {
+            visibleCount = Math.max(0, visibleCount - 1);
+          }
+          if (timelineState.highlightedEntry === entry) {
+            if (entry.element) {
+              entry.element.classList.remove('focused');
+            }
+            timelineState.highlightedEntry = null;
+          }
+        }
+      }
+
+      function matchesFilters(entry) {
+        if (!entry) return false;
+        if (chipFiltersEnabled) {
+          if (selectedNamespaces.size && !selectedNamespaces.has(entry.keys.namespace)) {
+            return false;
+          }
+          if (selectedPods.size && !selectedPods.has(entry.keys.podValue)) {
+            return false;
+          }
+        }
+        const matchers = getSearchMatchers();
+        if (!matchers.length) {
+          return true;
+        }
+        return matchers.every(fn => fn(entry));
+      }
+
+      function applyFilters() {
+        visibleCount = 0;
+        entries.forEach(entry => {
+          const show = matchesFilters(entry);
+          entry.visible = show;
+          entry.element.classList.toggle('hidden', !show);
+          if (show) {
+            visibleCount += 1;
+          }
+        });
+        updateVisibilityStats();
+      }
+
+      function applyFiltersToEntry(entry) {
+        const show = matchesFilters(entry);
+        entry.visible = show;
+        entry.element.classList.toggle('hidden', !show);
+        if (show) {
+          visibleCount += 1;
+          maybeScrollToBottom(false);
+        }
+        updateVisibilityStats();
+      }
+
+      function updateVisibilityStats() {
+        // counts remain available via visibleCount/stats if future UI needs them
+      }
+
+      function handleFeedScroll() {
+        if (!feed) {
+          return;
+        }
+        if (!isNearBottom()) {
+          if (autoScrollEnabled) {
+            autoScrollEnabled = false;
+            autoScrollPaused = true;
+            updateAutoScrollUI();
+          }
+          return;
+        }
+        if (!autoScrollEnabled) {
+          autoScrollEnabled = true;
+          autoScrollPaused = false;
+          updateAutoScrollUI();
+        }
+      }
+
+      function maybeScrollToBottom(force) {
+        if (!feed) {
+          return;
+        }
+        if (force || autoScrollEnabled) {
+          feed.scrollTop = feed.scrollHeight;
+        }
+      }
+
+      function isNearBottom() {
+        if (!feed) {
+          return true;
+        }
+        const threshold = 120;
+        const remaining = feed.scrollHeight - feed.clientHeight - feed.scrollTop;
+        return remaining <= threshold;
+      }
+
+      function updateAutoScrollUI() {
+        if (!resumeAutoScrollBtn) {
+          return;
+        }
+        resumeAutoScrollBtn.classList.toggle('hidden', !autoScrollPaused);
+      }
+
+      function buildSearchToken(raw) {
+        if (!raw) return null;
+        let text = raw.trim();
+        if (!text) return null;
+        let negate = false;
+        if (text.startsWith('!')) {
+          negate = true;
+          text = text.slice(1);
+        }
+        let prefix = '';
+        let value = text;
+        const colonIndex = text.indexOf(':');
+        if (colonIndex > 0) {
+          const potential = text.slice(0, colonIndex).toLowerCase();
+          if (SEARCH_PREFIXES.has(potential)) {
+            prefix = potential;
+            value = text.slice(colonIndex + 1);
+          }
+        }
+        if (value.startsWith('"') && value.endsWith('"') && value.length > 1) {
+          value = value.slice(1, -1);
+        }
+        value = value.toLowerCase();
+        if (!value) return null;
+        let matcher;
+        switch (prefix) {
+          case 'ns':
+          case 'namespace':
+            matcher = entry => entry.normalized.namespace.includes(value);
+            break;
+          case 'pod':
+            matcher = entry => entry.normalized.pod.includes(value);
+            break;
+          case 'c':
+          case 'container':
+            matcher = entry => entry.normalized.container.includes(value);
+            break;
+          case 'src':
+          case 'source':
+          case 'glyph':
+            matcher = entry => entry.normalized.source.includes(value) || entry.normalized.glyph.includes(value);
+            break;
+          default:
+            matcher = entry => entry.normalized.line.includes(value);
+            break;
+        }
+        if (negate) {
+          const baseMatcher = matcher;
+          return entry => !baseMatcher(entry);
+        }
+        return matcher;
+      }
+
+      function handleSearchKey(event) {
+        if (event.key !== 'Enter') {
+          return;
+        }
+        event.preventDefault();
+        queueSearchChips(filterSearch.value);
+      }
+
+      function queueSearchChips(input) {
+        const tokens = tokenizeInput(input);
+        if (!tokens.length) {
+          return;
+        }
+        let added = false;
+        tokens.forEach(token => {
+          if (addSearchChip(token)) {
+            added = true;
+          }
+        });
+        filterSearch.value = '';
+        if (added) {
+          applyFilters();
+        }
+      }
+
+      function tokenizeInput(input) {
+        if (!input) return [];
+        return (input.match(/(?:".*?"|\S+)/g) || [])
+          .map(part => part.replace(/^"(.*)"$/, '$1').trim())
+          .filter(Boolean);
+      }
+
+      function addSearchChip(raw) {
+        const matcher = buildSearchToken(raw);
+        if (!matcher || !searchChipTray) {
+          return false;
+        }
+        const key = raw.toLowerCase();
+        if (searchChipState.has(key)) {
+          return false;
+        }
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip-button';
+        chip.dataset.searchValue = key;
+        chip.textContent = raw;
+        chip.setAttribute('aria-label', 'Remove filter ' + raw);
+        searchChipTray.appendChild(chip);
+        searchChipState.set(key, { matcher, element: chip });
+        return true;
+      }
+
+      function handleSearchChipClick(event) {
+        const target = event.target.closest('[data-search-value]');
+        if (!target) {
+          return;
+        }
+        removeSearchChip(target.dataset.searchValue);
+      }
+
+      function removeSearchChip(key) {
+        if (!key || !searchChipState.has(key)) {
+          return;
+        }
+        const entry = searchChipState.get(key);
+        if (entry && entry.element && entry.element.parentNode) {
+          entry.element.parentNode.removeChild(entry.element);
+        }
+        searchChipState.delete(key);
+        applyFilters();
+      }
+
+      function clearSearchChips() {
+        if (!searchChipTray) {
+          return;
+        }
+        searchChipTray.innerHTML = '';
+        searchChipState.clear();
+      }
+
+      function getSearchMatchers() {
+        if (!searchChipState.size) {
+          return [];
+        }
+        return Array.from(searchChipState.values()).map(item => item.matcher);
+      }
+
+      function updateFilterMeta() {
+        if (!chipFiltersEnabled || !namespaceMeta || !podMeta) {
+          return;
+        }
+        const nsBase = stats.namespaces.size.toLocaleString() + ' ACTIVE';
+        namespaceMeta.textContent = selectedNamespaces.size ? (selectedNamespaces.size + ' SELECTED') : nsBase;
+        const podBase = stats.pods.size.toLocaleString() + ' ACTIVE';
+        podMeta.textContent = selectedPods.size ? (selectedPods.size + ' SELECTED') : podBase;
+      }
+
+      function maybeRenderNamespaceChips() {
+        if (!chipFiltersEnabled) {
+          return;
+        }
+        renderNamespaceChips(false);
+      }
+
+      function maybeRenderPodChips() {
+        if (!chipFiltersEnabled) {
+          return;
+        }
+        renderPodChips(false);
+      }
+
+      function renderNamespaceChips(force) {
+        if (!chipFiltersEnabled || !namespaceFilters) {
+          return;
+        }
+        if (!force && !namespaceDirty && stats.lines > FILTER_REFRESH_INTERVAL && stats.lines % FILTER_REFRESH_INTERVAL !== 0) {
+          return;
+        }
+        namespaceDirty = false;
+        namespaceFilters.innerHTML = '';
+        if (!stats.namespaces.size) {
+          const p = document.createElement('p');
+          p.className = 'placeholder';
+          p.textContent = 'No namespaces yet';
+          namespaceFilters.appendChild(p);
+          return;
+        }
+        const frag = document.createDocumentFragment();
+        const items = Array.from(stats.namespaces.entries()).sort((a, b) => {
+          if (b[1] === a[1]) {
+            return formatNamespaceDisplay(a[0]).localeCompare(formatNamespaceDisplay(b[0]));
+          }
+          return b[1] - a[1];
+        });
+        items.slice(0, 20).forEach(([ns, count]) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'chip-button' + (selectedNamespaces.has(ns) ? ' active' : '');
+          button.dataset.value = ns;
+          button.setAttribute('aria-pressed', selectedNamespaces.has(ns));
+          button.textContent = formatNamespaceDisplay(ns) + ' (' + count + ')';
+          frag.appendChild(button);
+        });
+        namespaceFilters.appendChild(frag);
+      }
+
+      function renderPodChips(force) {
+        if (!chipFiltersEnabled || !podFilters) {
+          return;
+        }
+        if (!force && !podDirty && stats.lines > FILTER_REFRESH_INTERVAL && stats.lines % FILTER_REFRESH_INTERVAL !== 0) {
+          return;
+        }
+        podDirty = false;
+        podFilters.innerHTML = '';
+        if (!stats.pods.size) {
+          const p = document.createElement('p');
+          p.className = 'placeholder';
+          p.textContent = 'No pods yet';
+          podFilters.appendChild(p);
+          return;
+        }
+        const frag = document.createDocumentFragment();
+        const items = Array.from(stats.pods.entries()).sort((a, b) => {
+          if (b[1] === a[1]) {
+            return a[0].localeCompare(b[0]);
+          }
+          return b[1] - a[1];
+        }).slice(0, 20);
+        items.forEach(([value, count]) => {
+          const detail = decodePodValue(value);
+          const button = document.createElement('button');
+          const active = selectedPods.has(value);
+          button.type = 'button';
+          button.className = 'chip-button' + (active ? ' active' : '');
+          button.dataset.value = value;
+          button.setAttribute('aria-pressed', active);
+          button.textContent = formatPodDisplay(detail.namespace, detail.pod) + ' (' + count + ')';
+          frag.appendChild(button);
+        });
+        podFilters.appendChild(frag);
+      }
+
+      function handleChipClick(event, selectedSet) {
+        if (!chipFiltersEnabled) {
+          return;
+        }
+        const target = event.target.closest('.chip-button');
+        if (!target || !target.dataset) {
+          return;
+        }
+        const value = target.dataset.value || '';
+        if (selectedSet.has(value)) {
+          selectedSet.delete(value);
+        } else {
+          selectedSet.add(value);
+        }
+        applyFilters();
+        updateFilterMeta();
+        target.classList.toggle('active');
+        target.setAttribute('aria-pressed', target.classList.contains('active'));
+      }
+
+      function clearFilters() {
+        if (filterSearch) {
+          filterSearch.value = '';
+        }
+        clearSearchChips();
+        if (!chipFiltersEnabled) {
+          applyFilters();
+          return;
+        }
+        selectedNamespaces.clear();
+        selectedPods.clear();
+        updateFilterMeta();
+        renderNamespaceChips(true);
+        renderPodChips(true);
+        applyFilters();
+      }
+
+      function resolveWebSocketURL() {
+        try {
+          const url = new URL('ws', window.location.href);
+          url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          url.search = '';
+          url.hash = '';
+          return url.href;
+        } catch (err) {
+          const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          return proto + '//' + window.location.host + '/ws';
+        }
+      }
+
+      function connect() {
+        const ws = new WebSocket(resolveWebSocketURL());
+        ws.onopen = function() { statusChip.textContent = 'Live'; };
+        ws.onclose = function() { statusChip.textContent = 'Reconnecting…'; setTimeout(connect, 1500); };
+        ws.onerror = function() { statusChip.textContent = 'Error'; };
+        ws.onmessage = function(evt) {
+          try {
+            const data = JSON.parse(evt.data);
+            updateStats(data);
+            appendEntry(data);
+          } catch (err) {
+            console.error('render error', err);
+          }
+        };
+      }
+
+      if (chipFiltersEnabled && namespaceFilters) {
+        namespaceFilters.addEventListener('click', function(event) {
+          handleChipClick(event, selectedNamespaces);
+        });
+      }
+
+      if (chipFiltersEnabled && podFilters) {
+        podFilters.addEventListener('click', function(event) {
+          handleChipClick(event, selectedPods);
+        });
+      }
+
+      if (filterSearch) {
+        filterSearch.addEventListener('keydown', handleSearchKey);
+      }
+      if (searchChipTray) {
+        searchChipTray.addEventListener('click', handleSearchChipClick);
+      }
+      if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', clearFilters);
+      }
+
+      connect();
+    })();
+  </script>
+</body>
+</html>

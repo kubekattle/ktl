@@ -1,0 +1,10 @@
+version: "3.9"
+services:
+  metrics:
+    build:
+      context: ./services/metrics
+    depends_on:
+      - fanout
+  fanout:
+    build:
+      context: ./services/fanout

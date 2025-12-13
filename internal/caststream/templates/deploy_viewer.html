@@ -1,0 +1,1768 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ktl Deploy Viewer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --surface: rgba(255,255,255,0.9);
+      --surface-soft: rgba(255,255,255,0.82);
+      --border: rgba(15,23,42,0.12);
+      --text: #0f172a;
+      --muted: rgba(15,23,42,0.65);
+      --accent: #2563eb;
+      --warn: #fbbf24;
+      --fail: #ef4444;
+      --success: #16a34a;
+      --ease: cubic-bezier(.16,1,.3,1);
+      --hero-gradient: linear-gradient(120deg,#60a5fa,#2563eb 45%,#7c3aed);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "SF Pro Display","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      padding: 48px 56px 72px;
+      background: radial-gradient(circle at 20% 20%, #ffffff, #e9edf5 45%, #dce3f1);
+      color: var(--text);
+    }
+    .chrome { max-width: 1600px; margin: 0 auto; }
+    header { display:flex; justify-content:flex-end; align-items:center; margin-bottom:24px; }
+    .status-chip {
+      border-radius:999px;
+      border:1px solid rgba(37,99,235,0.2);
+      padding:0.4rem 1.15rem;
+      font-weight:600;
+      color:var(--accent);
+      background:rgba(37,99,235,0.08);
+      transition:background 180ms var(--ease),color 180ms var(--ease),border-color 180ms var(--ease);
+    }
+    .status-chip.live { color:#0ea5e9; border-color:rgba(14,165,233,0.4); background:rgba(14,165,233,0.08); }
+    .status-chip.success { color:var(--success); border-color:rgba(22,163,74,0.4); background:rgba(22,163,74,0.08); }
+    .status-chip.fail, .status-chip.error { color:var(--fail); border-color:rgba(239,68,68,0.4); background:rgba(239,68,68,0.08); }
+    .layout { display:flex; gap:24px; align-items:flex-start; }
+    .main-column { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:24px; }
+    .insight-stack { width:420px; display:flex; flex-direction:column; gap:24px; position:sticky; top:32px; }
+    @media (max-width:1200px) {
+      body { padding:32px 24px 48px; }
+      .layout { flex-direction:column; }
+      .insight-stack { width:100%; position:static; }
+    }
+    .panel {
+      border-radius:28px;
+      padding:32px;
+      background:var(--surface);
+      border:1px solid var(--border);
+      backdrop-filter:blur(18px);
+      box-shadow:0 40px 80px rgba(16,23,36,0.12);
+    }
+    h2 { margin:0 0 1rem; font-size:1.2rem; letter-spacing:0.02em; }
+    .eyebrow {
+      text-transform:uppercase;
+      letter-spacing:0.22em;
+      font-size:0.75rem;
+      color:var(--muted);
+      margin:0 0 0.5rem;
+    }
+    .hero-panel { background:linear-gradient(140deg,rgba(255,255,255,0.95),rgba(231,239,255,0.85)); position:relative; overflow:hidden; }
+    .hero-panel::after {
+      content:"";
+      position:absolute;
+      inset:12px;
+      border-radius:24px;
+      border:1px solid rgba(255,255,255,0.4);
+      pointer-events:none;
+    }
+    .hero-panel > * { position:relative; }
+    .hero-head { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; margin-bottom:1.5rem; }
+    .hero-meta { display:flex; gap:0.5rem; flex-wrap:wrap; }
+    .hero-chip {
+      border-radius:999px;
+      padding:0.35rem 0.9rem;
+      background:rgba(15,23,42,0.08);
+      font-size:0.85rem;
+      font-weight:500;
+      color:var(--text);
+    }
+    .hero-chip--last { background:rgba(15,23,42,0.04); color:var(--muted); }
+    .hero-chip--blockers { background:rgba(239,68,68,0.05); color:var(--muted); transition:background 120ms ease, color 120ms ease; }
+    .hero-chip--blockers.has-blockers { color:var(--fail); background:rgba(239,68,68,0.12); }
+    .hero-chip--blockers.has-warn { color:var(--warn); background:rgba(251,191,36,0.18); }
+    .hero-title { font-size:1.65rem; font-weight:600; letter-spacing:-0.02em; margin:0 0 0.25rem; }
+    .hero-tags { display:flex; flex-wrap:wrap; gap:0.35rem; margin:0.35rem 0 0; }
+    .context-chip {
+      border-radius:999px;
+      padding:0.2rem 0.7rem;
+      background:rgba(15,23,42,0.08);
+      font-size:0.78rem;
+      letter-spacing:0.04em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .hero-context { margin-bottom:1.25rem; display:flex; flex-direction:column; gap:0.5rem; }
+    .hero-context p { margin:0; font-size:1rem; color:var(--text); }
+    .hero-breadcrumbs { display:flex; flex-wrap:wrap; gap:0.4rem; }
+    .breadcrumb { border-radius:999px; padding:0.2rem 0.75rem; border:1px solid rgba(15,23,42,0.12); font-size:0.8rem; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted); display:flex; gap:0.35rem; align-items:baseline; }
+    .breadcrumb-label { font-weight:600; }
+    .breadcrumb-meta { opacity:0.9; }
+    .breadcrumb[data-state="failed"] { border-color:rgba(239,68,68,0.4); color:var(--fail); }
+    .breadcrumb[data-state="deployed"], .breadcrumb[data-state="succeeded"], .breadcrumb.success { border-color:rgba(22,163,74,0.4); color:var(--success); }
+    .breadcrumb-last-success { position:relative; }
+    .breadcrumb-last-success::after { content:"Last success"; position:absolute; top:-0.95rem; left:0; font-size:0.65rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--muted); }
+    .hero-track {
+      position:relative;
+      padding:0.25rem 0;
+      display:flex;
+      gap:0.75rem;
+      border-radius:999px;
+      background:rgba(15,23,42,0.06);
+      --hero-progress: 0;
+    }
+    .hero-track::after {
+      content:"";
+      position:absolute;
+      left:0;
+      top:0;
+      bottom:0;
+      border-radius:999px;
+      width:calc(var(--hero-progress) * 100%);
+      background:var(--hero-gradient);
+      opacity:0.85;
+      transition:width 240ms var(--ease);
+      pointer-events:none;
+    }
+    .hero-track.timeline-static::after { transition:none; }
+    .hero-stage {
+      position:relative;
+      flex:1;
+      padding:0.5rem 0.25rem;
+      text-align:center;
+      z-index:1;
+      color:var(--muted);
+      font-size:0.8rem;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      font-weight:600;
+    }
+    .hero-stage::before {
+      content:"";
+      position:absolute;
+      left:50%;
+      top:-6px;
+      width:10px;
+      height:10px;
+      border-radius:50%;
+      transform:translateX(-50%);
+      background:rgba(15,23,42,0.15);
+      border:2px solid rgba(255,255,255,0.8);
+    }
+    .hero-stage[data-state="running"],
+    .hero-stage[data-state="succeeded"],
+    .hero-stage[data-state="skipped"] {
+      color:#fff;
+    }
+    .hero-stage[data-state="failed"] { color:#fff; }
+    .hero-stage[data-state="failed"]::before { background:var(--fail); }
+    .hero-stage .hero-status { display:block; font-size:0.7rem; letter-spacing:0.08em; margin-top:0.2rem; text-transform:none; color:rgba(255,255,255,0.9); }
+    .hero-stage[data-state="pending"] .hero-status,
+    .hero-stage[data-state="pending"] { color:var(--muted); }
+    .timeline { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; }
+    .panel-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }
+    .panel-heading h2 { margin:0; white-space:nowrap; }
+    .inline-filter-panel {
+      border-radius:24px;
+      border:1px solid rgba(15,23,42,0.12);
+      background:var(--surface-soft);
+      padding:20px 24px 24px;
+      margin-bottom:1rem;
+      display:flex;
+      flex-direction:column;
+      gap:0.75rem;
+    }
+    .filter-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:0.8rem;
+    }
+    .filter-head h3 {
+      margin:0;
+      font-size:1rem;
+      letter-spacing:0.12em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .filter-search-row {
+      display:flex;
+      gap:0.6rem;
+      align-items:center;
+    }
+    .filter-search-row input[type="search"] {
+      flex:1;
+      border-radius:999px;
+      border:1px solid var(--border);
+      padding:0.55rem 1.1rem;
+      font-size:1rem;
+      background:rgba(255,255,255,0.9);
+      color:var(--text);
+    }
+    .search-chip-tray {
+      display:flex;
+      flex-wrap:wrap;
+      gap:0.4rem;
+      min-height:1.2rem;
+    }
+    .filter-hint {
+      font-size:0.85rem;
+      color:var(--muted);
+      margin:0;
+    }
+    .filter-grid {
+      display:flex;
+      gap:1.25rem;
+      flex-wrap:wrap;
+    }
+    .chip-stack {
+      flex:1 1 240px;
+      display:flex;
+      flex-direction:column;
+      gap:0.5rem;
+    }
+    .chip-stack-head {
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+      gap:0.4rem;
+      letter-spacing:0.12em;
+      font-size:0.8rem;
+      color:var(--muted);
+    }
+    .chip-meta {
+      font-size:0.75rem;
+      letter-spacing:0.14em;
+      color:var(--muted);
+    }
+    .chip-tray {
+      display:flex;
+      flex-wrap:wrap;
+      gap:0.45rem;
+    }
+    .placeholder {
+      font-size:0.85rem;
+      color:var(--muted);
+      margin:0;
+    }
+    .link-button {
+      border:none;
+      background:none;
+      color:var(--accent);
+      font-weight:600;
+      cursor:pointer;
+      padding:0;
+    }
+    .chip-button {
+      border-radius:999px;
+      border:1px solid rgba(15,23,42,0.15);
+      background:rgba(15,23,42,0.02);
+      color:var(--muted);
+      font-size:0.78rem;
+      letter-spacing:0.08em;
+      text-transform:uppercase;
+      padding:0.25rem 0.9rem;
+      cursor:pointer;
+    }
+    .chip-button.active { border-color:var(--accent); color:var(--accent); background:rgba(37,99,235,0.08); }
+    .phase-row {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      padding:0.9rem 0 0.9rem 2rem;
+      border-bottom:1px solid rgba(15,23,42,0.08);
+      position:relative;
+    }
+    .phase-row.collapsed { display:none; }
+    .phase-row:last-child { border-bottom:none; }
+    .phase-row::before {
+      content:"";
+      position:absolute;
+      left:0;
+      top:50%;
+      transform:translateY(-50%);
+      width:12px;
+      height:12px;
+      border-radius:50%;
+      background:rgba(37,99,235,0.4);
+      border:2px solid rgba(255,255,255,0.9);
+      box-shadow:0 0 0 0 rgba(37,99,235,0.4);
+    }
+    .phase-row.status-succeeded::before,
+    .phase-row.status-success::before {
+      background:var(--success);
+      border-color:rgba(22,163,74,0.6);
+      box-shadow:none;
+      animation:none;
+    }
+    .phase-row.status-failed::before,
+    .phase-row.status-fail::before {
+      background:var(--fail);
+      border-color:rgba(239,68,68,0.7);
+      box-shadow:none;
+      animation:none;
+    }
+    .phase-row.status-skipped::before {
+      background:rgba(15,23,42,0.25);
+      border-color:rgba(15,23,42,0.15);
+      box-shadow:none;
+      animation:none;
+    }
+    .timeline.timeline-frozen .phase-row::before,
+    .timeline.timeline-frozen .phase-row.updated::before {
+      animation:none !important;
+      box-shadow:none;
+    }
+    .phase-name { font-weight:600; text-transform:capitalize; margin-bottom:0.2rem; }
+    .phase-meta { display:flex; flex-direction:column; gap:2px; text-align:right; font-size:0.9rem; color:var(--muted); }
+    .phase-duration { font-weight:600; color:var(--text); }
+    .slow-badge {
+      border-radius:999px;
+      padding:0.1rem 0.65rem;
+      background:rgba(239,68,68,0.1);
+      color:var(--fail);
+      font-size:0.7rem;
+      letter-spacing:0.12em;
+      text-transform:uppercase;
+      align-self:flex-end;
+    }
+    .badge { border-radius:999px; padding:0.1rem 0.75rem; font-size:0.75rem; letter-spacing:0.12em; text-transform:uppercase; font-weight:600; }
+    .badge.pending { background:rgba(15,23,42,0.08); color:var(--muted); }
+    .badge.running { background:rgba(37,99,235,0.12); color:var(--accent); }
+    .badge.succeeded { background:rgba(22,163,74,0.12); color:var(--success); }
+    .badge.failed { background:rgba(239,68,68,0.12); color:var(--fail); }
+    .badge.skipped { background:rgba(15,23,42,0.05); color:var(--muted); }
+    .resource-table { width:100%; border-collapse:collapse; font-size:0.95rem; }
+    .resource-table thead { text-transform:uppercase; letter-spacing:0.18em; font-size:0.75rem; color:var(--muted); }
+    .resource-table th, .resource-table td { padding:0.35rem 0.5rem; border-bottom:1px solid rgba(15,23,42,0.08); }
+    .resource-table tbody tr:last-child td { border-bottom:none; }
+    .resource-table tbody tr.highlight { background:rgba(37,99,235,0.08); }
+    .log-feed { max-height:360px; overflow:auto; display:flex; flex-direction:column; gap:12px; font-family:SFMono-Regular,Consolas,monospace; }
+    .log-entry { border-left:4px solid rgba(37,99,235,0.35); padding-left:0.75rem; background:rgba(15,23,42,0.02); border-radius:12px; }
+    .log-entry.hidden { display:none; }
+    .log-meta { font-size:0.85rem; color:var(--muted); margin-bottom:0.25rem; display:flex; flex-wrap:wrap; gap:0.45rem; align-items:center; }
+    .event-toolbar { display:flex; flex-direction:column; gap:0.5rem; width:100%; align-items:flex-end; }
+    .event-toolbar input[type="search"] {
+      width:100%;
+      border-radius:999px;
+      border:1px solid rgba(15,23,42,0.12);
+      padding:0.46rem 1.05rem;
+      font-size:1.05rem;
+      background:rgba(255,255,255,0.8);
+      color:var(--text);
+    }
+    .severity-chip {
+      border-radius:999px;
+      padding:0.12rem 0.65rem;
+      font-size:0.7rem;
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      font-weight:600;
+      background:rgba(37,99,235,0.12);
+      color:var(--accent);
+    }
+    .severity-chip.severity-warn { background:rgba(251,191,36,0.18); color:var(--warn); }
+    .severity-chip.severity-error { background:rgba(239,68,68,0.18); color:var(--fail); }
+    .source-chip {
+      border-radius:6px;
+      padding:0.08rem 0.45rem;
+      font-size:0.72rem;
+      text-transform:uppercase;
+      letter-spacing:0.08em;
+      background:rgba(15,23,42,0.05);
+      color:var(--muted);
+    }
+    .blocking-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:0.8rem; }
+    .blocking-item { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:0.9rem 1rem; border-radius:20px; background:var(--surface-soft); border:1px solid rgba(15,23,42,0.08); box-shadow:inset 0 1px 0 rgba(255,255,255,0.4); cursor:pointer; transition:background 160ms ease, border-color 160ms ease; }
+    .blocking-item:hover { background:rgba(37,99,235,0.05); }
+    .blocking-item:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .blocking-item strong { display:block; font-size:0.95rem; color:var(--text); }
+    .blocking-item span { display:block; font-size:0.85rem; color:var(--muted); }
+    .blocking-status { font-weight:600; text-transform:uppercase; letter-spacing:0.08em; font-size:0.75rem; color:var(--fail); }
+    .blocking-status.progressing { color:var(--warn); }
+    .blocking-status.pending { color:var(--muted); }
+    .health-metrics { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px,1fr)); gap:0.75rem; margin-bottom:0.5rem; }
+    .metric-card { border-radius:20px; padding:0.85rem 1rem; background:var(--surface); border:1px solid rgba(15,23,42,0.08); box-shadow:inset 0 1px 0 rgba(255,255,255,0.3); display:flex; flex-direction:column; gap:0.15rem; min-height:92px; }
+    .metric-card .metric-label { text-transform:uppercase; letter-spacing:0.12em; font-size:0.68rem; color:var(--muted); }
+    .metric-card .metric-value { font-size:1.25rem; font-weight:600; color:var(--text); }
+    .metric-card.ready .metric-value { color:var(--success); }
+    .metric-card.progressing .metric-value { color:var(--accent); }
+    .metric-card.pending .metric-value { color:var(--warn); }
+    .metric-card.failed .metric-value { color:var(--fail); }
+    .health-trend { margin-top:0.5rem; display:flex; align-items:center; gap:0.6rem; }
+    .health-trend .sparkline { width:120px; height:36px; stroke:var(--sparkline-color); fill:none; }
+    .health-trend .sparkline path { stroke-width:2; stroke:var(--sparkline-color); }
+    .health-trend .trend-label { font-size:0.85rem; color:var(--muted); }
+    .summary { display:flex; flex-direction:column; gap:0.85rem; font-size:0.95rem; color:var(--muted); }
+    .summary-row { display:flex; gap:12px; align-items:flex-start; }
+    .summary-row .label { min-width:110px; text-transform:uppercase; letter-spacing:0.14em; font-size:0.7rem; color:var(--muted); }
+    .summary-row .value { flex:1; color:var(--text); word-break:break-word; white-space:pre-line; }
+    .summary-status { font-weight:600; font-size:1.1rem; }
+    .summary-status.success { color:var(--success); }
+    .summary-status.fail { color:var(--fail); }
+    .summary-status.pending { color:var(--muted); }
+    .empty-note { color:var(--muted); font-size:0.9rem; }
+    @media (prefers-reduced-motion: no-preference) {
+      .panel {
+        opacity:0;
+        transform:translateY(16px);
+        animation:panelIn 360ms var(--ease) forwards;
+        animation-delay:calc(var(--panel-delay, 0) * 60ms);
+      }
+      .phase-row::before { animation:pulseDot 2.2s ease-out infinite; }
+      .phase-row.updated::before { animation:pulseDot 1.4s ease-out 1; }
+      .log-entry { animation:panelIn 260ms var(--ease) forwards; }
+    }
+    @keyframes panelIn { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes pulseDot { 0% { box-shadow:0 0 0 0 rgba(37,99,235,0.25); } 100% { box-shadow:0 0 0 18px rgba(37,99,235,0); } }
+  </style>
+</head>
+<body>
+  <div class="chrome">
+    <header>
+      <div class="status-chip" id="statusChip">Connecting…</div>
+    </header>
+    <div class="layout">
+      <main class="main-column">
+        <section class="panel hero-panel" id="heroPanel" style="--panel-delay:0;">
+          <p class="eyebrow">Live install</p>
+          <div class="hero-head">
+            <div>
+              <div class="hero-title" id="heroTitle">Deploy overview</div>
+              <div class="hero-tags" id="heroContextTags">
+                <span class="context-chip" id="heroNamespaceTag">ns/—</span>
+                <span class="context-chip" id="heroChartTag">chart —</span>
+                <span class="context-chip" id="heroVersionTag">version —</span>
+              </div>
+            </div>
+            <div class="hero-meta">
+              <span class="hero-chip" id="heroReleaseChip">Release —</span>
+              <span class="hero-chip" id="heroNamespaceChip">Namespace —</span>
+              <span class="hero-chip" id="heroDurationChip">Elapsed —</span>
+              <span class="hero-chip hero-chip--blockers" id="heroBlockerChip">Blockers —</span>
+              <span class="hero-chip hero-chip--last" id="heroLastSuccessChip">Last success —</span>
+            </div>
+          </div>
+          <div class="hero-context">
+            <div class="hero-breadcrumbs" id="heroBreadcrumbs"></div>
+          </div>
+          <div class="hero-track" id="heroTrack"></div>
+        </section>
+        <section class="panel" style="--panel-delay:1;">
+          <div class="panel-heading">
+            <h2>Phase timeline</h2>
+            <button class="chip-button" id="phaseToggle" hidden>Show completed</button>
+          </div>
+          <ul id="phaseList" class="timeline"></ul>
+        </section>
+        <section class="panel" style="--panel-delay:2;">
+          <h2>Resource readiness</h2>
+          <div class="empty-note" id="resourceEmpty">Waiting for release resources…</div>
+          <table class="resource-table" id="resourceTable" hidden>
+            <thead>
+              <tr><th>Resource</th><th>Action</th><th>Status</th><th>Message</th></tr>
+            </thead>
+            <tbody id="resourceBody"></tbody>
+          </table>
+        </section>
+        <section class="panel" style="--panel-delay:3;">
+          <h2>Blocking resources</h2>
+          <p class="empty-note" id="blockingEmpty">Tracking release resources…</p>
+          <ul class="blocking-list" id="blockingList"></ul>
+          <p class="empty-note" id="blockingMeta">Awaiting readiness data…</p>
+        </section>
+        <section class="panel" style="--panel-delay:3.5;">
+          <div class="panel-heading">
+            <h2>Events</h2>
+          </div>
+          <div class="inline-filter-panel">
+            <div class="filter-search-row">
+              <input id="eventFilterSearch" type="search" placeholder="Search events" autocomplete="off" />
+            </div>
+            <div class="search-chip-tray" id="eventSearchChipTray" role="list" aria-label="Search filters"></div>
+          </div>
+          <div class="log-feed" id="eventFeed"></div>
+        </section>
+        <section class="panel" style="--panel-delay:4;">
+          <h2>Summary</h2>
+          <div class="summary">
+            <div class="summary-status pending" id="summaryStatus">Pending…</div>
+            <div class="summary-row"><span class="label">Release</span><span class="value" id="summaryRelease">—</span></div>
+            <div class="summary-row"><span class="label">Namespace</span><span class="value" id="summaryNamespace">—</span></div>
+            <div class="summary-row"><span class="label">Chart</span><span class="value" id="summaryChart">—</span></div>
+            <div class="summary-row"><span class="label">Version</span><span class="value" id="summaryVersion">—</span></div>
+            <div class="summary-row"><span class="label">Duration</span><span class="value" id="summaryDuration">—</span></div>
+            <div class="summary-row"><span class="label">Notes</span><span class="value" id="summaryNotes">—</span></div>
+          </div>
+        </section>
+      </main>
+      <aside class="insight-stack">
+        <section class="panel" style="--panel-delay:2;">
+          <h2>Readiness breakdown</h2>
+          <div class="health-metrics" id="healthMetrics" aria-live="polite" aria-atomic="true">
+            <div class="metric-card total">
+              <span class="metric-label">Total</span>
+              <span class="metric-value" id="healthTotal">—</span>
+            </div>
+            <div class="metric-card ready">
+              <span class="metric-label">Ready</span>
+              <span class="metric-value" id="healthReady">—</span>
+            </div>
+            <div class="metric-card progressing">
+              <span class="metric-label">Progressing</span>
+              <span class="metric-value" id="healthProgressing">—</span>
+            </div>
+            <div class="metric-card pending">
+              <span class="metric-label">Pending</span>
+              <span class="metric-value" id="healthPending">—</span>
+            </div>
+            <div class="metric-card failed">
+              <span class="metric-label">Failed</span>
+              <span class="metric-value" id="healthFailed">—</span>
+            </div>
+          </div>
+          <div class="health-trend" id="healthTrend" aria-hidden="true">
+            <svg viewBox="0 0 120 36" preserveAspectRatio="none" class="sparkline" role="img" aria-label="Ready percentage trend">
+              <path id="healthSparklinePath" d=""></path>
+            </svg>
+            <span class="trend-label" id="healthTrendLabel">Ready trend</span>
+          </div>
+          <p class="empty-note" id="healthEmpty">Awaiting readiness data…</p>
+          <p class="summary-meta" id="healthUpdated">—</p>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <script>
+    (function() {
+      const phaseOrder = ["render","diff","upgrade","install","wait","post-hooks"];
+      const phases = {};
+      const phaseList = document.getElementById('phaseList');
+      const phaseToggle = document.getElementById('phaseToggle');
+      const resourceTable = document.getElementById('resourceTable');
+      const resourceBody = document.getElementById('resourceBody');
+      const resourceEmpty = document.getElementById('resourceEmpty');
+      const eventFeed = document.getElementById('eventFeed');
+      const eventFilterSearch = document.getElementById('eventFilterSearch');
+      const eventSearchChipTray = document.getElementById('eventSearchChipTray');
+      const eventClearFiltersBtn = document.getElementById('eventClearFilters');
+      const statusChip = document.getElementById('statusChip');
+      const heroTrack = document.getElementById('heroTrack');
+      const hero = {
+        title: document.getElementById('heroTitle'),
+        namespaceTag: document.getElementById('heroNamespaceTag'),
+        chartTag: document.getElementById('heroChartTag'),
+        versionTag: document.getElementById('heroVersionTag'),
+        releaseChip: document.getElementById('heroReleaseChip'),
+        namespaceChip: document.getElementById('heroNamespaceChip'),
+        durationChip: document.getElementById('heroDurationChip'),
+        blockerChip: document.getElementById('heroBlockerChip'),
+        lastSuccessChip: document.getElementById('heroLastSuccessChip'),
+        breadcrumbs: document.getElementById('heroBreadcrumbs'),
+      };
+      const heroStages = {};
+      const blocking = {
+        list: document.getElementById('blockingList'),
+        empty: document.getElementById('blockingEmpty'),
+        meta: document.getElementById('blockingMeta'),
+      };
+      const healthPanel = {
+        container: document.getElementById('healthMetrics'),
+        empty: document.getElementById('healthEmpty'),
+        updated: document.getElementById('healthUpdated'),
+        total: document.getElementById('healthTotal'),
+        ready: document.getElementById('healthReady'),
+        progressing: document.getElementById('healthProgressing'),
+        pending: document.getElementById('healthPending'),
+        failed: document.getElementById('healthFailed'),
+        sparklinePath: document.getElementById('healthSparklinePath'),
+        sparklineContainer: document.getElementById('healthTrend'),
+        sparklineLabel: document.getElementById('healthTrendLabel'),
+      };
+      const summary = {
+        status: document.getElementById('summaryStatus'),
+        release: document.getElementById('summaryRelease'),
+        namespace: document.getElementById('summaryNamespace'),
+        chart: document.getElementById('summaryChart'),
+        version: document.getElementById('summaryVersion'),
+        duration: document.getElementById('summaryDuration'),
+        notes: document.getElementById('summaryNotes'),
+      };
+      const resourceRowMap = new Map();
+      const timelineState = { showCompleted: false, threshold: 10 };
+      const eventEntries = [];
+      let eventLineCount = 0;
+      const eventSearchChipState = new Map();
+      const healthTrend = [];
+      const heroBreadcrumbLimit = 4;
+      const maxHealthPoints = 40;
+      const maxEntries = 600;
+      const SLOW_PHASE_THRESHOLD_MS = 45000;
+      const EVENT_SEARCH_PREFIXES = new Set(['ns','namespace','pod','c','container','src','source','glyph']);
+      let resourceRows = [];
+      let lastHealth = null;
+      let highlightTimer;
+      let statusLocked = false;
+      let timelineFrozen = false;
+      const ANSI_PATTERN = /\x1B\[([0-9;]*)m/g;
+      const ANSI_BASE_COLORS = ['#0f172a','#ef4444','#22c55e','#eab308','#2563eb','#9333ea','#0ea5e9','#f8fafc'];
+      const ANSI_BRIGHT_COLORS = ['#475569','#f87171','#4ade80','#fde047','#60a5fa','#d8b4fe','#5eead4','#ffffff'];
+      const ANSI_SIMPLE_PALETTE = ANSI_BASE_COLORS.concat(ANSI_BRIGHT_COLORS);
+      const ANSI_LEVELS = [0,95,135,175,215,255];
+
+      function updateEventFilterMeta() {
+        // No-op placeholder; kept for compatibility with reset button wiring.
+      }
+
+      function bindPhaseToggle() {
+        if (!phaseToggle) return;
+        phaseToggle.addEventListener('click', () => {
+          timelineState.showCompleted = !timelineState.showCompleted;
+          renderPhases();
+        });
+      }
+
+      function bindEventFilters() {
+        if (eventFilterSearch) {
+          eventFilterSearch.addEventListener('keydown', handleEventSearchKey);
+        }
+        if (eventSearchChipTray) {
+          eventSearchChipTray.addEventListener('click', handleEventSearchChipClick);
+        }
+        if (eventClearFiltersBtn) {
+          eventClearFiltersBtn.addEventListener('click', clearEventFilters);
+        }
+      }
+
+      function handleEventSearchKey(event) {
+        if (event.key !== 'Enter') {
+          return;
+        }
+        event.preventDefault();
+        queueEventSearchChips(eventFilterSearch.value);
+      }
+
+      function queueEventSearchChips(input) {
+        const tokens = tokenizeEventInput(input);
+        if (!tokens.length) {
+          return;
+        }
+        let added = false;
+        tokens.forEach(token => {
+          if (addEventSearchChip(token)) {
+            added = true;
+          }
+        });
+        if (eventFilterSearch) {
+          eventFilterSearch.value = '';
+        }
+        if (added) {
+          applyEventFilters();
+        }
+      }
+
+      function tokenizeEventInput(input) {
+        if (!input) return [];
+        return (input.match(/(?:".*?"|\S+)/g) || [])
+          .map(part => part.replace(/^"(.*)"$/, '$1').trim())
+          .filter(Boolean);
+      }
+
+      function addEventSearchChip(raw) {
+        if (!eventSearchChipTray) {
+          return false;
+        }
+        const matcher = buildEventSearchToken(raw);
+        if (!matcher) {
+          return false;
+        }
+        const key = raw.toLowerCase();
+        if (eventSearchChipState.has(key)) {
+          return false;
+        }
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip-button';
+        chip.dataset.searchValue = key;
+        chip.textContent = raw;
+        chip.setAttribute('aria-label', 'Remove filter ' + raw);
+        eventSearchChipTray.appendChild(chip);
+        eventSearchChipState.set(key, { matcher, element: chip });
+        return true;
+      }
+
+      function buildEventSearchToken(raw) {
+        if (!raw) return null;
+        let text = raw.trim();
+        if (!text) return null;
+        let negate = false;
+        if (text.startsWith('!')) {
+          negate = true;
+          text = text.slice(1);
+        }
+        let prefix = '';
+        let value = text;
+        const colonIndex = text.indexOf(':');
+        if (colonIndex > 0) {
+          const potential = text.slice(0, colonIndex).toLowerCase();
+          if (EVENT_SEARCH_PREFIXES.has(potential)) {
+            prefix = potential;
+            value = text.slice(colonIndex + 1);
+          }
+        }
+        if (value.startsWith('"') && value.endsWith('"') && value.length > 1) {
+          value = value.slice(1, -1);
+        }
+        value = value.toLowerCase();
+        if (!value) return null;
+        let matcher;
+        switch (prefix) {
+          case 'ns':
+          case 'namespace':
+            matcher = entry => entry.normalized.namespace.includes(value);
+            break;
+          case 'pod':
+            matcher = entry => entry.normalized.pod.includes(value);
+            break;
+          case 'c':
+          case 'container':
+            matcher = entry => entry.normalized.container.includes(value);
+            break;
+          case 'src':
+          case 'source':
+          case 'glyph':
+            matcher = entry => entry.normalized.source.includes(value) || entry.normalized.glyph.includes(value);
+            break;
+          default:
+            matcher = entry => entry.normalized.text.includes(value);
+            break;
+        }
+        if (negate) {
+          const baseMatcher = matcher;
+          return entry => !baseMatcher(entry);
+        }
+        return matcher;
+      }
+
+      function handleEventSearchChipClick(event) {
+        const target = event.target.closest('[data-search-value]');
+        if (!target) {
+          return;
+        }
+        removeEventSearchChip(target.dataset.searchValue);
+      }
+
+      function removeEventSearchChip(key) {
+        if (!key || !eventSearchChipState.has(key)) {
+          return;
+        }
+        const entry = eventSearchChipState.get(key);
+        if (entry && entry.element && entry.element.parentNode) {
+          entry.element.parentNode.removeChild(entry.element);
+        }
+        eventSearchChipState.delete(key);
+        applyEventFilters();
+      }
+
+      function clearEventSearchChips() {
+        if (!eventSearchChipTray) {
+          return;
+        }
+        eventSearchChipTray.innerHTML = '';
+        eventSearchChipState.clear();
+      }
+
+      function getEventSearchMatchers() {
+        if (!eventSearchChipState.size) {
+          return [];
+        }
+        return Array.from(eventSearchChipState.values()).map(item => item.matcher);
+      }
+
+      function clearEventFilters() {
+        if (eventFilterSearch) {
+          eventFilterSearch.value = '';
+        }
+        clearEventSearchChips();
+        applyEventFilters();
+      }
+
+      function updateEventStats() {
+        eventLineCount += 1;
+      }
+
+
+      function escapeHTML(text) {
+        if (text == null) return '';
+        return text.replace(/[&<>]/g, function(ch) {
+          if (ch === '&') return '&amp;';
+          if (ch === '<') return '&lt;';
+          if (ch === '>') return '&gt;';
+          return ch;
+        });
+      }
+
+      function cloneStyle(style) {
+        return {
+          color: style.color,
+          bg: style.bg,
+          bold: style.bold,
+          italic: style.italic,
+          underline: style.underline,
+        };
+      }
+
+      function styleToCSS(style) {
+        const parts = [];
+        if (style.color) parts.push('color:' + style.color);
+        if (style.bg) parts.push('background-color:' + style.bg);
+        if (style.bold) parts.push('font-weight:600');
+        if (style.italic) parts.push('font-style:italic');
+        if (style.underline) parts.push('text-decoration:underline');
+        return parts.join(';');
+      }
+
+      function clampColor(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return 0;
+        return Math.max(0, Math.min(255, num));
+      }
+
+      function ansiSimpleColor(code) {
+        if (code >= 30 && code <= 37) {
+          return ANSI_BASE_COLORS[code - 30];
+        }
+        if (code >= 90 && code <= 97) {
+          return ANSI_BRIGHT_COLORS[code - 90];
+        }
+        return null;
+      }
+
+      function ansiSimpleBackground(code) {
+        if (code >= 40 && code <= 47) {
+          return ANSI_BASE_COLORS[code - 40];
+        }
+        if (code >= 100 && code <= 107) {
+          return ANSI_BRIGHT_COLORS[code - 100];
+        }
+        return null;
+      }
+
+      function ansi256Color(index) {
+        const num = Number(index);
+        if (!Number.isFinite(num)) return null;
+        if (num >= 0 && num <= 15) {
+          return ANSI_SIMPLE_PALETTE[num];
+        }
+        if (num >= 16 && num <= 231) {
+          let remaining = num - 16;
+          const r = Math.floor(remaining / 36);
+          remaining -= r * 36;
+          const g = Math.floor(remaining / 6);
+          const b = remaining - g * 6;
+          return 'rgb(' + ANSI_LEVELS[r] + ',' + ANSI_LEVELS[g] + ',' + ANSI_LEVELS[b] + ')';
+        }
+        if (num >= 232 && num <= 255) {
+          const gray = 8 + (num - 232) * 10;
+          return 'rgb(' + gray + ',' + gray + ',' + gray + ')';
+        }
+        return null;
+      }
+
+      function ansiToHTML(input) {
+        if (!input || input.indexOf('\x1b[') === -1) {
+          return null;
+        }
+        ANSI_PATTERN.lastIndex = 0;
+        let lastIndex = 0;
+        let segments = [];
+        let style = { color: null, bg: null, bold: false, italic: false, underline: false };
+        let match;
+        while ((match = ANSI_PATTERN.exec(input)) !== null) {
+          if (match.index > lastIndex) {
+            segments.push({ text: input.slice(lastIndex, match.index), style: cloneStyle(style) });
+          }
+          applyCodes(match[1]);
+          lastIndex = ANSI_PATTERN.lastIndex;
+        }
+        if (lastIndex < input.length) {
+          segments.push({ text: input.slice(lastIndex), style: cloneStyle(style) });
+        }
+        const html = segments.map(segment => {
+          if (!segment.text) return '';
+          const escaped = escapeHTML(segment.text);
+          const css = styleToCSS(segment.style);
+          return css ? '<span style=\"' + css + '\">' + escaped + '</span>' : escaped;
+        }).join('');
+        return html || null;
+
+        function applyCodes(codeStr) {
+          const parts = codeStr && codeStr.length ? codeStr.split(';') : ['0'];
+          for (let i = 0; i < parts.length; i++) {
+            const raw = parts[i];
+            const code = raw === '' ? 0 : Number(raw);
+            if (Number.isNaN(code)) {
+              continue;
+            }
+            switch (code) {
+              case 0:
+                style = { color: null, bg: null, bold: false, italic: false, underline: false };
+                break;
+              case 1:
+                style.bold = true;
+                break;
+              case 3:
+                style.italic = true;
+                break;
+              case 4:
+                style.underline = true;
+                break;
+              case 22:
+                style.bold = false;
+                break;
+              case 23:
+                style.italic = false;
+                break;
+              case 24:
+                style.underline = false;
+                break;
+              case 39:
+                style.color = null;
+                break;
+              case 49:
+                style.bg = null;
+                break;
+              case 7: {
+                const fg = style.color;
+                style.color = style.bg || '#0f172a';
+                style.bg = fg || '#f8fafc';
+                break;
+              }
+              default:
+                if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+                  const fg = ansiSimpleColor(code);
+                  if (fg) style.color = fg;
+                } else if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107)) {
+                  const bg = ansiSimpleBackground(code);
+                  if (bg) style.bg = bg;
+                } else if (code === 38 || code === 48) {
+                  const isForeground = code === 38;
+                  const mode = Number(parts[++i] || 0);
+                  if (mode === 2) {
+                    const r = clampColor(parts[++i]);
+                    const g = clampColor(parts[++i]);
+                    const b = clampColor(parts[++i]);
+                    const color = 'rgb(' + r + ',' + g + ',' + b + ')';
+                    if (isForeground) {
+                      style.color = color;
+                    } else {
+                      style.bg = color;
+                    }
+                  } else if (mode === 5) {
+                    const idx = Number(parts[++i]);
+                    const color = ansi256Color(idx);
+                    if (color) {
+                      if (isForeground) {
+                        style.color = color;
+                      } else {
+                        style.bg = color;
+                      }
+                    }
+                  }
+                }
+                break;
+            }
+          }
+        }
+      }
+
+      function renderANSIInto(element, ansiText, fallbackText) {
+        if (!element) return;
+        const html = ansiToHTML(ansiText);
+        if (html) {
+          element.innerHTML = html;
+        } else {
+          element.textContent = fallbackText || ansiText || '';
+        }
+      }
+
+      function formatTime(ts) {
+        if (!ts) return '—';
+        try {
+          const d = new Date(ts);
+          return d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        } catch (_) {
+          return ts;
+        }
+      }
+
+      function parseTimestamp(ts) {
+        if (!ts) return null;
+        const date = new Date(ts);
+        if (Number.isNaN(date.getTime())) {
+          return null;
+        }
+        return date;
+      }
+
+      function formatDuration(ms) {
+        if (!Number.isFinite(ms) || ms < 0) {
+          return '';
+        }
+        if (ms < 1000) {
+          return ms + 'ms';
+        }
+        const seconds = Math.round(ms / 1000);
+        if (seconds < 60) {
+          return seconds + 's';
+        }
+        const minutes = Math.floor(seconds / 60);
+        const rem = seconds % 60;
+        return rem ? minutes + 'm ' + rem + 's' : minutes + 'm';
+      }
+
+      function formatRelativeTime(ts) {
+        if (!ts) return '';
+        try {
+          const d = new Date(ts);
+          if (Number.isNaN(d.getTime())) {
+            return '';
+          }
+          return d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        } catch (_) {
+          return '';
+        }
+      }
+
+      function safeNumber(value) {
+        return typeof value === 'number' ? value : 0;
+      }
+
+      function valueOrNull(value) {
+        return typeof value === 'number' && isFinite(value) ? value : null;
+      }
+
+      function computeHealthTotal(data) {
+        if (!data) return null;
+        const explicit = valueOrNull(data.total);
+        if (explicit !== null) {
+          return explicit;
+        }
+        const parts = ['ready', 'progressing', 'pending', 'failed']
+          .map(key => valueOrNull(data[key]))
+          .filter(val => val !== null);
+        if (!parts.length) {
+          return null;
+        }
+        return parts.reduce((sum, val) => sum + val, 0);
+      }
+
+      function formatMetricValue(value, total) {
+        const num = valueOrNull(value);
+        if (num === null) {
+          return '—';
+        }
+        if (!total || !isFinite(total) || total <= 0) {
+          return String(num);
+        }
+        const pct = Math.round((num / total) * 100);
+        return pct >= 0 ? num + ' (' + pct + '%)' : String(num);
+      }
+
+      function setMetricValue(element, value, total) {
+        if (!element) return;
+        element.textContent = formatMetricValue(value, total);
+      }
+
+      function initHeroTrack() {
+        if (!heroTrack) return;
+        phaseOrder.forEach((name, idx) => {
+          const stage = document.createElement('div');
+          stage.className = 'hero-stage';
+          stage.dataset.state = 'pending';
+          stage.dataset.index = idx.toString();
+          stage.innerHTML = '<span>' + formatLabel(name) + '</span><span class=\"hero-status\">Pending</span>';
+          heroTrack.appendChild(stage);
+          heroStages[name] = stage;
+        });
+        heroTrack.style.setProperty('--hero-progress', '0');
+      }
+
+      function formatLabel(name) {
+        if (!name) return '';
+        return name.replace(/-/g, ' ').replace(/\b\w/g, function(letter) { return letter.toUpperCase(); });
+      }
+
+      function renderPhases() {
+        if (!phaseList) return;
+        phaseList.innerHTML = '';
+        const order = Array.from(new Set(phaseOrder.concat(Object.keys(phases))));
+        let completedCount = 0;
+        order.forEach(name => {
+          const phase = phases[name];
+          if (!phase) return;
+          const status = normalizePhaseStatus(phase.status || phase.state || 'pending');
+          if (status === 'succeeded' || status === 'success' || status === 'skipped') {
+            completedCount += 1;
+          }
+        });
+        const shouldCollapse = order.length > timelineState.threshold && completedCount > 0 && !timelineState.showCompleted;
+        if (phaseToggle) {
+          if (order.length > timelineState.threshold && completedCount > 0) {
+            phaseToggle.hidden = false;
+            phaseToggle.textContent = timelineState.showCompleted ? 'Hide completed' : 'Show completed';
+          } else {
+            phaseToggle.hidden = true;
+            timelineState.showCompleted = false;
+          }
+        }
+        order.forEach(name => {
+          const phase = phases[name];
+          if (!phase) return;
+          const status = normalizePhaseStatus(phase.status || phase.state || 'pending');
+          const row = document.createElement('li');
+          row.className = 'phase-row updated status-' + status.replace(/[^a-z-]/g, '');
+          const isCompleted = status === 'succeeded' || status === 'success' || status === 'skipped';
+          if (shouldCollapse && isCompleted) {
+            row.classList.add('collapsed');
+          }
+          const left = document.createElement('div');
+          left.innerHTML = '<div class=\"phase-name\">' + (phase.name || name) + '</div><div>' + (phase.message || '') + '</div>';
+          const right = document.createElement('div');
+          right.className = 'phase-meta';
+          const badge = document.createElement('span');
+          badge.className = 'badge ' + status;
+          badge.textContent = status;
+          right.appendChild(badge);
+          const times = document.createElement('span');
+          const start = phase.startedAt ? formatTime(phase.startedAt) : '—';
+          const end = phase.completedAt ? formatTime(phase.completedAt) : '—';
+          times.textContent = start + ' → ' + end;
+          right.appendChild(times);
+          const durationMs = phaseDurationMs(phase, status);
+          if (durationMs !== null) {
+            const durationEl = document.createElement('span');
+            durationEl.className = 'phase-duration';
+            durationEl.textContent = formatDuration(durationMs);
+            right.appendChild(durationEl);
+            if (durationMs >= SLOW_PHASE_THRESHOLD_MS && status !== 'failed' && status !== 'fail') {
+              const slow = document.createElement('span');
+              slow.className = 'slow-badge';
+              slow.textContent = 'Slow';
+              right.appendChild(slow);
+            }
+          }
+          row.appendChild(left);
+          row.appendChild(right);
+          phaseList.appendChild(row);
+          setTimeout(function() { row.classList.remove('updated'); }, 900);
+        });
+        updateHeroStages();
+        updateStatusChipFromPhases();
+        updateTimelineFreezeState();
+      }
+
+      function phaseDurationMs(phase, status) {
+        const start = parseTimestamp(phase.startedAt);
+        if (!start) return null;
+        const end = parseTimestamp(phase.completedAt);
+        if (end) {
+          return Math.max(0, end.getTime() - start.getTime());
+        }
+        if (status === 'running') {
+          return Math.max(0, Date.now() - start.getTime());
+        }
+        return null;
+      }
+
+      function normalizePhaseStatus(status) {
+        status = (status || '').toLowerCase();
+        if (!status) {
+          return 'pending';
+        }
+        return status;
+      }
+
+      function updateTimelineFreezeState() {
+        if (timelineFrozen) {
+          return;
+        }
+        const installPhase = phases['install'];
+        if (!installPhase) {
+          return;
+        }
+        const status = normalizePhaseStatus(installPhase.status || installPhase.state || '');
+        if (status === 'failed' || status === 'fail' || status === 'succeeded' || status === 'success') {
+          freezeTimeline();
+        }
+      }
+
+      function freezeTimeline() {
+        if (timelineFrozen) {
+          return;
+        }
+        timelineFrozen = true;
+        if (phaseList) {
+          phaseList.classList.add('timeline-frozen');
+        }
+        if (heroTrack) {
+          heroTrack.classList.add('timeline-static');
+        }
+      }
+
+      function renderResources(rows) {
+        if (!rows || rows.length === 0) {
+          resourceTable.hidden = true;
+          resourceEmpty.hidden = false;
+          resourceRows = [];
+          resourceRowMap.clear();
+          renderBlocking();
+          setHeroBlockerChip(null);
+          return;
+        }
+        resourceBody.innerHTML = '';
+        resourceRowMap.clear();
+        rows.forEach(row => {
+          const tr = document.createElement('tr');
+          const resource = document.createElement('td');
+          resource.textContent = row.kind + ' ' + row.namespace + '/' + row.name;
+          const action = document.createElement('td');
+          action.textContent = row.action || '-';
+          const status = document.createElement('td');
+          status.textContent = row.status || '';
+          const message = document.createElement('td');
+          message.textContent = row.message || '';
+          tr.appendChild(resource);
+          tr.appendChild(action);
+          tr.appendChild(status);
+          tr.appendChild(message);
+          const key = resourceKey(row);
+          tr.dataset.resourceKey = key;
+          resourceRowMap.set(key, tr);
+          resourceBody.appendChild(tr);
+        });
+        resourceTable.hidden = false;
+        resourceEmpty.hidden = true;
+        resourceRows = rows.slice();
+        renderBlocking();
+      }
+
+      function resourceKey(row) {
+        const kind = (row.kind || '').toLowerCase();
+        const ns = (row.namespace || '').toLowerCase();
+        const name = (row.name || '').toLowerCase();
+        return [kind, ns, name].join('/');
+      }
+
+      function focusResourceRow(key) {
+        if (!resourceRowMap.has(key)) {
+          return;
+        }
+        const row = resourceRowMap.get(key);
+        if (!row) return;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        resourceBody.querySelectorAll('tr.highlight').forEach(tr => tr.classList.remove('highlight'));
+        row.classList.add('highlight');
+        clearTimeout(highlightTimer);
+        highlightTimer = setTimeout(() => row.classList.remove('highlight'), 2200);
+      }
+
+      function appendLog(log) {
+        if (!log) return;
+        updateEventStats();
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        const meta = document.createElement('div');
+        meta.className = 'log-meta';
+        const level = (log.level || 'info').toLowerCase();
+        const sourceType = classifySource(log.source);
+        const stamp = document.createElement('span');
+        stamp.textContent = (log.namespace || '-') + '/' + (log.pod || '-') + ' · ' + formatTime(log.timestamp || '');
+        meta.appendChild(stamp);
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        renderANSIInto(line, log.message, log.message);
+        entry.appendChild(meta);
+        entry.appendChild(line);
+        entry.dataset.level = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
+        entry.dataset.sourceType = sourceType;
+        const normalized = {
+          namespace: (log.namespace || '').toLowerCase(),
+          pod: (log.pod || '').toLowerCase(),
+          container: (log.container || '').toLowerCase(),
+          source: (log.source || '').toLowerCase(),
+          glyph: (log.glyph || '').toLowerCase(),
+          text: (log.message || '').toLowerCase(),
+        };
+        const record = {
+          element: entry,
+          normalized,
+        };
+        eventEntries.push(record);
+        eventFeed.appendChild(entry);
+        if (eventEntries.length > maxEntries) {
+          const removed = eventEntries.shift();
+          if (removed && removed.element && removed.element.parentNode) {
+            removed.element.parentNode.removeChild(removed.element);
+          }
+        }
+        applyEventFilters();
+      }
+
+      function classifySource(source) {
+        const normalized = (source || '').toLowerCase();
+        return normalized === 'helm' ? 'helm' : 'kubernetes';
+      }
+
+      function matchesEventFilters(entry, matchers) {
+        if (!entry) return false;
+        if (!matchers.length) {
+          return true;
+        }
+        return matchers.every(fn => fn(entry));
+      }
+
+      function applyEventFilters() {
+        const matchers = getEventSearchMatchers();
+        eventEntries.forEach(entry => {
+          const show = matchesEventFilters(entry, matchers);
+          entry.element.classList.toggle('hidden', !show);
+        });
+      }
+
+      function renderBlocking() {
+        if (!blocking.list) return;
+        const rows = resourceRows || [];
+        if (rows.length === 0) {
+          blocking.list.innerHTML = '';
+          blocking.list.hidden = true;
+          blocking.empty.hidden = false;
+          blocking.empty.textContent = 'Waiting for readiness snapshots…';
+          setHeroBlockerChip(null);
+          updateBlockingMeta();
+          return;
+        }
+        const blockers = rows.filter(row => {
+          const status = (row.status || '').toLowerCase();
+          return status === 'failed' || status === 'fail' || status === 'progressing' || status === 'pending';
+        });
+        if (blockers.length === 0) {
+          blocking.list.innerHTML = '';
+          blocking.list.hidden = true;
+          blocking.empty.hidden = false;
+          blocking.empty.textContent = 'All tracked resources look healthy.';
+          setHeroBlockerChip(0, 'none');
+          updateBlockingMeta();
+          return;
+        }
+        const severityRank = { failed: 0, fail: 0, progressing: 1, pending: 2 };
+        blockers.sort((a, b) => {
+          const aStatus = (a.status || '').toLowerCase();
+          const bStatus = (b.status || '').toLowerCase();
+          return (severityRank[aStatus] ?? 3) - (severityRank[bStatus] ?? 3);
+        });
+        blocking.list.hidden = false;
+        blocking.empty.hidden = true;
+        blocking.list.innerHTML = '';
+        blockers.slice(0, 6).forEach(block => {
+          const li = document.createElement('li');
+          li.className = 'blocking-item';
+          const meta = document.createElement('div');
+          meta.innerHTML = '<strong>' + block.kind + ' ' + block.namespace + '/' + block.name + '</strong>' +
+            '<span>' + (block.message || 'Pending readiness…') + '</span>';
+          const status = document.createElement('div');
+          const statusLabel = (block.status || 'pending').toLowerCase();
+          status.className = 'blocking-status ' + statusLabel;
+          status.textContent = (block.status || 'Pending').toUpperCase();
+          li.appendChild(meta);
+          li.appendChild(status);
+          const key = resourceKey(block);
+          li.dataset.resourceKey = key;
+          li.tabIndex = 0;
+          li.setAttribute('role', 'button');
+          const focusRow = () => focusResourceRow(key);
+          li.addEventListener('click', focusRow);
+          li.addEventListener('keydown', evt => {
+            if (evt.key === 'Enter' || evt.key === ' ') {
+              evt.preventDefault();
+              focusRow();
+            }
+          });
+          blocking.list.appendChild(li);
+        });
+        const hasFailed = blockers.some(b => {
+          const status = (b.status || '').toLowerCase();
+          return status === 'failed' || status === 'fail';
+        });
+        const hasProgressing = blockers.some(b => (b.status || '').toLowerCase() === 'progressing');
+        if (hasFailed) {
+          setHeroBlockerChip(blockers.length, 'fail');
+        } else if (hasProgressing) {
+          setHeroBlockerChip(blockers.length, 'warn');
+        } else {
+          setHeroBlockerChip(blockers.length, 'pending');
+        }
+        updateBlockingMeta();
+      }
+
+      function updateBlockingMeta() {
+        if (!blocking.meta) return;
+        if (!lastHealth) {
+          blocking.meta.textContent = 'Awaiting readiness data…';
+          return;
+        }
+        const ready = safeNumber(lastHealth.ready);
+        const progressing = safeNumber(lastHealth.progressing);
+        const pending = safeNumber(lastHealth.pending);
+        const failed = safeNumber(lastHealth.failed);
+        const total = lastHealth.total || ready + progressing + pending + failed;
+        const pieces = [
+          'Updated ' + formatTime(lastHealth.lastUpdated),
+          ready + ' ready',
+          progressing + ' progressing',
+          pending + ' pending',
+          failed + ' failed',
+        ];
+        const prefix = total ? total + ' total · ' : '';
+        blocking.meta.textContent = prefix + pieces.join(' · ');
+      }
+
+      function renderHealth(healthData) {
+        lastHealth = healthData || null;
+        if (!healthPanel.container) {
+          updateBlockingMeta();
+          return;
+        }
+        const total = computeHealthTotal(healthData);
+        if (!healthData) {
+          healthPanel.container.hidden = true;
+          if (healthPanel.empty) {
+            healthPanel.empty.hidden = false;
+            healthPanel.empty.textContent = 'Awaiting readiness data…';
+          }
+          setMetricValue(healthPanel.total, null, null);
+          setMetricValue(healthPanel.ready, null, null);
+          setMetricValue(healthPanel.progressing, null, null);
+          setMetricValue(healthPanel.pending, null, null);
+          setMetricValue(healthPanel.failed, null, null);
+          if (healthPanel.updated) {
+            healthPanel.updated.textContent = '—';
+          }
+          drawHealthSparkline();
+          updateBlockingMeta();
+          return;
+        }
+        healthPanel.container.hidden = false;
+        if (healthPanel.empty) {
+          healthPanel.empty.hidden = true;
+        }
+        setMetricValue(healthPanel.total, total, null);
+        setMetricValue(healthPanel.ready, healthData.ready, total);
+        setMetricValue(healthPanel.progressing, healthData.progressing, total);
+        setMetricValue(healthPanel.pending, healthData.pending, total);
+        setMetricValue(healthPanel.failed, healthData.failed, total);
+        if (healthPanel.updated) {
+          healthPanel.updated.textContent = healthData.lastUpdated ? 'Updated ' + formatTime(healthData.lastUpdated) : '—';
+        }
+        const pct = total && total > 0 ? Math.round((safeNumber(healthData.ready) / total) * 100) : null;
+        if (pct !== null) {
+          healthTrend.push(pct);
+          if (healthTrend.length > maxHealthPoints) {
+            healthTrend.shift();
+          }
+        }
+        drawHealthSparkline();
+        updateBlockingMeta();
+      }
+
+      function drawHealthSparkline() {
+        if (!healthPanel.sparklinePath || !healthPanel.sparklineContainer) {
+          return;
+        }
+        if (healthTrend.length < 2) {
+          healthPanel.sparklinePath.setAttribute('d', '');
+          healthPanel.sparklineContainer.setAttribute('aria-hidden', 'true');
+          return;
+        }
+        const values = healthTrend.slice(-maxHealthPoints);
+        const width = 120;
+        const height = 36;
+        const min = Math.min.apply(null, values);
+        const max = Math.max.apply(null, values);
+        const range = max - min || 1;
+        const step = width / (values.length - 1);
+        let d = '';
+        values.forEach((val, idx) => {
+          const x = idx * step;
+          const y = height - ((val - min) / range) * height;
+          d += (idx === 0 ? 'M' : ' L') + x + ',' + y;
+        });
+        healthPanel.sparklinePath.setAttribute('d', d);
+        healthPanel.sparklineContainer.removeAttribute('aria-hidden');
+        if (healthPanel.sparklineLabel) {
+          const latest = values[values.length - 1];
+          healthPanel.sparklineLabel.textContent = 'Ready trend (' + latest + '%)';
+        }
+      }
+
+      function updateHeroStages() {
+        if (!heroTrack) return;
+        let progress = 0;
+        phaseOrder.forEach((name) => {
+          const stage = heroStages[name];
+          if (!stage) return;
+          const phase = phases[name];
+          const status = phase && phase.status ? phase.status.toLowerCase() : 'pending';
+          stage.dataset.state = status;
+          const statusEl = stage.querySelector('.hero-status');
+          if (statusEl) {
+            statusEl.textContent = phase && phase.message ? phase.message : (phase && phase.status ? phase.status : 'Pending');
+          }
+          if (status === 'succeeded' || status === 'skipped') {
+            progress += 1;
+          } else if (status === 'running') {
+            progress += 0.5;
+          } else if (status === 'failed') {
+            progress += 0.9;
+          }
+        });
+        const normalized = Math.max(0, Math.min(progress, phaseOrder.length));
+        heroTrack.style.setProperty('--hero-progress', String(normalized / phaseOrder.length));
+      }
+
+      function updateStatusChipFromPhases() {
+        if (statusLocked) {
+          return;
+        }
+        const failedPhase = phaseOrder.find(name => {
+          const phase = phases[name];
+          if (!phase) return false;
+          const status = (phase.status || '').toLowerCase();
+          return status === 'failed' || status === 'fail';
+        });
+        if (failedPhase) {
+          setStatusChip('fail', formatLabel(failedPhase) + ' failed');
+          return;
+        }
+        const runningPhase = phaseOrder.find(name => {
+          const phase = phases[name];
+          return phase && (phase.status || '').toLowerCase() === 'running';
+        });
+        if (runningPhase) {
+          setStatusChip('live', formatLabel(runningPhase) + ' running');
+          return;
+        }
+        const pendingPhase = phaseOrder.find(name => {
+          const phase = phases[name];
+          return !phase || (phase.status || '').toLowerCase() === 'pending';
+        });
+        if (pendingPhase) {
+          setStatusChip('pending', 'Waiting for ' + formatLabel(pendingPhase));
+        }
+      }
+
+      function renderSummary(data) {
+        if (!data) return;
+        summary.release.textContent = data.release || '—';
+        summary.namespace.textContent = data.namespace || '—';
+        summary.chart.textContent = data.chart || '—';
+        summary.version.textContent = data.version || '—';
+        summary.duration.textContent = data.duration || '—';
+        summary.notes.textContent = data.notes ? data.notes : '—';
+        const status = (data.status || 'pending').toLowerCase();
+        summary.status.textContent = (data.status || 'pending').toUpperCase();
+        summary.status.className = 'summary-status ' + (status.includes('fail') ? 'fail' : status.includes('succeed') ? 'success' : 'pending');
+        if (hero.title) {
+          hero.title.textContent = data.release ? 'Deploying ' + data.release : 'Deploy overview';
+        }
+        if (hero.releaseChip) {
+          hero.releaseChip.textContent = 'Release ' + (data.release || '—');
+        }
+        if (hero.namespaceChip) {
+          hero.namespaceChip.textContent = 'Namespace ' + (data.namespace || '—');
+        }
+        if (hero.durationChip) {
+          hero.durationChip.textContent = 'Elapsed ' + (data.duration || '—');
+        }
+        setHeroContext(data);
+        renderBreadcrumbs(data.history, data.lastSuccessful);
+        if (status.includes('fail')) {
+          setStatusChip('fail', 'Failed', { lock: true });
+        } else if (status.includes('success') || status === 'deployed' || status === 'destroyed') {
+          const label = status === 'destroyed' ? 'Destroyed' : 'Succeeded';
+          setStatusChip('success', label, { lock: true });
+        } else {
+          statusLocked = false;
+        }
+      }
+
+      function setHeroContext(summaryData) {
+        const ns = summaryData && summaryData.namespace ? 'ns/' + summaryData.namespace : 'ns/—';
+        const chart = summaryData && summaryData.chart ? summaryData.chart : (summaryData && summaryData.release ? summaryData.release : 'chart —');
+        const version = summaryData && summaryData.version ? 'version ' + summaryData.version : 'version —';
+        if (hero.namespaceTag) {
+          hero.namespaceTag.textContent = ns;
+        }
+        if (hero.chartTag) {
+          hero.chartTag.textContent = chart;
+        }
+        if (hero.versionTag) {
+          hero.versionTag.textContent = version;
+        }
+      }
+
+      function renderBreadcrumbs(history, lastSuccessful) {
+        if (!hero.breadcrumbs) return;
+        hero.breadcrumbs.innerHTML = '';
+        if (!history || history.length === 0) {
+          hero.breadcrumbs.innerHTML = '<span class=\"empty-note\">No prior runs yet.</span>';
+          updateLastSuccessChip(lastSuccessful || null);
+          return;
+        }
+        const limit = Math.min(history.length, heroBreadcrumbLimit);
+        const lastSuccessRev = lastSuccessful && Number(lastSuccessful.revision);
+        for (let i = 0; i < limit; i++) {
+          const crumb = history[i];
+          if (!crumb) continue;
+          const chip = document.createElement('div');
+          chip.className = 'breadcrumb';
+          const state = (crumb.status || '').toLowerCase();
+          if (state) {
+            chip.dataset.state = state;
+          }
+          if (lastSuccessRev && Number(crumb.revision) === lastSuccessRev) {
+            chip.classList.add('breadcrumb-last-success');
+          }
+          chip.innerHTML = '<span class=\"breadcrumb-label\">Rev ' + (crumb.revision || '—') + '</span>' +
+            '<span class=\"breadcrumb-meta\">' + formatLabel(state || 'pending') + ' · ' + (formatRelativeTime(crumb.deployedAt) || '—') + '</span>';
+          hero.breadcrumbs.appendChild(chip);
+        }
+        updateLastSuccessChip(lastSuccessful || null);
+      }
+
+      function updateLastSuccessChip(lastSuccessful) {
+        if (!hero.lastSuccessChip) return;
+        if (lastSuccessful && lastSuccessful.revision) {
+          const when = formatRelativeTime(lastSuccessful.deployedAt);
+          hero.lastSuccessChip.textContent = 'Last success ' + lastSuccessful.revision + (when ? ' · ' + when : '');
+        } else {
+          hero.lastSuccessChip.textContent = 'Last success —';
+        }
+      }
+
+      function setHeroBlockerChip(count, severity) {
+        if (!hero.blockerChip) return;
+        hero.blockerChip.classList.remove('has-blockers', 'has-warn');
+        if (count === null || count === undefined) {
+          hero.blockerChip.textContent = 'Blockers —';
+          return;
+        }
+        hero.blockerChip.textContent = count === 0 ? 'Blockers 0' : count + (count === 1 ? ' blocker' : ' blockers');
+        if (count > 0) {
+          if (severity === 'fail') {
+            hero.blockerChip.classList.add('has-blockers');
+          } else if (severity === 'warn') {
+            hero.blockerChip.classList.add('has-warn');
+          }
+        }
+      }
+
+      function resolveWebSocketURL() {
+        try {
+          const url = new URL('ws', window.location.href);
+          url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          url.search = '';
+          url.hash = '';
+          return url.href;
+        } catch (_) {
+          const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          return proto + '//' + window.location.host + '/ws';
+        }
+      }
+
+      function connect() {
+        const ws = new WebSocket(resolveWebSocketURL());
+        ws.onopen = function() { statusLocked = false; setStatusChip('live', 'Live'); };
+        ws.onclose = function() {
+          if (!statusLocked) {
+            setStatusChip('pending', 'Reconnecting…');
+          }
+          setTimeout(connect, 1500);
+        };
+        ws.onerror = function() {
+          if (!statusLocked) {
+            setStatusChip('error', 'Error');
+          }
+        };
+        ws.onmessage = function(evt) {
+          try {
+            const data = JSON.parse(evt.data);
+            switch (data.kind) {
+              case 'phase':
+                if (data.phase && data.phase.name) {
+                  phases[data.phase.name] = data.phase;
+                  renderPhases();
+                }
+                break;
+              case 'resources':
+                renderResources(data.resources || []);
+                break;
+              case 'event':
+                if (data.log) {
+                  data.log.timestamp = data.ts || data.log.timestamp;
+                  appendLog(data.log);
+                }
+                break;
+              case 'health':
+                renderHealth(data.health);
+                break;
+              case 'summary':
+                renderSummary(data.summary);
+                break;
+              default:
+                if (data.log) {
+                  data.log.timestamp = data.ts || data.log.timestamp;
+                  appendLog(data.log);
+                }
+            }
+          } catch (err) {
+            console.error('render error', err);
+          }
+        };
+      }
+
+      function setStatusChip(state, label, opts) {
+        if (!statusChip) return;
+        const lock = opts && opts.lock;
+        if (statusLocked && !lock) {
+          return;
+        }
+        statusChip.className = 'status-chip ' + (state || '');
+        statusChip.textContent = label || '';
+        if (lock) {
+          statusLocked = true;
+          freezeTimeline();
+        }
+      }
+
+      initHeroTrack();
+      bindPhaseToggle();
+      bindEventFilters();
+      updateEventFilterMeta();
+      setHeroBlockerChip(null);
+      renderBreadcrumbs();
+      connect();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ktl-test
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ktl-logger
+  namespace: ktl-test
+  labels:
+    app: ktl-logger
+spec:
+  restartPolicy: Always
+  initContainers:
+  - name: setup
+    image: busybox
+    command:
+    - /bin/sh
+    - -c
+    args:
+    - echo initializing ktl logger
+  containers:
+  - name: alpha
+    image: busybox
+    command:
+    - /bin/sh
+    - -c
+    args:
+    - |
+      while true; do
+        echo "alpha $(date +%s)"
+        sleep 1
+      done
+  - name: beta
+    image: busybox
+    command:
+    - /bin/sh
+    - -c
+    args:
+    - |
+      while true; do
+        echo "beta $(date +%s)"
+        sleep 1
+      done
+

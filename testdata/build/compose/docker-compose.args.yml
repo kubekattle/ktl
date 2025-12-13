@@ -1,0 +1,11 @@
+version: "3.9"
+services:
+  proxy:
+    build:
+      context: ./services/proxy
+      args:
+        RELEASE: compose-fixture
+  jobs:
+    build:
+      context: ./services/jobs
+      target: runner
