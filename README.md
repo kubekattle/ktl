@@ -16,8 +16,8 @@ Any command that supports `--ui` lets you omit the host/port. Unless noted, the 
 | --- | --- |
 | `ktl logs` mirrors | `:8080` |
 | `ktl build` | `:8080` |
-| `ktl apply` (alias: `ktl deploy apply`) | `:8080` |
-| `ktl delete` (alias: `ktl deploy destroy`) | `:8080` |
+| `ktl apply` | `:8080` |
+| `ktl delete` | `:8080` |
 
 ## Install
 ```bash

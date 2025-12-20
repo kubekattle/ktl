@@ -225,7 +225,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, or html")
 	cmd.Flags().BoolVar(&renderHTML, "html", false, "Render the plan as a design-system HTML report (deprecated, use --format=html)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the rendered plan to this path (HTML defaults to ./ktl-deploy-plan-<release>-<timestamp>.html)")
-	cmd.Flags().BoolVar(&visualize, "visualize", false, "Render the interactive visualization (equivalent to the former 'ktl deploy visualize')")
+	cmd.Flags().BoolVar(&visualize, "visualize", false, "Render the interactive visualization")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
 
@@ -1483,7 +1483,7 @@ const deployPlanHTMLTemplate = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ktl Deploy Plan</title>
+  <title>ktl Plan</title>
   <style>
     :root {
       --surface: rgba(255,255,255,0.9);

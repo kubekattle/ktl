@@ -48,7 +48,7 @@ If you’re an AI agent (or using one), start with:
 | `ktl plan --visualize --chart ./chart --release foo --kubeconfig ~/.kube/archimedes.yaml` | Render the tree-based dependency browser + YAML/diff viewer (with optional comparison upload), auto-write `./ktl-deploy-visualize-<release>-<timestamp>.html` (override with `--output`, use `--output -` for stdout). |
 | `./bin/ktl --kubeconfig /Users/antonkrylov/.kube/archimedes.yaml` | Manual smoke test against the shared Archimedes cluster (add `--context/--namespace` as needed). |
 
-Legacy `ktl deploy apply`/`ktl deploy destroy` aliases are still wired up for older scripts; prefer `ktl apply`/`ktl delete` going forward.
+`ktl deploy` has been removed; use `ktl apply`/`ktl delete` going forward.
 
 Enable verbose sandbox diagnostics only when needed with `ktl build ... --sandbox-logs`. The flag streams `[sandbox]`-prefixed lines to stderr and mirrors them into any `--ui/--ws-listen` session so reviewers can watch sandbox ACL errors without rerunning the build.
 

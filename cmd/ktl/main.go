@@ -113,7 +113,6 @@ func newRootCommand() *cobra.Command {
 	logsCmd.AddCommand(captureCmd, driftCmd)
 	registerNamespaceCompletion(cmd, "namespace", &kubeconfigPath, &kubeContext)
 	buildCmd := newBuildCommand()
-	deployCmd := newDeployCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	planCmd := newPlanCommand(&kubeconfigPath, &kubeContext)
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
@@ -124,7 +123,6 @@ func newRootCommand() *cobra.Command {
 		planCmd,
 		applyCmd,
 		deleteCmd,
-		deployCmd,
 		completionCmd,
 		newMirrorCommand(),
 	)
@@ -140,7 +138,7 @@ func newRootCommand() *cobra.Command {
 		  # Apply chart changes
 		  ktl apply --chart ./chart --release foo --namespace prod`
 	decorateCommandHelp(cmd, "Global Flags")
-	bindViper(cmd, logsCmd, captureCmd, driftCmd, buildCmd, planCmd, applyCmd, deleteCmd, deployCmd, completionCmd)
+	bindViper(cmd, logsCmd, captureCmd, driftCmd, buildCmd, planCmd, applyCmd, deleteCmd, completionCmd)
 	return cmd
 }
 

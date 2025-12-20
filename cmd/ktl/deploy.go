@@ -1,7 +1,7 @@
 // File: cmd/ktl/deploy.go
-// Brief: CLI command wiring and implementation for 'deploy'.
+// Brief: Shared Helm plan/apply/delete CLI implementation.
 
-// deploy.go defines the 'ktl deploy' parent command that fronts Helm plan/apply/destroy operations with ktl UX improvements.
+// deploy.go contains the shared implementation for Helm operations used by `ktl plan`, `ktl apply`, and `ktl delete`.
 package main
 
 import (
@@ -38,37 +38,6 @@ import (
 )
 
 const historyBreadcrumbLimit = 6
-
-func newDeployCommand(kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
-	var namespace string
-	cmd := &cobra.Command{
-		Use:   "deploy",
-		Short: "Manage Helm releases",
-		Long:  "Apply or destroy Helm charts without leaving ktl.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
-		},
-	}
-
-	cmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "Namespace for the Helm release (defaults to active context)")
-	registerNamespaceCompletion(cmd, "namespace", kubeconfig, kubeContext)
-	cmd.AddCommand(
-		newDeployPlanCommand(&namespace, kubeconfig, kubeContext, "Plan Flags"),
-		newDeployApplyCommand(&namespace, kubeconfig, kubeContext, logLevel, remoteAgent, "Apply Flags"),
-		newDeployDestroyCommand(&namespace, kubeconfig, kubeContext, logLevel, remoteAgent),
-		newDeprecatedDeployRevertCommand(&namespace, kubeconfig, kubeContext, logLevel, remoteAgent),
-	)
-	cmd.Example = `  # Preview the impact of an upgrade
-	ktl plan --chart ./charts/web --release web-prod --namespace prod -f values/prod.yaml  # alias: ktl deploy plan
-
-	# Apply a chart with prod values
-	ktl apply --chart ./charts/web --release web-prod --namespace prod -f values/prod.yaml  # alias: ktl deploy apply
-
-	# Destroy a release but keep its history
-	ktl delete --release web-prod --keep-history  # alias: ktl deploy destroy`
-	decorateCommandHelp(cmd, "Deploy Flags")
-	return cmd
-}
 
 func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string, helpSection string) *cobra.Command {
 	ownNamespaceFlag := false
@@ -313,18 +282,20 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				if addr := strings.TrimSpace(uiAddr); addr != "" {
 					uiServer := caststream.New(addr, caststream.ModeWeb, viewerLabel, logger.WithName("deploy-ui"), caststream.WithDeployUI())
 					stream.AddObserver(uiServer)
-					if err := castutil.StartCastServer(ctx, uiServer, "ktl deploy UI", logger.WithName("deploy-ui"), errOut); err != nil {
+					uiLabel := fmt.Sprintf("%s UI", cmd.CommandPath())
+					if err := castutil.StartCastServer(ctx, uiServer, uiLabel, logger.WithName("ui"), errOut); err != nil {
 						return err
 					}
-					fmt.Fprintf(errOut, "Serving ktl deploy UI on %s\n", addr)
+					fmt.Fprintf(errOut, "Serving %s on %s\n", uiLabel, addr)
 				}
 				if addr := strings.TrimSpace(wsListenAddr); addr != "" {
 					wsServer := caststream.New(addr, caststream.ModeWS, viewerLabel, logger.WithName("deploy-ws"), caststream.WithDeployUI())
 					stream.AddObserver(wsServer)
-					if err := castutil.StartCastServer(ctx, wsServer, "ktl deploy websocket stream", logger.WithName("deploy-ws"), errOut); err != nil {
+					wsLabel := fmt.Sprintf("%s websocket stream", cmd.CommandPath())
+					if err := castutil.StartCastServer(ctx, wsServer, wsLabel, logger.WithName("ws"), errOut); err != nil {
 						return err
 					}
-					fmt.Fprintf(errOut, "Serving ktl deploy websocket stream on %s\n", addr)
+					fmt.Fprintf(errOut, "Serving %s on %s\n", wsLabel, addr)
 				}
 			}
 			if stream != nil {
@@ -562,24 +533,6 @@ type deployRemovalConfig struct {
 	WarningMsg string
 }
 
-func newDeployDestroyCommand(namespace *string, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
-	return newDeployRemovalCommand(deployRemovalConfig{
-		Use:       "destroy",
-		Short:     "Destroy a Helm release",
-		HelpLabel: "Destroy Flags",
-	}, namespace, kubeconfig, kubeContext, logLevel, remoteAgent)
-}
-
-func newDeprecatedDeployRevertCommand(namespace *string, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
-	return newDeployRemovalCommand(deployRemovalConfig{
-		Use:        "revert",
-		Short:      "DEPRECATED: use 'ktl delete'",
-		HelpLabel:  "Revert Flags",
-		Hidden:     true,
-		WarningMsg: "'ktl deploy revert' is deprecated and will be removed in a future release. Use 'ktl delete' (alias: 'ktl deploy destroy') instead.",
-	}, namespace, kubeconfig, kubeContext, logLevel, remoteAgent)
-}
-
 func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	ownNamespaceFlag := false
 	if namespace == nil {
@@ -722,18 +675,20 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				if addr := strings.TrimSpace(uiAddr); addr != "" {
 					uiServer := caststream.New(addr, caststream.ModeWeb, viewerLabel, logger.WithName("destroy-ui"), caststream.WithDeployUI())
 					stream.AddObserver(uiServer)
-					if err := castutil.StartCastServer(ctx, uiServer, fmt.Sprintf("ktl %s UI", cfg.Use), logger.WithName("destroy-ui"), errOut); err != nil {
+					uiLabel := fmt.Sprintf("%s UI", cmd.CommandPath())
+					if err := castutil.StartCastServer(ctx, uiServer, uiLabel, logger.WithName("ui"), errOut); err != nil {
 						return err
 					}
-					fmt.Fprintf(errOut, "Serving ktl %s UI on %s\n", cfg.Use, addr)
+					fmt.Fprintf(errOut, "Serving %s on %s\n", uiLabel, addr)
 				}
 				if addr := strings.TrimSpace(wsListenAddr); addr != "" {
 					wsServer := caststream.New(addr, caststream.ModeWS, viewerLabel, logger.WithName("destroy-ws"), caststream.WithDeployUI())
 					stream.AddObserver(wsServer)
-					if err := castutil.StartCastServer(ctx, wsServer, fmt.Sprintf("ktl %s websocket stream", cfg.Use), logger.WithName("destroy-ws"), errOut); err != nil {
+					wsLabel := fmt.Sprintf("%s websocket stream", cmd.CommandPath())
+					if err := castutil.StartCastServer(ctx, wsServer, wsLabel, logger.WithName("ws"), errOut); err != nil {
 						return err
 					}
-					fmt.Fprintf(errOut, "Serving ktl %s websocket stream on %s\n", cfg.Use, addr)
+					fmt.Fprintf(errOut, "Serving %s on %s\n", wsLabel, addr)
 				}
 			}
 
