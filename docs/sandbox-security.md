@@ -127,6 +127,14 @@ Notes:
 - The script includes multiple checks and reports `PASS`/`FAIL`/`SKIP`.
 - The “host marker” check is only meaningful if your builder is permissive enough to allow host bind mounts; if not, that check is reported as `SKIP` (safe default).
 
+## Docker vs sandbox demo
+
+If you want a “plain Docker” comparison for a live demo (showing how easy it is to read a host file when you explicitly mount it), run:
+
+```bash
+./scripts/docker-vs-ktl-sandbox-demo.sh
+```
+
 ## Why this prevents “root on the host”
 
 The key security property is **constraining the build’s view of the filesystem and local endpoints**.
