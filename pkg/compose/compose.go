@@ -473,6 +473,10 @@ func loadComposeProject(opts ComposeBuildOptions) (*composetypes.Project, error)
 	}
 
 	workingDir := filepath.Dir(opts.Files[0])
+	projectName := strings.TrimSpace(opts.ProjectName)
+	if projectName == "" {
+		projectName = defaultProjectName(workingDir)
+	}
 
 	details := composetypes.ConfigDetails{
 		WorkingDir:  workingDir,
@@ -481,9 +485,7 @@ func loadComposeProject(opts ComposeBuildOptions) (*composetypes.Project, error)
 	}
 
 	project, err := loader.Load(details, func(o *loader.Options) {
-		if opts.ProjectName != "" {
-			o.SetProjectName(opts.ProjectName, true)
-		}
+		o.SetProjectName(projectName, true)
 		if len(opts.Profiles) > 0 {
 			o.Profiles = append(o.Profiles, opts.Profiles...)
 		}
@@ -492,6 +494,37 @@ func loadComposeProject(opts ComposeBuildOptions) (*composetypes.Project, error)
 		return nil, err
 	}
 	return project, nil
+}
+
+func defaultProjectName(workingDir string) string {
+	base := filepath.Base(strings.TrimSpace(workingDir))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		base = "ktl"
+	}
+	base = strings.ToLower(base)
+	var b strings.Builder
+	b.Grow(len(base))
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_' || r == '-':
+			b.WriteRune(r)
+		default:
+			// skip
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return "ktl"
+	}
+	first := out[0]
+	if (first < 'a' || first > 'z') && (first < '0' || first > '9') {
+		return "ktl-" + out
+	}
+	return out
 }
 
 func absolutePaths(paths []string) ([]string, error) {

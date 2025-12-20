@@ -20,6 +20,17 @@ func TestLoadComposeProjectFromTestdata(t *testing.T) {
 	}
 }
 
+func TestLoadComposeProjectDefaultsProjectName(t *testing.T) {
+	composePath := filepath.Join("..", "..", "testdata", "build", "compose", "docker-compose.yml")
+	project, err := LoadComposeProject([]string{composePath}, "", nil)
+	if err != nil {
+		t.Fatalf("LoadComposeProject returned error: %v", err)
+	}
+	if project == nil || project.Name == "" {
+		t.Fatalf("expected project name to be set")
+	}
+}
+
 func TestCollectBuildableServices(t *testing.T) {
 	composePath := filepath.Join("..", "..", "testdata", "build", "compose", "docker-compose.yml")
 	project, err := LoadComposeProject([]string{composePath}, "compose-tests", nil)
