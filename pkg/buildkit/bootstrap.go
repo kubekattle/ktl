@@ -9,12 +9,25 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/moby/buildkit/client"
 )
 
 const dockerFallbackBuilderName = "ktl-buildkit"
+
+var dockerLookPath = exec.LookPath
+var dockerBuildxRunner = runDockerBuildxImpl
+
+type dockerFallbackMemo struct {
+	mu       sync.Mutex
+	resolved bool
+	addr     string
+	err      error
+}
+
+var dockerFallback dockerFallbackMemo
 
 type buildkitClientFactory struct {
 	allowFallback bool
@@ -43,32 +56,43 @@ func (f buildkitClientFactory) new(ctx context.Context, addr string) (*client.Cl
 }
 
 func ensureDockerBackedBuilder(ctx context.Context, logWriter io.Writer) (string, error) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		return "", fmt.Errorf("docker CLI not found: %w", err)
+	dockerFallback.mu.Lock()
+	defer dockerFallback.mu.Unlock()
+	if dockerFallback.resolved {
+		return dockerFallback.addr, dockerFallback.err
+	}
+	dockerFallback.resolved = true
+
+	if _, err := dockerLookPath("docker"); err != nil {
+		dockerFallback.err = fmt.Errorf("docker CLI not found: %w", err)
+		return "", dockerFallback.err
 	}
 
 	builder := dockerFallbackBuilderName
 	if logWriter != nil {
 		fmt.Fprintf(logWriter, "BuildKit endpoint unavailable; provisioning Docker Buildx builder %s...\n", builder)
 	}
-	if err := runDockerBuildx(ctx, logWriter, "inspect", builder); err != nil {
-		if err := runDockerBuildx(ctx, logWriter, "create", "--name", builder, "--driver", "docker-container"); err != nil {
-			return "", err
+	if err := dockerBuildxRunner(ctx, logWriter, "inspect", builder); err != nil {
+		if err := dockerBuildxRunner(ctx, logWriter, "create", "--name", builder, "--driver", "docker-container"); err != nil {
+			dockerFallback.err = err
+			return "", dockerFallback.err
 		}
 	}
 
-	if err := runDockerBuildx(ctx, logWriter, "inspect", "--bootstrap", builder); err != nil {
-		return "", err
+	if err := dockerBuildxRunner(ctx, logWriter, "inspect", "--bootstrap", builder); err != nil {
+		dockerFallback.err = err
+		return "", dockerFallback.err
 	}
 	if logWriter != nil {
 		fmt.Fprintf(logWriter, "Using Docker Buildx builder %s\n", builder)
 	}
 
 	containerName := fmt.Sprintf("buildx_buildkit_%s0", builder)
-	return fmt.Sprintf("docker-container://%s", containerName), nil
+	dockerFallback.addr = fmt.Sprintf("docker-container://%s", containerName)
+	return dockerFallback.addr, dockerFallback.err
 }
 
-func runDockerBuildx(ctx context.Context, logWriter io.Writer, args ...string) error {
+func runDockerBuildxImpl(ctx context.Context, logWriter io.Writer, args ...string) error {
 	cmd := exec.CommandContext(ctx, "docker", append([]string{"buildx"}, args...)...)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
