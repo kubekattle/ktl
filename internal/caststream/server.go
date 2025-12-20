@@ -1,10 +1,9 @@
 // File: internal/caststream/server.go
 // Brief: Internal caststream package implementation for 'server'.
 
-// Package caststream hosts the lightweight remote log “casting” servers used by
-// `ktl logs --ui/--ws-listen`. It mirrors Tailer output to HTML or raw
-// WebSocket clients so responders can follow the same stream without rerunning
-// ktl locally.
+// Package caststream hosts lightweight remote streaming servers used by ktl.
+// It can expose log streams over WebSocket (e.g. `ktl logs --ws-listen`) and
+// render the deploy viewer HTML shell used by `ktl apply --ui` / `ktl delete --ui`.
 package caststream
 
 import (
@@ -15,12 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
@@ -47,7 +42,6 @@ func WithDeployUI() Option {
 		if s == nil {
 			return
 		}
-		s.renderIndex = s.renderDeployIndex
 		s.acceptLogs = false
 		s.acceptDeploy = true
 		if s.deployState == nil {
@@ -56,102 +50,32 @@ func WithDeployUI() Option {
 	}
 }
 
-// WithoutFilters hides the filter/search chrome when rendering the log mirror (used by ktl build UI).
-func WithoutFilters() Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.filtersEnabled = false
-	}
-}
-
-// WithoutClusterInfo hides the contextual subtitle so the log mirror can focus on log content.
-func WithoutClusterInfo() Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.clusterInfo = ""
-	}
-}
-
-// WithoutLogTitle hides the H1 header so embeds can reclaim vertical space.
-func WithoutLogTitle() Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.logTitle = ""
-	}
-}
-
-// WithLogTitle overrides the default H1 header in log mirror mode.
-func WithLogTitle(title string) Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.logTitle = title
-	}
-}
-
-// WithLogReplay configures a per-connection log replay source.
-//
-// When set, each websocket client will receive the output of replay on connect.
-// This is used for offline viewers (e.g., capture replay) where the full log
-// history should be delivered even if the client connects after the command
-// starts.
-func WithLogReplay(replay func(context.Context, func(tailer.LogRecord) error) error) Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.logReplay = replay
-	}
-}
-
-// Server exposes a lightweight HTML + WebSocket view of ktl log streams.
+// Server exposes a lightweight HTML + WebSocket view of ktl streams.
 type Server struct {
 	addr           string
 	mode           Mode
 	logger         logr.Logger
 	hub            *hub
 	upgrader       websocket.Upgrader
-	logTitle       string
 	clusterInfo    string
-	renderIndex    func(string) string
-	filtersEnabled bool
 	acceptLogs     bool
 	acceptDeploy   bool
-	logReplay      func(context.Context, func(tailer.LogRecord) error) error
 	deployState    *deployState
-	logTemplate    *template.Template
 	deployTemplate *template.Template
-
-	captureController CaptureController
-	captureRoot       string
-	captureStoreMu    sync.RWMutex
-	captureStore      map[string]*storedCapture // id -> capture
 }
 
 func New(addr string, mode Mode, clusterInfo string, logger logr.Logger, opts ...Option) *Server {
 	server := &Server{
-		addr:           addr,
-		mode:           mode,
-		logger:         logger,
-		hub:            newHub(logger),
-		logTitle:       "ktl Log Mirror",
-		clusterInfo:    clusterInfo,
-		filtersEnabled: true,
-		acceptLogs:     true,
+		addr:        addr,
+		mode:        mode,
+		logger:      logger,
+		hub:         newHub(logger),
+		clusterInfo: clusterInfo,
+		acceptLogs:  true,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		captureStore: make(map[string]*storedCapture),
 	}
-	server.renderIndex = server.renderLogIndex
-	server.logTemplate = template.Must(template.New("log_mirror").Parse(logMirrorHTML))
 	server.deployTemplate = template.Must(template.New("deploy_viewer").Parse(deployViewerHTML))
 	for _, opt := range opts {
 		if opt != nil {
@@ -162,22 +86,9 @@ func New(addr string, mode Mode, clusterInfo string, logger logr.Logger, opts ..
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	if s.captureRoot == "" {
-		root, err := os.MkdirTemp("", "ktl-capture-store-")
-		if err != nil {
-			return fmt.Errorf("create capture store dir: %w", err)
-		}
-		s.captureRoot = root
-	}
 	mux := http.NewServeMux()
 	if s.mode == ModeWeb {
 		mux.HandleFunc("/", s.handleIndex)
-		mux.HandleFunc("/api/capture/status", s.handleCaptureStatus)
-		mux.HandleFunc("/api/capture/start", s.handleCaptureStart)
-		mux.HandleFunc("/api/capture/stop", s.handleCaptureStop)
-		mux.HandleFunc("/api/capture/upload", s.handleCaptureUpload)
-		mux.HandleFunc("/api/capture/", s.handleCaptureAPI)
-		mux.HandleFunc("/capture/view/", s.handleCaptureView)
 	}
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -191,127 +102,12 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 		s.hub.Close()
-		if s.captureRoot != "" {
-			_ = os.RemoveAll(s.captureRoot)
-		}
 	}()
 	s.logger.V(1).Info("cast listener ready", "addr", s.addr, "mode", s.mode.String())
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
-}
-
-func WithCaptureController(controller CaptureController) Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.captureController = controller
-	}
-}
-
-func (s *Server) handleCaptureStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if s == nil || s.captureController == nil {
-		// Return a successful JSON response so UIs can probe for capture support
-		// without triggering noisy 404s in the browser console.
-		_ = json.NewEncoder(w).Encode(nil)
-		return
-	}
-	status, err := s.captureController.Status(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	_ = json.NewEncoder(w).Encode(status)
-}
-
-func (s *Server) handleCaptureStart(w http.ResponseWriter, r *http.Request) {
-	if s == nil || s.captureController == nil {
-		http.Error(w, "capture not available", http.StatusNotFound)
-		return
-	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	status, err := s.captureController.Start(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(status)
-}
-
-func (s *Server) handleCaptureStop(w http.ResponseWriter, r *http.Request) {
-	if s == nil || s.captureController == nil {
-		http.Error(w, "capture not available", http.StatusNotFound)
-		return
-	}
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	status, view, err := s.captureController.Stop(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if view.ID != "" && strings.TrimSpace(status.Artifact) != "" {
-		if err := s.importCaptureArtifact(r.Context(), view.ID, status.Artifact); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		status.ViewerReady = true
-	}
-	resp := map[string]any{
-		"status": status,
-	}
-	if view.ID != "" {
-		resp["viewerURL"] = "/capture/view/" + view.ID
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-func (s *Server) handleCaptureView(w http.ResponseWriter, r *http.Request) {
-	if s == nil {
-		http.NotFound(w, r)
-		return
-	}
-	id := strings.TrimPrefix(r.URL.Path, "/capture/view/")
-	id = strings.TrimSpace(id)
-	if id == "" {
-		http.NotFound(w, r)
-		return
-	}
-	s.captureStoreMu.RLock()
-	cap := s.captureStore[id]
-	s.captureStoreMu.RUnlock()
-	if cap == nil {
-		http.NotFound(w, r)
-		return
-	}
-	title := strings.TrimSpace(cap.meta.SessionName)
-	if title == "" {
-		title = "Capture"
-	}
-	clusterInfo := captureClusterInfo(cap.meta, filepath.Base(cap.dir))
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	rendered := s.renderTemplate(s.logTemplate, logTemplateData{
-		Title:          title,
-		ClusterInfo:    clusterInfo,
-		FiltersEnabled: true,
-		ForceStatic:    false,
-		StaticLogsB64:  "",
-		SessionMetaB64: "",
-		EventsB64:      "",
-		ManifestsB64:   "",
-		CaptureID:      id,
-	})
-	_, _ = w.Write([]byte(rendered))
 }
 
 func (s *Server) ObserveLog(record tailer.LogRecord) {
@@ -344,11 +140,7 @@ func (s *Server) HandleDeployEvent(event deploy.StreamEvent) {
 
 func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	renderer := s.renderIndex
-	if renderer == nil {
-		renderer = s.renderLogIndex
-	}
-	formatted := renderer(template.HTMLEscapeString(s.clusterInfo))
+	formatted := s.renderDeployIndex(template.HTMLEscapeString(s.clusterInfo))
 	_, _ = w.Write([]byte(formatted))
 }
 
@@ -356,10 +148,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.logger.Error(err, "upgrade cast websocket")
-		return
-	}
-	if s.acceptLogs && s.logReplay != nil {
-		s.runLogReplayConnection(r.Context(), conn)
 		return
 	}
 	client := newClient(conn, s.logger)
@@ -373,95 +161,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) runLogReplayConnection(ctx context.Context, conn *websocket.Conn) {
-	if conn == nil {
-		return
-	}
-	defer conn.Close()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	replayCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		conn.SetReadLimit(1024)
-		_ = conn.SetReadDeadline(time.Now().Add(pongWait))
-		conn.SetPongHandler(func(string) error {
-			_ = conn.SetReadDeadline(time.Now().Add(pongWait))
-			return nil
-		})
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				cancel()
-				return
-			}
-		}
-	}()
-
-	send := func(record tailer.LogRecord) error {
-		select {
-		case <-replayCtx.Done():
-			return replayCtx.Err()
-		default:
-		}
-		payload, err := encodePayload(record)
-		if err != nil {
-			return err
-		}
-		_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
-		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if err := s.logReplay(replayCtx, send); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, io.EOF) {
-		s.logger.Error(err, "log replay failed")
-	}
-	<-done
-}
-
-type logTemplateData struct {
-	Title          string
-	ClusterInfo    string
-	FiltersEnabled bool
-	ForceStatic    bool
-	StaticLogsB64  string
-	SessionMetaB64 string
-	EventsB64      string
-	ManifestsB64   string
-	CaptureID      string
-}
-
 type deployTemplateData struct {
 	ClusterInfo string
-}
-
-// ImportCapture stores the capture artifact on disk (by id) and enables the query-backed
-// capture viewer endpoints for it.
-func (s *Server) ImportCapture(ctx context.Context, id string, artifactPath string) error {
-	return s.importCaptureArtifact(ctx, id, artifactPath)
-}
-
-func (s *Server) renderLogIndex(info string) string {
-	if s == nil {
-		return ""
-	}
-	title := s.logTitle
-	return s.renderTemplate(s.logTemplate, logTemplateData{
-		Title:          title,
-		ClusterInfo:    info,
-		FiltersEnabled: s.filtersEnabled,
-		ForceStatic:    false,
-		StaticLogsB64:  "",
-		SessionMetaB64: "",
-		EventsB64:      "",
-		ManifestsB64:   "",
-		CaptureID:      "",
-	})
 }
 
 func (s *Server) renderDeployIndex(info string) string {
@@ -520,8 +221,7 @@ func encodePayload(record tailer.LogRecord) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// EncodeLogRecord converts a rendered log record into the JSON payload expected by
-// the log mirror UI (same format as websocket frames from /ws).
+// EncodeLogRecord converts a rendered log record into the JSON payload sent over /ws.
 func EncodeLogRecord(record tailer.LogRecord) ([]byte, error) {
 	return encodePayload(record)
 }
@@ -642,9 +342,6 @@ func (m Mode) String() string {
 
 var (
 	ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-	//go:embed templates/log_mirror.html
-	logMirrorHTML string
 
 	//go:embed templates/deploy_viewer.html
 	deployViewerHTML string

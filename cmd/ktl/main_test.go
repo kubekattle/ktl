@@ -61,3 +61,58 @@ func TestDeleteCommandHasDestroyAlias(t *testing.T) {
 		t.Fatalf("expected delete aliases to include destroy, got: %v", deleteCmdAliases)
 	}
 }
+
+func TestListCommandHasLsAlias(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var listCmdAliases []string
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "list" {
+			listCmdAliases = cmd.Aliases
+			break
+		}
+	}
+	if listCmdAliases == nil {
+		t.Fatalf("expected root to include list command")
+	}
+	if !slices.Contains(listCmdAliases, "ls") {
+		t.Fatalf("expected list aliases to include ls, got: %v", listCmdAliases)
+	}
+}
+
+func TestRootIncludesLintCommand(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "lint" {
+			return
+		}
+	}
+	t.Fatalf("expected root to include lint command")
+}
+
+func TestRootIncludesPackageCommand(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "package" {
+			return
+		}
+	}
+	t.Fatalf("expected root to include package command")
+}

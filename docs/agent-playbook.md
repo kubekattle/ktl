@@ -6,7 +6,7 @@ This repo is optimized for small, reviewable changes. Prefer making the minimal 
 
 - `cmd/ktl/*`: Cobra command wiring, flags, CLI UX, help text, and wiring into `internal/*`.
 - `cmd/ktl-agent/*`: remote agent entrypoint and CLI wiring for `--remote-agent` / `--mirror-bus`.
-- `internal/*`: core implementation (tailing, capture, deploy/apply, UI mirroring, BuildKit workflows, config/feature flags).
+- `internal/*`: core implementation (tailing, deploy/apply, UI mirroring, BuildKit workflows, config/feature flags).
 - `proto/*` + `pkg/api/v1/*`: protobuf API definitions and generated stubs.
 - `testdata/*`: fixtures and golden files (keep secrets out).
 

@@ -127,14 +127,6 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	if probe := strings.TrimSpace(opts.SandboxProbePath); probe != "" {
-		if _, err := os.Stat(probe); err == nil {
-			fmt.Fprintf(errOut, "[probe] stat %q: OK\n", probe)
-		} else {
-			fmt.Fprintf(errOut, "[probe] stat %q: %v\n", probe, err)
-		}
-	}
-
 	contextAbs, err := filepath.Abs(contextDir)
 	if err != nil {
 		return nil, err
@@ -152,6 +144,14 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	} else if opts.SandboxLogs {
 		return nil, fmt.Errorf("--sandbox-logs is only supported on Linux hosts with a sandbox runtime installed")
+	}
+
+	if probe := strings.TrimSpace(opts.SandboxProbePath); probe != "" {
+		if _, err := os.Stat(probe); err == nil {
+			fmt.Fprintf(errOut, "[probe] stat %q: OK\n", probe)
+		} else {
+			fmt.Fprintf(errOut, "[probe] stat %q: %v\n", probe, err)
+		}
 	}
 
 	stream := newBuildProgressBroadcaster(filepath.Base(contextAbs))
@@ -198,27 +198,17 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}()
 
 	mirrorLabel := fmt.Sprintf("Context: %s", contextAbs)
-	if strings.TrimSpace(opts.UIAddr) != "" || strings.TrimSpace(opts.WSListenAddr) != "" {
+	if addr := strings.TrimSpace(opts.WSListenAddr); addr != "" {
 		logger, logErr := logging.New("info")
 		if logErr != nil {
 			return nil, logErr
 		}
-		if addr := strings.TrimSpace(opts.UIAddr); addr != "" {
-			uiServer := caststream.New(addr, caststream.ModeWeb, mirrorLabel, logger.WithName("build-ui"), caststream.WithoutFilters(), caststream.WithoutLogTitle())
-			stream.addObserver(uiServer)
-			if err := castutil.StartCastServer(ctx, uiServer, "ktl build UI", logger.WithName("build-ui"), errOut); err != nil {
-				return nil, err
-			}
-			fmt.Fprintf(errOut, "Serving ktl build UI on %s\n", addr)
+		wsServer := caststream.New(addr, caststream.ModeWS, mirrorLabel, logger.WithName("build-ws"))
+		stream.addObserver(wsServer)
+		if err := castutil.StartCastServer(ctx, wsServer, "ktl build websocket stream", logger.WithName("build-ws"), errOut); err != nil {
+			return nil, err
 		}
-		if addr := strings.TrimSpace(opts.WSListenAddr); addr != "" {
-			wsServer := caststream.New(addr, caststream.ModeWS, mirrorLabel, logger.WithName("build-ws"))
-			stream.addObserver(wsServer)
-			if err := castutil.StartCastServer(ctx, wsServer, "ktl build websocket stream", logger.WithName("build-ws"), errOut); err != nil {
-				return nil, err
-			}
-			fmt.Fprintf(errOut, "Serving ktl websocket build stream on %s\n", addr)
-		}
+		fmt.Fprintf(errOut, "Serving ktl websocket build stream on %s\n", addr)
 	}
 	stream.emitInfo(fmt.Sprintf("Streaming ktl build from %s", contextDir))
 	defer func() {

@@ -26,23 +26,6 @@ ktl logs 'checkout-.*' \
   --node-log /var/log/syslog
 ```
 
-## Capture / Replay
-```bash
-# Capture an incident window into a portable archive
-ktl logs capture . \
-  --namespace prod-payments \
-  --duration 10m \
-  --capture-output dist/checkout-incident.tar.gz
-
-# Replay for one pod and emit JSON
-ktl logs capture replay dist/checkout-incident.tar.gz \
-  --namespace prod-payments \
-  --pod checkout-api-7fb4d8b4bb-nbqzl \
-  --grep timeout \
-  --prefer-json \
-  --json
-```
-
 ## Plan / Apply / Delete (Helm)
 ```bash
 # Preview chart changes

@@ -66,7 +66,6 @@ type Options struct {
 	NodeLogFiles          []string
 	NodeLogAll            bool
 	NodeLogsOnly          bool
-	UIAddr                string
 	WSListenAddr          string
 }
 
@@ -192,11 +191,6 @@ func (o *Options) BindFlags(fs *pflag.FlagSet) []string {
 	names = append(names, "node-log-all")
 	fs.BoolVar(&o.NodeLogsOnly, "node-log-only", false, "Suppress pod logs and stream only node/system logs")
 	names = append(names, "node-log-only")
-	fs.StringVar(&o.UIAddr, "ui", "", "Serve the polished HTML log viewer at this address (mirrors stdout; e.g. :8080)")
-	if flag := fs.Lookup("ui"); flag != nil {
-		flag.NoOptDefVal = ":8080"
-	}
-	names = append(names, "ui")
 	fs.StringVar(&o.WSListenAddr, "ws-listen", "", "Expose a raw WebSocket log feed at this address (e.g. :9090)")
 	names = append(names, "ws-listen")
 	return names

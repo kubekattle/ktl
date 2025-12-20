@@ -10,7 +10,7 @@ Reference for autonomous agents running the latest `ktl` toolchain. Follow these
 2. **Default to read-only.** `ktl logs`, `ktl diag *`, `ktl package *`, and `ktl app package` are safe; anything that injects helpers (`ktl analyze traffic`, `ktl analyze syscalls`, `ktl db restore`, future deploy flows) requires explicit operator approval.
 3. **Make configuration explicit.** Pin namespaces (`-n`, `-A`), releases, and output directories. Prefer environment overrides (`KTL_ALL_NAMESPACES`, `KTL_NAMESPACE`, etc.) only when the human requested enduring defaults.
 4. **Report constraints immediately.** Surface RBAC errors, missing metrics APIs, or unsupported features (ephemeral containers, CSI snapshots) verbatim so humans can remediate.
-5. **Keep runs reproducible.** Reuse the same query strings and flags when comparing runs and store capture artifacts with timestamps (`dist/capture-<date>.tar.gz`).
+5. **Keep runs reproducible.** Reuse the same query strings and flags when comparing runs, and timestamp any saved outputs under `dist/` for traceability.
 
 ---
 
@@ -22,15 +22,9 @@ Reference for autonomous agents running the latest `ktl` toolchain. Follow these
 - Add `--events` for correlated Kubernetes events, or `--events-only` when specifically asked.
 - Disable color in pipelines: `--color never`. For downstream tooling, `--output json` or `--template <file>` keeps parsing deterministic.
 
-### 2.2 Incident Capture & Replay
-- Capture everything with `ktl logs capture <query> --namespace <ns> --duration 5m --capture-output dist/<name>.tar.gz [--capture-sqlite]`.
-- Use `ktl logs capture diff --old <old.tgz> --new <new.tgz>` to compare windows, and `ktl logs capture replay --archive <file> --output <dir>` for offline triage.
-- Always confirm free disk space ahead of captures and echo the absolute artifact path afterward.
-
 ### 2.3 Diagnostics & Reporting
 - Run scoped diagnostics (`ktl diag nodes`, `ktl diag quotas`, `ktl diag storage`, `ktl diag priorities`, etc.) with `--namespace`/`--all-namespaces` according to the request.
 - Generate posture summaries with `ktl diag report --html --output dist/report.html` (ensuring the directory exists). Mention if metrics APIs were unavailable so readers understand missing charts.
-- `ktl logs drift watch` highlights namespace drift; only run long-lived watchers when the operator has approved ongoing monitoring.
 
 ### 2.4 Packaging & Offline Delivery
 - Full app archive: `ktl app package --chart <chart> --release <name> --namespace <ns> --values values.yaml --archive-file dist/<name>.k8s` and, when asked, unpack via `ktl app unpack --archive-file <file> --output-dir dist/<name>-unpacked`.
@@ -57,7 +51,7 @@ Reference for autonomous agents running the latest `ktl` toolchain. Follow these
 
 1. **Authentication:** Validate kubeconfig path and context, especially for CI agents. Never hardcode credentials inside scripts.
 2. **RBAC & Feature Gates:** Ask whether the cluster supports ephemeral containers, metrics APIs, and PVC inspect APIs before running commands that rely on them.
-3. **Filesystem Prep:** Create/verify directories referenced by `--output`, `--archive-file`, or `--capture-output`. Fail fast if the path is unwritable.
+3. **Filesystem Prep:** Create/verify directories referenced by `--output` or `--archive-file`. Fail fast if the path is unwritable.
 4. **Cluster Impact:** Communicate potential load (namespace-wide scans, multi-target traffic analysis, `ktl app package` Helm renders) and wait for approval when the action could spike API server usage.
 
 ---
@@ -72,7 +66,7 @@ Reference for autonomous agents running the latest `ktl` toolchain. Follow these
 | `metrics API unavailable` | Metrics server disabled | Explain charts/usage fields will be blank; proceed with manifest-only data. |
 | `sniffer image pull failed` | Registry access denied | Request mirror image (`--image registry/internal/tcpdump:tag`). |
 | `helm template` errors during packaging/app builds | Chart or values invalid | Surface Helm stderr verbatim; do not guess overrides. |
-| `sqlite writer` failures in captures/app archives | Dist directory unwritable or disk full | Free space / change `--archive-file` and re-run after confirmation. |
+| output write failures | output directory unwritable or disk full | Free space / change `--output`/`--archive-file` and re-run after confirmation. |
 
 ---
 

@@ -25,11 +25,6 @@ type buildConsoleObserver struct {
 	timestampColor   *color.Color
 }
 
-var (
-	allowedGlyphs   = []string{"●", "▲", "■", "◆", "▸"}
-	defaultLogGlyph = "●"
-)
-
 func NewConsoleObserver(w io.Writer) tailer.LogObserver {
 	if w == nil {
 		return nil
@@ -86,10 +81,6 @@ func (o *buildConsoleObserver) render(rec tailer.LogRecord) string {
 	podToken := strings.TrimSpace(rec.Pod)
 	if podToken == "" {
 		podToken = strings.TrimSpace(rec.Namespace)
-	}
-	glyph := selectGlyph(rec.Source, rec.SourceGlyph)
-	if glyph != "" {
-		podToken = strings.TrimSpace(glyph + " " + podToken)
 	}
 	containerTag := formatBuildContainerTag(rec.Container)
 
@@ -151,33 +142,4 @@ func paletteIndex(seed string, length int) int {
 	hasher := fnv.New32a()
 	_, _ = hasher.Write([]byte(seed))
 	return int(hasher.Sum32()) % length
-}
-
-func selectGlyph(source, rawGlyph string) string {
-	if g := sanitizeGlyph(rawGlyph); g != "" {
-		return g
-	}
-	switch strings.ToLower(strings.TrimSpace(source)) {
-	case "build", "stdout", "stderr", "console":
-		return defaultLogGlyph
-	case "diagnostic", "warning", "sandbox":
-		return "▲"
-	case "cache", "context":
-		return "■"
-	default:
-		return defaultLogGlyph
-	}
-}
-
-func sanitizeGlyph(candidate string) string {
-	candidate = strings.TrimSpace(candidate)
-	if candidate == "" {
-		return ""
-	}
-	for _, allowed := range allowedGlyphs {
-		if candidate == allowed {
-			return candidate
-		}
-	}
-	return ""
 }

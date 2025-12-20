@@ -58,37 +58,52 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	var outputPath string
 	var visualize bool
 	var compareSource string
+	resolvedFormat := ""
+	resolveFormat := func() string {
+		selected := strings.ToLower(strings.TrimSpace(format))
+		if renderHTML {
+			selected = "html"
+		}
+		if visualize {
+			selected = "visualize"
+		}
+		if selected == "" {
+			selected = "text"
+		}
+		return selected
+	}
 
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Preview Helm release changes without applying them",
 		Long:  "Render the chart, diff it against live cluster resources, and summarize the net creates/updates/deletes before running ktl apply.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			resolvedFormat = resolveFormat()
+			switch resolvedFormat {
+			case "text", "json", "yaml", "html", "visualize":
+			default:
+				return fmt.Errorf("unsupported format %q (expected text, json, yaml, html, or visualize)", resolvedFormat)
+			}
+			if resolvedFormat == "text" && strings.TrimSpace(outputPath) != "" {
+				return fmt.Errorf("--output is only supported with --format=html, --format=json, --format=yaml, or --visualize")
+			}
+			if strings.TrimSpace(compareSource) != "" && resolvedFormat != "visualize" {
+				return fmt.Errorf("--compare is only supported with --visualize")
+			}
+			return nil
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			kubeClient, err := kube.New(ctx, *kubeconfig, *kubeContext)
 			if err != nil {
 				return err
 			}
-			selectedFormat := strings.ToLower(strings.TrimSpace(format))
-			if renderHTML {
-				selectedFormat = "html"
-			}
-			if visualize {
-				selectedFormat = "visualize"
-			}
+			selectedFormat := resolvedFormat
 			if selectedFormat == "" {
-				selectedFormat = "text"
-			}
-			switch selectedFormat {
-			case "text", "json", "html", "visualize":
-			default:
-				return fmt.Errorf("unsupported format %q", selectedFormat)
-			}
-			if selectedFormat == "text" && strings.TrimSpace(outputPath) != "" {
-				return fmt.Errorf("--output is only supported with --format=html, --format=json, or --visualize")
-			}
-			if strings.TrimSpace(compareSource) != "" && selectedFormat != "visualize" {
-				return fmt.Errorf("--compare is only supported with --visualize")
+				selectedFormat = resolveFormat()
 			}
 
 			resolvedNamespace := ""
@@ -206,6 +221,20 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 					fmt.Fprintf(cmd.OutOrStdout(), "%s\n", data)
 				}
 				return nil
+			case "yaml":
+				data, err := yaml.Marshal(planResult)
+				if err != nil {
+					return fmt.Errorf("marshal plan yaml: %w", err)
+				}
+				if strings.TrimSpace(outputPath) != "" {
+					if err := os.WriteFile(outputPath, data, 0o644); err != nil {
+						return fmt.Errorf("write yaml: %w", err)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "Plan written to %s\n", outputPath)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\n", data)
+				}
+				return nil
 			default:
 				renderDeployPlan(cmd.OutOrStdout(), planResult)
 				return nil
@@ -222,7 +251,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	cmd.Flags().StringArrayVar(&setFileValues, "set-file", nil, "Set values from files (key=path)")
 	cmd.Flags().BoolVar(&includeCRDs, "include-crds", false, "Render CRDs in addition to the main chart objects")
 	cmd.Flags().StringVar(&compareSource, "compare", "", "Plan artifact (path or URL) to embed for visualize comparisons")
-	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, or html")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, yaml, or html")
 	cmd.Flags().BoolVar(&renderHTML, "html", false, "Render the plan as a design-system HTML report (deprecated, use --format=html)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the rendered plan to this path (HTML defaults to ./ktl-deploy-plan-<release>-<timestamp>.html)")
 	cmd.Flags().BoolVar(&visualize, "visualize", false, "Render the interactive visualization")
@@ -232,7 +261,6 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	if ownNamespaceFlag {
 		cmd.Flags().StringVarP(namespace, "namespace", "n", "", "Namespace for the Helm release (defaults to active context)")
 	}
-	registerNamespaceCompletion(cmd, "namespace", kubeconfig, kubeContext)
 	section := strings.TrimSpace(helpSection)
 	if section == "" {
 		section = "Plan Flags"

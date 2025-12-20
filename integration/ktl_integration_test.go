@@ -427,14 +427,6 @@ func runKtl(t *testing.T, timeout time.Duration, args ...string) string {
 	return stdout
 }
 
-func runKtlWithStreams(t *testing.T, timeout time.Duration, args ...string) (string, string) {
-	stdout, stderr, err := execKtl(timeout, args...)
-	if err != nil {
-		t.Fatalf("ktl %v failed: %v\nstderr:\n%s", args, err, stderr)
-	}
-	return stdout, stderr
-}
-
 func execKtl(timeout time.Duration, args ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

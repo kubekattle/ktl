@@ -157,40 +157,6 @@ message MirrorSubscribeRequest {
   bool replay = 2;
 }
 
-message CaptureOptions {
-  int64 duration_seconds = 1;
-  string output_name = 2;
-  bool sqlite = 3;
-  bool attach_describe = 4;
-  string session_name = 5;
-}
-
-message CaptureRequest {
-  LogRequest log = 1;
-  CaptureOptions capture = 2;
-}
-
-message CaptureChunk {
-  bytes data = 1;
-  bool last = 2;
-  string filename = 3;
-  string error = 4;
-}
-
-message DriftWatchRequest {
-  repeated string namespaces = 1;
-  bool all_namespaces = 2;
-  int64 interval_seconds = 3;
-  int32 history = 4;
-  int32 iterations = 5;
-  string kube_context = 6;
-  string kubeconfig_path = 7;
-}
-
-message DriftEvent {
-  string text = 1;
-}
-
 service LogService {
   rpc StreamLogs(LogRequest) returns (stream LogLine);
 }
@@ -207,12 +173,4 @@ service DeployService {
 service MirrorService {
   rpc Publish(stream MirrorFrame) returns (stream MirrorAck);
   rpc Subscribe(MirrorSubscribeRequest) returns (stream MirrorFrame);
-}
-
-service CaptureService {
-  rpc RunCapture(CaptureRequest) returns (stream CaptureChunk);
-}
-
-service DriftService {
-  rpc Watch(DriftWatchRequest) returns (stream DriftEvent);
 }

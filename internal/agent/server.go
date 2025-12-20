@@ -46,14 +46,10 @@ func New(cfg Config, svc buildsvc.Service) (*Server, error) {
 	logSrv := &LogServer{Config: cfg, Logger: logger.WithName("logs"), Mirror: mirror}
 	buildSrv := &BuildServer{Service: svc, Mirror: mirror, Logger: logger.WithName("build")}
 	deploySrv := &DeployServer{Logger: logger.WithName("deploy")}
-	captureSrv := &CaptureServer{}
-	driftSrv := &DriftServer{}
 	grpcSrv := grpc.NewServer(grpc.Creds(insecure.NewCredentials()), grpc.KeepaliveParams(keepalive.ServerParameters{}))
 	apiv1.RegisterLogServiceServer(grpcSrv, logSrv)
 	apiv1.RegisterBuildServiceServer(grpcSrv, buildSrv)
 	apiv1.RegisterDeployServiceServer(grpcSrv, deploySrv)
-	apiv1.RegisterCaptureServiceServer(grpcSrv, captureSrv)
-	apiv1.RegisterDriftServiceServer(grpcSrv, driftSrv)
 	apiv1.RegisterMirrorServiceServer(grpcSrv, mirror)
 	return &Server{cfg: cfg, build: svc, mirror: mirror, logs: logSrv, grpcSrv: grpcSrv}, nil
 }

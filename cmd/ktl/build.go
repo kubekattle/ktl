@@ -61,7 +61,6 @@ type buildCLIOptions struct {
 	logFile          string
 	rm               bool
 	quiet            bool
-	uiAddr           string
 	wsListenAddr     string
 	remoteAddr       string
 }
@@ -87,15 +86,24 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build CONTEXT",
 		Short: "Build container images with BuildKit",
-		Args:  cobra.ArbitraryArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Example: `  # Build the current directory
+  ktl build .
+
+  # Build with tags and push
+  ktl build . -f Dockerfile -t ghcr.io/acme/app:latest --push`,
+		Args: func(cmd *cobra.Command, args []string) error {
 			if err := requireBuildContextArg(cmd, args); err != nil {
 				if errors.Is(err, errMissingBuildContext) {
 					_ = cmd.Help()
-					return nil
 				}
 				return err
 			}
+			return nil
+		},
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			return validateBuildMirrorFlags(opts)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			if len(args) > 0 {
 				runOpts.contextDir = args[0]
@@ -131,12 +139,8 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().StringVar(&opts.logFile, "logfile", "", "Log to file instead of stdout/stderr")
 	cmd.Flags().BoolVar(&opts.rm, "rm", true, "Remove intermediate containers after a successful build")
 	cmd.Flags().BoolVarP(&opts.quiet, "quiet", "q", false, "Refrain from announcing build instructions and progress")
-	cmd.Flags().BoolVar(&opts.sandboxLogs, "sandbox-logs", false, "Stream sandbox runtime logs to stderr and the build viewer")
+	cmd.Flags().BoolVar(&opts.sandboxLogs, "sandbox-logs", false, "Stream sandbox runtime logs to stderr and the websocket mirror (when --ws-listen is set)")
 	cmd.Flags().StringVar(&opts.sandboxProbePath, "sandbox-probe-path", "", "Probe filesystem visibility before building by attempting to stat this host path")
-	cmd.Flags().StringVar(&opts.uiAddr, "ui", "", "Serve the live BuildKit viewer at this address (e.g. :8080)")
-	if flag := cmd.Flags().Lookup("ui"); flag != nil {
-		flag.NoOptDefVal = ":8080"
-	}
 	cmd.Flags().StringVar(&opts.wsListenAddr, "ws-listen", "", "Serve the raw BuildKit event stream over WebSocket at this address (e.g. :9085)")
 	cmd.Flags().StringVar(&opts.remoteAddr, "remote-build", "", "Execute this build via a remote ktl-agent gRPC endpoint (host:port)")
 	cmd.PersistentFlags().StringVar(&opts.authFile, "authfile", "", "Path to the authentication file (Docker config.json)")
@@ -165,24 +169,21 @@ func requireBuildContextArg(_ *cobra.Command, args []string) error {
 }
 
 func validateBuildMirrorFlags(opts buildCLIOptions) error {
-	hasMirror := strings.TrimSpace(opts.uiAddr) != "" || strings.TrimSpace(opts.wsListenAddr) != ""
+	hasMirror := strings.TrimSpace(opts.wsListenAddr) != ""
 	if !hasMirror {
 		return nil
 	}
 	if opts.quiet {
-		return fmt.Errorf("--ui/--ws-listen cannot be combined with --quiet")
+		return fmt.Errorf("--ws-listen cannot be combined with --quiet")
 	}
 	if strings.TrimSpace(opts.logFile) != "" {
-		return fmt.Errorf("--ui/--ws-listen cannot be combined with --logfile; mirrors already capture the live stream")
+		return fmt.Errorf("--ws-listen cannot be combined with --logfile; mirrors already capture the live stream")
 	}
 	return nil
 }
 
 func runBuildCommand(cmd *cobra.Command, service buildsvc.Service, opts buildCLIOptions) error {
-	if err := validateBuildMirrorFlags(opts); err != nil {
-		return err
-	}
-	if requestedHelp(opts.uiAddr) || requestedHelp(opts.wsListenAddr) {
+	if requestedHelp(opts.wsListenAddr) {
 		return cmd.Help()
 	}
 	if addr := strings.TrimSpace(opts.remoteAddr); addr != "" {
@@ -209,7 +210,6 @@ func runBuildCommand(cmd *cobra.Command, service buildsvc.Service, opts buildCLI
 				svcOpts.Observers = append(svcOpts.Observers, pub)
 				observerClosers = append(observerClosers, pub)
 				fmt.Fprintf(cmd.ErrOrStderr(), "Publishing build mirror session %s via %s\n", sessionID, addr)
-				fmt.Fprintf(cmd.ErrOrStderr(), "Share via: ktl mirror proxy --bus %s --session %s --mode logs\n", addr, sessionID)
 			}
 		}
 	}
@@ -321,7 +321,6 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		LogFile:            opts.logFile,
 		RemoveIntermediate: opts.rm,
 		Quiet:              opts.quiet,
-		UIAddr:             opts.uiAddr,
 		WSListenAddr:       opts.wsListenAddr,
 	}
 }
@@ -329,14 +328,6 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 func startBuildMirrors(ctx context.Context, opts buildCLIOptions, mirrorAddr, label string, logger logr.Logger, errOut io.Writer) ([]tailer.LogObserver, func(), error) {
 	var observers []tailer.LogObserver
 	var closers []func()
-	if addr := strings.TrimSpace(opts.uiAddr); addr != "" {
-		uiServer := caststream.New(addr, caststream.ModeWeb, label, logger.WithName("build-ui"), caststream.WithoutFilters(), caststream.WithoutLogTitle())
-		if err := castutil.StartCastServer(ctx, uiServer, "ktl build UI", logger.WithName("build-ui"), errOut); err != nil {
-			return nil, func() {}, err
-		}
-		observers = append(observers, uiServer)
-		fmt.Fprintf(errOut, "Serving ktl build UI on %s\n", addr)
-	}
 	if addr := strings.TrimSpace(opts.wsListenAddr); addr != "" {
 		wsServer := caststream.New(addr, caststream.ModeWS, label, logger.WithName("build-ws"))
 		if err := castutil.StartCastServer(ctx, wsServer, "ktl build websocket stream", logger.WithName("build-ws"), errOut); err != nil {
@@ -354,7 +345,6 @@ func startBuildMirrors(ctx context.Context, opts buildCLIOptions, mirrorAddr, la
 			observers = append(observers, pub)
 			closers = append(closers, func() { _ = pub.Close() })
 			fmt.Fprintf(errOut, "Publishing build mirror session %s via %s\n", sessionID, mirrorAddr)
-			fmt.Fprintf(errOut, "Share via: ktl mirror proxy --bus %s --session %s --mode logs\n", mirrorAddr, sessionID)
 		}
 	}
 	cleanup := func() {

@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -81,8 +82,8 @@ func newRootCommand() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(opts.UIAddr) != "" || strings.TrimSpace(opts.WSListenAddr) != "" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Note: use `ktl logs capture --ui` (or `ktl logs ... --ui`) instead of running the legacy `ktl [POD_QUERY]` entrypoint with UI flags.")
+			if strings.TrimSpace(opts.WSListenAddr) != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Note: use `ktl logs --ws-listen` (or `ktl logs ... --ws-listen`) instead of running the legacy `ktl [POD_QUERY]` entrypoint with streaming flags.")
 				return pflag.ErrHelp
 			}
 			// Guard against a common footgun: `ktl <typo>` currently falls back to log tailing
@@ -96,6 +97,7 @@ func newRootCommand() *cobra.Command {
 			return runLogs(cmd, args, opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)
 		},
 	}
+	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.PersistentFlags().StringVarP(&kubeconfigPath, "kubeconfig", "k", "", "Path to the kubeconfig file to use for CLI requests")
 	cmd.PersistentFlags().StringVarP(&kubeContext, "context", "K", "", "Name of the kubeconfig context to use")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", logLevel, "Log level for ktl output (debug, info, warn, error)")
@@ -103,42 +105,38 @@ func newRootCommand() *cobra.Command {
 	if err := cmd.PersistentFlags().MarkHidden("feature"); err != nil {
 		cobra.CheckErr(err)
 	}
-	cmd.PersistentFlags().StringVar(&remoteAgentAddr, "remote-agent", "", "Forward ktl logs, captures, and deploy operations to a remote ktl-agent gRPC endpoint")
-	cmd.PersistentFlags().StringVar(&mirrorBusAddr, "mirror-bus", "", "Publish UI mirror payloads to a shared gRPC bus (ktl-agent MirrorService)")
+	cmd.PersistentFlags().StringVar(&remoteAgentAddr, "remote-agent", "", "Forward ktl logs and deploy operations to a remote ktl-agent gRPC endpoint")
+	cmd.PersistentFlags().StringVar(&mirrorBusAddr, "mirror-bus", "", "Publish mirror payloads to a shared gRPC bus (ktl-agent MirrorService)")
 	logFlagNames := opts.BindFlags(cmd.Flags())
 	hideFlags(cmd.Flags(), logFlagNames)
 	logsCmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)
-	captureCmd := newCaptureCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
-	driftCmd := newDriftCommand(&kubeconfigPath, &kubeContext, &remoteAgentAddr)
-	logsCmd.AddCommand(captureCmd, driftCmd)
-	registerNamespaceCompletion(cmd, "namespace", &kubeconfigPath, &kubeContext)
 	buildCmd := newBuildCommand()
 	planCmd := newPlanCommand(&kubeconfigPath, &kubeContext)
+	listCmd := newListCommand(&kubeconfigPath, &kubeContext)
+	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
+	packageCmd := newPackageCommand()
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
-	completionCmd := newCompletionCommand(cmd)
 	cmd.AddCommand(
 		logsCmd,
 		buildCmd,
 		planCmd,
+		listCmd,
+		lintCmd,
+		packageCmd,
 		applyCmd,
 		deleteCmd,
-		completionCmd,
-		newMirrorCommand(),
 	)
 	cmd.Example = `  # Tail checkout pods in prod-payments and highlight errors
 	  ktl logs 'checkout-.*' --namespace prod-payments --highlight ERROR
 
-	  # Capture an incident for offline replay
-	  ktl logs capture checkout --namespace prod-payments --duration 5m --capture-output dist/checkout.tar.gz
+  # Preview a Helm upgrade
+  ktl plan --chart ./chart --release foo
 
-	  # Preview a Helm upgrade
-		  ktl plan --chart ./chart --release foo
-
-		  # Apply chart changes
-		  ktl apply --chart ./chart --release foo --namespace prod`
+  # Apply chart changes
+  ktl apply --chart ./chart --release foo --namespace prod`
 	decorateCommandHelp(cmd, "Global Flags")
-	bindViper(cmd, logsCmd, captureCmd, driftCmd, buildCmd, planCmd, applyCmd, deleteCmd, completionCmd)
+	bindViper(cmd, logsCmd, buildCmd, planCmd, listCmd, lintCmd, packageCmd, applyCmd, deleteCmd)
 	return cmd
 }
 
@@ -215,12 +213,12 @@ func handleError(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %s\n", message)
 }
 
-func streamFromStdin(ctx context.Context, opts *config.Options) error {
+func streamFromStdin(ctx context.Context, opts *config.Options, in io.Reader, out io.Writer) error {
 	tmpl, err := template.New("ktl-stdin").Parse(opts.Template)
 	if err != nil {
 		return fmt.Errorf("parse template: %w", err)
 	}
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(in)
 	highlight := color.New(color.BgYellow, color.FgBlack)
 	for scanner.Scan() {
 		select {
@@ -271,7 +269,7 @@ func streamFromStdin(ctx context.Context, opts *config.Options) error {
 		if err := tmpl.Execute(&b, entry); err != nil {
 			return fmt.Errorf("execute template: %w", err)
 		}
-		fmt.Println(b.String())
+		fmt.Fprintln(out, b.String())
 	}
 	return scanner.Err()
 }

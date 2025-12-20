@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/example/ktl/internal/api/convert"
-	"github.com/example/ktl/internal/capture"
 	"github.com/example/ktl/internal/caststream"
 	"github.com/example/ktl/internal/castutil"
 	"github.com/example/ktl/internal/config"
@@ -42,13 +41,12 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 	}
 
 	opts.AddFlags(cmd)
-	registerNamespaceCompletion(cmd, "namespace", kubeconfigPath, kubeContext)
 	decorateCommandHelp(cmd, "Log Flags")
 	return cmd
 }
 
 func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string) error {
-	if requestedHelp(opts.UIAddr) || requestedHelp(opts.WSListenAddr) {
+	if requestedHelp(opts.WSListenAddr) {
 		return cmd.Help()
 	}
 	if len(args) > 0 && requestedHelp(args[0]) {
@@ -56,14 +54,7 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 	}
 	hasFilters := hasNonGlobalFlag(cmd.Flags())
 	if len(args) == 0 && !hasFilters {
-		// Allow launching the UI as an "idle" control surface so responders can start
-		// a capture from the browser without committing to a pod query up front.
-		if strings.TrimSpace(opts.UIAddr) == "" {
-			if strings.TrimSpace(opts.WSListenAddr) != "" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Provide a POD_QUERY or filter flags before using --ws-listen so there is something to mirror.")
-			}
-			return cmd.Help()
-		}
+		return cmd.Help()
 	}
 
 	opts.KubeConfigPath = *kubeconfigPath
@@ -89,7 +80,7 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 
 	ctx := cmd.Context()
 	if opts.Stdin {
-		return streamFromStdin(ctx, opts)
+		return streamFromStdin(ctx, opts, cmd.InOrStdin(), cmd.OutOrStdout())
 	}
 	kubeClient, err := kube.New(ctx, opts.KubeConfigPath, opts.Context)
 	if err != nil {
@@ -116,7 +107,6 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 			} else {
 				mirrorPublisher = pub
 				tailerOpts = append(tailerOpts, tailer.WithLogObserver(pub))
-				fmt.Fprintf(cmd.ErrOrStderr(), "Share via: ktl mirror proxy --bus %s --session %s\n", addr, sessionID)
 			}
 		}
 	}
@@ -126,28 +116,6 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		}
 	}()
 	clusterInfo := describeClusterLabel(kubeClient, *kubeContext)
-	if addr := strings.TrimSpace(opts.UIAddr); addr != "" {
-		uiCapOpts := capture.NewOptions()
-		uiCapOpts.Duration = 24 * time.Hour
-		uiCapOpts.SQLite = true
-		uiCapOpts.AttachDescribe = true
-		uiCapOpts.AttachManifests = true
-		captureCtrl := newUICaptureController(ctx, kubeClient, opts, uiCapOpts, logger.WithName("ui-capture"))
-		uiServer := caststream.New(
-			addr,
-			caststream.ModeWeb,
-			clusterInfo,
-			logger.WithName("ui"),
-			caststream.WithoutClusterInfo(),
-			caststream.WithoutLogTitle(),
-			caststream.WithCaptureController(captureCtrl),
-		)
-		if err := castutil.StartCastServer(ctx, uiServer, "ktl log UI", logger.WithName("ui"), cmd.ErrOrStderr()); err != nil {
-			return err
-		}
-		tailerOpts = append(tailerOpts, tailer.WithLogObserver(uiServer))
-		fmt.Fprintf(cmd.ErrOrStderr(), "Serving ktl log UI on %s\n", addr)
-	}
 	if addr := strings.TrimSpace(opts.WSListenAddr); addr != "" {
 		wsServer := caststream.New(addr, caststream.ModeWS, clusterInfo, logger.WithName("wscast"))
 		if err := castutil.StartCastServer(ctx, wsServer, "ktl log websocket stream", logger.WithName("wscast"), cmd.ErrOrStderr()); err != nil {
@@ -155,12 +123,6 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		}
 		tailerOpts = append(tailerOpts, tailer.WithLogObserver(wsServer))
 		fmt.Fprintf(cmd.ErrOrStderr(), "Serving ktl websocket stream on %s\n", addr)
-	}
-
-	if len(args) == 0 && !hasFilters {
-		fmt.Fprintln(cmd.ErrOrStderr(), "UI is running without a live log stream; use the Start capture button to record an archive.")
-		<-ctx.Done()
-		return nil
 	}
 
 	t, err := tailer.New(kubeClient.Clientset, opts, logger, tailerOpts...)
@@ -235,7 +197,7 @@ func describeClusterLabel(client *kube.Client, contextName string) string {
 	if host == "" {
 		return fmt.Sprintf("Context: %s", ctx)
 	}
-	return fmt.Sprintf("Context: %s · API: %s", ctx, host)
+	return fmt.Sprintf("Context: %s | API: %s", ctx, host)
 }
 
 func requestedHelp(value string) bool {

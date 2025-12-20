@@ -25,7 +25,7 @@ If you’re an AI agent (or using one), start with:
 
 ## Repository Structure
 - `cmd/ktl`: Cobra entrypoint; add flags, top-level wiring, and CLI UX only.
-- `internal/*`: reusable packages (e.g., `internal/tailer`, `internal/capture`, `internal/workflows/buildsvc`). Keep scopes tight; long-running diagnostics live where they already exist.
+- `internal/*`: reusable packages (e.g., `internal/tailer`, `internal/workflows/buildsvc`). Keep scopes tight; long-running diagnostics live where they already exist.
 - `integration/`: live-cluster harnesses. Expect a `KUBECONFIG`, keep them behind tags when slow.
 - `testdata/`: CLI fixtures, golden files, and Helm bundles. Charts belong in `testdata/charts/` so render tests stay canonical.
 - `bin/` + `dist/`: generated artifacts. Treat them like build outputs; do not commit.
@@ -42,7 +42,7 @@ If you’re an AI agent (or using one), start with:
 | `go test -tags=integration ./cmd/ktl -run TestBuildRunsInsideSandbox` | Linux + Docker + sandbox runtime required; proves `ktl build` re-execs inside the sandbox end-to-end. |
 | `make fmt` / `make lint` | Enforce gofmt + `go vet`. No manual whitespace tweaks. |
 | `make release` | Cross-platform builds under `dist/`; only on clean tags. For ad-hoc GOOS/GOARCH, follow the README recipe. |
-| `ktl build ... --ui :8080` / `--ws-listen :9085` | Mirror BuildKit progress and logs in the browser (same polished UI as `ktl logs`). Handy for incident channels watching image builds. |
+| `ktl build ... --ws-listen :9085` | Expose the build stream over WebSocket (for external consumers). |
 | `ktl apply ... --ui :8080 --ws-listen :9086` | Mirror Helm rollouts with the deploy viewer (phase timeline, resource readiness grid, manifest diff, event feed) so reviewers can follow along remotely. |
 | `ktl apply ...` (TTY) | Auto-enables the deploy console: metadata banner, inline phase badges, sticky warning rail, and adaptive resource table (use `--console-wide` to force the 100+ col layout). |
 | `ktl plan --visualize --chart ./chart --release foo --kubeconfig ~/.kube/archimedes.yaml` | Render the tree-based dependency browser + YAML/diff viewer (with optional comparison upload), auto-write `./ktl-deploy-visualize-<release>-<timestamp>.html` (override with `--output`, use `--output -` for stdout). |
@@ -50,7 +50,7 @@ If you’re an AI agent (or using one), start with:
 
 `ktl deploy` has been removed; use `ktl apply`/`ktl delete` going forward.
 
-Enable verbose sandbox diagnostics only when needed with `ktl build ... --sandbox-logs`. The flag streams `[sandbox]`-prefixed lines to stderr and mirrors them into any `--ui/--ws-listen` session so reviewers can watch sandbox ACL errors without rerunning the build.
+Enable verbose sandbox diagnostics only when needed with `ktl build ... --sandbox-logs`. The flag streams `[sandbox]`-prefixed lines to stderr and mirrors them into any `--ws-listen` session so reviewers can watch sandbox ACL errors without rerunning the build.
 
 ### Sandbox Profiles
 
@@ -81,7 +81,7 @@ export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 
 ### UI Mirror Defaults
 - Passing `--ui` without an address binds the default port (`:8080` unless noted below). Use explicit `HOST:PORT` only when you need a custom interface.
-- Default bindings: `ktl logs --ui` → `:8080`, `ktl build --ui` → `:8080`, `ktl apply --ui` → `:8080`, `ktl delete --ui` → `:8080`.
+- Default bindings: `ktl apply --ui` → `:8080`, `ktl delete --ui` → `:8080`.
 
 ## Day-to-Day Workflow
 
@@ -100,7 +100,7 @@ export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 - Run `make fmt`, `make lint`, and at least the relevant `go test` packages (full `./...` preferred). Record the results in your PR description.
 - For integration changes, note whether the tagged suites ran and what kubeconfig/context you used.
 - Summarize user-facing impact, commands touched, and link issues/tickets. Mention build/log deltas with before/after snippets when output changes.
-- Keep commit subjects ≤ 70 chars, using `<type>: <imperative>` when adding features (e.g., `feat: add drift timeline`).
+- Keep commit subjects ≤ 70 chars, using `<type>: <imperative>` when adding features (e.g., `feat: add deploy timeline`).
 
 ## Documentation Generation (Pandoc)
 - Install once per machine: `brew install pandoc`, `brew install --cask mactex`, then copy `docs/eisvogel-template/template-multi-file/eisvogel.latex` into your Pandoc templates directory (`pandoc --version` reveals the path).
@@ -129,7 +129,7 @@ export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 
 ## Frontend Design System Overview
 
-Source of truth for every HTML-based `ktl` surface (`ktl logs --ui`, `ktl build --ui`, `ktl apply --ui`, `ktl delete --ui`, `ktl plan --format=html --visualize`, etc.). Extend tokens/components here first, then ship UI. Use the navigation below to jump to the exact rule you’re touching.
+Source of truth for every HTML-based `ktl` surface (`ktl apply --ui`, `ktl delete --ui`, `ktl plan --format=html --visualize`, etc.). Extend tokens/components here first, then ship UI. Use the navigation below to jump to the exact rule you’re touching.
 
 ### Navigation
 1. [Design Foundations](#1-design-foundations)

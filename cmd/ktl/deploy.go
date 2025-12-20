@@ -69,6 +69,29 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Render and apply a Helm chart using upgrade --install",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
+				if watchDuration > 0 {
+					return fmt.Errorf("--watch is not supported with --remote-agent")
+				}
+				if strings.TrimSpace(reusePlanPath) != "" {
+					return fmt.Errorf("--reuse-plan is not supported with --remote-agent")
+				}
+				if strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "" {
+					return fmt.Errorf("--ui/--ws-listen are not supported with --remote-agent")
+				}
+			}
+			if watchDuration > 0 && (dryRun || diff) {
+				return fmt.Errorf("--watch cannot be combined with --dry-run or --diff")
+			}
+			if timeout <= 0 {
+				return fmt.Errorf("--timeout must be > 0")
+			}
+			return nil
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			currentLogLevel := effectiveLogLevel(logLevel)
 			errOut := cmd.ErrOrStderr()
@@ -80,12 +103,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			)
 			ctx := cmd.Context()
 			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
-				if watchDuration > 0 {
-					return fmt.Errorf("--watch is not supported with --remote-agent")
-				}
-				if strings.TrimSpace(reusePlanPath) != "" {
-					return fmt.Errorf("--reuse-plan is not supported with --remote-agent")
-				}
 				return runRemoteDeployApply(cmd, remoteDeployApplyArgs{
 					Chart:           chart,
 					Release:         releaseName,
@@ -110,9 +127,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			kubeClient, err := kube.New(ctx, *kubeconfig, *kubeContext)
 			if err != nil {
 				return err
-			}
-			if watchDuration > 0 && (dryRun || diff) {
-				return fmt.Errorf("--watch cannot be combined with --dry-run or --diff")
 			}
 			if diff && !dryRun {
 				dryRun = true
@@ -516,7 +530,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	if ownNamespaceFlag {
 		cmd.Flags().StringVarP(namespace, "namespace", "n", "", "Namespace for the Helm release (defaults to active context)")
 	}
-	registerNamespaceCompletion(cmd, "namespace", kubeconfig, kubeContext)
 	section := strings.TrimSpace(helpSection)
 	if section == "" {
 		section = "Apply Flags"
@@ -555,6 +568,20 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 		Use:    cfg.Use,
 		Short:  cfg.Short,
 		Hidden: cfg.Hidden,
+		Args:   cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
+				if strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "" {
+					return fmt.Errorf("--ui/--ws-listen are not supported with --remote-agent")
+				}
+			}
+			if timeout <= 0 {
+				return fmt.Errorf("--timeout must be > 0")
+			}
+			return nil
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			currentLogLevel := effectiveLogLevel(logLevel)
 			errOut := cmd.ErrOrStderr()
@@ -880,7 +907,6 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	if ownNamespaceFlag {
 		cmd.Flags().StringVarP(namespace, "namespace", "n", "", "Namespace for the Helm release (defaults to active context)")
 	}
-	registerNamespaceCompletion(cmd, "namespace", kubeconfig, kubeContext)
 	label := strings.TrimSpace(cfg.HelpLabel)
 	if label == "" {
 		label = fmt.Sprintf("%s Flags", strings.TrimSpace(cfg.Use))

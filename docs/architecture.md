@@ -5,19 +5,20 @@ This repo is a single-module Go CLI with an optional companion agent.
 ## Layout
 - `cmd/ktl`: end-user CLI (Cobra) and CLI-only helpers.
 - `cmd/ktl-agent`: gRPC agent used by `--remote-agent` / `--mirror-bus`.
-- `internal/*`: non-exported libraries used by the CLI/agent (tailing, capture, deploy/apply, UI mirroring, BuildKit workflows, config/feature flags).
+- `internal/*`: non-exported libraries used by the CLI/agent (tailing, deploy/apply, UI mirroring, BuildKit workflows, config/feature flags).
 - `pkg/*`: reusable non-`internal` packages (BuildKit/Compose/registry helpers and generated API stubs under `pkg/api/v1`).
 - `testdata/*`: fixtures and golden files.
 
 ## Main Commands (wired today)
-- `logs` (plus `logs capture` and `logs drift`)
+- `logs`
 - `build`
 - `plan`
+- `list`
+- `lint`
+- `package`
 - `apply`
 - `delete`
-- `deploy`
 - `mirror`
-- `completion`
 
 The root command wiring lives in `cmd/ktl/main.go`.
 
@@ -52,38 +53,20 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 ### `internal/api/convert`
 
 - Purpose: translate between internal runtime structs and protobuf API types (`pkg/api/v1`).
-- Key types: `CaptureConfig`, `DriftWatchConfig`, `DeployApplyConfig`, `DeployDestroyConfig`.
+- Key types: `BuildConfig`, `DeployApplyConfig`, `DeployDestroyConfig`.
 - Invariants: conversion is one-way “boundary glue”; don’t leak protobuf types into core packages.
 
 ### `internal/kube`
 
-- Purpose: Kubernetes client helpers used by tailing/capture/deploy.
+- Purpose: Kubernetes client helpers used by tailing/deploy.
 - Key types: `Client` (`Exec`).
 - Invariants: Kubernetes API calls accept `context.Context` and are cancellable.
 
 ### `internal/tailer`
 
-- Purpose: stream logs (pods/nodes) and feed observers (terminal, UI, capture).
+- Purpose: stream logs (pods/nodes) and feed observers (terminal, UI).
 - Key types: `Tailer` (`Run`), `LogRecord`, `LogObserver`, `Option`.
 - Invariants: tailing is streaming and cancellation-driven; observers must tolerate bursts and duplicates.
-
-### `internal/capture`
-
-- Purpose: persist a log session + metadata into a portable artifact and replay it offline.
-- Key types: `Session` (`Run`, `ObserveLog`), `Options` (`AddFlags`, `Validate`, `ResolveOutputPath`), `ReplayOptions`.
-- Invariants: capture artifacts must remain portable and non-secret (sanitize fixtures and exports).
-
-### `internal/sqlitewriter`
-
-- Purpose: write capture data into SQLite-backed formats for analysis/visualization.
-- Key types: `Writer` (`Write`, `Close`), `Entry`, `ContextSnapshot`.
-- Invariants: writes are append-oriented; callers provide `context.Context` for cancellation/timeouts.
-
-### `internal/drift`
-
-- Purpose: compute and present drift between snapshots/captures over time.
-- Key types: `Collector` (`Run`, `Snapshot`, `Buffer`), `Diff`, `Snapshot`, `TimelineBuffer`.
-- Invariants: drift is derived data; keep collectors deterministic and interval-driven.
 
 ### `internal/deploy`
 
@@ -100,7 +83,7 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 ### `internal/caststream`
 
 - Purpose: “UI mirror” server (HTTP/WebSocket) that streams logs/build/deploy events to the browser.
-- Key types: `Server` (`Run`, `ObserveLog`, `HandleDeployEvent`, `ImportCapture`), `Mode`, `Option`, `CaptureController`.
+- Key types: `Server` (`Run`, `ObserveLog`, `HandleDeployEvent`), `Mode`, `Option`.
 - Invariants: server is a pure observer of streaming events; it must not own core business logic.
 
 ### `internal/mirrorbus`
@@ -129,7 +112,7 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 ### `internal/agent`
 
 - Purpose: gRPC server implementation for the remote agent.
-- Key types: `Server` (`Run`), per-service handlers (`LogServer`, `CaptureServer`, `BuildServer`, `DeployServer`, `DriftServer`, `MirrorServer`).
+- Key types: `Server` (`Run`), per-service handlers (`LogServer`, `BuildServer`, `DeployServer`, `MirrorServer`).
 - Invariants: agent handlers forward events via existing observer interfaces (don’t duplicate deploy/build logic inside the agent).
 
 ## Agent-Facing Docs

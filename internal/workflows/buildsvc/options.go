@@ -121,7 +121,6 @@ type Options struct {
 	LogFile            string
 	RemoveIntermediate bool
 	Quiet              bool
-	UIAddr             string
 	WSListenAddr       string
 	Streams            Streams
 	Observers          []tailer.LogObserver

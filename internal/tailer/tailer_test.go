@@ -98,15 +98,15 @@ func TestApplyColorsHandlesOverlappingNames(t *testing.T) {
 	}
 }
 
-func TestLogSourceGlyphs(t *testing.T) {
-	if sourcePod.glyph() == "" || sourcePod.label() != "pod" {
-		t.Fatalf("pod glyph/label not set")
+func TestLogSourceLabels(t *testing.T) {
+	if sourcePod.label() != "pod" {
+		t.Fatalf("pod label not set")
 	}
-	if sourceNode.glyph() == "" || sourceNode.label() != "node" {
-		t.Fatalf("node glyph/label not set")
+	if sourceNode.label() != "node" {
+		t.Fatalf("node label not set")
 	}
-	if sourceEvent.glyph() == "" || sourceEvent.label() != "event" {
-		t.Fatalf("event glyph/label not set")
+	if sourceEvent.label() != "event" {
+		t.Fatalf("event label not set")
 	}
 }
 

@@ -3,7 +3,7 @@
 
 // Package tailer implements ktl's high-performance, color-aware log streamer
 // used by the 'ktl logs' family of commands, coordinating informers, filters,
-// captures, and observer hooks.
+// and observer hooks.
 package tailer
 
 import (
@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/sqlitewriter"
 	"github.com/fatih/color"
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -69,8 +68,6 @@ type Tailer struct {
 	eventCols       map[string]*color.Color
 	bufferPool      sync.Pool
 	scannerBuffers  sync.Pool
-	sqliteSink      *sqlitewriter.Writer
-	sqlitePath      string
 	observers       []LogObserver
 	nodeLogs        *nodeLogManager
 	defaultTemplate bool
@@ -105,13 +102,6 @@ func WithLogObserver(observer LogObserver) Option {
 			return
 		}
 		t.observers = append(t.observers, observer)
-	}
-}
-
-// WithSQLiteSink writes every rendered line to the provided SQLite file (used by capture sessions).
-func WithSQLiteSink(path string) Option {
-	return func(t *Tailer) {
-		t.sqlitePath = strings.TrimSpace(path)
 	}
 }
 
@@ -216,14 +206,6 @@ func New(client kubernetes.Interface, opts *config.Options, logger logr.Logger, 
 	for _, opt := range tailerOptions {
 		opt(t)
 	}
-	if t.sqlitePath != "" {
-		sink, err := sqlitewriter.New(t.sqlitePath)
-		if err != nil {
-			return nil, fmt.Errorf("init sqlite writer: %w", err)
-		}
-		logger.V(1).Info("sqlite sink enabled", "path", t.sqlitePath)
-		t.sqliteSink = sink
-	}
 	if len(opts.NodeLogFiles) > 0 {
 		t.nodeLogs = newNodeLogManager(t)
 	}
@@ -234,7 +216,6 @@ func New(client kubernetes.Interface, opts *config.Options, logger logr.Logger, 
 func (t *Tailer) Run(ctx context.Context) error {
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	defer t.cancel()
-	defer t.closeSQLiteSink()
 	t.log.V(1).Info("starting tailer run", "follow", t.opts.Follow, "events", t.opts.Events, "eventsOnly", t.opts.EventsOnly)
 	defer t.log.V(1).Info("tailer run finished")
 	if t.nodeLogs != nil && t.opts.NodeLogAll {
@@ -636,15 +617,6 @@ func (t *Tailer) stopAllTails() {
 	}
 }
 
-func (t *Tailer) closeSQLiteSink() {
-	if t.sqliteSink == nil {
-		return
-	}
-	if err := t.sqliteSink.Close(); err != nil {
-		t.log.Error(err, "close sqlite sink", "path", t.sqlitePath)
-	}
-}
-
 func (t *Tailer) streamContainer(ctx context.Context, pod *corev1.Pod, container string, restartCount int32) {
 	logOpts := &corev1.PodLogOptions{
 		Container: container,
@@ -834,10 +806,6 @@ func (t *Tailer) outputLine(src logSource, namespace, pod, container, line strin
 	if src == sourceNode && namespace != "" {
 		displayPod = fmt.Sprintf("%s/%s", namespace, pod)
 	}
-	glyph := src.glyph()
-	if glyph != "" {
-		displayPod = fmt.Sprintf("%s %s", glyph, strings.TrimSpace(displayPod))
-	}
 	containerTag := formatContainerTag(container)
 	timestampToken := ""
 	if t.opts.ShowTimestamp {
@@ -854,12 +822,11 @@ func (t *Tailer) outputLine(src logSource, namespace, pod, container, line strin
 		ContainerTag:     containerTag,
 		Message:          message,
 		Raw:              line,
-		SourceGlyph:      glyph,
+		SourceGlyph:      "",
 		SourceLabel:      src.label(),
 	}
 	rendered := line
 	if t.opts.JSONOutput {
-		t.persistLogEntry(entry, line, rendered, wallClock)
 		t.notifyLogObservers(entry, line, rendered, wallClock)
 		fmt.Fprintln(t.writer, line)
 		return
@@ -875,12 +842,10 @@ func (t *Tailer) outputLine(src logSource, namespace, pod, container, line strin
 		}()
 		if err := t.template.Execute(buf, entry); err != nil {
 			t.log.Error(err, "execute template")
-			t.persistLogEntry(entry, line, rendered, wallClock)
 			return
 		}
 		rendered = buf.String()
 	}
-	t.persistLogEntry(entry, line, rendered, wallClock)
 	t.notifyLogObservers(entry, line, rendered, wallClock)
 	colored := t.applyColors(timestampToken, podToken, containerTag, rendered)
 	fmt.Fprintln(t.writer, colored)
@@ -904,32 +869,6 @@ func (t *Tailer) notifyLogObservers(entry logEntry, raw, rendered string, ts tim
 	}
 	for _, observer := range t.observers {
 		observer.ObserveLog(record)
-	}
-}
-
-func (t *Tailer) persistLogEntry(entry logEntry, raw, rendered string, ts time.Time) {
-	if t.sqliteSink == nil {
-		return
-	}
-	ctx := t.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	logTS := ""
-	if !ts.IsZero() {
-		logTS = ts.UTC().Format(time.RFC3339Nano)
-	}
-	sqlEntry := sqlitewriter.Entry{
-		CollectedAt:  time.Now(),
-		LogTimestamp: logTS,
-		Namespace:    entry.Namespace,
-		Pod:          entry.PodName,
-		Container:    entry.ContainerName,
-		Raw:          raw,
-		Rendered:     rendered,
-	}
-	if err := t.sqliteSink.Write(ctx, sqlEntry); err != nil {
-		t.log.Error(err, "write sqlite entry", "namespace", entry.Namespace, "pod", entry.PodName, "container", entry.ContainerName)
 	}
 }
 
@@ -988,19 +927,6 @@ func (t *Tailer) formatDefaultLine(timestamp, podToken, containerTag, message st
 	b.WriteByte(' ')
 	b.WriteString(message)
 	return b.String()
-}
-
-func (s logSource) glyph() string {
-	switch s {
-	case sourceNode:
-		return "◆"
-	case sourceEvent:
-		return "◇"
-	case sourcePod:
-		return "●"
-	default:
-		return ""
-	}
 }
 
 func (s logSource) label() string {
@@ -1129,7 +1055,7 @@ func (t *Tailer) formatEventMessage(ev *corev1.Event) (string, string) {
 	age := humanizeAge(eventTimestamp(ev))
 	target := fmt.Sprintf("%s/%s", strings.ToLower(ev.InvolvedObject.Kind), ev.InvolvedObject.Name)
 	source := formatEventSource(ev)
-	message := fmt.Sprintf("%-7s %-18s %-8s %s → %s", typeText, ev.Reason, age, target, source)
+	message := fmt.Sprintf("%-7s %-18s %-8s %s -> %s", typeText, ev.Reason, age, target, source)
 	return message, ""
 }
 

@@ -33,6 +33,11 @@ func newBuildLoginCommand(parent *buildCLIOptions) *cobra.Command {
 		Use:   "login [SERVER]",
 		Short: "Log in to a container registry",
 		Args:  cobra.MaximumNArgs(1),
+		Example: `  # Login to Docker Hub (interactive prompts if flags are omitted)
+  ktl build login
+
+  # Login to GHCR using stdin (recommended)
+  echo "$GITHUB_TOKEN" | ktl build login ghcr.io --username your-user --password-stdin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Server = args[0]
@@ -47,6 +52,7 @@ func newBuildLoginCommand(parent *buildCLIOptions) *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Username, "username", "u", "", "Registry username")
 	cmd.Flags().StringVarP(&opts.Password, "password", "p", "", "Registry password or token (prefer --password-stdin)")
 	cmd.Flags().BoolVar(&opts.PasswordStdin, "password-stdin", false, "Read the password/token from stdin")
+	decorateCommandHelp(cmd, "Login Flags")
 
 	return cmd
 }
@@ -56,6 +62,11 @@ func newBuildLogoutCommand(parent *buildCLIOptions) *cobra.Command {
 		Use:   "logout [SERVER]",
 		Short: "Log out of a container registry",
 		Args:  cobra.MaximumNArgs(1),
+		Example: `  # Logout of Docker Hub
+  ktl build logout
+
+  # Logout of a specific registry
+  ktl build logout ghcr.io`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			server := ""
 			if len(args) > 0 {
@@ -66,6 +77,7 @@ func newBuildLogoutCommand(parent *buildCLIOptions) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	decorateCommandHelp(cmd, "Logout Flags")
 	return cmd
 }
 
