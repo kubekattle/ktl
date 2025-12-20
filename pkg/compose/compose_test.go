@@ -3,6 +3,7 @@ package compose
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -90,5 +91,21 @@ func TestServiceTags(t *testing.T) {
 	expected := []string{"ktl-test/api:dev"}
 	if !reflect.DeepEqual(tags, expected) {
 		t.Fatalf("expected %v, got %v", expected, tags)
+	}
+}
+
+func TestCollectBuildableServices_UnknownServiceIncludesAvailable(t *testing.T) {
+	composePath := filepath.Join("..", "..", "testdata", "build", "compose", "docker-compose.yml")
+	project, err := LoadComposeProject([]string{composePath}, "compose-tests", nil)
+	if err != nil {
+		t.Fatalf("LoadComposeProject: %v", err)
+	}
+
+	_, _, err = CollectBuildableServices(project, []string{"does-not-exist"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "unknown compose service") || !strings.Contains(err.Error(), "available: api, worker") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

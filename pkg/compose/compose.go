@@ -177,7 +177,9 @@ func collectBuildableServices(project *composetypes.Project, requested []string)
 		}
 		svc, err := project.GetService(name)
 		if err != nil {
-			return err
+			available := append([]string(nil), project.ServiceNames()...)
+			sort.Strings(available)
+			return fmt.Errorf("unknown compose service %q (available: %s): %w", name, strings.Join(available, ", "), err)
 		}
 		visited[name] = true
 		for dep := range svc.DependsOn {
