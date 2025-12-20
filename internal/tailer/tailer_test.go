@@ -17,6 +17,7 @@ import (
 )
 
 func TestBuildCustomPaletteSupportsMultiAttribute(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
 	prev := color.NoColor
 	color.NoColor = false
 	t.Cleanup(func() {

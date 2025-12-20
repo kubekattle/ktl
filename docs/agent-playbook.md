@@ -12,6 +12,10 @@ This repo is optimized for small, reviewable changes. Prefer making the minimal 
 
 ## Golden-Path Tasks
 
+### Understand sandbox safety (Linux)
+
+Threat model + safe reproduction steps: `docs/sandbox-security.md`.
+
 ### Add a new CLI flag (existing command)
 
 1. Update the Cobra command under `cmd/ktl/*` (flag definition + help text).
@@ -72,4 +76,3 @@ Validate:
 ```bash
 go test ./... -run TestName
 ```
-

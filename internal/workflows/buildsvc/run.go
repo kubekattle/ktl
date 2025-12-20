@@ -112,6 +112,12 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	if contextDir == "" {
 		contextDir = "."
 	}
+	if sandboxActive() && !filepath.IsAbs(contextDir) {
+		if envContext := strings.TrimSpace(sandboxContextFromEnv()); envContext != "" {
+			contextDir = envContext
+			opts.ContextDir = envContext
+		}
+	}
 	cacheDir := opts.CacheDir
 	if cacheDir == "" {
 		cacheDir = buildkit.DefaultCacheDir()

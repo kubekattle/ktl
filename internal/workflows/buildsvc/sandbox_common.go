@@ -34,3 +34,10 @@ func sandboxLogPathFromEnv() string {
 	}
 	return os.Getenv(legacySandboxLogPathEnv)
 }
+
+func sandboxContextFromEnv() string {
+	if v := os.Getenv(sandboxContextEnvKey); v != "" {
+		return v
+	}
+	return os.Getenv(legacySandboxContextEnvKey)
+}

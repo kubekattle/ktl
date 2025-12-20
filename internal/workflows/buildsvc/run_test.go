@@ -6,11 +6,16 @@
 package buildsvc
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/example/ktl/pkg/buildkit"
+	"github.com/example/ktl/pkg/registry"
 )
 
 var _, pkgTestFile, _, _ = runtime.Caller(0)
@@ -135,8 +140,81 @@ func TestSelectBuildModeComposeRequiresFiles(t *testing.T) {
 	}
 }
 
+type captureRunner struct {
+	last buildkit.DockerfileBuildOptions
+}
+
+func (r *captureRunner) BuildDockerfile(ctx context.Context, opts buildkit.DockerfileBuildOptions) (*buildkit.BuildResult, error) {
+	r.last = opts
+	return &buildkit.BuildResult{Digest: "sha256:deadbeef"}, nil
+}
+
+type noopRegistry struct{}
+
+func (noopRegistry) RecordBuild(tags []string, layoutPath string) error { return nil }
+
+func (noopRegistry) PushReference(ctx context.Context, reference string, opts registry.PushOptions) error {
+	return nil
+}
+
+func (noopRegistry) PushRepository(ctx context.Context, repository string, opts registry.PushOptions) error {
+	return nil
+}
+
+func TestRun_UsesSandboxContextEnvForRelativeContextDir(t *testing.T) {
+	t.Setenv(sandboxActiveEnvKey, "1")
+
+	root := t.TempDir()
+	ctxDir := filepath.Join(root, "ctx")
+	if err := os.MkdirAll(ctxDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writeFile(t, filepath.Join(ctxDir, "Dockerfile"), "FROM scratch\n")
+
+	dockerCfgPath := filepath.Join(root, "docker", "config.json")
+	writeFile(t, dockerCfgPath, "{}\n")
+
+	prevWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prevWD) })
+	if err := os.Chdir(ctxDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	t.Setenv(sandboxContextEnvKey, ctxDir)
+
+	var out, errOut bytes.Buffer
+	runner := &captureRunner{}
+	svc := New(Dependencies{
+		BuildRunner: runner,
+		Registry:    noopRegistry{},
+	})
+
+	_, runErr := svc.Run(context.Background(), Options{
+		ContextDir: "./ctx",
+		Dockerfile: "Dockerfile",
+		AuthFile:   dockerCfgPath,
+		BuildMode:  string(ModeDockerfile),
+		Streams: Streams{
+			Out: &out,
+			Err: &errOut,
+		},
+	})
+	if runErr != nil {
+		t.Fatalf("Run returned error: %v\nstderr: %s", runErr, errOut.String())
+	}
+	if runner.last.ContextDir != ctxDir {
+		t.Fatalf("expected build ContextDir %q, got %q", ctxDir, runner.last.ContextDir)
+	}
+}
+
 func writeFile(t *testing.T, path string, contents string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("writeFile mkdir %s: %v", path, err)
+	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("writeFile %s: %v", path, err)
 	}
