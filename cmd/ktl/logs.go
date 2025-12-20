@@ -128,6 +128,7 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		}
 		captureRecorder = rec
 		tailerOpts = append(tailerOpts, tailer.WithLogObserver(rec))
+		tailerOpts = append(tailerOpts, tailer.WithSelectionObserver(rec))
 		fmt.Fprintf(cmd.ErrOrStderr(), "Capturing logs to %s (session %s)\n", path, rec.SessionID())
 	}
 	defer func() {

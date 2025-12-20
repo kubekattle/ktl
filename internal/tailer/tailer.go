@@ -52,25 +52,26 @@ const (
 
 // Tailer coordinates pod discovery via informers and streams logs to stdout.
 type Tailer struct {
-	client          kubernetes.Interface
-	opts            *config.Options
-	log             logr.Logger
-	writer          io.Writer
-	podRegex        *regexp.Regexp
-	template        *template.Template
-	ctx             context.Context
-	cancel          context.CancelFunc
-	mu              sync.Mutex
-	tails           map[containerKey]*tailState
-	podColors       []*color.Color
-	containerColors []*color.Color
-	highlight       *color.Color
-	eventCols       map[string]*color.Color
-	bufferPool      sync.Pool
-	scannerBuffers  sync.Pool
-	observers       []LogObserver
-	nodeLogs        *nodeLogManager
-	defaultTemplate bool
+	client             kubernetes.Interface
+	opts               *config.Options
+	log                logr.Logger
+	writer             io.Writer
+	podRegex           *regexp.Regexp
+	template           *template.Template
+	ctx                context.Context
+	cancel             context.CancelFunc
+	mu                 sync.Mutex
+	tails              map[containerKey]*tailState
+	podColors          []*color.Color
+	containerColors    []*color.Color
+	highlight          *color.Color
+	eventCols          map[string]*color.Color
+	bufferPool         sync.Pool
+	scannerBuffers     sync.Pool
+	observers          []LogObserver
+	selectionObservers []SelectionObserver
+	nodeLogs           *nodeLogManager
+	defaultTemplate    bool
 }
 
 // LogRecord captures a single log line emitted by the tailer along with contextual metadata.
@@ -92,6 +93,27 @@ type LogObserver interface {
 	ObserveLog(LogRecord)
 }
 
+// SelectionSnapshot captures a change in the set of active log tails.
+type SelectionSnapshot struct {
+	Timestamp  time.Time         `json:"timestamp"`
+	ChangeKind string            `json:"changeKind"`
+	Namespace  string            `json:"namespace,omitempty"`
+	Pod        string            `json:"pod,omitempty"`
+	Container  string            `json:"container,omitempty"`
+	Selected   []SelectionTarget `json:"selected"`
+}
+
+type SelectionTarget struct {
+	Namespace string `json:"namespace"`
+	Pod       string `json:"pod"`
+	Container string `json:"container"`
+}
+
+// SelectionObserver receives callbacks whenever the tailer changes its active selection.
+type SelectionObserver interface {
+	ObserveSelection(SelectionSnapshot)
+}
+
 // Option configures optional Tailer behavior.
 type Option func(*Tailer)
 
@@ -102,6 +124,16 @@ func WithLogObserver(observer LogObserver) Option {
 			return
 		}
 		t.observers = append(t.observers, observer)
+	}
+}
+
+// WithSelectionObserver registers an observer that sees active selection changes (pods/containers tailed).
+func WithSelectionObserver(observer SelectionObserver) Option {
+	return func(t *Tailer) {
+		if observer == nil {
+			return
+		}
+		t.selectionObservers = append(t.selectionObservers, observer)
 	}
 }
 
@@ -569,6 +601,8 @@ func (t *Tailer) podMatchesConditions(pod *corev1.Pod) bool {
 func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int32) {
 	key := containerKey{Namespace: pod.Namespace, Pod: pod.Name, Container: container}
 	var cancel context.CancelFunc
+	var selection SelectionSnapshot
+	emitSelection := false
 	t.mu.Lock()
 	if state, ok := t.tails[key]; ok {
 		if state.podUID == string(pod.UID) && state.restartCount == restartCount {
@@ -580,8 +614,15 @@ func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int3
 	}
 	ctx, ctxCancel := context.WithCancel(t.ctx)
 	t.tails[key] = &tailState{cancel: ctxCancel, restartCount: restartCount, podUID: string(pod.UID)}
+	if len(t.selectionObservers) > 0 {
+		selection = t.selectionSnapshotLocked("add", pod.Namespace, pod.Name, container)
+		emitSelection = true
+	}
 	t.mu.Unlock()
 	t.log.V(1).Info("ensuring tail", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "restartCount", restartCount)
+	if emitSelection {
+		t.notifySelection(selection)
+	}
 	if cancel != nil {
 		t.log.V(1).Info("stopping replaced tail", "namespace", pod.Namespace, "pod", pod.Name, "container", container)
 		cancel()
@@ -591,15 +632,24 @@ func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int3
 
 func (t *Tailer) stopTail(namespace, pod, container string) {
 	key := containerKey{Namespace: namespace, Pod: pod, Container: container}
+	var selection SelectionSnapshot
+	emitSelection := false
 	t.mu.Lock()
 	state, ok := t.tails[key]
 	if ok {
 		delete(t.tails, key)
+		if len(t.selectionObservers) > 0 {
+			selection = t.selectionSnapshotLocked("remove", namespace, pod, container)
+			emitSelection = true
+		}
 	}
 	t.mu.Unlock()
 	if ok {
 		t.log.V(1).Info("stopping tail", "namespace", namespace, "pod", pod, "container", container)
 		state.cancel()
+		if emitSelection {
+			t.notifySelection(selection)
+		}
 	}
 }
 
@@ -610,10 +660,59 @@ func (t *Tailer) stopAllTails() {
 		states = append(states, state)
 	}
 	t.tails = map[containerKey]*tailState{}
+	var selection SelectionSnapshot
+	emitSelection := false
+	if len(t.selectionObservers) > 0 {
+		selection = SelectionSnapshot{
+			Timestamp:  time.Now().UTC(),
+			ChangeKind: "reset",
+			Selected:   nil,
+		}
+		emitSelection = true
+	}
 	t.mu.Unlock()
 	t.log.V(1).Info("cancelling active tails", "count", len(states))
+	if emitSelection {
+		t.notifySelection(selection)
+	}
 	for _, state := range states {
 		state.cancel()
+	}
+}
+
+func (t *Tailer) selectionSnapshotLocked(kind, namespace, pod, container string) SelectionSnapshot {
+	selected := make([]SelectionTarget, 0, len(t.tails))
+	for k := range t.tails {
+		selected = append(selected, SelectionTarget(k))
+	}
+	sort.Slice(selected, func(i, j int) bool {
+		if selected[i].Namespace != selected[j].Namespace {
+			return selected[i].Namespace < selected[j].Namespace
+		}
+		if selected[i].Pod != selected[j].Pod {
+			return selected[i].Pod < selected[j].Pod
+		}
+		return selected[i].Container < selected[j].Container
+	})
+	return SelectionSnapshot{
+		Timestamp:  time.Now().UTC(),
+		ChangeKind: kind,
+		Namespace:  namespace,
+		Pod:        pod,
+		Container:  container,
+		Selected:   selected,
+	}
+}
+
+func (t *Tailer) notifySelection(s SelectionSnapshot) {
+	if len(t.selectionObservers) == 0 {
+		return
+	}
+	observers := append([]SelectionObserver(nil), t.selectionObservers...)
+	for _, obs := range observers {
+		if obs != nil {
+			obs.ObserveSelection(s)
+		}
 	}
 }
 

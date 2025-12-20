@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -340,6 +342,16 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if captureRecorder != nil && strings.TrimSpace(trackerManifest) != "" {
 				_ = captureRecorder.RecordArtifact(ctx, "rendered_manifest", trackerManifest)
 			}
+			if captureRecorder != nil {
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.chart", strings.TrimSpace(chart))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.version", strings.TrimSpace(version))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.release", strings.TrimSpace(releaseName))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.namespace", strings.TrimSpace(resolvedNamespace))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.set_values_json", captureJSON(setValues))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.set_string_values_json", captureJSON(setStringValues))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.set_file_values_json", captureJSON(setFileValues))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.values_files_json", captureJSON(hashFiles(valuesFiles)))
+			}
 
 			if stream != nil && (strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "") {
 				logger, logErr := buildLogger(currentLogLevel)
@@ -530,11 +542,18 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					fmt.Fprintln(cmd.OutOrStdout(), "Diff:")
 					fmt.Fprintln(cmd.OutOrStdout(), result.ManifestDiff)
 				}
+				if captureRecorder != nil {
+					_ = captureRecorder.RecordArtifact(ctx, "apply.diff.unified", result.ManifestDiff)
+				}
 			}
 			if rel.Info != nil && rel.Info.Notes != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "Notes:\n%s\n", rel.Info.Notes)
 				if stream != nil {
 					stream.EmitEvent("info", fmt.Sprintf("Notes:\n%s", rel.Info.Notes))
+				}
+				if captureRecorder != nil {
+					_ = captureRecorder.RecordArtifact(ctx, "apply.notes", rel.Info.Notes)
+					_ = captureRecorder.RecordArtifact(ctx, "apply.status", status)
 				}
 			}
 			if watchDuration > 0 && !dryRun && !diff {
@@ -1069,6 +1088,41 @@ func describeDeployAction(desc actionDescriptor) string {
 		verb = "Deploying"
 	}
 	return fmt.Sprintf("%s %s into ns/%s", verb, target, ns)
+}
+
+type captureFileHash struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	Error  string `json:"error,omitempty"`
+}
+
+func hashFiles(paths []string) []captureFileHash {
+	out := make([]captureFileHash, 0, len(paths))
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		h := captureFileHash{Path: p}
+		info, err := os.Stat(p)
+		if err != nil {
+			h.Error = err.Error()
+			out = append(out, h)
+			continue
+		}
+		h.Size = info.Size()
+		data, err := os.ReadFile(p)
+		if err != nil {
+			h.Error = err.Error()
+			out = append(out, h)
+			continue
+		}
+		sum := sha256.Sum256(data)
+		h.SHA256 = hex.EncodeToString(sum[:])
+		out = append(out, h)
+	}
+	return out
 }
 
 func releaseHistoryBreadcrumbs(actionCfg *action.Configuration, releaseName string, limit int) ([]deploy.HistoryBreadcrumb, *deploy.HistoryBreadcrumb, error) {

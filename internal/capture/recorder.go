@@ -166,6 +166,10 @@ func (r *Recorder) ObserveLog(rec tailer.LogRecord) {
 	_ = r.RecordLog(context.Background(), rec)
 }
 
+func (r *Recorder) ObserveSelection(sel tailer.SelectionSnapshot) {
+	_ = r.RecordSelection(context.Background(), sel)
+}
+
 func (r *Recorder) HandleDeployEvent(evt deploy.StreamEvent) {
 	_ = r.RecordDeployEvent(context.Background(), evt)
 }
@@ -259,6 +263,45 @@ VALUES(?, ?, ?, ?, 'deploy', ?, ?, ?, '', '', ?, ?, ?, ?)
 			source,
 			namespace,
 			message,
+			payloadType,
+			payloadBlob,
+			payloadJSON,
+		)
+		return err
+	})
+}
+
+func (r *Recorder) RecordSelection(ctx context.Context, sel tailer.SelectionSnapshot) error {
+	if r == nil {
+		return nil
+	}
+	ts := sel.Timestamp.UTC()
+	if ts.IsZero() {
+		ts = r.now()
+	}
+	seq := r.nextSeq()
+	payloadType, payloadBlob, payloadJSON := encodePayload(mustJSON(sel))
+	msg := fmt.Sprintf("%s %s/%s (%s)", strings.TrimSpace(sel.ChangeKind), strings.TrimSpace(sel.Namespace), strings.TrimSpace(sel.Pod), strings.TrimSpace(sel.Container))
+	if strings.TrimSpace(sel.ChangeKind) == "reset" {
+		msg = "selection reset"
+	}
+	return r.enqueue(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO ktl_capture_events(
+  session_id, seq, ts, ts_ns, kind,
+  level, source, namespace, pod, container,
+  message, payload_type, payload_blob, payload_json
+)
+VALUES(?, ?, ?, ?, 'selection', '', 'tailer', ?, ?, ?, ?, ?, ?, ?)
+`,
+			r.sessionID,
+			seq,
+			ts.Format(time.RFC3339Nano),
+			ts.UnixNano(),
+			strings.TrimSpace(sel.Namespace),
+			strings.TrimSpace(sel.Pod),
+			strings.TrimSpace(sel.Container),
+			msg,
 			payloadType,
 			payloadBlob,
 			payloadJSON,

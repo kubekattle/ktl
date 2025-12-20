@@ -7,6 +7,7 @@ package buildsvc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -75,6 +76,14 @@ func parseCaptureTags(values []string) (map[string]string, error) {
 		return nil, nil
 	}
 	return out, nil
+}
+
+func mustMarshalJSON(v any) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 type service struct {
@@ -417,8 +426,11 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	if captureRecorder != nil && result != nil {
-		_ = captureRecorder.RecordArtifact(ctx, "image_digest", strings.TrimSpace(result.Digest))
-		_ = captureRecorder.RecordArtifact(ctx, "oci_output_dir", strings.TrimSpace(result.OCIOutputPath))
+		_ = captureRecorder.RecordArtifact(ctx, "build.digest", strings.TrimSpace(result.Digest))
+		_ = captureRecorder.RecordArtifact(ctx, "build.oci_output_dir", strings.TrimSpace(result.OCIOutputPath))
+		_ = captureRecorder.RecordArtifact(ctx, "build.tags_json", mustMarshalJSON(tags))
+		_ = captureRecorder.RecordArtifact(ctx, "build.platforms_json", mustMarshalJSON(platforms))
+		_ = captureRecorder.RecordArtifact(ctx, "build.exporter_response_json", mustMarshalJSON(result.ExporterResponse))
 	}
 
 	if result.OCIOutputPath != "" {
@@ -434,6 +446,9 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		wrote, attErr := buildkit.WriteAttestationsFromOCI(result.OCIOutputPath, opts.AttestationDir)
 		if attErr != nil {
 			return nil, attErr
+		}
+		if captureRecorder != nil {
+			_ = captureRecorder.RecordArtifact(ctx, "build.attestations_json", mustMarshalJSON(wrote))
 		}
 		if len(wrote) > 0 {
 			fmt.Fprintf(streams.OutWriter(), "Wrote %d attestation file(s) to %s\n", len(wrote), opts.AttestationDir)
