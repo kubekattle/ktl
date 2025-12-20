@@ -99,6 +99,12 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 		Example: `  # Build the current directory
   ktl build .
 
+  # Auto-detect a compose project and build all services
+  ktl build ./testdata/build/compose
+
+  # Build from a compose file directly and limit parallelism
+  ktl build ./testdata/build/compose/docker-compose.yml --compose-parallelism 2
+
   # Build with tags and push
   ktl build . -f Dockerfile -t ghcr.io/acme/app:latest --push`,
 		Args: func(cmd *cobra.Command, args []string) error {
