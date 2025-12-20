@@ -90,3 +90,62 @@ Terraform exposes most of its provider/plugin functionality over gRPC so the CLI
 3. Expand coverage to deploy workflows + stream-based outputs; add `ktl daemon` command and status tooling.
 4. Harden remote auth/mTLS, add CI runner story, and publish official API docs/examples.
 5. Optional: expose beta TypeScript/Python SDKs that speak the same gRPC endpoints for automation without shelling out to the CLI.
+
+## `ktl deploy`: Build → Lock → Apply (Release Units)
+
+Argo CD and Helmfile are strong at GitOps-style, continuously-reconciled Helm orchestration. `ktl deploy` should win on a different axis: a single, developer-to-prod workflow that produces a reproducible “release unit” (build outputs + chart inputs + manifests + verification) that can be reviewed, applied, captured, and promoted across environments.
+
+### Goals
+
+- Combine `ktl build` + `ktl apply` into one workflow with shared streaming UX (`--ui`, `--ws-listen`) and a single `--capture` session.
+- Make image updates automatic and safe by default: build produces digests; deploy injects digests/tags into Helm in a deterministic way.
+- Treat every deploy as an immutable, promotable artifact (“release unit”), not just a one-off apply.
+- Provide fast, rich `plan` output developers actually run (images changed, risky diffs, deletions, immutable-field warnings).
+- Close the loop with verification and diagnostics collection on failure.
+
+### Design Sketch
+
+1. **Command Shape**
+   - `ktl deploy plan --chart <chart> --release <name> [build flags…] [apply flags…]`
+   - `ktl deploy run --chart <chart> --release <name> [build flags…] [apply flags…]`
+   - `ktl deploy promote <release-unit.sqlite> --to <env/cluster/ns>`
+   - `ktl deploy verify <release-unit.sqlite|--release ...>` (post-apply checks)
+
+2. **Release Units (First-Class Artifacts)**
+   - Bundle the exact inputs/outputs into a single artifact (SQLite, like capture/archive patterns):
+     - chart reference + chart package digest
+     - resolved Helm values (post-merge)
+     - image digests (and optionally SBOM/provenance references)
+     - rendered manifest digest + per-object hashes
+     - apply release manifest + status/notes
+     - verification results and collected diagnostics
+   - Support “replay” (render/view UI from bundle) and “promote” (apply same bits to another target).
+
+3. **Image Injection Contract**
+   - Prefer digest pinning. Record digests even when using tags for dev.
+   - Support explicit mapping (recommended) from build outputs → Helm keys:
+     - values overlay (`--set image.tag=...`, `--set image.repository=...`) driven by a mapping file.
+   - Optional post-render rewriting for charts without clean values hooks.
+   - Chart convention auto-detect only when unambiguous; otherwise require mapping to avoid surprises.
+
+4. **Progressive Delivery (Opt-In)**
+   - Strategies that work with vanilla Helm/Kubernetes where possible:
+     - rolling (default)
+     - canary (weight steps + pauses)
+     - blue/green (service switch)
+   - Tie steps to readiness signals and optional checks; capture results in the release unit.
+
+5. **Verification + Safety Rails**
+   - Verify workloads are running expected digest/tag; hooks/jobs succeeded; readiness achieved; no new crashloops/events regressions.
+   - Policy file support (`--policy`) to gate risky operations (forbidden kinds, cluster-scoped resources, digest-required in prod, etc.).
+
+6. **GitOps Interop (Complement, Don’t Replace)**
+   - Emit artifacts suitable for GitOps repos (values overlays + chart package refs) and optionally generate a “promotion PR”.
+
+### Milestones
+
+1. **MVP**: `ktl deploy run` that runs build (dockerfile/compose/auto) then apply with deterministic image injection and unified streaming/capture.
+2. **Release Unit**: add a bundle format + `ktl deploy promote` for cross-environment reuse; add “replay UI from bundle”.
+3. **Verification**: post-apply verification + auto-diagnostics capture; fail with actionable summary and artifacts.
+4. **Policy + Guardrails**: policy engine hooks + default safety checks; document recommended patterns in `docs/agent-playbook.md`.
+5. **Progressive Delivery**: canary/blue-green options integrated with existing UI and event stream.
