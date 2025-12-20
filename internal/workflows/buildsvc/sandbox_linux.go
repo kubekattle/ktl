@@ -8,12 +8,14 @@
 package buildsvc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,7 +26,7 @@ func getSandboxInjector() sandboxInjector {
 	return maybeReexecInSandbox
 }
 
-func maybeReexecInSandbox(opts *Options, streams Streams, contextAbs string) (bool, error) {
+func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, contextAbs string) (bool, error) {
 	if sandboxDisabled() {
 		return false, nil
 	}
@@ -115,6 +117,16 @@ func maybeReexecInSandbox(opts *Options, streams Streams, contextAbs string) (bo
 	)
 	sandboxCmd.Env = env
 
+	var stopSandboxLogs func()
+	if opts.SandboxLogs {
+		stop, streamErr := startSandboxLogStreamer(ctx, logPath, streams.ErrWriter(), nil)
+		if streamErr != nil {
+			fmt.Fprintf(streams.ErrWriter(), "sandbox logs unavailable: %v\n", streamErr)
+		} else {
+			stopSandboxLogs = stop
+		}
+	}
+
 	if err := sandboxCmd.Start(); err != nil {
 		return false, fmt.Errorf("start sandbox runtime: %w", err)
 	}
@@ -145,6 +157,27 @@ func maybeReexecInSandbox(opts *Options, streams Streams, contextAbs string) (bo
 	close(stopForward)
 	signal.Stop(sigCh)
 	<-forwardDone
+
+	if stopSandboxLogs != nil {
+		stopSandboxLogs()
+	}
+
+	if runErr != nil && !opts.SandboxLogs {
+		if data, err := os.ReadFile(logPath); err == nil {
+			trimmed := strings.TrimSpace(string(data))
+			if trimmed != "" {
+				fmt.Fprintln(streams.ErrWriter(), "[sandbox] sandbox runtime logs:")
+				for _, line := range strings.Split(trimmed, "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" {
+						continue
+					}
+					fmt.Fprintf(streams.ErrWriter(), "[sandbox] %s\n", line)
+				}
+			}
+		}
+	}
+
 	if logPath != "" {
 		_ = os.Remove(logPath)
 	}

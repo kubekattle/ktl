@@ -137,7 +137,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	if injector := getSandboxInjector(); injector != nil {
-		if handled, err := injector(&opts, streams, contextAbs); err != nil {
+		if handled, err := injector(ctx, &opts, streams, contextAbs); err != nil {
 			return nil, err
 		} else if handled {
 			return &Result{}, nil

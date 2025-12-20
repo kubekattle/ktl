@@ -5,7 +5,10 @@
 
 package buildsvc
 
-import "os"
+import (
+	"context"
+	"os"
+)
 
 const (
 	sandboxActiveEnvKey        = "KTL_SANDBOX_ACTIVE"
@@ -22,7 +25,7 @@ const (
 	legacySandboxBuilderEnvKey = "KTL_NSJAIL_BUILDER"
 )
 
-type sandboxInjector func(opts *Options, streams Streams, contextAbs string) (bool, error)
+type sandboxInjector func(ctx context.Context, opts *Options, streams Streams, contextAbs string) (bool, error)
 
 func sandboxActive() bool {
 	return os.Getenv(sandboxActiveEnvKey) == "1" || os.Getenv(legacySandboxActiveEnvKey) == "1"
