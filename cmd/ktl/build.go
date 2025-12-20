@@ -43,6 +43,7 @@ type buildCLIOptions struct {
 	provenance       bool
 	attestDir        string
 	capturePath      string
+	captureTags      []string
 	push             bool
 	load             bool
 	noCache          bool
@@ -136,6 +137,10 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.provenance, "provenance", false, "Generate a SLSA provenance attestation (in-toto) during the build")
 	cmd.Flags().StringVar(&opts.attestDir, "attest-dir", "", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().StringVar(&opts.capturePath, "capture", "", "Capture build logs/events to a SQLite database at this path")
+	if flag := cmd.Flags().Lookup("capture"); flag != nil {
+		flag.NoOptDefVal = "__auto__"
+	}
+	cmd.Flags().StringArrayVar(&opts.captureTags, "capture-tag", nil, "Tag the capture session (KEY=VALUE). Repeatable.")
 	cmd.Flags().BoolVar(&opts.push, "push", false, "Push all tags to their registries after a successful build")
 	cmd.Flags().BoolVar(&opts.load, "load", false, "Load the resulting image into the local container runtime (docker build --load)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Disable BuildKit cache usage")
@@ -319,6 +324,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		AttestProvenance:   opts.provenance,
 		AttestationDir:     opts.attestDir,
 		CapturePath:        opts.capturePath,
+		CaptureTags:        append([]string(nil), opts.captureTags...),
 		Push:               opts.push,
 		Load:               opts.load,
 		NoCache:            opts.noCache,

@@ -30,6 +30,7 @@ import (
 
 func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string) *cobra.Command {
 	var capturePath string
+	var captureTags []string
 	cmd := &cobra.Command{
 		Use:           "logs [POD_QUERY]",
 		Aliases:       []string{"tail"},
@@ -39,17 +40,21 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus, capturePath)
+			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus, capturePath, captureTags)
 		},
 	}
 
 	opts.AddFlags(cmd)
 	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture logs to a SQLite database at this path")
+	if flag := cmd.Flags().Lookup("capture"); flag != nil {
+		flag.NoOptDefVal = "__auto__"
+	}
+	cmd.Flags().StringArrayVar(&captureTags, "capture-tag", nil, "Tag the capture session (KEY=VALUE). Repeatable.")
 	decorateCommandHelp(cmd, "Log Flags")
 	return cmd
 }
 
-func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string, capturePath string) error {
+func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string, capturePath string, captureTags []string) error {
 	if requestedHelp(opts.WSListenAddr) {
 		return cmd.Help()
 	}
@@ -101,13 +106,22 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		tailerOpts []tailer.Option
 	)
 	var captureRecorder *capture.Recorder
-	if path := strings.TrimSpace(capturePath); path != "" {
+	if strings.TrimSpace(capturePath) != "" {
+		path, err := capture.ResolvePath(cmd.CommandPath(), capturePath, time.Now())
+		if err != nil {
+			return err
+		}
 		host, _ := os.Hostname()
+		tagMap, err := parseCaptureTags(captureTags)
+		if err != nil {
+			return err
+		}
 		rec, err := capture.Open(path, capture.SessionMeta{
 			Command:   cmd.CommandPath(),
 			Args:      append([]string(nil), os.Args[1:]...),
 			StartedAt: time.Now().UTC(),
 			Host:      host,
+			Tags:      tagMap,
 		})
 		if err != nil {
 			return err
@@ -153,6 +167,13 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 	t, err := tailer.New(kubeClient.Clientset, opts, logger, tailerOpts...)
 	if err != nil {
 		return err
+	}
+	if captureRecorder != nil {
+		_ = captureRecorder.RecordArtifact(ctx, "logs.options_json", captureJSON(opts))
+		_ = captureRecorder.RecordArtifact(ctx, "logs.cluster", clusterInfo)
+		if opts.PodQuery != "" {
+			_ = captureRecorder.RecordArtifact(ctx, "logs.pod_query", opts.PodQuery)
+		}
 	}
 	return t.Run(ctx)
 }

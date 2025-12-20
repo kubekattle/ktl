@@ -53,6 +53,30 @@ func parseOptionalBool(v string) (*bool, error) {
 	return &parsed, nil
 }
 
+func parseCaptureTags(values []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		parts := strings.SplitN(v, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid capture tag %q (want KEY=VALUE)", v)
+		}
+		k := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		if k == "" || val == "" {
+			return nil, fmt.Errorf("invalid capture tag %q (empty key/value)", v)
+		}
+		out[k] = val
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
 type service struct {
 	buildRunner   buildkit.Runner
 	registry      registry.Client
@@ -182,19 +206,31 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	var captureRecorder *capture.Recorder
 	if path := strings.TrimSpace(opts.CapturePath); path != "" {
+		resolved, err := capture.ResolvePath("ktl build", path, time.Now())
+		if err != nil {
+			return nil, err
+		}
 		host, _ := os.Hostname()
-		rec, err := capture.Open(path, capture.SessionMeta{
+		tagMap, err := parseCaptureTags(opts.CaptureTags)
+		if err != nil {
+			return nil, err
+		}
+		rec, err := capture.Open(resolved, capture.SessionMeta{
 			Command:   "ktl build",
 			Args:      append([]string(nil), os.Args[1:]...),
 			StartedAt: time.Now().UTC(),
 			Host:      host,
+			Tags:      tagMap,
+			Entities: capture.Entities{
+				BuildContext: contextDir,
+			},
 		})
 		if err != nil {
 			return nil, err
 		}
 		captureRecorder = rec
 		opts.Observers = append(opts.Observers, rec)
-		fmt.Fprintf(errOut, "Capturing build session to %s (session %s)\n", path, rec.SessionID())
+		fmt.Fprintf(errOut, "Capturing build session to %s (session %s)\n", resolved, rec.SessionID())
 	}
 	defer func() {
 		if captureRecorder != nil {

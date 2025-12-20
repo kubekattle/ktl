@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 func migrate(ctx context.Context, db *sql.DB) error {
 	if ctx == nil {
@@ -160,6 +160,23 @@ func applyMigration(ctx context.Context, db *sql.DB, toVersion int) error {
 					continue
 				}
 				return fmt.Errorf("migration v2 (%s): %w", stmt, err)
+			}
+		}
+		return nil
+	case 3:
+		stmts := []string{
+			`CREATE TABLE IF NOT EXISTS ktl_capture_tags (
+  session_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY(session_id, key),
+  FOREIGN KEY(session_id) REFERENCES ktl_capture_sessions(session_id) ON DELETE CASCADE
+);`,
+			`CREATE INDEX IF NOT EXISTS idx_capture_tags_value ON ktl_capture_tags(key, value);`,
+		}
+		for _, stmt := range stmts {
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migration v3: %w", err)
 			}
 		}
 		return nil

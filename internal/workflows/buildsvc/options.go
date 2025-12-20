@@ -103,6 +103,7 @@ type Options struct {
 	AttestSBOM         bool
 	AttestationDir     string
 	CapturePath        string
+	CaptureTags        []string
 	Push               bool
 	Load               bool
 	NoCache            bool

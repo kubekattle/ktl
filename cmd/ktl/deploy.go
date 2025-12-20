@@ -67,6 +67,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var consoleDetails bool
 	var verbose bool
 	var capturePath string
+	var captureTags []string
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -215,12 +216,28 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			stream := deploy.NewStreamBroadcaster(releaseName, resolvedNamespace, chart)
 			var captureRecorder *capture.Recorder
 			if path := strings.TrimSpace(capturePath); path != "" {
+				path, err = capture.ResolvePath(cmd.CommandPath(), path, time.Now())
+				if err != nil {
+					return err
+				}
 				host, _ := os.Hostname()
+				tagMap, err := parseCaptureTags(captureTags)
+				if err != nil {
+					return err
+				}
 				rec, err := capture.Open(path, capture.SessionMeta{
 					Command:   cmd.CommandPath(),
 					Args:      append([]string(nil), os.Args[1:]...),
 					StartedAt: time.Now().UTC(),
 					Host:      host,
+					Tags:      tagMap,
+					Entities: capture.Entities{
+						KubeContext:  derefString(kubeContext),
+						Namespace:    resolvedNamespace,
+						Release:      releaseName,
+						Chart:        chart,
+						BuildContext: "",
+					},
 				})
 				if err != nil {
 					return err
@@ -562,6 +579,10 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().StringVar(&reusePlanPath, "reuse-plan", "", "Path to a ktl plan artifact (HTML or JSON) to reuse chart inputs")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
 	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture deploy events/logs/manifests to a SQLite database at this path")
+	if flag := cmd.Flags().Lookup("capture"); flag != nil {
+		flag.NoOptDefVal = "__auto__"
+	}
+	cmd.Flags().StringArrayVar(&captureTags, "capture-tag", nil, "Tag the capture session (KEY=VALUE). Repeatable.")
 
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
@@ -603,6 +624,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	var consoleDetails bool
 	var verbose bool
 	var capturePath string
+	var captureTags []string
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -701,12 +723,26 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			stream := deploy.NewStreamBroadcaster(release, resolvedNamespace, "")
 			var captureRecorder *capture.Recorder
 			if path := strings.TrimSpace(capturePath); path != "" {
+				path, err = capture.ResolvePath(cmd.CommandPath(), path, time.Now())
+				if err != nil {
+					return err
+				}
 				host, _ := os.Hostname()
+				tagMap, err := parseCaptureTags(captureTags)
+				if err != nil {
+					return err
+				}
 				rec, err := capture.Open(path, capture.SessionMeta{
 					Command:   cmd.CommandPath(),
 					Args:      append([]string(nil), os.Args[1:]...),
 					StartedAt: time.Now().UTC(),
 					Host:      host,
+					Tags:      tagMap,
+					Entities: capture.Entities{
+						KubeContext: derefString(kubeContext),
+						Namespace:   resolvedNamespace,
+						Release:     release,
+					},
 				})
 				if err != nil {
 					return err
@@ -978,6 +1014,10 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	cmd.Flags().BoolVar(&consoleDetails, "console-details", false, "Always show metadata details even on narrow terminals")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
 	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture destroy events/logs to a SQLite database at this path")
+	if flag := cmd.Flags().Lookup("capture"); flag != nil {
+		flag.NoOptDefVal = "__auto__"
+	}
+	cmd.Flags().StringArrayVar(&captureTags, "capture-tag", nil, "Tag the capture session (KEY=VALUE). Repeatable.")
 	_ = cmd.MarkFlagRequired("release")
 
 	if ownNamespaceFlag {

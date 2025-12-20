@@ -41,6 +41,7 @@ type SessionMeta struct {
 	Host        string            `json:"host,omitempty"`
 	User        string            `json:"user,omitempty"`
 	Extra       map[string]string `json:"extra,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
 	Entities    Entities          `json:"entities,omitempty"`
 }
 
@@ -407,6 +408,30 @@ VALUES(?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
 		strings.TrimSpace(meta.Entities.BuildContext),
 	); err != nil {
 		return fmt.Errorf("insert capture session: %w", err)
+	}
+	if len(meta.Tags) > 0 {
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin tags tx: %w", err)
+		}
+		for k, v := range meta.Tags {
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			if k == "" || v == "" {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `
+INSERT INTO ktl_capture_tags(session_id, key, value)
+VALUES(?, ?, ?)
+ON CONFLICT(session_id, key) DO UPDATE SET value = excluded.value
+`, id, k, v); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("insert tag %s: %w", k, err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit tags: %w", err)
+		}
 	}
 	r.sessionID = id
 	r.runID = runID

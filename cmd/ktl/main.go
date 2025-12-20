@@ -94,7 +94,7 @@ func newRootCommand() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "Error: unknown command %q for %q\n\n", args[0], cmd.Name())
 				return pflag.ErrHelp
 			}
-			return runLogs(cmd, args, opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr, "")
+			return runLogs(cmd, args, opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr, "", nil)
 		},
 	}
 	cmd.CompletionOptions.DisableDefaultCmd = true
