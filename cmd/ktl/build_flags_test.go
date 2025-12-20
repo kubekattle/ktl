@@ -50,6 +50,7 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 		"--secret", "MY_SECRET",
 		"-i",
 		"--interactive-shell", "/bin/bash -l",
+		"--compose-parallelism", "5",
 		"--tag", "example.com/app:dev",
 		ctxDir,
 	})
@@ -94,6 +95,9 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 	}
 	if !opts.Interactive || opts.InteractiveShell != "/bin/bash -l" {
 		t.Fatalf("interactive flags missing")
+	}
+	if opts.ComposeParallelism != 5 {
+		t.Fatalf("compose parallelism missing: %d", opts.ComposeParallelism)
 	}
 	if out := stdout.String(); !strings.Contains(out, "Built example.com/app:dev") {
 		t.Fatalf("expected build output, got %q", out)
@@ -144,6 +148,7 @@ func TestBuildCommandHelpListsAllFlags(t *testing.T) {
 		"--cache-dir",
 		"--cache-from",
 		"--cache-to",
+		"--compose-parallelism",
 		"-f, --file",
 		"-h, --help",
 		"-i, --interactive",

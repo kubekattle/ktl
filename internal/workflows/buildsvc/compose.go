@@ -45,6 +45,7 @@ func (s *service) runComposeBuild(ctx context.Context, composeFiles []string, op
 		BuildArgs:            argMap,
 		ProgressOutput:       progressOut,
 		DockerConfig:         dockerCfg,
+		Parallelism:          opts.ComposeParallelism,
 		ProgressObservers:    observers,
 		DiagnosticObservers:  diagnosticObservers,
 	}

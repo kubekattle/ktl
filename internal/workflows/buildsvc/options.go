@@ -120,6 +120,7 @@ type Options struct {
 	ComposeProfiles    []string
 	ComposeServices    []string
 	ComposeProject     string
+	ComposeParallelism int
 	AuthFile           string
 	SandboxConfig      string
 	SandboxBin         string

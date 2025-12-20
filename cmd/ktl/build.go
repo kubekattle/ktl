@@ -60,6 +60,7 @@ type buildCLIOptions struct {
 	composeProfiles  []string
 	composeServices  []string
 	composeProject   string
+	composeParallel  int
 	authFile         string
 	sandboxConfig    string
 	sandboxBin       string
@@ -157,6 +158,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.composeProfiles, "compose-profile", nil, "Compose profile(s) to enable")
 	cmd.Flags().StringArrayVar(&opts.composeServices, "compose-service", nil, "Compose service(s) to build (default: all buildable services)")
 	cmd.Flags().StringVar(&opts.composeProject, "compose-project", "", "Override the compose project name")
+	cmd.Flags().IntVar(&opts.composeParallel, "compose-parallelism", 0, "Max parallel compose builds (default: NumCPU)")
 	cmd.Flags().StringVar(&opts.logFile, "logfile", "", "Log to file instead of stdout/stderr")
 	cmd.Flags().BoolVar(&opts.rm, "rm", true, "Remove intermediate containers after a successful build")
 	cmd.Flags().BoolVarP(&opts.quiet, "quiet", "q", false, "Refrain from announcing build instructions and progress")
@@ -341,6 +343,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		ComposeProfiles:    append([]string(nil), opts.composeProfiles...),
 		ComposeServices:    append([]string(nil), opts.composeServices...),
 		ComposeProject:     opts.composeProject,
+		ComposeParallelism: opts.composeParallel,
 		AuthFile:           opts.authFile,
 		SandboxConfig:      opts.sandboxConfig,
 		SandboxBin:         opts.sandboxBin,
