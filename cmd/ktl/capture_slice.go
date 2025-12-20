@@ -1,3 +1,8 @@
+// File: cmd/ktl/capture_slice.go
+// Brief: CLI command wiring and implementation for 'capture slice'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

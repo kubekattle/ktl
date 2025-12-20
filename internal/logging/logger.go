@@ -1,3 +1,8 @@
+// File: internal/logging/logger.go
+// Brief: Internal logging package implementation for 'logger'.
+
+// Package logging provides logging helpers.
+
 package logging
 
 import (

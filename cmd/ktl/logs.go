@@ -1,3 +1,6 @@
+// File: cmd/ktl/logs.go
+// Brief: CLI command wiring and implementation for 'logs'.
+
 // logs.go defines the top-level 'ktl logs' command, connecting CLI flags to the tailer, capture, drift, and streaming subcommands.
 package main
 

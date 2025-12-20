@@ -1,3 +1,8 @@
+// File: cmd/ktl/flag_guard.go
+// Brief: CLI command wiring and implementation for 'flag guard'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

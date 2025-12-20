@@ -1,3 +1,8 @@
+// File: internal/deploy/stream.go
+// Brief: Internal deploy package implementation for 'stream'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 import (

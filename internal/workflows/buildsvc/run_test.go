@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/run_test.go
+// Brief: Internal buildsvc package implementation for 'run'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

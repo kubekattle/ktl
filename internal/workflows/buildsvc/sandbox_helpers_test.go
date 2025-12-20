@@ -1,5 +1,10 @@
 //go:build linux
 
+// File: internal/workflows/buildsvc/sandbox_helpers_test.go
+// Brief: Internal buildsvc package implementation for 'sandbox helpers'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

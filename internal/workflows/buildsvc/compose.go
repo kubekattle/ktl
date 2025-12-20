@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/compose.go
+// Brief: Internal buildsvc package implementation for 'compose'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

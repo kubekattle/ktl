@@ -1,3 +1,8 @@
+// File: internal/api/convert/capture.go
+// Brief: Internal convert package implementation for 'capture'.
+
+// Package convert provides convert helpers.
+
 package convert
 
 import (

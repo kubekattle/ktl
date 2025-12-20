@@ -1,3 +1,8 @@
+// File: internal/agent/server.go
+// Brief: Internal agent package implementation for 'server'.
+
+// Package agent provides agent helpers.
+
 package agent
 
 import (

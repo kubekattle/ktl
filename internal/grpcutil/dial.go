@@ -1,3 +1,8 @@
+// File: internal/grpcutil/dial.go
+// Brief: Internal grpcutil package implementation for 'dial'.
+
+// Package grpcutil provides grpcutil helpers.
+
 package grpcutil
 
 import (

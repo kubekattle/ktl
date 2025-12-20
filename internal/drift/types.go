@@ -1,3 +1,6 @@
+// File: internal/drift/types.go
+// Brief: Internal drift package implementation for 'types'.
+
 // types.go defines the structs used by the drift tracker when sampling pod deltas.
 package drift
 

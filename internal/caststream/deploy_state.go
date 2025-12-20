@@ -1,3 +1,8 @@
+// File: internal/caststream/deploy_state.go
+// Brief: Internal caststream package implementation for 'deploy state'.
+
+// Package caststream provides caststream helpers.
+
 package caststream
 
 import (

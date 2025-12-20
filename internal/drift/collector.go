@@ -1,3 +1,6 @@
+// File: internal/drift/collector.go
+// Brief: Internal drift package implementation for 'collector'.
+
 // collector.go captures pod state over time for 'ktl logs drift watch'.
 package drift
 

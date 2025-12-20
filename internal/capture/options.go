@@ -1,3 +1,6 @@
+// File: internal/capture/options.go
+// Brief: Internal capture package implementation for 'options'.
+
 // options.go collects and normalizes CLI flags used by capture sessions.
 package capture
 

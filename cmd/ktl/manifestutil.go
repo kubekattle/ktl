@@ -1,3 +1,6 @@
+// File: cmd/ktl/manifestutil.go
+// Brief: CLI command wiring and implementation for 'manifestutil'.
+
 // manifestutil.go hosts helper types for parsing/rendering Helm manifests when generating plan reports and diffs.
 package main
 

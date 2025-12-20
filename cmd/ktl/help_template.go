@@ -1,3 +1,6 @@
+// File: cmd/ktl/help_template.go
+// Brief: CLI command wiring and implementation for 'help template'.
+
 // help_template.go customizes Cobra's help/usage templates so ktl commands share concise, branded flag sections.
 package main
 

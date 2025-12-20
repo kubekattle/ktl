@@ -1,3 +1,8 @@
+// File: cmd/ktl/delete.go
+// Brief: CLI command wiring and implementation for 'delete'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import "github.com/spf13/cobra"

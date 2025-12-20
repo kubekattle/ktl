@@ -1,3 +1,8 @@
+// File: internal/deploy/manifest_targets.go
+// Brief: Internal deploy package implementation for 'manifest targets'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 import (

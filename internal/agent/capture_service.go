@@ -1,3 +1,8 @@
+// File: internal/agent/capture_service.go
+// Brief: Internal agent package implementation for 'capture service'.
+
+// Package agent provides agent helpers.
+
 package agent
 
 import (

@@ -1,3 +1,8 @@
+// File: cmd/ktl/ui_capture.go
+// Brief: CLI command wiring and implementation for 'ui capture'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

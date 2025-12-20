@@ -1,6 +1,9 @@
 //go:build integration && linux
 // +build integration,linux
 
+// File: cmd/ktl/test_helpers_test.go
+// Brief: CLI command wiring and implementation for 'test helpers'.
+
 package main
 
 import (

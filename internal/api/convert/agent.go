@@ -1,3 +1,8 @@
+// File: internal/api/convert/agent.go
+// Brief: Internal convert package implementation for 'agent'.
+
+// Package convert provides convert helpers.
+
 package convert
 
 import (

@@ -1,5 +1,10 @@
 //go:build integration && linux
 
+// File: cmd/ktl/build_integration_helpers_test.go
+// Brief: CLI command wiring and implementation for 'build integration helpers'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

@@ -1,3 +1,8 @@
+// File: internal/caststream/render_test.go
+// Brief: Internal caststream package implementation for 'render'.
+
+// Package caststream provides caststream helpers.
+
 package caststream
 
 import (

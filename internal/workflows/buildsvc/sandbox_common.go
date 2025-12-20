@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/sandbox_common.go
+// Brief: Internal buildsvc package implementation for 'sandbox common'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import "os"

@@ -1,3 +1,6 @@
+// File: internal/tailer/tailer.go
+// Brief: Internal tailer package implementation for 'tailer'.
+
 // Package tailer implements ktl's high-performance, color-aware log streamer
 // used by the 'ktl logs' family of commands, coordinating informers, filters,
 // captures, and observer hooks.

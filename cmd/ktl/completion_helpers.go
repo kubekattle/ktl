@@ -1,3 +1,6 @@
+// File: cmd/ktl/completion_helpers.go
+// Brief: CLI command wiring and implementation for 'completion helpers'.
+
 // completion_helpers.go centralizes Cobra flag completion helpers (namespaces today) so every command can reuse them consistently.
 package main
 

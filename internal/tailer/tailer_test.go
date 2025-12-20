@@ -1,3 +1,6 @@
+// File: internal/tailer/tailer_test.go
+// Brief: Internal tailer package implementation for 'tailer'.
+
 // tailer_test.go covers palette/color helpers and other tailer utilities.
 package tailer
 

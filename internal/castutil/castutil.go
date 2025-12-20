@@ -1,3 +1,8 @@
+// File: internal/castutil/castutil.go
+// Brief: Internal castutil package implementation for 'castutil'.
+
+// Package castutil provides castutil helpers.
+
 package castutil
 
 import (

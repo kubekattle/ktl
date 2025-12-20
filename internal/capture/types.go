@@ -1,3 +1,6 @@
+// File: internal/capture/types.go
+// Brief: Internal capture package implementation for 'types'.
+
 // types.go declares the structs serialized inside capture archives (logs, metadata, and node state).
 package capture
 

@@ -1,3 +1,8 @@
+// File: internal/mirrorbus/publisher.go
+// Brief: Internal mirrorbus package implementation for 'publisher'.
+
+// Package mirrorbus provides mirrorbus helpers.
+
 package mirrorbus
 
 import (

@@ -1,3 +1,8 @@
+// File: cmd/ktl/build.go
+// Brief: CLI command wiring and implementation for 'build'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

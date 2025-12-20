@@ -1,3 +1,6 @@
+// File: internal/sqlitewriter/context.go
+// Brief: Internal sqlitewriter package implementation for 'context'.
+
 // context.go contains helpers for managing writer lifecycles and context cancellation.
 package sqlitewriter
 

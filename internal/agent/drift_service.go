@@ -1,3 +1,8 @@
+// File: internal/agent/drift_service.go
+// Brief: Internal agent package implementation for 'drift service'.
+
+// Package agent provides agent helpers.
+
 package agent
 
 import (

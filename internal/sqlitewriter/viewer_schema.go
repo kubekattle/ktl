@@ -1,3 +1,8 @@
+// File: internal/sqlitewriter/viewer_schema.go
+// Brief: Internal sqlitewriter package implementation for 'viewer schema'.
+
+// Package sqlitewriter provides sqlitewriter helpers.
+
 package sqlitewriter
 
 import (

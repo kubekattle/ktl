@@ -1,3 +1,8 @@
+// File: internal/csvutil/csvutil.go
+// Brief: Internal csvutil package implementation for 'csvutil'.
+
+// Package csvutil provides csvutil helpers.
+
 package csvutil
 
 import (

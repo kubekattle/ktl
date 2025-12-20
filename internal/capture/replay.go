@@ -1,3 +1,6 @@
+// File: internal/capture/replay.go
+// Brief: Internal capture package implementation for 'replay'.
+
 // replay.go rehydrates captured logs/events back to stdout or JSON for offline analysis.
 package capture
 

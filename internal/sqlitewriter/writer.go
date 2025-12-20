@@ -1,3 +1,6 @@
+// File: internal/sqlitewriter/writer.go
+// Brief: Internal sqlitewriter package implementation for 'writer'.
+
 // writer.go streams log lines into on-disk SQLite databases for captures and replay.
 package sqlitewriter
 

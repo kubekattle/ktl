@@ -1,3 +1,8 @@
+// File: cmd/ktl/build_flags_test.go
+// Brief: CLI command wiring and implementation for 'build flags'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

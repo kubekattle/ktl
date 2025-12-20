@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/helpers.go
+// Brief: Internal buildsvc package implementation for 'helpers'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

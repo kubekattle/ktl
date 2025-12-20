@@ -1,3 +1,6 @@
+// File: cmd/ktl/completion.go
+// Brief: CLI command wiring and implementation for 'completion'.
+
 // completion.go registers the 'ktl completion' command that emits shell-specific autocompletion scripts.
 package main
 

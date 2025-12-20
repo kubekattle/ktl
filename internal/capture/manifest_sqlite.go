@@ -1,3 +1,8 @@
+// File: internal/capture/manifest_sqlite.go
+// Brief: Internal capture package implementation for 'manifest sqlite'.
+
+// Package capture provides capture helpers.
+
 package capture
 
 import (

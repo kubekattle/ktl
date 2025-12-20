@@ -1,3 +1,6 @@
+// File: cmd/ktl/capture.go
+// Brief: CLI command wiring and implementation for 'capture'.
+
 // capture.go adds 'ktl logs capture', wrapping the tailer so investigations can persist multi-pod log sessions plus metadata into portable archives.
 package main
 

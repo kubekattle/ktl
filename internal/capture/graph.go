@@ -1,3 +1,6 @@
+// File: internal/capture/graph.go
+// Brief: Internal capture package implementation for 'graph'.
+
 // graph.go maintains the informer graph (pods, nodes, events) referenced during capture sessions.
 package capture
 

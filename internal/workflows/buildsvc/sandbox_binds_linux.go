@@ -1,5 +1,10 @@
 //go:build linux
 
+// File: internal/workflows/buildsvc/sandbox_binds_linux.go
+// Brief: Internal buildsvc package implementation for 'sandbox binds linux'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

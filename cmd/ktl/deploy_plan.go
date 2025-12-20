@@ -1,3 +1,6 @@
+// File: cmd/ktl/deploy_plan.go
+// Brief: CLI command wiring and implementation for 'deploy plan'.
+
 // deploy_plan.go contains the 'ktl plan'/deploy-apply logic, rendering manifests, producing HTML diffs, and teeing the plan into files.
 package main
 

@@ -1,3 +1,6 @@
+// File: cmd/ktl/drift.go
+// Brief: CLI command wiring and implementation for 'drift'.
+
 // drift.go adds the 'ktl drift watch' workflow, periodically snapshotting pods and flagging changes between generations.
 package main
 

@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/progress.go
+// Brief: Internal buildsvc package implementation for 'progress'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

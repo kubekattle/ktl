@@ -15,6 +15,14 @@ One-page guardrails for anyone touching `ktl`: start here before coding, keep it
 4. Document any new build, lint, or Pandoc steps inside this file and in `docs/pandoc-build.md` if relevant.
 5. When touching HTML/CSS, align with the Frontend Design System below and update tokens/components there first.
 
+## AI-Agent Guide (Repo Conventions)
+
+If you’re an AI agent (or using one), start with:
+
+- `docs/architecture.md`: repo layout + key packages.
+- `docs/agent-playbook.md`: common workflows (“golden paths”) + validation commands.
+- `docs/deps.md`: generated package-level dependency map (`make deps`).
+
 ## Repository Structure
 - `cmd/ktl`: Cobra entrypoint; add flags, top-level wiring, and CLI UX only.
 - `internal/*`: reusable packages (e.g., `internal/tailer`, `internal/capture`, `internal/workflows/buildsvc`). Keep scopes tight; long-running diagnostics live where they already exist.

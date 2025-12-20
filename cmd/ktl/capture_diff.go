@@ -1,3 +1,6 @@
+// File: cmd/ktl/capture_diff.go
+// Brief: CLI command wiring and implementation for 'capture diff'.
+
 // capture_diff.go implements 'ktl logs capture diff', comparing archived snapshots (or live namespaces) to surface drift between captures.
 package main
 

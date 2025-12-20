@@ -1,3 +1,8 @@
+// File: internal/capture/manifests.go
+// Brief: Internal capture package implementation for 'manifests'.
+
+// Package capture provides capture helpers.
+
 package capture
 
 import (

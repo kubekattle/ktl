@@ -1,3 +1,6 @@
+// File: internal/capture/session.go
+// Brief: Internal capture package implementation for 'session'.
+
 // session.go coordinates live capture sessions by wiring Kubernetes informers to log writers.
 package capture
 

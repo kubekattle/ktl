@@ -1,3 +1,6 @@
+// File: internal/caststream/server.go
+// Brief: Internal caststream package implementation for 'server'.
+
 // Package caststream hosts the lightweight remote log “casting” servers used by
 // `ktl logs --ui/--ws-listen`. It mirrors Tailer output to HTML or raw
 // WebSocket clients so responders can follow the same stream without rerunning

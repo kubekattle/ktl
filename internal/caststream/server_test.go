@@ -1,3 +1,8 @@
+// File: internal/caststream/server_test.go
+// Brief: Internal caststream package implementation for 'server'.
+
+// Package caststream provides caststream helpers.
+
 package caststream
 
 import (

@@ -1,3 +1,8 @@
+// File: internal/featureflags/featureflags.go
+// Brief: Internal featureflags package implementation for 'featureflags'.
+
+// Package featureflags provides featureflags helpers.
+
 package featureflags
 
 import (

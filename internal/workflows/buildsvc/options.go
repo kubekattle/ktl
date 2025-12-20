@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/options.go
+// Brief: Internal buildsvc package implementation for 'options'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

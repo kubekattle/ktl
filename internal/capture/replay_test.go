@@ -1,3 +1,8 @@
+// File: internal/capture/replay_test.go
+// Brief: Internal capture package implementation for 'replay'.
+
+// Package capture provides capture helpers.
+
 package capture
 
 import (

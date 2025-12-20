@@ -1,3 +1,6 @@
+// File: internal/deploy/apply.go
+// Brief: Internal deploy package implementation for 'apply'.
+
 // apply.go wraps Helm install/upgrade hooks so 'ktl deploy' can apply releases.
 package deploy
 

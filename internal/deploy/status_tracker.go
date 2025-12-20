@@ -1,3 +1,8 @@
+// File: internal/deploy/status_tracker.go
+// Brief: Internal deploy package implementation for 'status tracker'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 import (

@@ -1,3 +1,6 @@
+// File: cmd/ktl/main.go
+// Brief: Main ktl CLI entrypoint and root command wiring.
+
 // main.go bootstraps ktl: it builds the root Cobra command, wires profiling, and executes with signal-aware contexts.
 package main
 

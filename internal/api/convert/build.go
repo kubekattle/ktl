@@ -1,3 +1,8 @@
+// File: internal/api/convert/build.go
+// Brief: Internal convert package implementation for 'build'.
+
+// Package convert provides convert helpers.
+
 package convert
 
 import (

@@ -1,3 +1,8 @@
+// File: cmd/ktl/deploy_plan_graph_test.go
+// Brief: CLI command wiring and implementation for 'deploy plan graph'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

@@ -1,3 +1,8 @@
+// File: internal/deploy/progress.go
+// Brief: Internal deploy package implementation for 'progress'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 // Deploy phase identifiers shared by CLI, observers, and the web UI timeline.

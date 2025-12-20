@@ -1,3 +1,8 @@
+// File: internal/caststream/capture_upload.go
+// Brief: Internal caststream package implementation for 'capture upload'.
+
+// Package caststream provides caststream helpers.
+
 package caststream
 
 import (

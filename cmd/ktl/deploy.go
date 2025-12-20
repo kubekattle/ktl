@@ -1,3 +1,6 @@
+// File: cmd/ktl/deploy.go
+// Brief: CLI command wiring and implementation for 'deploy'.
+
 // deploy.go defines the 'ktl deploy' parent command that fronts Helm plan/apply/destroy operations with ktl UX improvements.
 package main
 

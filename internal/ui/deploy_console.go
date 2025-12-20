@@ -1,3 +1,8 @@
+// File: internal/ui/deploy_console.go
+// Brief: Internal ui package implementation for 'deploy console'.
+
+// Package ui provides ui helpers.
+
 package ui
 
 import (

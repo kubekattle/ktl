@@ -208,6 +208,10 @@ proto: ## Generate gRPC/protobuf stubs under pkg/api
 proto-lint: ## Lint protobuf definitions
 	$(BUF) lint
 
+deps: ## Regenerate docs/deps.md (generated package dependency map)
+	@mkdir -p docs
+	@./tools/gen-deps-md.py > docs/deps.md
+
 clean: ## Remove build artifacts (bin/ and dist/)
 	rm -rf $(BIN_DIR) $(DIST_DIR)
 

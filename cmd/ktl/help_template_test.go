@@ -1,3 +1,8 @@
+// File: cmd/ktl/help_template_test.go
+// Brief: CLI command wiring and implementation for 'help template'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

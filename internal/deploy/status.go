@@ -1,3 +1,8 @@
+// File: internal/deploy/status.go
+// Brief: Internal deploy package implementation for 'status'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 import (

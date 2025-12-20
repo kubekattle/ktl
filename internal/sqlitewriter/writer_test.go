@@ -1,3 +1,6 @@
+// File: internal/sqlitewriter/writer_test.go
+// Brief: Internal sqlitewriter package implementation for 'writer'.
+
 // writer_test.go validates the SQLite writer's schema and durability behavior.
 package sqlitewriter
 

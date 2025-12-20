@@ -1,3 +1,6 @@
+// File: internal/drift/collector_test.go
+// Brief: Internal drift package implementation for 'collector'.
+
 // collector_test.go covers the drift sampler logic and its edge cases.
 package drift
 

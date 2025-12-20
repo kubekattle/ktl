@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/console_observer.go
+// Brief: Internal buildsvc package implementation for 'console observer'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

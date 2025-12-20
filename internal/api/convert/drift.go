@@ -1,3 +1,8 @@
+// File: internal/api/convert/drift.go
+// Brief: Internal convert package implementation for 'drift'.
+
+// Package convert provides convert helpers.
+
 package convert
 
 import (

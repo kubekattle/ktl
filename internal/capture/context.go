@@ -1,3 +1,6 @@
+// File: internal/capture/context.go
+// Brief: Internal capture package implementation for 'context'.
+
 // context.go provides context helpers used to control capture lifecycles.
 package capture
 

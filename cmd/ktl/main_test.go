@@ -1,3 +1,8 @@
+// File: cmd/ktl/main_test.go
+// Brief: Main ktl CLI entrypoint and root command wiring.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

@@ -1,3 +1,8 @@
+// File: cmd/ktl/apply.go
+// Brief: CLI command wiring and implementation for 'apply'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import "github.com/spf13/cobra"

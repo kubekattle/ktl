@@ -1,3 +1,6 @@
+// File: internal/capture/artifact.go
+// Brief: Internal capture package implementation for 'artifact'.
+
 // artifact.go defines the on-disk capture artifact format produced by 'ktl logs capture'.
 package capture
 

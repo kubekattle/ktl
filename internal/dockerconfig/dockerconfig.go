@@ -1,3 +1,8 @@
+// File: internal/dockerconfig/dockerconfig.go
+// Brief: Internal dockerconfig package implementation for 'dockerconfig'.
+
+// Package dockerconfig provides dockerconfig helpers.
+
 package dockerconfig
 
 import (

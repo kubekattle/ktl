@@ -1,5 +1,10 @@
 //go:build integration && linux
 
+// File: cmd/ktl/sandbox_policy_integration_test.go
+// Brief: CLI command wiring and implementation for 'sandbox policy integration'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

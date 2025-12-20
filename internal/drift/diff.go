@@ -1,3 +1,6 @@
+// File: internal/drift/diff.go
+// Brief: Internal drift package implementation for 'diff'.
+
 // diff.go computes human-readable drift summaries between pod snapshots.
 package drift
 

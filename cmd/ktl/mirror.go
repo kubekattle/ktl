@@ -1,3 +1,8 @@
+// File: cmd/ktl/mirror.go
+// Brief: CLI command wiring and implementation for 'mirror'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

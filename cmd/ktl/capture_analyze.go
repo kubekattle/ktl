@@ -1,3 +1,8 @@
+// File: cmd/ktl/capture_analyze.go
+// Brief: CLI command wiring and implementation for 'capture analyze'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

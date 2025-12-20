@@ -1,3 +1,8 @@
+// File: cmd/ktl-agent/main.go
+// Brief: Remote agent CLI entrypoint.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

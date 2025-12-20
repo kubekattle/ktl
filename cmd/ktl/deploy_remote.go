@@ -1,3 +1,8 @@
+// File: cmd/ktl/deploy_remote.go
+// Brief: CLI command wiring and implementation for 'deploy remote'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

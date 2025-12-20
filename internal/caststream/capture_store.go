@@ -1,3 +1,8 @@
+// File: internal/caststream/capture_store.go
+// Brief: Internal caststream package implementation for 'capture store'.
+
+// Package caststream provides caststream helpers.
+
 package caststream
 
 import (

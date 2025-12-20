@@ -1,3 +1,8 @@
+// File: internal/workflows/buildsvc/sandbox_logs.go
+// Brief: Internal buildsvc package implementation for 'sandbox logs'.
+
+// Package buildsvc provides buildsvc helpers.
+
 package buildsvc
 
 import (

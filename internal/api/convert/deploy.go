@@ -1,3 +1,8 @@
+// File: internal/api/convert/deploy.go
+// Brief: Internal convert package implementation for 'deploy'.
+
+// Package convert provides convert helpers.
+
 package convert
 
 import (

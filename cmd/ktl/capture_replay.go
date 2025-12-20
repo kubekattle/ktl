@@ -1,3 +1,6 @@
+// File: cmd/ktl/capture_replay.go
+// Brief: CLI command wiring and implementation for 'capture replay'.
+
 // capture_replay.go wires 'ktl logs capture replay', streaming stored log archives back through the formatter for offline triage.
 package main
 

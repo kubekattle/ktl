@@ -1,3 +1,8 @@
+// File: cmd/ktl/redact_test.go
+// Brief: CLI command wiring and implementation for 'redact'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import "testing"

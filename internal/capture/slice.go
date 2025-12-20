@@ -1,3 +1,8 @@
+// File: internal/capture/slice.go
+// Brief: Internal capture package implementation for 'slice'.
+
+// Package capture provides capture helpers.
+
 package capture
 
 import (

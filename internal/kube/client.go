@@ -1,3 +1,6 @@
+// File: internal/kube/client.go
+// Brief: Internal kube package implementation for 'client'.
+
 // client.go constructs Kubernetes clientsets/dynamic clients used across ktl.
 package kube
 

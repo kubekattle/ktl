@@ -1,3 +1,6 @@
+// File: internal/drift/diff_test.go
+// Brief: Internal drift package implementation for 'diff'.
+
 // diff_test.go ensures drift diffing covers the expected pod change scenarios.
 package drift
 

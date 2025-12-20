@@ -1,5 +1,10 @@
 //go:build !linux
 
+// File: cmd/ktl/build_sandbox_logs_stub_test.go
+// Brief: CLI command wiring and implementation for 'build sandbox logs stub'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

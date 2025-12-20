@@ -1,5 +1,10 @@
 //go:build integration && linux
 
+// File: cmd/ktl/build_fixtures_integration_test.go
+// Brief: CLI command wiring and implementation for 'build fixtures integration'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

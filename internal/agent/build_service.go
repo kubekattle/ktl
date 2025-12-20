@@ -1,3 +1,8 @@
+// File: internal/agent/build_service.go
+// Brief: Internal agent package implementation for 'build service'.
+
+// Package agent provides agent helpers.
+
 package agent
 
 import (
