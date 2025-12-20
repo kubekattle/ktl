@@ -64,6 +64,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var reusePlanPath string
 	var consoleWide bool
 	var consoleDetails bool
+	var verbose bool
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -71,6 +72,15 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 		Short: "Render and apply a Helm chart using upgrade --install",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if verbose && logLevel != nil {
+				if flag := cmd.Flags().Lookup("log-level"); flag != nil && flag.Changed {
+					return fmt.Errorf("--verbose cannot be combined with --log-level")
+				}
+				if flag := cmd.InheritedFlags().Lookup("log-level"); flag != nil && flag.Changed {
+					return fmt.Errorf("--verbose cannot be combined with --log-level")
+				}
+				*logLevel = "debug"
+			}
 			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
 				if watchDuration > 0 {
 					return fmt.Errorf("--watch is not supported with --remote-agent")
@@ -523,6 +533,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	}
 	cmd.Flags().StringVar(&wsListenAddr, "ws-listen", "", "Serve the raw deploy event stream over WebSocket at this address (e.g. :9086)")
 	cmd.Flags().StringVar(&reusePlanPath, "reuse-plan", "", "Path to a ktl plan artifact (HTML or JSON) to reuse chart inputs")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
 
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
@@ -562,6 +573,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	var disableHooks bool
 	var consoleWide bool
 	var consoleDetails bool
+	var verbose bool
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -570,6 +582,15 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 		Hidden: cfg.Hidden,
 		Args:   cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			if verbose && logLevel != nil {
+				if flag := cmd.Flags().Lookup("log-level"); flag != nil && flag.Changed {
+					return fmt.Errorf("--verbose cannot be combined with --log-level")
+				}
+				if flag := cmd.InheritedFlags().Lookup("log-level"); flag != nil && flag.Changed {
+					return fmt.Errorf("--verbose cannot be combined with --log-level")
+				}
+				*logLevel = "debug"
+			}
 			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
 				if strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "" {
 					return fmt.Errorf("--ui/--ws-listen are not supported with --remote-agent")
@@ -902,6 +923,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	cmd.Flags().BoolVar(&disableHooks, "disable-hooks", false, "Disable Helm hooks while destroying the release")
 	cmd.Flags().BoolVar(&consoleWide, "console-wide", false, "Force wide console layout even on narrow terminals")
 	cmd.Flags().BoolVar(&consoleDetails, "console-details", false, "Always show metadata details even on narrow terminals")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
 	_ = cmd.MarkFlagRequired("release")
 
 	if ownNamespaceFlag {
