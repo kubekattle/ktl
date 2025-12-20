@@ -17,8 +17,17 @@ yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    red "missing required command: $1"
+    red "Не найдено: $1"
     exit 2
+  fi
+}
+
+contains() {
+  local needle="$1"
+  if command -v rg >/dev/null 2>&1; then
+    rg -q --fixed-strings "$needle"
+  else
+    grep -Fq "$needle"
   fi
 }
 
@@ -27,31 +36,24 @@ need uname
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 if [[ "$os" != "linux" ]]; then
-  red "this demo is intended to run on Linux hosts (got: $os)"
+  red "Это демо рассчитано на Linux (сейчас: $os)"
   exit 2
 fi
 
 if [[ ! -x "$ktl_bin" ]]; then
-  yellow "ktl binary not found at $ktl_bin; building via: make build"
+  yellow "Не найден бинарник ktl по пути $ktl_bin — собираю: make build"
   make build >/dev/null
 fi
 
 if ! command -v nsjail >/dev/null 2>&1; then
-  red "nsjail not found; sandbox demo requires nsjail on the host"
+  red "nsjail не найден. Для демо песочницы нужен установленный nsjail на хосте."
   exit 2
 fi
 
 if [[ ! -f "$policy" ]]; then
-  red "sandbox policy not found: $policy"
+  red "Не найдена политика песочницы: $policy"
   exit 2
 fi
-
-run_build() {
-  local label="$1"
-  shift
-  printf "\n== %s ==\n" "$label" >&2
-  "$ktl_bin" build "$@"
-}
 
 pass_count=0
 fail_count=0
@@ -61,36 +63,65 @@ note_pass() { green "PASS: $*"; pass_count=$((pass_count+1)); }
 note_fail() { red "FAIL: $*"; fail_count=$((fail_count+1)); }
 note_skip() { yellow "SKIP: $*"; skip_count=$((skip_count+1)); }
 
-printf "Using ktl: %s\n" "$ktl_bin" >&2
-printf "Using sandbox policy: %s\n" "$policy" >&2
+cat >&2 <<EOF
 
-printf "\n-- Test 0: sandbox baseline produces output\n" >&2
+================================================================================
+ДЕМО: ktl build без песочницы vs ktl build в песочнице
+================================================================================
+
+Что показываем аудитории:
+  1) В обычном режиме ktl на Linux переисполняется в песочнице.
+  2) Если песочницу отключить (KTL_SANDBOX_DISABLE=1), сборка выполняется без этого слоя защиты.
+  3) В permissive-настройках билдера недоверенный Dockerfile может пытаться читать "хостовые" файлы.
+  4) В песочнице ktl такой доступ должен быть ограничен.
+
+Площадка: Linux + nsjail.
+
+Используем:
+  ktl:    $ktl_bin
+  policy: $policy
+
+EOF
+
+printf "\n[Тест 0] Базовая сборка в песочнице: должны увидеть баннер и вывод\n" >&2
 baseline_out="$("$ktl_bin" build "$baseline_ctx" 2>&1 || true)"
-if echo "$baseline_out" | rg -q "Running ktl build inside the sandbox" ; then
-  note_pass "sandbox banner printed"
+if printf "%s" "$baseline_out" | contains "Running ktl build inside the sandbox" ; then
+  note_pass "ktl сообщил, что работает внутри песочницы"
 else
-  note_fail "missing sandbox banner"
+  note_fail "нет баннера про песочницу (проверьте nsjail/policy/окружение)"
 fi
-if echo "$baseline_out" | rg -q "baseline-ok" ; then
-  note_pass "baseline build ran"
+if printf "%s" "$baseline_out" | contains "baseline-ok" ; then
+  note_pass "сборка реально исполнилась (наш маркер baseline-ok присутствует)"
 else
-  note_fail "baseline build did not run (no 'baseline-ok' in output)"
+  note_fail "сборка не исполнилась (в выводе нет baseline-ok)"
 fi
 
-printf "\n-- Test 1: disable sandbox still builds\n" >&2
+printf "\n[Тест 1] Отключаем песочницу: баннера быть не должно, но сборка должна пройти\n" >&2
 nosb_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" 2>&1 || true)"
-if echo "$nosb_out" | rg -q "Running ktl build inside the sandbox" ; then
-  note_fail "unexpected sandbox banner with KTL_SANDBOX_DISABLE=1"
+if printf "%s" "$nosb_out" | contains "Running ktl build inside the sandbox" ; then
+  note_fail "баннер песочницы появился, хотя KTL_SANDBOX_DISABLE=1"
 else
-  note_pass "no sandbox banner when disabled"
+  note_pass "песочница отключена (баннера нет)"
 fi
-if echo "$nosb_out" | rg -q "baseline-ok" ; then
-  note_pass "baseline build ran without sandbox"
+if printf "%s" "$nosb_out" | contains "baseline-ok" ; then
+  note_pass "сборка прошла и без песочницы (контрольный прогон)"
 else
-  note_fail "baseline build did not run without sandbox"
+  note_fail "сборка не прошла без песочницы"
 fi
 
-printf "\n-- Test 2: host-marker visibility differs (builder-permissive only)\n" >&2
+printf "\n[Тест 2] Демонстрация 'видимости хоста' (только если билдер permissive)\n" >&2
+cat >&2 <<EOF
+Сейчас мы создадим на хосте файл-маркер:
+  $marker_path
+и запустим сборку, которая пытается прочитать этот файл через bind-mount /tmp.
+
+Ожидаемое поведение:
+  - Без песочницы: возможно увидим HOST_MARKER:present и содержимое маркера.
+  - В песочнице: должно быть HOST_MARKER:missing (маркер не виден).
+
+Если билдер уже блокирует такие host-mount фичи — тест будет SKIP (это безопасно).
+EOF
+
 marker_value="ktl-demo-marker-$(date +%s)-$RANDOM"
 printf "%s\n" "$marker_value" >"$marker_path"
 chmod 0644 "$marker_path"
@@ -101,31 +132,31 @@ sandbox_marker_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$marker_ctx
 nosb_present=false
 sandbox_present=false
 
-if echo "$nosb_marker_out" | rg -q "HOST_MARKER:present" && echo "$nosb_marker_out" | rg -q "$marker_value" ; then
+if printf "%s" "$nosb_marker_out" | contains "HOST_MARKER:present" && printf "%s" "$nosb_marker_out" | contains "$marker_value" ; then
   nosb_present=true
 fi
-if echo "$sandbox_marker_out" | rg -q "HOST_MARKER:present" && echo "$sandbox_marker_out" | rg -q "$marker_value" ; then
+if printf "%s" "$sandbox_marker_out" | contains "HOST_MARKER:present" && printf "%s" "$sandbox_marker_out" | contains "$marker_value" ; then
   sandbox_present=true
 fi
 
 if [[ "$nosb_present" != true ]]; then
-  note_skip "builder likely blocks host bind mounts; cannot demonstrate host marker read without sandbox"
+  note_skip "билдер, похоже, блокирует host bind mounts — трюк не воспроизводится на этом хосте"
 elif [[ "$sandbox_present" == true ]]; then
-  note_fail "sandbox still exposed host marker (policy likely binds /tmp or builder bypassed sandbox)"
+  note_fail "в песочнице маркер всё ещё виден (политика может пробрасывать /tmp или билдер обходит ограничения)"
 else
-  note_pass "host marker visible without sandbox and hidden with sandbox"
+  note_pass "маркер виден без песочницы и скрыт в песочнице (главная демонстрация)"
 fi
 
-printf "\n-- Test 3: sandbox runtime failures are visible via --sandbox-logs\n" >&2
+printf "\n[Тест 3] Если песочница не стартует — это должно быть видно через --sandbox-logs\n" >&2
 bad_policy="$repo_root/testdata/sandbox/does-not-exist.cfg"
 logs_out="$(KTL_SANDBOX_CONFIG="$bad_policy" "$ktl_bin" build "$baseline_ctx" --sandbox-logs 2>&1 || true)"
-if echo "$logs_out" | rg -q "sandbox config:" ; then
-  note_pass "invalid policy reported"
+if printf "%s" "$logs_out" | contains "sandbox config:" ; then
+  note_pass "ошибка политики видна (нет 'тихого' выхода без сообщений)"
 else
-  note_fail "invalid policy not reported (expected sandbox config error)"
+  note_fail "ошибка политики не показалась (ожидали sandbox config: ...)"
 fi
 
-printf "\nSummary: %d passed, %d failed, %d skipped\n" "$pass_count" "$fail_count" "$skip_count" >&2
+printf "\nИтог: %d PASS, %d FAIL, %d SKIP\n" "$pass_count" "$fail_count" "$skip_count" >&2
 if [[ "$fail_count" -gt 0 ]]; then
   exit 1
 fi

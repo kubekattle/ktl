@@ -15,8 +15,17 @@ yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    red "missing required command: $1"
+    red "Не найдено: $1"
     exit 2
+  fi
+}
+
+contains() {
+  local needle="$1"
+  if command -v rg >/dev/null 2>&1; then
+    rg -q --fixed-strings "$needle"
+  else
+    grep -Fq "$needle"
   fi
 }
 
@@ -25,17 +34,17 @@ need docker
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 if [[ "$os" != "linux" ]]; then
-  red "this demo is intended to run on Linux hosts (got: $os)"
+  red "Это демо рассчитано на Linux (сейчас: $os)"
   exit 2
 fi
 
 if ! docker info >/dev/null 2>&1; then
-  red "docker daemon not reachable; start docker first"
+  red "Docker daemon недоступен. Запустите docker и повторите."
   exit 2
 fi
 
 if [[ ! -x "$ktl_bin" ]]; then
-  yellow "ktl binary not found at $ktl_bin; building via: make build"
+  yellow "Не найден бинарник ktl по пути $ktl_bin — собираю: make build"
   make build >/dev/null
 fi
 
@@ -46,22 +55,49 @@ marker_value="ktl-demo-marker-$(date +%s)-$RANDOM"
 printf "%s\n" "$marker_value" >"$marker_path"
 chmod 0644 "$marker_path"
 
-printf "\n== Demo A: plain docker can read a mounted host file ==\n" >&2
+cat >&2 <<EOF
+
+================================================================================
+ДЕМО: "просто Docker" vs песочница ktl (объяснение для аудитории)
+================================================================================
+
+Что показываем:
+  A) Docker с -v (volume mount) явно даёт контейнеру доступ к файлам хоста.
+  B) Docker с проброшенным /var/run/docker.sock позволяет контейнеру обращаться к Docker-демону.
+     На практике это часто означает "контейнер управляет хостом" (очень опасно на недоверенном коде).
+  C) ktl build в песочнице ограничивает "неявную видимость" хоста во время сборки.
+
+Используем:
+  ktl:    $ktl_bin
+  policy: $policy
+  marker: $marker_path
+
+EOF
+
+printf "\n== Демо A: Docker с volume mount читает файл с хоста ==\n" >&2
 docker run --rm -v /tmp:/host-tmp alpine:3.20 \
   sh -ceu "test -f /host-tmp/$(basename "$marker_path") && echo 'DOCKER:marker_present' && cat /host-tmp/$(basename "$marker_path")"
-green "OK: docker container read host marker via explicit volume mount"
+green "OK: контейнер Docker прочитал файл хоста через явный volume mount"
 
-printf "\n== Demo B: docker socket implies host-level control (safe check) ==\n" >&2
+printf "\n== Демо B: docker.sock как 'пульт управления' Docker-демоном (безопасная проверка) ==\n" >&2
 if [[ -S /var/run/docker.sock ]]; then
   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock docker:28-cli version >/dev/null 2>&1 \
-    && green "OK: container can query docker daemon when docker.sock is mounted" \
-    || yellow "SKIP: could not query docker daemon from docker:cli (image pull blocked or daemon policy)"
+    && green "OK: контейнер смог обратиться к Docker-демону через docker.sock" \
+    || yellow "SKIP: не удалось обратиться к демону из docker:cli (pull запрещён/политика демона)"
 else
-  yellow "SKIP: /var/run/docker.sock not present on host"
+  yellow "SKIP: на хосте нет /var/run/docker.sock"
 fi
 
-printf "\n== Demo C: ktl sandbox blocks implicit host visibility during builds ==\n" >&2
-printf "(This uses a Dockerfile that *tries* to read a host marker via a host bind-mount. If your builder blocks this feature, the comparison will be SKIP.)\n" >&2
+printf "\n== Демо C: ktl sandbox ограничивает неявную видимость хоста при сборке ==\n" >&2
+cat >&2 <<EOF
+Сейчас мы запустим ktl build для Dockerfile, который *пытается* прочитать файл-маркер с хоста через bind-mount /tmp.
+
+Ожидаемое поведение:
+  - Без песочницы (KTL_SANDBOX_DISABLE=1): на permissive-билдере можем увидеть HOST_MARKER:present и значение маркера.
+  - В песочнице: должно быть HOST_MARKER:missing.
+
+Если билдер блокирует host bind mounts — это будет SKIP (безопасный дефолт на этой машине).
+EOF
 
 nosb_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$marker_ctx" 2>&1 || true)"
 sandbox_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$marker_ctx" 2>&1 || true)"
@@ -69,22 +105,21 @@ sandbox_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$marker_ctx" 2>&1 
 nosb_present=false
 sandbox_present=false
 
-if echo "$nosb_out" | rg -q "HOST_MARKER:present" && echo "$nosb_out" | rg -q "$marker_value" ; then
+if printf "%s" "$nosb_out" | contains "HOST_MARKER:present" && printf "%s" "$nosb_out" | contains "$marker_value" ; then
   nosb_present=true
 fi
-if echo "$sandbox_out" | rg -q "HOST_MARKER:present" && echo "$sandbox_out" | rg -q "$marker_value" ; then
+if printf "%s" "$sandbox_out" | contains "HOST_MARKER:present" && printf "%s" "$sandbox_out" | contains "$marker_value" ; then
   sandbox_present=true
 fi
 
 if [[ "$nosb_present" != true ]]; then
-  yellow "SKIP: builder likely blocks host bind mounts; cannot demonstrate host marker read in builds"
+  yellow "SKIP: билдер, похоже, блокирует host bind mounts — сравнение не воспроизводится на этом хосте"
   exit 0
 fi
 
 if [[ "$sandbox_present" == true ]]; then
-  red "FAIL: sandbox still exposed host marker (policy may bind /tmp or builder bypassed sandbox)"
+  red "FAIL: песочница всё ещё показала маркер (политика могла пробросить /tmp или билдер обошёл ограничения)"
   exit 1
 fi
 
-green "PASS: host marker readable without ktl sandbox, but hidden with ktl sandbox"
-
+green "PASS: маркер читается без песочницы ktl и скрыт в песочнице ktl"
