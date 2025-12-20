@@ -113,6 +113,20 @@ If the sandbox runtime fails before `ktl` starts inside the jail, the normal bui
 
 Expected output includes `[sandbox] ...` lines describing what the sandbox runtime is doing and why it failed (missing mounts, denied syscalls, missing namespaces, etc.).
 
+## Automated demo (recommended for talks)
+
+On a Linux host with `nsjail` installed (for example `root@188.124.37.233`), run:
+
+```bash
+export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
+./scripts/sandbox-demo.sh
+```
+
+Notes:
+
+- The script includes multiple checks and reports `PASS`/`FAIL`/`SKIP`.
+- The “host marker” check is only meaningful if your builder is permissive enough to allow host bind mounts; if not, that check is reported as `SKIP` (safe default).
+
 ## Why this prevents “root on the host”
 
 The key security property is **constraining the build’s view of the filesystem and local endpoints**.
