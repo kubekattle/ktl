@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/example/ktl/internal/capture"
 	"github.com/example/ktl/internal/caststream"
 	"github.com/example/ktl/internal/castutil"
 	"github.com/example/ktl/internal/config"
@@ -65,6 +66,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var consoleWide bool
 	var consoleDetails bool
 	var verbose bool
+	var capturePath string
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -211,9 +213,28 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			}
 
 			stream := deploy.NewStreamBroadcaster(releaseName, resolvedNamespace, chart)
+			var captureRecorder *capture.Recorder
+			if path := strings.TrimSpace(capturePath); path != "" {
+				host, _ := os.Hostname()
+				rec, err := capture.Open(path, capture.SessionMeta{
+					Command:   cmd.CommandPath(),
+					Args:      append([]string(nil), os.Args[1:]...),
+					StartedAt: time.Now().UTC(),
+					Host:      host,
+				})
+				if err != nil {
+					return err
+				}
+				captureRecorder = rec
+				stream.AddObserver(rec)
+				fmt.Fprintf(errOut, "Capturing apply session to %s (session %s)\n", path, rec.SessionID())
+			}
 			timerObserver := newPhaseTimerObserver()
 			var deployedRelease *release.Release
 			defer func() {
+				if captureRecorder != nil {
+					_ = captureRecorder.Close()
+				}
 				summary := deploy.SummaryPayload{
 					Release:   releaseName,
 					Namespace: resolvedNamespace,
@@ -298,6 +319,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			trackerManifest, err := renderManifestForTracking(ctx, settings, resolvedNamespace, chart, version, releaseName, valuesFiles, setValues, setStringValues, setFileValues)
 			if err != nil && shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) {
 				fmt.Fprintf(errOut, "Warning: failed to pre-render manifest for deploy tracker: %v\n", err)
+			}
+			if captureRecorder != nil && strings.TrimSpace(trackerManifest) != "" {
+				_ = captureRecorder.RecordArtifact(ctx, "rendered_manifest", trackerManifest)
 			}
 
 			if stream != nil && (strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "") {
@@ -537,6 +561,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().StringVar(&wsListenAddr, "ws-listen", "", "Serve the raw deploy event stream over WebSocket at this address (e.g. :9086)")
 	cmd.Flags().StringVar(&reusePlanPath, "reuse-plan", "", "Path to a ktl plan artifact (HTML or JSON) to reuse chart inputs")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
+	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture deploy events/logs/manifests to a SQLite database at this path")
 
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
@@ -577,6 +602,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	var consoleWide bool
 	var consoleDetails bool
 	var verbose bool
+	var capturePath string
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -673,6 +699,22 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			}
 
 			stream := deploy.NewStreamBroadcaster(release, resolvedNamespace, "")
+			var captureRecorder *capture.Recorder
+			if path := strings.TrimSpace(capturePath); path != "" {
+				host, _ := os.Hostname()
+				rec, err := capture.Open(path, capture.SessionMeta{
+					Command:   cmd.CommandPath(),
+					Args:      append([]string(nil), os.Args[1:]...),
+					StartedAt: time.Now().UTC(),
+					Host:      host,
+				})
+				if err != nil {
+					return err
+				}
+				captureRecorder = rec
+				stream.AddObserver(rec)
+				fmt.Fprintf(errOut, "Capturing delete session to %s (session %s)\n", path, rec.SessionID())
+			}
 			timerObserver := newPhaseTimerObserver()
 			meta := ui.DeployMetadata{Release: release, Namespace: resolvedNamespace}
 			var (
@@ -682,6 +724,9 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				stopLogFeed context.CancelFunc
 			)
 			defer func() {
+				if captureRecorder != nil {
+					_ = captureRecorder.Close()
+				}
 				if stopLogFeed != nil {
 					stopLogFeed()
 				}
@@ -932,6 +977,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	cmd.Flags().BoolVar(&consoleWide, "console-wide", false, "Force wide console layout even on narrow terminals")
 	cmd.Flags().BoolVar(&consoleDetails, "console-details", false, "Always show metadata details even on narrow terminals")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
+	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture destroy events/logs to a SQLite database at this path")
 	_ = cmd.MarkFlagRequired("release")
 
 	if ownNamespaceFlag {

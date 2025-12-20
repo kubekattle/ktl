@@ -102,6 +102,7 @@ type Options struct {
 	AttestProvenance   bool
 	AttestSBOM         bool
 	AttestationDir     string
+	CapturePath        string
 	Push               bool
 	Load               bool
 	NoCache            bool

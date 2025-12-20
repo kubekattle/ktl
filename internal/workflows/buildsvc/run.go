@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/example/ktl/internal/capture"
 	"github.com/example/ktl/internal/caststream"
 	"github.com/example/ktl/internal/castutil"
 	"github.com/example/ktl/internal/dockerconfig"
@@ -179,6 +180,28 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		writer: errOut,
 	}}
 
+	var captureRecorder *capture.Recorder
+	if path := strings.TrimSpace(opts.CapturePath); path != "" {
+		host, _ := os.Hostname()
+		rec, err := capture.Open(path, capture.SessionMeta{
+			Command:   "ktl build",
+			Args:      append([]string(nil), os.Args[1:]...),
+			StartedAt: time.Now().UTC(),
+			Host:      host,
+		})
+		if err != nil {
+			return nil, err
+		}
+		captureRecorder = rec
+		opts.Observers = append(opts.Observers, rec)
+		fmt.Fprintf(errOut, "Capturing build session to %s (session %s)\n", path, rec.SessionID())
+	}
+	defer func() {
+		if captureRecorder != nil {
+			_ = captureRecorder.Close()
+		}
+	}()
+
 	var consoleObserver tailer.LogObserver
 	if !opts.Quiet && streams.IsTerminal(errOut) {
 		consoleObserver = NewConsoleObserver(errOut)
@@ -239,6 +262,11 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 				Load:      opts.Load,
 			})
 			stream.emitResult(nil, time.Since(start))
+		}
+		if captureRecorder != nil {
+			if opts.ContextDir != "" {
+				_ = captureRecorder.RecordArtifact(context.Background(), "build_context", opts.ContextDir)
+			}
 		}
 	}()
 
@@ -351,6 +379,10 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	result, err := s.buildRunner.BuildDockerfile(ctx, buildOpts)
 	if err != nil {
 		return nil, err
+	}
+	if captureRecorder != nil && result != nil {
+		_ = captureRecorder.RecordArtifact(ctx, "image_digest", strings.TrimSpace(result.Digest))
+		_ = captureRecorder.RecordArtifact(ctx, "oci_output_dir", strings.TrimSpace(result.OCIOutputPath))
 	}
 
 	if result.OCIOutputPath != "" {

@@ -7,10 +7,12 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/example/ktl/internal/api/convert"
+	"github.com/example/ktl/internal/capture"
 	"github.com/example/ktl/internal/caststream"
 	"github.com/example/ktl/internal/castutil"
 	"github.com/example/ktl/internal/config"
@@ -27,6 +29,7 @@ import (
 )
 
 func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string) *cobra.Command {
+	var capturePath string
 	cmd := &cobra.Command{
 		Use:           "logs [POD_QUERY]",
 		Aliases:       []string{"tail"},
@@ -36,16 +39,17 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus)
+			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus, capturePath)
 		},
 	}
 
 	opts.AddFlags(cmd)
+	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture logs to a SQLite database at this path")
 	decorateCommandHelp(cmd, "Log Flags")
 	return cmd
 }
 
-func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string) error {
+func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string, capturePath string) error {
 	if requestedHelp(opts.WSListenAddr) {
 		return cmd.Help()
 	}
@@ -96,6 +100,27 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 	var (
 		tailerOpts []tailer.Option
 	)
+	var captureRecorder *capture.Recorder
+	if path := strings.TrimSpace(capturePath); path != "" {
+		host, _ := os.Hostname()
+		rec, err := capture.Open(path, capture.SessionMeta{
+			Command:   cmd.CommandPath(),
+			Args:      append([]string(nil), os.Args[1:]...),
+			StartedAt: time.Now().UTC(),
+			Host:      host,
+		})
+		if err != nil {
+			return err
+		}
+		captureRecorder = rec
+		tailerOpts = append(tailerOpts, tailer.WithLogObserver(rec))
+		fmt.Fprintf(cmd.ErrOrStderr(), "Capturing logs to %s (session %s)\n", path, rec.SessionID())
+	}
+	defer func() {
+		if captureRecorder != nil {
+			_ = captureRecorder.Close()
+		}
+	}()
 	var mirrorPublisher io.Closer
 	if mirrorBus != nil {
 		if addr := strings.TrimSpace(*mirrorBus); addr != "" {
