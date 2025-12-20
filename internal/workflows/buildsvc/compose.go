@@ -8,6 +8,7 @@ package buildsvc
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/example/ktl/internal/dockerconfig"
@@ -59,6 +60,9 @@ func (s *service) runComposeBuild(ctx context.Context, composeFiles []string, op
 		return err
 	}
 
+	sort.Slice(results, func(i, j int) bool {
+		return strings.ToLower(results[i].Service) < strings.ToLower(results[j].Service)
+	})
 	for _, svc := range results {
 		fmt.Fprintf(streams.OutWriter(), "%s: %s\n", svc.Service, strings.Join(svc.Tags, ", "))
 	}
