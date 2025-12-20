@@ -105,10 +105,11 @@ Argo CD and Helmfile are strong at GitOps-style, continuously-reconciled Helm or
 
 ### Design Sketch
 
-1. **Command Shape**
-   - `ktl deploy plan --chart <chart> --release <name> [build flags…] [apply flags…]`
-   - `ktl deploy run --chart <chart> --release <name> [build flags…] [apply flags…]`
-   - `ktl deploy promote <release-unit.sqlite> --to <env/cluster/ns>`
+1. **Command Shape (Bundle-First)**
+   - `ktl deploy bundle --chart <chart> --release <name> [build flags…] [apply-like flags…] -o <release-unit.sqlite>`
+   - `ktl deploy plan <release-unit.sqlite>` (render + diff for the bundle, no apply)
+   - `ktl deploy apply <release-unit.sqlite>` (apply exactly what was bundled)
+   - `ktl deploy promote <release-unit.sqlite> --to <env/cluster/ns>` (apply the same unit to another target)
    - `ktl deploy verify <release-unit.sqlite|--release ...>` (post-apply checks)
 
 2. **Release Units (First-Class Artifacts)**
@@ -121,12 +122,12 @@ Argo CD and Helmfile are strong at GitOps-style, continuously-reconciled Helm or
      - verification results and collected diagnostics
    - Support “replay” (render/view UI from bundle) and “promote” (apply same bits to another target).
 
-3. **Image Injection Contract**
+3. **Image Injection Contract (Chart Convention Auto-Detect)**
    - Prefer digest pinning. Record digests even when using tags for dev.
-   - Support explicit mapping (recommended) from build outputs → Helm keys:
-     - values overlay (`--set image.tag=...`, `--set image.repository=...`) driven by a mapping file.
-   - Optional post-render rewriting for charts without clean values hooks.
-   - Chart convention auto-detect only when unambiguous; otherwise require mapping to avoid surprises.
+   - Default to chart convention auto-detect (common `image.repository`/`image.tag` keys, per-service `images.*`, `global.image.*`, etc.).
+   - Allow override mapping when auto-detect is insufficient or ambiguous:
+     - values overlay (`--set ...`) driven by a mapping file.
+     - optional post-render rewriting for charts without clean values hooks.
 
 4. **Progressive Delivery (Opt-In)**
    - Strategies that work with vanilla Helm/Kubernetes where possible:
@@ -144,7 +145,7 @@ Argo CD and Helmfile are strong at GitOps-style, continuously-reconciled Helm or
 
 ### Milestones
 
-1. **MVP**: `ktl deploy run` that runs build (dockerfile/compose/auto) then apply with deterministic image injection and unified streaming/capture.
+1. **MVP**: `ktl deploy bundle` produces a release unit; `ktl deploy apply` applies it with unified streaming/capture.
 2. **Release Unit**: add a bundle format + `ktl deploy promote` for cross-environment reuse; add “replay UI from bundle”.
 3. **Verification**: post-apply verification + auto-diagnostics capture; fail with actionable summary and artifacts.
 4. **Policy + Guardrails**: policy engine hooks + default safety checks; document recommended patterns in `docs/agent-playbook.md`.
