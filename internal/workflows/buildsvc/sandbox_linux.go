@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -74,8 +75,13 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 		return false, fmt.Errorf("resolve executable: %w", err)
 	}
 
+	sandboxExe, err := ensureSandboxExecutable(exe, cacheDir)
+	if err != nil {
+		return false, err
+	}
+
 	homeDir, _ := os.UserHomeDir()
-	binds := buildSandboxBinds(contextAbs, cacheDir, builderAddr, exe, homeDir, opts.SandboxBinds)
+	binds := buildSandboxBinds(contextAbs, cacheDir, builderAddr, sandboxExe, homeDir, opts.SandboxBinds)
 
 	logDir := filepath.Join(cacheDir, "sandbox-logs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
@@ -94,7 +100,7 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 		args = append(args, bind.flag, bind.spec)
 	}
 	args = append(args, "--")
-	args = append(args, exe)
+	args = append(args, sandboxExe)
 	args = append(args, os.Args[1:]...)
 
 	sandboxCmd := exec.Command(bin, args...)
@@ -193,4 +199,44 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 	}
 	os.Exit(0)
 	return true, nil
+}
+
+func ensureSandboxExecutable(exePath, cacheDir string) (string, error) {
+	if strings.TrimSpace(exePath) == "" {
+		return "", errors.New("sandbox: executable path is empty")
+	}
+	if strings.TrimSpace(cacheDir) == "" {
+		return "", errors.New("sandbox: cache dir is empty")
+	}
+	dir := filepath.Join(cacheDir, "sandbox-bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("sandbox: create executable dir: %w", err)
+	}
+	target := filepath.Join(dir, "ktl")
+
+	in, err := os.Open(exePath)
+	if err != nil {
+		return "", fmt.Errorf("sandbox: open executable: %w", err)
+	}
+	defer in.Close()
+
+	tmp := target + ".tmp"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return "", fmt.Errorf("sandbox: stage executable: %w", err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("sandbox: copy executable: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("sandbox: close staged executable: %w", err)
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("sandbox: finalize executable: %w", err)
+	}
+	return target, nil
 }

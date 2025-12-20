@@ -61,9 +61,7 @@ func buildSandboxBinds(contextDir, cacheDir, builderAddr, exePath, homeDir strin
 	if sock := builderSocketPath(builderAddr); sock != "" && fileExists(sock) {
 		binds = append(binds, makeSandboxBind(sock, sock, true))
 	}
-	if exePath != "" && fileExists(exePath) {
-		binds = append(binds, makeSandboxBind(exePath, exePath, true))
-	}
+	_ = exePath
 	for _, candidate := range dockerSocketCandidates {
 		if fileExists(candidate) {
 			binds = append(binds, makeSandboxBind(candidate, candidate, false))
@@ -100,6 +98,11 @@ func makeSandboxBind(host, guest string, readOnly bool) sandboxBind {
 	flag := "--bindmount"
 	if readOnly {
 		flag = "--bindmount_ro"
+		if fileExists(host) {
+			// Some nsjail/kernel combinations reject MS_REMOUNT for file bind mounts.
+			// Fall back to a regular bind mount for compatibility.
+			flag = "--bindmount"
+		}
 	}
 	return sandboxBind{flag: flag, spec: fmt.Sprintf("%s:%s", host, guest)}
 }

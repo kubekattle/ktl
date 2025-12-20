@@ -31,7 +31,7 @@ func TestBuildSandboxBinds(t *testing.T) {
 	if binds[1].flag != "--bindmount" || binds[1].spec != "/cache:/cache" {
 		t.Fatalf("unexpected cache bind: %#v", binds[1])
 	}
-	if binds[2].flag != "--bindmount_ro" || binds[2].spec != builderSock+":"+builderSock {
+	if binds[2].flag != "--bindmount" || binds[2].spec != builderSock+":"+builderSock {
 		t.Fatalf("unexpected builder bind: %#v", binds[2])
 	}
 	if binds[len(binds)-1].spec != "/tmp/data:/tmp/data" {
