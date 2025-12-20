@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 func migrate(ctx context.Context, db *sql.DB) error {
 	if ctx == nil {
@@ -177,6 +177,19 @@ func applyMigration(ctx context.Context, db *sql.DB, toVersion int) error {
 		for _, stmt := range stmts {
 			if _, err := db.ExecContext(ctx, stmt); err != nil {
 				return fmt.Errorf("migration v3: %w", err)
+			}
+		}
+		return nil
+	case 4:
+		stmts := []string{
+			`CREATE INDEX IF NOT EXISTS idx_capture_events_namespace ON ktl_capture_events(session_id, namespace);`,
+			`CREATE INDEX IF NOT EXISTS idx_capture_events_pod ON ktl_capture_events(session_id, pod);`,
+			`CREATE INDEX IF NOT EXISTS idx_capture_events_source ON ktl_capture_events(session_id, source);`,
+			`CREATE INDEX IF NOT EXISTS idx_capture_sessions_entities ON ktl_capture_sessions(cluster, kube_context, namespace, release, chart);`,
+		}
+		for _, stmt := range stmts {
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migration v4: %w", err)
 			}
 		}
 		return nil

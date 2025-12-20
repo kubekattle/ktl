@@ -1,6 +1,8 @@
 package capture
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -196,7 +198,7 @@ func (r *Recorder) RecordLog(ctx context.Context, rec tailer.LogRecord) error {
 		ts = r.now()
 	}
 	seq := r.nextSeq()
-	payload := mustJSON(rec)
+	payloadType, payloadBlob, payloadJSON := encodePayload(mustJSON(rec))
 	message := firstNonEmpty(rec.Rendered, rec.Raw)
 	return r.enqueue(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
@@ -205,7 +207,7 @@ INSERT INTO ktl_capture_events(
   level, source, namespace, pod, container,
   message, payload_type, payload_blob, payload_json
 )
-VALUES(?, ?, ?, ?, 'log', ?, ?, ?, ?, ?, ?, 'json', ?, ?)
+VALUES(?, ?, ?, ?, 'log', ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `,
 			r.sessionID,
 			seq,
@@ -217,8 +219,9 @@ VALUES(?, ?, ?, ?, 'log', ?, ?, ?, ?, ?, ?, 'json', ?, ?)
 			rec.Pod,
 			rec.Container,
 			message,
-			[]byte(payload),
-			payload,
+			payloadType,
+			payloadBlob,
+			payloadJSON,
 		)
 		return err
 	})
@@ -236,7 +239,7 @@ func (r *Recorder) RecordDeployEvent(ctx context.Context, evt deploy.StreamEvent
 		level = evt.Log.Level
 		message = evt.Log.Message
 	}
-	payload := mustJSON(evt)
+	payloadType, payloadBlob, payloadJSON := encodePayload(mustJSON(evt))
 	source := string(evt.Kind)
 	namespace := eventNamespace(evt)
 	return r.enqueue(ctx, func(ctx context.Context, tx *sql.Tx) error {
@@ -246,7 +249,7 @@ INSERT INTO ktl_capture_events(
   level, source, namespace, pod, container,
   message, payload_type, payload_blob, payload_json
 )
-VALUES(?, ?, ?, ?, 'deploy', ?, ?, ?, '', '', ?, 'json', ?, ?)
+VALUES(?, ?, ?, ?, 'deploy', ?, ?, ?, '', '', ?, ?, ?, ?)
 `,
 			r.sessionID,
 			seq,
@@ -256,8 +259,9 @@ VALUES(?, ?, ?, ?, 'deploy', ?, ?, ?, '', '', ?, 'json', ?, ?)
 			source,
 			namespace,
 			message,
-			[]byte(payload),
-			payload,
+			payloadType,
+			payloadBlob,
+			payloadJSON,
 		)
 		return err
 	})
@@ -495,4 +499,17 @@ func parseEventTimestamp(raw string, now func() time.Time) (string, int64) {
 	}
 	t := now().UTC()
 	return raw, t.UnixNano()
+}
+
+func encodePayload(jsonText string) (string, []byte, string) {
+	jsonText = strings.TrimSpace(jsonText)
+	if jsonText == "" {
+		return "", nil, ""
+	}
+	// Always store a gzipped blob; payload_json stays populated for compatibility and quick inspection.
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write([]byte(jsonText))
+	_ = zw.Close()
+	return "json+gzip", buf.Bytes(), jsonText
 }
