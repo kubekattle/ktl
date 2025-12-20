@@ -534,6 +534,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if rel.Info != nil {
 				status = rel.Info.Status.String()
 			}
+			if captureRecorder != nil {
+				captureHelmRelease(ctx, captureRecorder, rel)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Release %s %s\n", rel.Name, status)
 			if diff {
 				if result.ManifestDiff == "" {
