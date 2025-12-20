@@ -31,6 +31,16 @@ var systemDirBinds = []string{
 	"/lib64",
 }
 
+var etcFileBinds = []string{
+	"/etc/passwd",
+	"/etc/group",
+	"/etc/nsswitch.conf",
+	"/etc/ld.so.cache",
+	"/etc/ld.so.conf",
+	"/etc/ld.so.conf.d",
+	"/etc/docker",
+}
+
 func buildSandboxBinds(contextDir, cacheDir, builderAddr, exePath, homeDir string, extra []string) []sandboxBind {
 	homeBound := homeDir != "" && pathExists(homeDir)
 	binds := make([]sandboxBind, 0, 5+len(extra)+len(dockerSocketCandidates))
@@ -62,6 +72,11 @@ func buildSandboxBinds(contextDir, cacheDir, builderAddr, exePath, homeDir strin
 	for _, dir := range systemDirBinds {
 		if pathExists(dir) {
 			binds = append(binds, makeSandboxBind(dir, dir, true))
+		}
+	}
+	for _, path := range etcFileBinds {
+		if pathExists(path) {
+			binds = append(binds, makeSandboxBind(path, path, true))
 		}
 	}
 	if homeBound {
