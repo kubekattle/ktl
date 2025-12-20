@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +58,11 @@ type Recorder struct {
 
 	seq uint64
 
+	queueSize     int
+	batchSize     int
+	flushInterval time.Duration
+	dropped       uint64
+
 	queue    chan writeRequest
 	wg       sync.WaitGroup
 	writeMu  sync.Mutex
@@ -97,11 +103,27 @@ func Open(path string, meta SessionMeta) (*Recorder, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
+	queueSize := envInt("KTL_CAPTURE_QUEUE_SIZE", 4096)
+	if queueSize < 128 {
+		queueSize = 128
+	}
+	batchSize := envInt("KTL_CAPTURE_BATCH_SIZE", 256)
+	if batchSize < 16 {
+		batchSize = 16
+	}
+	flushMS := envInt("KTL_CAPTURE_FLUSH_MS", 250)
+	if flushMS < 25 {
+		flushMS = 25
+	}
+
 	r := &Recorder{
-		db:    db,
-		path:  path,
-		now:   func() time.Time { return time.Now().UTC() },
-		queue: make(chan writeRequest, 4096),
+		db:            db,
+		path:          path,
+		now:           func() time.Time { return time.Now().UTC() },
+		queueSize:     queueSize,
+		batchSize:     batchSize,
+		flushInterval: time.Duration(flushMS) * time.Millisecond,
+		queue:         make(chan writeRequest, queueSize),
 	}
 	if err := migrate(context.Background(), db); err != nil {
 		_ = db.Close()
@@ -152,9 +174,9 @@ func (r *Recorder) Close() error {
 	ended := r.now()
 	_, _ = r.db.ExecContext(ctx, `
 UPDATE ktl_capture_sessions
-SET ended_at = ?, ended_at_ns = ?
+SET ended_at = ?, ended_at_ns = ?, dropped_events = ?
 WHERE session_id = ?
-`, ended.Format(time.RFC3339Nano), ended.UnixNano(), r.sessionID)
+`, ended.Format(time.RFC3339Nano), ended.UnixNano(), atomic.LoadUint64(&r.dropped), r.sessionID)
 
 	// Fold WAL back into the main database file so captures are portable as a single .sqlite.
 	// (WAL mode writes transient state into -wal/-shm sidecar files.)
@@ -216,6 +238,10 @@ func (r *Recorder) RecordLog(ctx context.Context, rec tailer.LogRecord) error {
 	seq := r.nextSeq()
 	payloadType, payloadBlob, payloadJSON := encodePayload(mustJSON(rec))
 	message := firstNonEmpty(rec.Rendered, rec.Raw)
+	kind := "log"
+	if strings.TrimSpace(rec.Source) == "graph" {
+		kind = "build_graph"
+	}
 	return r.enqueue(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 INSERT INTO ktl_capture_events(
@@ -223,12 +249,13 @@ INSERT INTO ktl_capture_events(
   level, source, namespace, pod, container,
   message, payload_type, payload_blob, payload_json
 )
-VALUES(?, ?, ?, ?, 'log', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `,
 			r.sessionID,
 			seq,
 			ts.Format(time.RFC3339Nano),
 			ts.UnixNano(),
+			kind,
 			"",
 			rec.Source,
 			rec.Namespace,
@@ -342,6 +369,7 @@ func (r *Recorder) enqueue(ctx context.Context, fn func(context.Context, *sql.Tx
 	case r.queue <- writeRequest{ctx: ctx, fn: fn}:
 		return nil
 	default:
+		atomic.AddUint64(&r.dropped, 1)
 		return errors.New("capture queue is full")
 	}
 }
@@ -349,7 +377,7 @@ func (r *Recorder) enqueue(ctx context.Context, fn func(context.Context, *sql.Tx
 func (r *Recorder) writerLoop() {
 	defer r.wg.Done()
 
-	batch := make([]writeRequest, 0, 256)
+	batch := make([]writeRequest, 0, r.batchSize)
 	flush := func() {
 		if len(batch) == 0 || r.firstWriteErr() != nil {
 			batch = batch[:0]
@@ -380,7 +408,11 @@ func (r *Recorder) writerLoop() {
 		batch = batch[:0]
 	}
 
-	ticker := time.NewTicker(250 * time.Millisecond)
+	interval := r.flushInterval
+	if interval <= 0 {
+		interval = 250 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -446,9 +478,10 @@ INSERT INTO ktl_capture_sessions(
   started_at, started_at_ns,
   ended_at, ended_at_ns,
   cluster, kube_context, namespace, release, chart,
-  image_ref, image_digest, build_context
+  image_ref, image_digest, build_context,
+  queue_size, batch_size, flush_interval_ms, dropped_events
 )
-VALUES(?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES(?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
 `,
 		id,
 		runID,
@@ -465,6 +498,9 @@ VALUES(?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
 		strings.TrimSpace(meta.Entities.ImageRef),
 		strings.TrimSpace(meta.Entities.ImageDigest),
 		strings.TrimSpace(meta.Entities.BuildContext),
+		r.queueSize,
+		r.batchSize,
+		int(r.flushInterval/time.Millisecond),
 	); err != nil {
 		return fmt.Errorf("insert capture session: %w", err)
 	}
@@ -578,4 +614,16 @@ func cleanupWALSidecars(dbPath string) error {
 	_ = os.Remove(dbPath + "-wal")
 	_ = os.Remove(dbPath + "-shm")
 	return nil
+}
+
+func envInt(key string, def int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
 }

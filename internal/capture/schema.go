@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 func migrate(ctx context.Context, db *sql.DB) error {
 	if ctx == nil {
@@ -190,6 +190,23 @@ func applyMigration(ctx context.Context, db *sql.DB, toVersion int) error {
 		for _, stmt := range stmts {
 			if _, err := db.ExecContext(ctx, stmt); err != nil {
 				return fmt.Errorf("migration v4: %w", err)
+			}
+		}
+		return nil
+	case 5:
+		stmts := []string{
+			`ALTER TABLE ktl_capture_sessions ADD COLUMN queue_size INTEGER;`,
+			`ALTER TABLE ktl_capture_sessions ADD COLUMN batch_size INTEGER;`,
+			`ALTER TABLE ktl_capture_sessions ADD COLUMN flush_interval_ms INTEGER;`,
+			`ALTER TABLE ktl_capture_sessions ADD COLUMN dropped_events INTEGER;`,
+		}
+		for _, stmt := range stmts {
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				msg := err.Error()
+				if containsDuplicateColumn(msg) {
+					continue
+				}
+				return fmt.Errorf("migration v5 (%s): %w", stmt, err)
 			}
 		}
 		return nil

@@ -95,12 +95,14 @@ type LogObserver interface {
 
 // SelectionSnapshot captures a change in the set of active log tails.
 type SelectionSnapshot struct {
-	Timestamp  time.Time         `json:"timestamp"`
-	ChangeKind string            `json:"changeKind"`
-	Namespace  string            `json:"namespace,omitempty"`
-	Pod        string            `json:"pod,omitempty"`
-	Container  string            `json:"container,omitempty"`
-	Selected   []SelectionTarget `json:"selected"`
+	Timestamp    time.Time         `json:"timestamp"`
+	ChangeKind   string            `json:"changeKind"`
+	Reason       string            `json:"reason,omitempty"`
+	Namespace    string            `json:"namespace,omitempty"`
+	Pod          string            `json:"pod,omitempty"`
+	Container    string            `json:"container,omitempty"`
+	RestartCount int32             `json:"restartCount,omitempty"`
+	Selected     []SelectionTarget `json:"selected"`
 }
 
 type SelectionTarget struct {
@@ -248,6 +250,10 @@ func New(client kubernetes.Interface, opts *config.Options, logger logr.Logger, 
 func (t *Tailer) Run(ctx context.Context) error {
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	defer t.cancel()
+
+	if len(t.selectionObservers) > 0 {
+		go t.sampleSelection(t.ctx, 10*time.Second)
+	}
 	t.log.V(1).Info("starting tailer run", "follow", t.opts.Follow, "events", t.opts.Events, "eventsOnly", t.opts.EventsOnly)
 	defer t.log.V(1).Info("tailer run finished")
 	if t.nodeLogs != nil && t.opts.NodeLogAll {
@@ -533,7 +539,7 @@ func (t *Tailer) handlePodDelete(obj interface{}) {
 		}
 	}
 	for _, container := range t.allPodContainers(pod) {
-		t.stopTail(pod.Namespace, pod.Name, container.Name)
+		t.stopTail(pod.Namespace, pod.Name, container.Name, "pod_deleted")
 	}
 }
 
@@ -615,7 +621,11 @@ func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int3
 	ctx, ctxCancel := context.WithCancel(t.ctx)
 	t.tails[key] = &tailState{cancel: ctxCancel, restartCount: restartCount, podUID: string(pod.UID)}
 	if len(t.selectionObservers) > 0 {
-		selection = t.selectionSnapshotLocked("add", pod.Namespace, pod.Name, container)
+		reason := "add"
+		if cancel != nil {
+			reason = "replace"
+		}
+		selection = t.selectionSnapshotLocked("add", reason, pod.Namespace, pod.Name, container, restartCount)
 		emitSelection = true
 	}
 	t.mu.Unlock()
@@ -630,7 +640,7 @@ func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int3
 	go t.streamContainer(ctx, pod, container, restartCount)
 }
 
-func (t *Tailer) stopTail(namespace, pod, container string) {
+func (t *Tailer) stopTail(namespace, pod, container string, reason string) {
 	key := containerKey{Namespace: namespace, Pod: pod, Container: container}
 	var selection SelectionSnapshot
 	emitSelection := false
@@ -639,7 +649,7 @@ func (t *Tailer) stopTail(namespace, pod, container string) {
 	if ok {
 		delete(t.tails, key)
 		if len(t.selectionObservers) > 0 {
-			selection = t.selectionSnapshotLocked("remove", namespace, pod, container)
+			selection = t.selectionSnapshotLocked("remove", reason, namespace, pod, container, state.restartCount)
 			emitSelection = true
 		}
 	}
@@ -666,6 +676,7 @@ func (t *Tailer) stopAllTails() {
 		selection = SelectionSnapshot{
 			Timestamp:  time.Now().UTC(),
 			ChangeKind: "reset",
+			Reason:     "stop_all",
 			Selected:   nil,
 		}
 		emitSelection = true
@@ -680,7 +691,7 @@ func (t *Tailer) stopAllTails() {
 	}
 }
 
-func (t *Tailer) selectionSnapshotLocked(kind, namespace, pod, container string) SelectionSnapshot {
+func (t *Tailer) selectionSnapshotLocked(kind, reason, namespace, pod, container string, restartCount int32) SelectionSnapshot {
 	selected := make([]SelectionTarget, 0, len(t.tails))
 	for k := range t.tails {
 		selected = append(selected, SelectionTarget(k))
@@ -695,12 +706,14 @@ func (t *Tailer) selectionSnapshotLocked(kind, namespace, pod, container string)
 		return selected[i].Container < selected[j].Container
 	})
 	return SelectionSnapshot{
-		Timestamp:  time.Now().UTC(),
-		ChangeKind: kind,
-		Namespace:  namespace,
-		Pod:        pod,
-		Container:  container,
-		Selected:   selected,
+		Timestamp:    time.Now().UTC(),
+		ChangeKind:   kind,
+		Reason:       strings.TrimSpace(reason),
+		Namespace:    namespace,
+		Pod:          pod,
+		Container:    container,
+		RestartCount: restartCount,
+		Selected:     selected,
 	}
 }
 
@@ -712,6 +725,29 @@ func (t *Tailer) notifySelection(s SelectionSnapshot) {
 	for _, obs := range observers {
 		if obs != nil {
 			obs.ObserveSelection(s)
+		}
+	}
+}
+
+func (t *Tailer) sampleSelection(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			t.mu.Lock()
+			if len(t.selectionObservers) == 0 {
+				t.mu.Unlock()
+				continue
+			}
+			snap := t.selectionSnapshotLocked("sample", "periodic", "", "", "", 0)
+			t.mu.Unlock()
+			t.notifySelection(snap)
 		}
 	}
 }
