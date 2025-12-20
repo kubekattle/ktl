@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,18 @@ type Result struct {
 	Tags         []string
 	Digest       string
 	OCIOutputDir string
+}
+
+func parseOptionalBool(v string) (*bool, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseBool(v)
+	if err != nil {
+		return nil, fmt.Errorf("parse bool %q: %w", v, err)
+	}
+	return &parsed, nil
 }
 
 type service struct {
@@ -301,6 +314,8 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		CacheExports:         cacheTo,
 		CacheImports:         cacheFrom,
 		NoCache:              opts.NoCache,
+		AttestProvenance:     opts.AttestProvenance,
+		AttestSBOM:           opts.AttestSBOM,
 		ProgressOutput:       progressOut,
 		DockerConfig:         dockerCfg,
 		ProgressObservers:    progressObservers,
@@ -336,6 +351,53 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	if result.OCIOutputPath != "" {
 		if recErr := s.registry.RecordBuild(tags, result.OCIOutputPath); recErr != nil {
 			fmt.Fprintf(errOut, "warning: unable to record build metadata: %v\n", recErr)
+		}
+	}
+
+	if strings.TrimSpace(opts.AttestationDir) != "" {
+		if result.OCIOutputPath == "" {
+			fmt.Fprintln(errOut, "warning: attestations requested but no OCI layout path is available")
+		} else {
+			wrote, attErr := buildkit.WriteAttestationsFromOCI(result.OCIOutputPath, opts.AttestationDir)
+			if attErr != nil {
+				return nil, attErr
+			}
+			if len(wrote) > 0 {
+				fmt.Fprintf(streams.OutWriter(), "Wrote %d attestation file(s) to %s\n", len(wrote), opts.AttestationDir)
+				if stream != nil {
+					stream.emitInfo(fmt.Sprintf("Wrote %d attestation file(s) to %s", len(wrote), opts.AttestationDir))
+				}
+			} else if stream != nil {
+				stream.emitInfo("No attestations found in OCI layout")
+			}
+		}
+	}
+
+	if opts.Sign {
+		if !opts.Push {
+			return nil, errors.New("--sign requires --push")
+		}
+		tlogUpload, err := parseOptionalBool(opts.TLogUpload)
+		if err != nil {
+			return nil, fmt.Errorf("--tlog-upload: %w", err)
+		}
+		signOpts := registry.CosignSignOptions{
+			KeyRef:      strings.TrimSpace(opts.SignKey),
+			RekorURL:    strings.TrimSpace(opts.RekorURL),
+			TLogUpload:  tlogUpload,
+			Output:      streams.OutWriter(),
+			ErrorOutput: errOut,
+		}
+		for _, tag := range tags {
+			if tag == "" {
+				continue
+			}
+			if stream != nil {
+				stream.emitInfo(fmt.Sprintf("Signing %s", tag))
+			}
+			if err := registry.CosignSign(ctx, tag, signOpts); err != nil {
+				return nil, err
+			}
 		}
 	}
 

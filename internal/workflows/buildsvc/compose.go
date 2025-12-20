@@ -38,6 +38,8 @@ func (s *service) runComposeBuild(ctx context.Context, composeFiles []string, op
 		Push:                 opts.Push,
 		Load:                 opts.Load,
 		NoCache:              opts.NoCache,
+		AttestProvenance:     opts.AttestProvenance,
+		AttestSBOM:           opts.AttestSBOM,
 		Platforms:            buildkit.NormalizePlatforms(expandPlatforms(opts.Platforms)),
 		BuildArgs:            argMap,
 		ProgressOutput:       progressOut,

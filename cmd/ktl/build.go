@@ -39,11 +39,18 @@ type buildCLIOptions struct {
 	secrets          []string
 	cacheFrom        []string
 	cacheTo          []string
+	sbom             bool
+	provenance       bool
+	attestDir        string
 	push             bool
 	load             bool
 	noCache          bool
 	builder          string
 	cacheDir         string
+	sign             bool
+	signKey          string
+	rekorURL         string
+	tlogUpload       string
 	interactive      bool
 	interactiveShell string
 	buildMode        string
@@ -124,11 +131,18 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.secrets, "secret", nil, "Expose an environment variable as a BuildKit secret (NAME)")
 	cmd.Flags().StringArrayVar(&opts.cacheFrom, "cache-from", nil, "Cache import sources (comma-separated key=value pairs)")
 	cmd.Flags().StringArrayVar(&opts.cacheTo, "cache-to", nil, "Cache export destinations (comma-separated key=value pairs)")
+	cmd.Flags().BoolVar(&opts.sbom, "sbom", false, "Generate an SBOM attestation (in-toto) during the build")
+	cmd.Flags().BoolVar(&opts.provenance, "provenance", false, "Generate a SLSA provenance attestation (in-toto) during the build")
+	cmd.Flags().StringVar(&opts.attestDir, "attest-dir", "", "Write generated attestations (SBOM/provenance) to this directory as JSON files")
 	cmd.Flags().BoolVar(&opts.push, "push", false, "Push all tags to their registries after a successful build")
 	cmd.Flags().BoolVar(&opts.load, "load", false, "Load the resulting image into the local container runtime (docker build --load)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Disable BuildKit cache usage")
 	cmd.Flags().StringVar(&opts.builder, "builder", opts.builder, "BuildKit address (override with KTL_BUILDKIT_HOST)")
 	cmd.Flags().StringVar(&opts.cacheDir, "cache-dir", opts.cacheDir, "Local cache directory for BuildKit metadata")
+	cmd.Flags().BoolVar(&opts.sign, "sign", false, "Sign pushed image tags with cosign after a successful build (requires --push)")
+	cmd.Flags().StringVar(&opts.signKey, "sign-key", "", "cosign key reference for signing (e.g. awskms://..., gcpkms://..., azurekms://...)")
+	cmd.Flags().StringVar(&opts.rekorURL, "rekor-url", "", "Override the Rekor transparency log URL used by cosign")
+	cmd.Flags().StringVar(&opts.tlogUpload, "tlog-upload", "", "Override cosign transparency log upload (true/false); default uses cosign's behavior")
 	cmd.Flags().BoolVarP(&opts.interactive, "interactive", "i", false, "Drop into an interactive shell when a RUN step fails")
 	cmd.Flags().StringVar(&opts.interactiveShell, "interactive-shell", "/bin/sh", "Shell command to start when --interactive attaches")
 	cmd.Flags().StringVar(&opts.buildMode, "mode", string(buildsvc.ModeAuto), "Build mode: auto, dockerfile, or compose")
@@ -299,11 +313,18 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		Secrets:            append([]string(nil), opts.secrets...),
 		CacheFrom:          append([]string(nil), opts.cacheFrom...),
 		CacheTo:            append([]string(nil), opts.cacheTo...),
+		AttestSBOM:         opts.sbom,
+		AttestProvenance:   opts.provenance,
+		AttestationDir:     opts.attestDir,
 		Push:               opts.push,
 		Load:               opts.load,
 		NoCache:            opts.noCache,
 		Builder:            opts.builder,
 		CacheDir:           opts.cacheDir,
+		Sign:               opts.sign,
+		SignKey:            opts.signKey,
+		RekorURL:           opts.rekorURL,
+		TLogUpload:         opts.tlogUpload,
 		Interactive:        opts.interactive,
 		InteractiveShell:   opts.interactiveShell,
 		BuildMode:          opts.buildMode,

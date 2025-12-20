@@ -99,11 +99,18 @@ type Options struct {
 	Secrets            []string
 	CacheFrom          []string
 	CacheTo            []string
+	AttestProvenance   bool
+	AttestSBOM         bool
+	AttestationDir     string
 	Push               bool
 	Load               bool
 	NoCache            bool
 	Builder            string
 	CacheDir           string
+	Sign               bool
+	SignKey            string
+	RekorURL           string
+	TLogUpload         string
 	Interactive        bool
 	InteractiveShell   string
 	BuildMode          string
