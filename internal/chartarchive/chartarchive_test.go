@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -108,5 +109,16 @@ func TestPackageDirRequiresForceToOverwrite(t *testing.T) {
 
 	if _, err := PackageDir(context.Background(), chartDir, PackageOptions{OutputPath: res.ArchivePath, Force: true}); err != nil {
 		t.Fatalf("expected overwrite with force to succeed: %v", err)
+	}
+}
+
+func TestPackageDirErrorsOnMissingChartYAML(t *testing.T) {
+	chartDir := t.TempDir()
+	_, err := PackageDir(context.Background(), chartDir, PackageOptions{})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "chart.yaml not found") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -66,6 +67,9 @@ func PackageDir(ctx context.Context, chartDir string, opts PackageOptions) (*Pac
 	chartDir = strings.TrimSpace(chartDir)
 	if chartDir == "" {
 		chartDir = "."
+	}
+	if err := validateChartDir(chartDir); err != nil {
+		return nil, err
 	}
 
 	ch, err := loader.LoadDir(chartDir)
@@ -253,7 +257,7 @@ func writeArchive(ctx context.Context, path string, chartDir string, ch *chart.C
 		fileCount  int
 		totalBytes int64
 	)
-	for _, f := range chartFiles(ch) {
+	for _, f := range chartFilesSorted(ch) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -309,6 +313,18 @@ func chartFiles(ch *chart.Chart) []*chart.File {
 	return ch.Raw
 }
 
+func chartFilesSorted(ch *chart.Chart) []*chart.File {
+	files := chartFiles(ch)
+	if len(files) < 2 {
+		return files
+	}
+	out := append([]*chart.File(nil), files...)
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
 func chartAppVersion(ch *chart.Chart) string {
 	if ch != nil && ch.Metadata != nil {
 		return strings.TrimSpace(ch.Metadata.AppVersion)
@@ -333,4 +349,25 @@ func fileModeAndSize(chartDir string, relative string, fallbackSize int64) (int6
 		return 0o644, fallbackSize
 	}
 	return int64(info.Mode().Perm()), info.Size()
+}
+
+func validateChartDir(chartDir string) error {
+	info, err := os.Stat(chartDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("chart dir does not exist: %s", chartDir)
+		}
+		return fmt.Errorf("stat chart dir: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("chart dir is not a directory: %s", chartDir)
+	}
+	chartPath := filepath.Join(chartDir, "Chart.yaml")
+	if _, err := os.Stat(chartPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("chart.yaml not found in %s", chartDir)
+		}
+		return fmt.Errorf("stat Chart.yaml: %w", err)
+	}
+	return nil
 }
