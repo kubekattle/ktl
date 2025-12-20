@@ -133,7 +133,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.cacheTo, "cache-to", nil, "Cache export destinations (comma-separated key=value pairs)")
 	cmd.Flags().BoolVar(&opts.sbom, "sbom", false, "Generate an SBOM attestation (in-toto) during the build")
 	cmd.Flags().BoolVar(&opts.provenance, "provenance", false, "Generate a SLSA provenance attestation (in-toto) during the build")
-	cmd.Flags().StringVar(&opts.attestDir, "attest-dir", "", "Write generated attestations (SBOM/provenance) to this directory as JSON files")
+	cmd.Flags().StringVar(&opts.attestDir, "attest-dir", "", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().BoolVar(&opts.push, "push", false, "Push all tags to their registries after a successful build")
 	cmd.Flags().BoolVar(&opts.load, "load", false, "Load the resulting image into the local container runtime (docker build --load)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Disable BuildKit cache usage")

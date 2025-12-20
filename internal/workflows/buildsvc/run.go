@@ -145,6 +145,11 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
+	if strings.TrimSpace(opts.AttestationDir) != "" && !opts.AttestProvenance && !opts.AttestSBOM {
+		opts.AttestProvenance = true
+		opts.AttestSBOM = true
+	}
+
 	if opts.SandboxWorkdir == "" {
 		opts.SandboxWorkdir = contextAbs
 	}
@@ -356,20 +361,19 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	if strings.TrimSpace(opts.AttestationDir) != "" {
 		if result.OCIOutputPath == "" {
-			fmt.Fprintln(errOut, "warning: attestations requested but no OCI layout path is available")
-		} else {
-			wrote, attErr := buildkit.WriteAttestationsFromOCI(result.OCIOutputPath, opts.AttestationDir)
-			if attErr != nil {
-				return nil, attErr
+			return nil, errors.New("--attest-dir requires an OCI layout export but no OCI output path is available")
+		}
+		wrote, attErr := buildkit.WriteAttestationsFromOCI(result.OCIOutputPath, opts.AttestationDir)
+		if attErr != nil {
+			return nil, attErr
+		}
+		if len(wrote) > 0 {
+			fmt.Fprintf(streams.OutWriter(), "Wrote %d attestation file(s) to %s\n", len(wrote), opts.AttestationDir)
+			if stream != nil {
+				stream.emitInfo(fmt.Sprintf("Wrote %d attestation file(s) to %s", len(wrote), opts.AttestationDir))
 			}
-			if len(wrote) > 0 {
-				fmt.Fprintf(streams.OutWriter(), "Wrote %d attestation file(s) to %s\n", len(wrote), opts.AttestationDir)
-				if stream != nil {
-					stream.emitInfo(fmt.Sprintf("Wrote %d attestation file(s) to %s", len(wrote), opts.AttestationDir))
-				}
-			} else if stream != nil {
-				stream.emitInfo("No attestations found in OCI layout")
-			}
+		} else if stream != nil {
+			stream.emitInfo("No attestations found in OCI layout")
 		}
 	}
 
@@ -392,10 +396,14 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 			if tag == "" {
 				continue
 			}
-			if stream != nil {
-				stream.emitInfo(fmt.Sprintf("Signing %s", tag))
+			ref := tag
+			if result != nil && strings.TrimSpace(result.Digest) != "" && !strings.Contains(tag, "@") {
+				ref = fmt.Sprintf("%s@%s", tag, strings.TrimSpace(result.Digest))
 			}
-			if err := registry.CosignSign(ctx, tag, signOpts); err != nil {
+			if stream != nil {
+				stream.emitInfo(fmt.Sprintf("Signing %s", ref))
+			}
+			if err := registry.CosignSign(ctx, ref, signOpts); err != nil {
 				return nil, err
 			}
 		}

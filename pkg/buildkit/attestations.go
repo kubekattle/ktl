@@ -1,6 +1,7 @@
 package buildkit
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -48,6 +49,53 @@ func copyToFile(dst string, r io.Reader) error {
 	return err
 }
 
+type inTotoStatement struct {
+	PredicateType string `json:"predicateType"`
+	Subject       []struct {
+		Digest map[string]string `json:"digest"`
+	} `json:"subject"`
+}
+
+func subjectDigestMatches(statement inTotoStatement, subject v1.Hash) bool {
+	for _, entry := range statement.Subject {
+		for alg, hex := range entry.Digest {
+			if strings.EqualFold(strings.TrimSpace(alg), subject.Algorithm) && strings.EqualFold(strings.TrimSpace(hex), subject.Hex) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func uniquePath(dir, base string) (string, error) {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "attestation.json"
+	}
+	candidate := filepath.Join(dir, base)
+	_, err := os.Stat(candidate)
+	if err == nil {
+		ext := filepath.Ext(base)
+		stem := strings.TrimSuffix(base, ext)
+		for i := 2; i < 10_000; i++ {
+			next := filepath.Join(dir, fmt.Sprintf("%s_%d%s", stem, i, ext))
+			_, serr := os.Stat(next)
+			if serr == nil {
+				continue
+			}
+			if serr != nil && !os.IsNotExist(serr) {
+				return "", serr
+			}
+			return next, nil
+		}
+		return "", fmt.Errorf("unable to allocate unique path for %s", candidate)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	return candidate, nil
+}
+
 // WriteAttestationsFromOCI extracts in-toto attestation blobs from an OCI layout directory
 // (including BuildKit-attached SBOM/provenance attestations) and writes them to destDir.
 //
@@ -67,17 +115,6 @@ func WriteAttestationsFromOCI(ociLayoutDir, destDir string) ([]AttestationFile, 
 		return nil, fmt.Errorf("read OCI index manifest: %w", err)
 	}
 
-	platformByDigest := map[string]string{}
-	for _, desc := range manifest.Manifests {
-		if desc.Platform == nil {
-			continue
-		}
-		if desc.Platform.OS == "" || desc.Platform.Architecture == "" {
-			continue
-		}
-		platformByDigest[desc.Digest.String()] = fmt.Sprintf("%s-%s", desc.Platform.OS, desc.Platform.Architecture)
-	}
-
 	destDir = strings.TrimSpace(destDir)
 	if destDir == "" {
 		return nil, fmt.Errorf("destination directory is required")
@@ -86,32 +123,11 @@ func WriteAttestationsFromOCI(ociLayoutDir, destDir string) ([]AttestationFile, 
 		return nil, fmt.Errorf("create attestation dir: %w", err)
 	}
 
-	type manifestLayer struct {
-		MediaType    string            `json:"mediaType"`
-		Digest       string            `json:"digest"`
-		Annotations  map[string]string `json:"annotations"`
-		Platform     any               `json:"platform,omitempty"`
-		ArtifactType string            `json:"artifactType,omitempty"`
-	}
-	type imageManifest struct {
-		Layers []manifestLayer `json:"layers"`
-	}
-
 	out := []AttestationFile{}
 	for _, desc := range manifest.Manifests {
-		if desc.Annotations == nil {
-			continue
-		}
-		if desc.Annotations["vnd.docker.reference.type"] != "attestation-manifest" {
-			continue
-		}
-		subject := strings.TrimSpace(desc.Annotations["vnd.docker.reference.digest"])
-		if subject == "" {
-			continue
-		}
-		platform := platformByDigest[subject]
-		if platform == "" {
-			platform = "unknown"
+		subject := ""
+		if desc.Annotations != nil && desc.Annotations["vnd.docker.reference.type"] == "attestation-manifest" {
+			subject = strings.TrimSpace(desc.Annotations["vnd.docker.reference.digest"])
 		}
 
 		img, err := lp.Image(desc.Digest)
@@ -122,16 +138,26 @@ func WriteAttestationsFromOCI(ociLayoutDir, destDir string) ([]AttestationFile, 
 		if err != nil {
 			return nil, fmt.Errorf("read attestation manifest JSON %s: %w", desc.Digest.String(), err)
 		}
-		var parsed imageManifest
+		var parsed v1.Manifest
 		if err := json.Unmarshal(raw, &parsed); err != nil {
 			return nil, fmt.Errorf("parse attestation manifest JSON %s: %w", desc.Digest.String(), err)
 		}
+		if subject == "" && parsed.Subject != nil {
+			subject = strings.TrimSpace(parsed.Subject.Digest.String())
+		}
+		if subject == "" {
+			continue
+		}
+		subjectHash, err := v1.NewHash(subject)
+		if err != nil {
+			return nil, fmt.Errorf("parse subject digest %s: %w", subject, err)
+		}
 
 		for _, layerDesc := range parsed.Layers {
-			if strings.TrimSpace(layerDesc.MediaType) != "application/vnd.in-toto+json" {
+			if strings.TrimSpace(string(layerDesc.MediaType)) != "application/vnd.in-toto+json" {
 				continue
 			}
-			layerDigest := strings.TrimSpace(layerDesc.Digest)
+			layerDigest := strings.TrimSpace(layerDesc.Digest.String())
 			if layerDigest == "" {
 				continue
 			}
@@ -148,17 +174,32 @@ func WriteAttestationsFromOCI(ociLayoutDir, destDir string) ([]AttestationFile, 
 			if err != nil {
 				return nil, fmt.Errorf("open attestation blob %s: %w", layerDigest, err)
 			}
-			filename := fmt.Sprintf(
-				"%s_%s_%s.json",
-				sanitizeFilenamePart(platform),
-				sanitizeFilenamePart(predicateType),
-				sanitizeFilenamePart(hash.Hex),
-			)
-			dst := filepath.Join(destDir, filename)
-			copyErr := copyToFile(dst, rc)
+			body, readErr := io.ReadAll(rc)
 			_ = rc.Close()
-			if copyErr != nil {
-				return nil, fmt.Errorf("write attestation blob %s: %w", layerDigest, copyErr)
+			if readErr != nil {
+				return nil, fmt.Errorf("read attestation blob %s: %w", layerDigest, readErr)
+			}
+			var statement inTotoStatement
+			if err := json.Unmarshal(body, &statement); err != nil {
+				return nil, fmt.Errorf("parse in-toto statement %s: %w", layerDigest, err)
+			}
+			if !subjectDigestMatches(statement, subjectHash) {
+				return nil, fmt.Errorf("attestation %s subject digest does not match referenced subject %s", layerDigest, subject)
+			}
+			if predicateType == "" {
+				predicateType = strings.TrimSpace(statement.PredicateType)
+			}
+			filename := fmt.Sprintf(
+				"%s_%s.json",
+				sanitizeFilenamePart(subjectHash.Hex),
+				sanitizeFilenamePart(predicateType),
+			)
+			dst, err := uniquePath(destDir, filename)
+			if err != nil {
+				return nil, err
+			}
+			if err := copyToFile(dst, bytes.NewReader(body)); err != nil {
+				return nil, fmt.Errorf("write attestation blob %s: %w", layerDigest, err)
 			}
 			out = append(out, AttestationFile{
 				Path:          dst,
