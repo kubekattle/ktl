@@ -175,11 +175,12 @@ func (o *buildDiagnosticObserver) HandleDiagnostic(diag buildkit.BuildDiagnostic
 	if message == "" {
 		return
 	}
-	if o.writer != nil {
-		fmt.Fprintln(o.writer, message)
-	}
 	if o.stream != nil {
 		o.stream.emitDiagnostic(diag, message)
+		return
+	}
+	if o.writer != nil {
+		fmt.Fprintln(o.writer, message)
 	}
 }
 

@@ -6,12 +6,14 @@
 package buildsvc
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/example/ktl/internal/tailer"
+	"github.com/example/ktl/pkg/buildkit"
 	"github.com/moby/buildkit/client"
 	digest "github.com/opencontainers/go-digest"
 )
@@ -74,4 +76,20 @@ func TestBuildProgressBroadcasterEmitsEvents(t *testing.T) {
 	assertContains("Started load base image")
 	assertContains("RUN apk add curl")
 	assertContains("Completed load base image")
+}
+
+func TestBuildDiagnosticObserverPrefersStreamOverWriter(t *testing.T) {
+	stream := newBuildProgressBroadcaster("ctx")
+	var buf bytes.Buffer
+	obs := &buildDiagnosticObserver{stream: stream, writer: &buf}
+
+	obs.HandleDiagnostic(buildkit.BuildDiagnostic{
+		Type:   buildkit.DiagnosticCacheMiss,
+		Name:   "load dockerfile",
+		Vertex: digest.FromString("v1"),
+	})
+
+	if got := buf.String(); got != "" {
+		t.Fatalf("expected no direct writer output when stream is present, got %q", got)
+	}
 }
