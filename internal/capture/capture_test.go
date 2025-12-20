@@ -3,6 +3,7 @@ package capture
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -45,6 +46,12 @@ func TestRecorderWritesSessionAndEvents(t *testing.T) {
 
 	if err := rec.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(dbPath + "-wal"); err == nil {
+		t.Fatalf("expected no -wal sidecar after Close")
+	}
+	if _, err := os.Stat(dbPath + "-shm"); err == nil {
+		t.Fatalf("expected no -shm sidecar after Close")
 	}
 
 	// Validate via a separate connection.

@@ -49,6 +49,7 @@ type SessionMeta struct {
 
 type Recorder struct {
 	db        *sql.DB
+	path      string
 	sessionID string
 	runID     string
 
@@ -98,6 +99,7 @@ func Open(path string, meta SessionMeta) (*Recorder, error) {
 
 	r := &Recorder{
 		db:    db,
+		path:  path,
 		now:   func() time.Time { return time.Now().UTC() },
 		queue: make(chan writeRequest, 4096),
 	}
@@ -154,10 +156,20 @@ SET ended_at = ?, ended_at_ns = ?
 WHERE session_id = ?
 `, ended.Format(time.RFC3339Nano), ended.UnixNano(), r.sessionID)
 
+	// Fold WAL back into the main database file so captures are portable as a single .sqlite.
+	// (WAL mode writes transient state into -wal/-shm sidecar files.)
+	_, checkpointErr := r.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE);`)
+
 	closeErr := r.db.Close()
+	if checkpointErr == nil {
+		_ = cleanupWALSidecars(r.path)
+	}
 	writeErr := r.firstWriteErr()
 	if writeErr != nil {
 		return writeErr
+	}
+	if checkpointErr != nil {
+		return checkpointErr
 	}
 	return closeErr
 }
@@ -555,4 +567,15 @@ func encodePayload(jsonText string) (string, []byte, string) {
 	_, _ = zw.Write([]byte(jsonText))
 	_ = zw.Close()
 	return "json+gzip", buf.Bytes(), jsonText
+}
+
+func cleanupWALSidecars(dbPath string) error {
+	dbPath = strings.TrimSpace(dbPath)
+	if dbPath == "" {
+		return nil
+	}
+	// Best-effort: remove sidecars if present. Safe after successful checkpoint + DB close.
+	_ = os.Remove(dbPath + "-wal")
+	_ = os.Remove(dbPath + "-shm")
+	return nil
 }
