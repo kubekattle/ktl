@@ -117,6 +117,7 @@ type Options struct {
 	SandboxBinds       []string
 	SandboxWorkdir     string
 	SandboxLogs        bool
+	SandboxProbePath   string
 	LogFile            string
 	RemoveIntermediate bool
 	Quiet              bool

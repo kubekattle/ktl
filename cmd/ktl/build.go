@@ -57,6 +57,7 @@ type buildCLIOptions struct {
 	sandboxBinds     []string
 	sandboxWorkdir   string
 	sandboxLogs      bool
+	sandboxProbePath string
 	logFile          string
 	rm               bool
 	quiet            bool
@@ -131,6 +132,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.rm, "rm", true, "Remove intermediate containers after a successful build")
 	cmd.Flags().BoolVarP(&opts.quiet, "quiet", "q", false, "Refrain from announcing build instructions and progress")
 	cmd.Flags().BoolVar(&opts.sandboxLogs, "sandbox-logs", false, "Stream sandbox runtime logs to stderr and the build viewer")
+	cmd.Flags().StringVar(&opts.sandboxProbePath, "sandbox-probe-path", "", "Probe filesystem visibility before building by attempting to stat this host path")
 	cmd.Flags().StringVar(&opts.uiAddr, "ui", "", "Serve the live BuildKit viewer at this address (e.g. :8080)")
 	if flag := cmd.Flags().Lookup("ui"); flag != nil {
 		flag.NoOptDefVal = ":8080"
@@ -315,6 +317,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		SandboxBinds:       append([]string(nil), opts.sandboxBinds...),
 		SandboxWorkdir:     opts.sandboxWorkdir,
 		SandboxLogs:        opts.sandboxLogs,
+		SandboxProbePath:   opts.sandboxProbePath,
 		LogFile:            opts.logFile,
 		RemoveIntermediate: opts.rm,
 		Quiet:              opts.quiet,

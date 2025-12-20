@@ -8,8 +8,9 @@ ktl_bin="${KTL_BIN:-./bin/ktl}"
 policy="${KTL_SANDBOX_CONFIG:-$repo_root/testdata/sandbox/linux-ci.cfg}"
 
 baseline_ctx="$repo_root/testdata/sandbox-demo/baseline"
-marker_ctx="$repo_root/testdata/sandbox-demo/host-marker"
-marker_path="${MARKER_PATH:-/tmp/ktl-sandbox-demo-host-marker.txt}"
+probe_host_root_file="${PROBE_HOST_ROOT_FILE:-$repo_root/.ktl-sandbox-demo-host-only.txt}"
+probe_ctx_file_rel="probe-visible-in-context.txt"
+probe_ctx_file="$baseline_ctx/$probe_ctx_file_rel"
 
 red() { printf "\033[31m%s\033[0m\n" "$*"; }
 green() { printf "\033[32m%s\033[0m\n" "$*"; }
@@ -109,45 +110,90 @@ else
   note_fail "сборка не прошла без песочницы"
 fi
 
-printf "\n[Тест 2] Демонстрация 'видимости хоста' (только если билдер permissive)\n" >&2
+printf "\n[Тест 2] Детерминированный probe: песочница прячет 'хостовые' файлы вне контекста\n" >&2
 cat >&2 <<EOF
-Сейчас мы создадим на хосте файл-маркер:
-  $marker_path
-и запустим сборку, которая пытается прочитать этот файл через bind-mount /tmp.
+Это проверка НЕ зависит от BuildKit и не уходит в SKIP.
+
+Мы создаём файл на хосте (в корне репозитория, ВНЕ build context):
+  $probe_host_root_file
+
+Дальше просим ktl сделать пробу ДО сборки:
+  --sandbox-probe-path "$probe_host_root_file"
 
 Ожидаемое поведение:
-  - Без песочницы: возможно увидим HOST_MARKER:present и содержимое маркера.
-  - В песочнице: должно быть HOST_MARKER:missing (маркер не виден).
+  - Без песочницы: [probe] stat ...: OK
+  - В песочнице:   [probe] stat ...: ... no such file or directory
 
-Если билдер уже блокирует такие host-mount фичи — тест будет SKIP (это безопасно).
+Почему это важно: песочница меняет "точку зрения" процесса ktl — он не видит произвольные файлы хоста.
 EOF
 
-marker_value="ktl-demo-marker-$(date +%s)-$RANDOM"
-printf "%s\n" "$marker_value" >"$marker_path"
-chmod 0644 "$marker_path"
+printf "demo-probe-host-root-%s\n" "$(date +%s)" >"$probe_host_root_file"
+chmod 0644 "$probe_host_root_file"
 
-nosb_marker_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$marker_ctx" 2>&1 || true)"
-sandbox_marker_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$marker_ctx" 2>&1 || true)"
+nosb_probe_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
+sandbox_probe_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
 
-nosb_present=false
-sandbox_present=false
-
-if printf "%s" "$nosb_marker_out" | contains "HOST_MARKER:present" && printf "%s" "$nosb_marker_out" | contains "$marker_value" ; then
-  nosb_present=true
-fi
-if printf "%s" "$sandbox_marker_out" | contains "HOST_MARKER:present" && printf "%s" "$sandbox_marker_out" | contains "$marker_value" ; then
-  sandbox_present=true
-fi
-
-if [[ "$nosb_present" != true ]]; then
-  note_skip "билдер, похоже, блокирует host bind mounts — трюк не воспроизводится на этом хосте"
-elif [[ "$sandbox_present" == true ]]; then
-  note_fail "в песочнице маркер всё ещё виден (политика может пробрасывать /tmp или билдер обходит ограничения)"
+if printf "%s" "$nosb_probe_out" | contains "[probe] stat \"$probe_host_root_file\": OK" ; then
+  note_pass "без песочницы ktl видит host-only файл (probe OK)"
 else
-  note_pass "маркер виден без песочницы и скрыт в песочнице (главная демонстрация)"
+  note_fail "ожидали probe OK без песочницы, но не увидели"
 fi
 
-printf "\n[Тест 3] Если песочница не стартует — это должно быть видно через --sandbox-logs\n" >&2
+if printf "%s" "$sandbox_probe_out" | contains "[probe] stat \"$probe_host_root_file\": OK" ; then
+  note_fail "в песочнице probe неожиданно OK (файл хоста виден) — политика может пробрасывать лишние пути"
+else
+  note_pass "в песочнице ktl НЕ видит host-only файл (probe не OK) — ожидаемо"
+fi
+
+printf "\n[Тест 3] Детерминированный probe: контекст сборки виден и с песочницей, и без\n" >&2
+cat >&2 <<EOF
+Сейчас мы создадим файл прямо в build context:
+  $probe_ctx_file
+
+И проверим, что он доступен:
+  - без песочницы (ожидаемо),
+  - в песочнице (это важно: песочница не ломает обычный билд).
+EOF
+
+printf "demo-probe-context-%s\n" "$(date +%s)" >"$probe_ctx_file"
+chmod 0644 "$probe_ctx_file"
+
+nosb_ctx_probe_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_ctx_file" 2>&1 || true)"
+sandbox_ctx_probe_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_ctx_file" 2>&1 || true)"
+
+if printf "%s" "$nosb_ctx_probe_out" | contains "[probe] stat \"$probe_ctx_file\": OK" ; then
+  note_pass "без песочницы файл в контексте виден (probe OK)"
+else
+  note_fail "ожидали probe OK для файла в контексте без песочницы"
+fi
+
+if printf "%s" "$sandbox_ctx_probe_out" | contains "[probe] stat \"$probe_ctx_file\": OK" ; then
+  note_pass "в песочнице файл в контексте виден (probe OK) — билд не сломан"
+else
+  note_fail "ожидали probe OK для файла в контексте в песочнице"
+fi
+
+printf "\n[Тест 4] Демонстрация allowlist: явный --sandbox-bind делает файл видимым\n" >&2
+cat >&2 <<EOF
+Важно донести аудитории: песочница — это allowlist.
+Если нам действительно нужно дать доступ, мы делаем это ЯВНО.
+
+Сейчас мы пробросим один конкретный файл:
+  --sandbox-bind "$probe_host_root_file:$probe_host_root_file"
+
+Ожидаемое поведение:
+  - В песочнице без bind: probe НЕ OK (см. Тест 2)
+  - В песочнице с bind:  probe OK
+EOF
+
+sandbox_bind_probe_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$baseline_ctx" --sandbox-bind "$probe_host_root_file:$probe_host_root_file" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
+if printf "%s" "$sandbox_bind_probe_out" | contains "[probe] stat \"$probe_host_root_file\": OK" ; then
+  note_pass "явный --sandbox-bind сработал: host-only файл стал видимым"
+else
+  note_fail "ожидали probe OK с явным --sandbox-bind, но не увидели"
+fi
+
+printf "\n[Тест 5] Если песочница не стартует — это должно быть видно через --sandbox-logs\n" >&2
 bad_policy="$repo_root/testdata/sandbox/does-not-exist.cfg"
 logs_out="$(KTL_SANDBOX_CONFIG="$bad_policy" "$ktl_bin" build "$baseline_ctx" --sandbox-logs 2>&1 || true)"
 if printf "%s" "$logs_out" | contains "sandbox config:" ; then

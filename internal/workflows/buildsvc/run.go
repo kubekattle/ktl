@@ -127,6 +127,14 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
+	if probe := strings.TrimSpace(opts.SandboxProbePath); probe != "" {
+		if _, err := os.Stat(probe); err == nil {
+			fmt.Fprintf(errOut, "[probe] stat %q: OK\n", probe)
+		} else {
+			fmt.Fprintf(errOut, "[probe] stat %q: %v\n", probe, err)
+		}
+	}
+
 	contextAbs, err := filepath.Abs(contextDir)
 	if err != nil {
 		return nil, err
