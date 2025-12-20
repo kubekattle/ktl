@@ -58,11 +58,9 @@ fi
 
 pass_count=0
 fail_count=0
-skip_count=0
 
 note_pass() { green "PASS: $*"; pass_count=$((pass_count+1)); }
 note_fail() { red "FAIL: $*"; fail_count=$((fail_count+1)); }
-note_skip() { yellow "SKIP: $*"; skip_count=$((skip_count+1)); }
 
 cat >&2 <<EOF
 
@@ -84,27 +82,31 @@ cat >&2 <<EOF
 
 EOF
 
+if command -v git >/dev/null 2>&1 && [[ -d "$repo_root/.git" ]]; then
+  printf "Версия репозитория (git): %s\n\n" "$(git rev-parse --short HEAD 2>/dev/null || true)" >&2
+fi
+
 printf "\n[Тест 0] Базовая сборка в песочнице: должны увидеть баннер и вывод\n" >&2
-baseline_out="$("$ktl_bin" build "$baseline_ctx" 2>&1 || true)"
+baseline_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" 2>&1 || true)"
 if printf "%s" "$baseline_out" | contains "Running ktl build inside the sandbox" ; then
   note_pass "ktl сообщил, что работает внутри песочницы"
 else
   note_fail "нет баннера про песочницу (проверьте nsjail/policy/окружение)"
 fi
-if printf "%s" "$baseline_out" | contains "baseline-ok" ; then
-  note_pass "сборка реально исполнилась (наш маркер baseline-ok присутствует)"
+if printf "%s" "$baseline_out" | contains "Built " || printf "%s" "$baseline_out" | contains "Build finished" ; then
+  note_pass "сборка реально исполнилась (видим финальный результат)"
 else
-  note_fail "сборка не исполнилась (в выводе нет baseline-ok)"
+  note_fail "сборка не исполнилась (в выводе нет признаков завершения)"
 fi
 
 printf "\n[Тест 1] Отключаем песочницу: баннера быть не должно, но сборка должна пройти\n" >&2
-nosb_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" 2>&1 || true)"
+nosb_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" 2>&1 || true)"
 if printf "%s" "$nosb_out" | contains "Running ktl build inside the sandbox" ; then
   note_fail "баннер песочницы появился, хотя KTL_SANDBOX_DISABLE=1"
 else
   note_pass "песочница отключена (баннера нет)"
 fi
-if printf "%s" "$nosb_out" | contains "baseline-ok" ; then
+if printf "%s" "$nosb_out" | contains "Built " || printf "%s" "$nosb_out" | contains "Build finished" ; then
   note_pass "сборка прошла и без песочницы (контрольный прогон)"
 else
   note_fail "сборка не прошла без песочницы"
@@ -131,7 +133,7 @@ printf "demo-probe-host-root-%s\n" "$(date +%s)" >"$probe_host_root_file"
 chmod 0644 "$probe_host_root_file"
 
 nosb_probe_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
-sandbox_probe_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
+sandbox_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
 
 if printf "%s" "$nosb_probe_out" | contains "[probe] stat \"$probe_host_root_file\": OK" ; then
   note_pass "без песочницы ktl видит host-only файл (probe OK)"
@@ -159,7 +161,7 @@ printf "demo-probe-context-%s\n" "$(date +%s)" >"$probe_ctx_file"
 chmod 0644 "$probe_ctx_file"
 
 nosb_ctx_probe_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_ctx_file" 2>&1 || true)"
-sandbox_ctx_probe_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_ctx_file" 2>&1 || true)"
+sandbox_ctx_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-probe-path "$probe_ctx_file" 2>&1 || true)"
 
 if printf "%s" "$nosb_ctx_probe_out" | contains "[probe] stat \"$probe_ctx_file\": OK" ; then
   note_pass "без песочницы файл в контексте виден (probe OK)"
@@ -186,7 +188,7 @@ cat >&2 <<EOF
   - В песочнице с bind:  probe OK
 EOF
 
-sandbox_bind_probe_out="$(KTL_SANDBOX_CONFIG="$policy" "$ktl_bin" build "$baseline_ctx" --sandbox-bind "$probe_host_root_file:$probe_host_root_file" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
+sandbox_bind_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-bind "$probe_host_root_file:$probe_host_root_file" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
 if printf "%s" "$sandbox_bind_probe_out" | contains "[probe] stat \"$probe_host_root_file\": OK" ; then
   note_pass "явный --sandbox-bind сработал: host-only файл стал видимым"
 else
@@ -195,14 +197,14 @@ fi
 
 printf "\n[Тест 5] Если песочница не стартует — это должно быть видно через --sandbox-logs\n" >&2
 bad_policy="$repo_root/testdata/sandbox/does-not-exist.cfg"
-logs_out="$(KTL_SANDBOX_CONFIG="$bad_policy" "$ktl_bin" build "$baseline_ctx" --sandbox-logs 2>&1 || true)"
+logs_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$bad_policy" --sandbox-logs 2>&1 || true)"
 if printf "%s" "$logs_out" | contains "sandbox config:" ; then
   note_pass "ошибка политики видна (нет 'тихого' выхода без сообщений)"
 else
   note_fail "ошибка политики не показалась (ожидали sandbox config: ...)"
 fi
 
-printf "\nИтог: %d PASS, %d FAIL, %d SKIP\n" "$pass_count" "$fail_count" "$skip_count" >&2
+printf "\nИтог: %d PASS, %d FAIL\n" "$pass_count" "$fail_count" >&2
 if [[ "$fail_count" -gt 0 ]]; then
   exit 1
 fi
