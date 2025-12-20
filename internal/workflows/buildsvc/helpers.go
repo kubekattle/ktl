@@ -130,7 +130,7 @@ func selectBuildMode(contextAbs string, opts Options) (buildMode, []string, erro
 			ext := strings.ToLower(filepath.Ext(contextAbs))
 			if ext == ".yml" || ext == ".yaml" {
 				if mode == modeDockerfile {
-					return modeDockerfile, nil, nil
+					return modeDockerfile, nil, fmt.Errorf("dockerfile mode requires a directory context, got file %s", contextAbs)
 				}
 				absFiles, err := absolutePaths([]string{contextAbs})
 				if err != nil {

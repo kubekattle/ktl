@@ -162,6 +162,21 @@ func TestSelectBuildModeAutoAcceptsComposeFileAsContext(t *testing.T) {
 	}
 }
 
+func TestSelectBuildModeDockerfileRejectsFileContext(t *testing.T) {
+	dir := t.TempDir()
+	composePath := filepath.Join(dir, "compose.yml")
+	writeFile(t, composePath, "services: {}\n")
+
+	opts := Options{
+		ContextDir: composePath,
+		Dockerfile: "Dockerfile",
+		BuildMode:  string(ModeDockerfile),
+	}
+	if _, _, err := selectBuildMode(composePath, opts); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
 type captureRunner struct {
 	last buildkit.DockerfileBuildOptions
 }
