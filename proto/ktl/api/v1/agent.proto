@@ -1,0 +1,218 @@
+syntax = "proto3";
+
+package ktl.api.v1;
+
+option go_package = "github.com/example/ktl/pkg/api/v1;apiv1";
+
+message LogRequest {
+  string pod_query = 1;
+  repeated string namespaces = 2;
+  bool all_namespaces = 3;
+  string label_selector = 4;
+  string field_selector = 5;
+  repeated string containers = 6;
+  repeated string exclude_containers = 7;
+  repeated string exclude_pods = 8;
+  repeated string highlight_terms = 9;
+  bool include_events = 10;
+  bool events_only = 11;
+  int64 tail_lines = 12;
+  bool follow = 13;
+  bool timestamps = 14;
+  string template = 15;
+  string kube_context = 16;
+  string kubeconfig_path = 17;
+}
+
+message LogLine {
+  int64 timestamp_unix_nano = 1;
+  string formatted_timestamp = 2;
+  string namespace = 3;
+  string pod = 4;
+  string container = 5;
+  string raw = 6;
+  string rendered = 7;
+  string source = 8;
+  string source_glyph = 9;
+  bool rendered_equals_raw = 10;
+}
+
+message BuildOptions {
+  string context_dir = 1;
+  string dockerfile = 2;
+  repeated string tags = 3;
+  repeated string platforms = 4;
+  repeated string build_args = 5;
+  repeated string secrets = 6;
+  repeated string cache_from = 7;
+  repeated string cache_to = 8;
+  bool push = 9;
+  bool load = 10;
+  bool no_cache = 11;
+  string builder = 12;
+  string cache_dir = 13;
+  bool interactive = 14;
+  string interactive_shell = 15;
+  string build_mode = 16;
+  repeated string compose_files = 17;
+  repeated string compose_profiles = 18;
+  repeated string compose_services = 19;
+  string compose_project = 20;
+  string auth_file = 21;
+  string sandbox_config = 22;
+  string sandbox_bin = 23;
+  repeated string sandbox_binds = 24;
+  string sandbox_workdir = 25;
+  bool sandbox_logs = 26;
+  string log_file = 27;
+  bool remove_intermediate = 28;
+  bool quiet = 29;
+}
+
+message RunBuildRequest {
+  BuildOptions options = 1;
+  string session_id = 2;
+  string requester = 3;
+}
+
+message BuildResult {
+  repeated string tags = 1;
+  string digest = 2;
+  string oci_output_dir = 3;
+  string error = 4;
+}
+
+message BuildEvent {
+  int64 timestamp_unix_nano = 1;
+  oneof body {
+    LogLine log = 2;
+    BuildResult result = 3;
+  }
+}
+
+message DeployEvent {
+  string json = 1;
+}
+
+message DeployApplyOptions {
+  string release = 1;
+  string chart = 2;
+  string namespace = 3;
+  string version = 4;
+  repeated string values_files = 5;
+  repeated string set_values = 6;
+  repeated string set_string_values = 7;
+  repeated string set_file_values = 8;
+  int64 timeout_seconds = 9;
+  bool wait = 10;
+  bool atomic = 11;
+  bool upgrade_only = 12;
+  bool create_namespace = 13;
+  bool dry_run = 14;
+  bool diff = 15;
+  string kube_context = 16;
+  string kubeconfig_path = 17;
+}
+
+message DeployApplyRequest {
+  DeployApplyOptions options = 1;
+}
+
+message DeployDestroyOptions {
+  string release = 1;
+  string namespace = 2;
+  int64 timeout_seconds = 3;
+  bool wait = 4;
+  bool keep_history = 5;
+  bool dry_run = 6;
+  bool force = 7;
+  bool disable_hooks = 8;
+  string kube_context = 9;
+  string kubeconfig_path = 10;
+}
+
+message DeployDestroyRequest {
+  DeployDestroyOptions options = 1;
+}
+
+message MirrorFrame {
+  string session_id = 1;
+  string producer = 2;
+  oneof payload {
+    LogLine log = 10;
+    BuildEvent build = 11;
+    DeployEvent deploy = 12;
+    bytes raw = 13;
+  }
+}
+
+message MirrorAck {
+  string session_id = 1;
+  string message = 2;
+  uint64 sequence = 3;
+}
+
+message MirrorSubscribeRequest {
+  string session_id = 1;
+  bool replay = 2;
+}
+
+message CaptureOptions {
+  int64 duration_seconds = 1;
+  string output_name = 2;
+  bool sqlite = 3;
+  bool attach_describe = 4;
+  string session_name = 5;
+}
+
+message CaptureRequest {
+  LogRequest log = 1;
+  CaptureOptions capture = 2;
+}
+
+message CaptureChunk {
+  bytes data = 1;
+  bool last = 2;
+  string filename = 3;
+  string error = 4;
+}
+
+message DriftWatchRequest {
+  repeated string namespaces = 1;
+  bool all_namespaces = 2;
+  int64 interval_seconds = 3;
+  int32 history = 4;
+  int32 iterations = 5;
+  string kube_context = 6;
+  string kubeconfig_path = 7;
+}
+
+message DriftEvent {
+  string text = 1;
+}
+
+service LogService {
+  rpc StreamLogs(LogRequest) returns (stream LogLine);
+}
+
+service BuildService {
+  rpc RunBuild(RunBuildRequest) returns (stream BuildEvent);
+}
+
+service DeployService {
+  rpc Apply(DeployApplyRequest) returns (stream DeployEvent);
+  rpc Destroy(DeployDestroyRequest) returns (stream DeployEvent);
+}
+
+service MirrorService {
+  rpc Publish(stream MirrorFrame) returns (stream MirrorAck);
+  rpc Subscribe(MirrorSubscribeRequest) returns (stream MirrorFrame);
+}
+
+service CaptureService {
+  rpc RunCapture(CaptureRequest) returns (stream CaptureChunk);
+}
+
+service DriftService {
+  rpc Watch(DriftWatchRequest) returns (stream DriftEvent);
+}

@@ -1,0 +1,357 @@
+package buildsvc
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/example/ktl/internal/caststream"
+	"github.com/example/ktl/internal/castutil"
+	"github.com/example/ktl/internal/dockerconfig"
+	"github.com/example/ktl/internal/logging"
+	"github.com/example/ktl/internal/tailer"
+	"github.com/example/ktl/pkg/buildkit"
+	appcompose "github.com/example/ktl/pkg/compose"
+	"github.com/example/ktl/pkg/registry"
+)
+
+// Dependencies configures a build Service.
+type Dependencies struct {
+	BuildRunner   buildkit.Runner
+	Registry      registry.Client
+	ComposeRunner appcompose.Runner
+}
+
+// Result summarizes the outcome of a build.
+type Result struct {
+	Tags         []string
+	Digest       string
+	OCIOutputDir string
+}
+
+type service struct {
+	buildRunner   buildkit.Runner
+	registry      registry.Client
+	composeRunner appcompose.Runner
+}
+
+// New returns a default build Service.
+func New(deps Dependencies) Service {
+	br := deps.BuildRunner
+	if br == nil {
+		br = buildkit.NewRunner()
+	}
+	reg := deps.Registry
+	if reg == nil {
+		reg = registry.NewClient()
+	}
+	cr := deps.ComposeRunner
+	if cr == nil {
+		cr = appcompose.NewRunner(br, reg)
+	}
+	return &service{
+		buildRunner:   br,
+		registry:      reg,
+		composeRunner: cr,
+	}
+}
+
+// Run executes the build workflow with the provided options.
+func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
+	if err := opts.Streams.validate(); err != nil {
+		return nil, err
+	}
+	start := time.Now()
+	streams := opts.Streams
+	errOut := streams.ErrWriter()
+
+	var logCloser io.Closer
+	if logPath := strings.TrimSpace(opts.LogFile); logPath != "" {
+		dir := filepath.Dir(logPath)
+		if dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return nil, fmt.Errorf("create logfile directory: %w", err)
+			}
+		}
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return nil, fmt.Errorf("open logfile: %w", err)
+		}
+		logCloser = f
+		streams.SetOutErr(f, f)
+	}
+	defer func() {
+		if logCloser != nil {
+			_ = logCloser.Close()
+		}
+	}()
+
+	if sandboxActive() {
+		policy := strings.TrimSpace(opts.SandboxConfig)
+		if policy == "" {
+			policy = "embedded default"
+		}
+		runtime := strings.TrimSpace(opts.SandboxBin)
+		if runtime == "" {
+			runtime = "system default"
+		}
+		fmt.Fprintf(errOut, "Running ktl build inside the sandbox (policy: %s, binary: %s). Set KTL_SANDBOX_DISABLE=1 to opt out.\n", policy, runtime)
+	}
+
+	contextDir := opts.ContextDir
+	if contextDir == "" {
+		contextDir = "."
+	}
+	cacheDir := opts.CacheDir
+	if cacheDir == "" {
+		cacheDir = buildkit.DefaultCacheDir()
+	}
+
+	if err := dockerconfig.ApplyAuthfileEnv(opts.AuthFile); err != nil {
+		return nil, err
+	}
+
+	contextAbs, err := filepath.Abs(contextDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.SandboxWorkdir == "" {
+		opts.SandboxWorkdir = contextAbs
+	}
+
+	if injector := getSandboxInjector(); injector != nil {
+		if handled, err := injector(&opts, streams, contextAbs); err != nil {
+			return nil, err
+		} else if handled {
+			return &Result{}, nil
+		}
+	} else if opts.SandboxLogs {
+		return nil, fmt.Errorf("--sandbox-logs is only supported on Linux hosts with a sandbox runtime installed")
+	}
+
+	stream := newBuildProgressBroadcaster(filepath.Base(contextAbs))
+	progressObservers := []buildkit.ProgressObserver{stream}
+	diagnosticObservers := []buildkit.BuildDiagnosticObserver{&buildDiagnosticObserver{
+		stream: stream,
+		writer: errOut,
+	}}
+
+	var consoleObserver tailer.LogObserver
+	if !opts.Quiet && streams.IsTerminal(errOut) {
+		consoleObserver = NewConsoleObserver(errOut)
+		if consoleObserver != nil {
+			stream.addObserver(consoleObserver)
+		}
+	}
+	for _, obs := range opts.Observers {
+		stream.addObserver(obs)
+	}
+	quietProgress := opts.Quiet || (consoleObserver != nil && os.Getenv("BUILDKIT_PROGRESS") == "")
+
+	var stopSandboxLogs func()
+	if opts.SandboxLogs && sandboxActive() {
+		logPath := sandboxLogPathFromEnv()
+		if logPath == "" {
+			fmt.Fprintln(errOut, "sandbox logs requested but log path unavailable")
+		} else {
+			var observer func(string)
+			if stream != nil {
+				observer = stream.emitSandboxLog
+			}
+			stop, streamErr := startSandboxLogStreamer(ctx, logPath, errOut, observer)
+			if streamErr != nil {
+				fmt.Fprintf(errOut, "sandbox logs unavailable: %v\n", streamErr)
+			} else {
+				stopSandboxLogs = stop
+			}
+		}
+	}
+	defer func() {
+		if stopSandboxLogs != nil {
+			stopSandboxLogs()
+		}
+	}()
+
+	mirrorLabel := fmt.Sprintf("Context: %s", contextAbs)
+	if strings.TrimSpace(opts.UIAddr) != "" || strings.TrimSpace(opts.WSListenAddr) != "" {
+		logger, logErr := logging.New("info")
+		if logErr != nil {
+			return nil, logErr
+		}
+		if addr := strings.TrimSpace(opts.UIAddr); addr != "" {
+			uiServer := caststream.New(addr, caststream.ModeWeb, mirrorLabel, logger.WithName("build-ui"), caststream.WithoutFilters(), caststream.WithoutLogTitle())
+			stream.addObserver(uiServer)
+			if err := castutil.StartCastServer(ctx, uiServer, "ktl build UI", logger.WithName("build-ui"), errOut); err != nil {
+				return nil, err
+			}
+			fmt.Fprintf(errOut, "Serving ktl build UI on %s\n", addr)
+		}
+		if addr := strings.TrimSpace(opts.WSListenAddr); addr != "" {
+			wsServer := caststream.New(addr, caststream.ModeWS, mirrorLabel, logger.WithName("build-ws"))
+			stream.addObserver(wsServer)
+			if err := castutil.StartCastServer(ctx, wsServer, "ktl build websocket stream", logger.WithName("build-ws"), errOut); err != nil {
+				return nil, err
+			}
+			fmt.Fprintf(errOut, "Serving ktl websocket build stream on %s\n", addr)
+		}
+	}
+	stream.emitInfo(fmt.Sprintf("Streaming ktl build from %s", contextDir))
+	defer func() {
+		if stream != nil {
+			stream.emitSummary(buildSummary{
+				Tags:      append([]string(nil), opts.Tags...),
+				Platforms: append([]string(nil), opts.Platforms...),
+				Mode:      opts.BuildMode,
+				Push:      opts.Push,
+				Load:      opts.Load,
+			})
+			stream.emitResult(nil, time.Since(start))
+		}
+	}()
+
+	mode, composeFiles, err := selectBuildMode(contextAbs, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if mode == modeCompose {
+		if err := s.runComposeBuild(ctx, composeFiles, opts, progressObservers, diagnosticObservers, quietProgress, stream, streams); err != nil {
+			return nil, err
+		}
+		return &Result{}, nil
+	}
+
+	buildArgs, err := parseKeyValueArgs(opts.BuildArgs)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheFrom, err := parseCacheSpecs(opts.CacheFrom)
+	if err != nil {
+		return nil, err
+	}
+	cacheTo, err := parseCacheSpecs(opts.CacheTo)
+	if err != nil {
+		return nil, err
+	}
+	if opts.NoCache && len(cacheFrom) > 0 {
+		fmt.Fprintln(errOut, "warning: ignoring --cache-from entries because --no-cache is set")
+		cacheFrom = nil
+	}
+
+	platforms := buildkit.NormalizePlatforms(expandPlatforms(opts.Platforms))
+
+	tags := opts.Tags
+	if opts.Push && len(tags) == 0 {
+		return nil, errors.New("--tag must be provided when using --push")
+	}
+	if len(tags) == 0 {
+		tags = []string{buildkit.DefaultLocalTag(contextDir)}
+		fmt.Fprintf(errOut, "Defaulting to local tag %s\n", tags[0])
+	}
+	if stream != nil {
+		stream.emitInfo(fmt.Sprintf("Target tags: %s", strings.Join(tags, ", ")))
+	}
+
+	secrets := make([]buildkit.Secret, 0, len(opts.Secrets))
+	for _, id := range opts.Secrets {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := os.LookupEnv(id); !ok {
+			return nil, fmt.Errorf("secret %s is not present in the environment", id)
+		}
+		secrets = append(secrets, buildkit.Secret{ID: id, Env: id})
+	}
+
+	dockerCfg, err := dockerconfig.LoadConfigFile(opts.AuthFile, errOut)
+	if err != nil {
+		return nil, err
+	}
+	progressOut := resolveConsoleFile(errOut)
+
+	buildOpts := buildkit.DockerfileBuildOptions{
+		BuilderAddr:          opts.Builder,
+		AllowBuilderFallback: opts.Builder == "",
+		ContextDir:           contextDir,
+		DockerfilePath:       opts.Dockerfile,
+		Platforms:            platforms,
+		BuildArgs:            buildArgs,
+		Secrets:              secrets,
+		Tags:                 tags,
+		Push:                 opts.Push,
+		LoadToContainerd:     opts.Load,
+		CacheDir:             cacheDir,
+		CacheExports:         cacheTo,
+		CacheImports:         cacheFrom,
+		NoCache:              opts.NoCache,
+		ProgressOutput:       progressOut,
+		DockerConfig:         dockerCfg,
+		ProgressObservers:    progressObservers,
+		DiagnosticObservers:  diagnosticObservers,
+	}
+	if quietProgress {
+		buildOpts.ProgressMode = "quiet"
+	}
+
+	if opts.Interactive {
+		tty := detectTTY(streams)
+		if tty == nil {
+			return nil, errors.New("--interactive requires a TTY. Run ktl build from an interactive terminal or omit --interactive")
+		}
+		shellArgs, err := parseInteractiveShell(opts.InteractiveShell)
+		if err != nil {
+			return nil, err
+		}
+		buildOpts.Interactive = &buildkit.InteractiveShellConfig{
+			Shell:  shellArgs,
+			Stdin:  streams.InReader(),
+			Stdout: streams.OutWriter(),
+			Stderr: errOut,
+			TTY:    tty,
+		}
+	}
+
+	result, err := s.buildRunner.BuildDockerfile(ctx, buildOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	if result.OCIOutputPath != "" {
+		if recErr := s.registry.RecordBuild(tags, result.OCIOutputPath); recErr != nil {
+			fmt.Fprintf(errOut, "warning: unable to record build metadata: %v\n", recErr)
+		}
+	}
+
+	fmt.Fprintf(streams.OutWriter(), "Built %s", strings.Join(tags, ", "))
+	if result.Digest != "" {
+		fmt.Fprintf(streams.OutWriter(), " (digest %s)", result.Digest)
+	}
+	fmt.Fprintln(streams.OutWriter())
+	if result.OCIOutputPath != "" {
+		rel, relErr := filepath.Rel(contextDir, result.OCIOutputPath)
+		if relErr != nil {
+			rel = result.OCIOutputPath
+		}
+		fmt.Fprintf(streams.OutWriter(), "OCI layout saved at %s\n", rel)
+		if stream != nil {
+			stream.emitInfo(fmt.Sprintf("OCI layout saved at %s", rel))
+		}
+	}
+	if stream != nil && result != nil && result.Digest != "" {
+		stream.emitInfo(fmt.Sprintf("Image digest: %s", result.Digest))
+	}
+
+	return &Result{
+		Tags:         append([]string(nil), tags...),
+		Digest:       result.Digest,
+		OCIOutputDir: result.OCIOutputPath,
+	}, nil
+}

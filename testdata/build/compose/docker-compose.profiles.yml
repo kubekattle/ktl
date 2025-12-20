@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  cron:
+    build:
+      context: ./services/cron
+    profiles: ["jobs"]
+  worker:
+    build:
+      context: ./services/worker
+  gateway:
+    build:
+      context: ./services/proxy
+    profiles: ["edge"]

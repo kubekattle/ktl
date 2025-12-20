@@ -1,0 +1,12 @@
+version: "3.9"
+services:
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    image: ktl-test/api:dev
+  worker:
+    build:
+      context: ./services/worker
+      dockerfile: Dockerfile
+    image: ktl-test/worker:dev

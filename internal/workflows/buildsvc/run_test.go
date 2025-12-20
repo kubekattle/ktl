@@ -1,0 +1,138 @@
+package buildsvc
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+var _, pkgTestFile, _, _ = runtime.Caller(0)
+var pkgRepoRoot = filepath.Clean(filepath.Join(filepath.Dir(pkgTestFile), "..", "..", ".."))
+
+func testdataPath(parts ...string) string {
+	base := append([]string{pkgRepoRoot, "testdata"}, parts...)
+	return filepath.Join(base...)
+}
+
+func TestParseKeyValueArgs(t *testing.T) {
+	args, err := parseKeyValueArgs([]string{"FOO=bar", "VERSION=1"})
+	if err != nil {
+		t.Fatalf("parseKeyValueArgs returned error: %v", err)
+	}
+	if args["FOO"] != "bar" || args["VERSION"] != "1" {
+		t.Fatalf("unexpected args map: %#v", args)
+	}
+	if _, err := parseKeyValueArgs([]string{"INVALID"}); err == nil {
+		t.Fatalf("expected error for malformed arg")
+	}
+}
+
+func TestParseCacheSpecs(t *testing.T) {
+	specs, err := parseCacheSpecs([]string{"type=registry,ref=example.com/cache:latest"})
+	if err != nil {
+		t.Fatalf("parseCacheSpecs error: %v", err)
+	}
+	if len(specs) != 1 || specs[0].Type != "registry" || specs[0].Attrs["ref"] != "example.com/cache:latest" {
+		t.Fatalf("unexpected cache spec: %#v", specs)
+	}
+	if _, err := parseCacheSpecs([]string{"ref=missing-type"}); err == nil {
+		t.Fatalf("expected error for missing type")
+	}
+}
+
+func TestParseKeyValueCSV(t *testing.T) {
+	attrs, err := parseKeyValueCSV("type=registry,ref=cache,mode=max")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if attrs["type"] != "registry" || attrs["ref"] != "cache" || attrs["mode"] != "max" {
+		t.Fatalf("unexpected attributes: %#v", attrs)
+	}
+}
+
+func TestExpandPlatforms(t *testing.T) {
+	values := expandPlatforms([]string{"linux/amd64,linux/arm64", "linux/amd64"})
+	if len(values) != 2 {
+		t.Fatalf("expected 2 unique platforms, got %d", len(values))
+	}
+}
+
+func TestFindComposeFiles(t *testing.T) {
+	dir := testdataPath("build", "compose")
+	files, err := findComposeFiles(dir)
+	if err != nil {
+		t.Fatalf("findComposeFiles error: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("expected compose files in testdata")
+	}
+	for _, f := range files {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatalf("expected compose file to exist: %v", err)
+		}
+	}
+}
+
+func TestSelectBuildModeAutoPrefersDockerfile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\n")
+	writeFile(t, filepath.Join(dir, "docker-compose.yml"), "services: {}\n")
+
+	opts := Options{
+		ContextDir: dir,
+		Dockerfile: "Dockerfile",
+		BuildMode:  string(ModeAuto),
+	}
+	mode, files, err := selectBuildMode(dir, opts)
+	if err != nil {
+		t.Fatalf("selectBuildMode returned error: %v", err)
+	}
+	if mode != modeDockerfile {
+		t.Fatalf("expected dockerfile mode, got %s", mode)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected no compose files, got %d", len(files))
+	}
+}
+
+func TestSelectBuildModeAutoFallsBackToCompose(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "docker-compose.yml"), "services: {}\n")
+
+	opts := Options{
+		ContextDir: dir,
+		Dockerfile: "Dockerfile",
+		BuildMode:  string(ModeAuto),
+	}
+	mode, files, err := selectBuildMode(dir, opts)
+	if err != nil {
+		t.Fatalf("selectBuildMode returned error: %v", err)
+	}
+	if mode != modeCompose {
+		t.Fatalf("expected compose mode, got %s", mode)
+	}
+	if len(files) != 1 || !strings.HasSuffix(files[0], "docker-compose.yml") {
+		t.Fatalf("unexpected compose files: %v", files)
+	}
+}
+
+func TestSelectBuildModeComposeRequiresFiles(t *testing.T) {
+	dir := t.TempDir()
+	opts := Options{
+		ContextDir: dir,
+		Dockerfile: "Dockerfile",
+		BuildMode:  string(ModeCompose),
+	}
+	if _, _, err := selectBuildMode(dir, opts); err == nil {
+		t.Fatal("expected error when compose mode requested without compose files")
+	}
+}
+
+func writeFile(t *testing.T, path string, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("writeFile %s: %v", path, err)
+	}
+}
