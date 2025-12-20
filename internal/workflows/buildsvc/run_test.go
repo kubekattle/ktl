@@ -140,6 +140,28 @@ func TestSelectBuildModeComposeRequiresFiles(t *testing.T) {
 	}
 }
 
+func TestSelectBuildModeAutoAcceptsComposeFileAsContext(t *testing.T) {
+	dir := t.TempDir()
+	composePath := filepath.Join(dir, "docker-compose.yml")
+	writeFile(t, composePath, "services: {}\n")
+
+	opts := Options{
+		ContextDir: composePath,
+		Dockerfile: "Dockerfile",
+		BuildMode:  string(ModeAuto),
+	}
+	mode, files, err := selectBuildMode(composePath, opts)
+	if err != nil {
+		t.Fatalf("selectBuildMode returned error: %v", err)
+	}
+	if mode != modeCompose {
+		t.Fatalf("expected compose mode, got %s", mode)
+	}
+	if len(files) != 1 || files[0] != composePath {
+		t.Fatalf("unexpected compose files: %v", files)
+	}
+}
+
 type captureRunner struct {
 	last buildkit.DockerfileBuildOptions
 }

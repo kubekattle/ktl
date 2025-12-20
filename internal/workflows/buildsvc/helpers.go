@@ -125,6 +125,22 @@ func selectBuildMode(contextAbs string, opts Options) (buildMode, []string, erro
 		return modeDockerfile, nil, err
 	}
 
+	if fileExists(contextAbs) {
+		if info, statErr := os.Stat(contextAbs); statErr == nil && info.Mode().IsRegular() {
+			ext := strings.ToLower(filepath.Ext(contextAbs))
+			if ext == ".yml" || ext == ".yaml" {
+				if mode == modeDockerfile {
+					return modeDockerfile, nil, nil
+				}
+				absFiles, err := absolutePaths([]string{contextAbs})
+				if err != nil {
+					return modeCompose, nil, err
+				}
+				return modeCompose, absFiles, nil
+			}
+		}
+	}
+
 	if mode == modeDockerfile {
 		return modeDockerfile, nil, nil
 	}
