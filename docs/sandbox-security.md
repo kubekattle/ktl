@@ -42,6 +42,24 @@ If the build runs inside the `ktl` sandbox, the same attempt only sees the sandb
 
 This demonstration is intentionally **non-destructive** and avoids sensitive paths. It’s meant to validate “host access” vs “sandbox access”, not to teach escalation.
 
+### Preconditions (so results are meaningful)
+
+Run this on a **Linux host** where `ktl` can use the sandbox runtime (for example, the Archimedes box).
+
+1) Ensure the sandbox runtime is available:
+
+```bash
+command -v nsjail
+```
+
+2) Pick a sandbox policy (recommended defaults):
+
+```bash
+export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
+```
+
+3) Confirm you’re using a builder that can build Dockerfiles (BuildKit). If your builder is configured to *deny* host bind mounts/entitlements, step (2) below may “fail closed” even without the sandbox. That’s still a safe outcome; it just means you won’t see a difference between the two runs on that host.
+
 ### 1) Create a minimal demo context
 
 ```bash
@@ -62,7 +80,7 @@ EOF
 
 ### 2) Run without sandbox (host-exposed execution)
 
-**Warning:** only do this in a throwaway environment, and only if you understand your builder configuration.
+**Warning:** only do this in a throwaway environment, and only if you understand your builder configuration. This is the “what if I disable ktl’s guardrails?” comparison run.
 
 ```bash
 KTL_SANDBOX_DISABLE=1 ./bin/ktl build /tmp/ktl-sandbox-demo
@@ -71,7 +89,7 @@ KTL_SANDBOX_DISABLE=1 ./bin/ktl build /tmp/ktl-sandbox-demo
 What to look for:
 
 - If your builder is permissive, the listing may reflect the **host’s** `/etc` layout.
-- If your builder is not permissive, this may fail (that’s fine; it means the precondition isn’t met).
+- If your builder is not permissive, the mount will fail and the build will continue (because the Dockerfile uses `|| true`). That means your builder already blocks this class of host access.
 
 ### 3) Run with sandbox (default on Linux when available)
 
@@ -81,8 +99,19 @@ What to look for:
 
 What to look for:
 
+- You should see a banner like: `Running ktl build inside the sandbox ...` before build output.
 - The build should **not** be able to traverse arbitrary host paths outside what `ktl` binds into the sandbox.
 - Even if the underlying builder supports host-mount style features, the “host” from the build’s perspective is now the **sandbox root**, not the machine root.
+
+### 4) If the sandbox run produces no output, capture sandbox runtime logs
+
+If the sandbox runtime fails before `ktl` starts inside the jail, the normal build stream won’t start. Run with sandbox logs enabled to see the sandbox runtime’s error output:
+
+```bash
+./bin/ktl build /tmp/ktl-sandbox-demo --sandbox-logs
+```
+
+Expected output includes `[sandbox] ...` lines describing what the sandbox runtime is doing and why it failed (missing mounts, denied syscalls, missing namespaces, etc.).
 
 ## Why this prevents “root on the host”
 
@@ -104,4 +133,3 @@ When the same build runs inside the `ktl` sandbox:
 - Treat `KTL_SANDBOX_DISABLE=1` as a **high-risk debug switch**.
 - Don’t run `ktl build` on untrusted repos with sandbox disabled.
 - If you need additional binds for legitimate builds, prefer adding them via `--sandbox-bind ...` and codifying them in a policy under `testdata/sandbox/*.cfg` for reviewability.
-
