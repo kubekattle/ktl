@@ -28,7 +28,7 @@ func getSandboxInjector() sandboxInjector {
 }
 
 func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, contextAbs string) (bool, error) {
-	if sandboxDisabled() {
+	if sandboxDisabled() && !opts.RequireSandbox {
 		return false, nil
 	}
 	if sandboxActive() {
@@ -39,7 +39,7 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 		bin = "nsjail"
 	}
 	if _, err := exec.LookPath(bin); err != nil {
-		if opts.SandboxConfig != "" {
+		if opts.SandboxConfig != "" || opts.RequireSandbox {
 			return false, fmt.Errorf("sandbox binary not found: %w", err)
 		}
 		return false, nil

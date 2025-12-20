@@ -51,6 +51,7 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 		"-i",
 		"--interactive-shell", "/bin/bash -l",
 		"--compose-parallelism", "5",
+		"--sandbox",
 		"--tag", "example.com/app:dev",
 		ctxDir,
 	})
@@ -98,6 +99,9 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 	}
 	if opts.ComposeParallelism != 5 {
 		t.Fatalf("compose parallelism missing: %d", opts.ComposeParallelism)
+	}
+	if !opts.RequireSandbox {
+		t.Fatalf("expected sandbox to be required")
 	}
 	if out := stdout.String(); !strings.Contains(out, "Built example.com/app:dev") {
 		t.Fatalf("expected build output, got %q", out)
@@ -161,6 +165,7 @@ func TestBuildCommandHelpListsAllFlags(t *testing.T) {
 		"--push",
 		"--rm",
 		"--sandbox-logs",
+		"--sandbox",
 		"--secret",
 		"-t, --tag",
 	}

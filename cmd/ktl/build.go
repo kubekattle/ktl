@@ -68,6 +68,7 @@ type buildCLIOptions struct {
 	sandboxWorkdir   string
 	sandboxLogs      bool
 	sandboxProbePath string
+	sandboxRequired  bool
 	logFile          string
 	rm               bool
 	quiet            bool
@@ -177,6 +178,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.sandboxBin, "sandbox-bin", "", "Path to the sandbox runtime binary")
 	cmd.PersistentFlags().StringArrayVar(&opts.sandboxBinds, "sandbox-bind", nil, "Additional sandbox bind mounts (host:guest)")
 	cmd.PersistentFlags().StringVar(&opts.sandboxWorkdir, "sandbox-workdir", "", "Working directory inside the sandbox (default: build context)")
+	cmd.PersistentFlags().BoolVar(&opts.sandboxRequired, "sandbox", false, "Require executing the build inside the sandbox (fail if unavailable)")
 
 	cmd.AddCommand(newBuildLoginCommand(&opts), newBuildLogoutCommand(&opts))
 
@@ -357,6 +359,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		SandboxWorkdir:     opts.sandboxWorkdir,
 		SandboxLogs:        opts.sandboxLogs,
 		SandboxProbePath:   opts.sandboxProbePath,
+		RequireSandbox:     opts.sandboxRequired,
 		LogFile:            opts.logFile,
 		RemoveIntermediate: opts.rm,
 		Quiet:              opts.quiet,

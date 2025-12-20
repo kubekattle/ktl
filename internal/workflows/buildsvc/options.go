@@ -128,6 +128,7 @@ type Options struct {
 	SandboxWorkdir     string
 	SandboxLogs        bool
 	SandboxProbePath   string
+	RequireSandbox     bool
 	LogFile            string
 	RemoveIntermediate bool
 	Quiet              bool
