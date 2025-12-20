@@ -31,6 +31,7 @@ func TestBuildDockerfileFixtures(t *testing.T) {
 		repoTestdata("build", "dockerfiles", "multistage"),
 		repoTestdata("build", "dockerfiles", "metadata"),
 		repoTestdata("build", "dockerfiles", "scripts"),
+		repoTestdata("build", "dockerfiles", "sandbox-strict"),
 	}
 	for _, contextDir := range fixtures {
 		contextDir := contextDir

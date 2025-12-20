@@ -61,6 +61,7 @@ Enable verbose sandbox diagnostics only when needed with `ktl build ... --sandbo
 | Environment | Policy file | Intended hosts | Notes |
 | --- | --- | --- | --- |
 | `linux-ci` | `testdata/sandbox/linux-ci.cfg` | Dedicated Linux BuildKit runners (Archimedes + CI) | Copy of the default policy with doubled tmpfs limits; export `KTL_SANDBOX_CONFIG=$REPO_ROOT/testdata/sandbox/linux-ci.cfg` to opt in. |
+| `linux-strict` | `testdata/sandbox/linux-strict.cfg` | Linux hosts with user namespaces enabled | Tightens the default policy (user/pid/cgroup namespaces, drops env + caps, no sysfs, minimal /dev). If userns is unavailable, use `linux-ci` instead. |
 
 Example:
 
