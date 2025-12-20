@@ -1,5 +1,8 @@
 bin/*
 ktl-report-*
+ktl-capture-*.sqlite
+ktl-capture-*.sqlite-wal
+ktl-capture-*.sqlite-shm
 testdata/build/dockerfile/dist/*
 dist/
 .DS_Store
