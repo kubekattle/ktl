@@ -24,7 +24,6 @@ func TestRecorderWritesSessionAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer rec.Close()
 
 	rec.ObserveLog(tailer.LogRecord{
 		Timestamp: time.Now().UTC(),
@@ -42,6 +41,10 @@ func TestRecorderWritesSessionAndEvents(t *testing.T) {
 	})
 	if err := rec.RecordArtifact(context.Background(), "rendered_manifest", "kind: ConfigMap\n"); err != nil {
 		t.Fatalf("RecordArtifact: %v", err)
+	}
+
+	if err := rec.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 
 	// Validate via a separate connection.
@@ -64,6 +67,14 @@ func TestRecorderWritesSessionAndEvents(t *testing.T) {
 	}
 	if eventCount != 2 {
 		t.Fatalf("expected 2 events, got %d", eventCount)
+	}
+	var minSeq sql.NullInt64
+	var maxSeq sql.NullInt64
+	if err := db.QueryRow(`SELECT MIN(seq), MAX(seq) FROM ktl_capture_events`).Scan(&minSeq, &maxSeq); err != nil {
+		t.Fatalf("seq range: %v", err)
+	}
+	if !minSeq.Valid || !maxSeq.Valid || minSeq.Int64 <= 0 || maxSeq.Int64 < minSeq.Int64 {
+		t.Fatalf("unexpected seq range: min=%v max=%v", minSeq, maxSeq)
 	}
 	var artifactCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM ktl_capture_artifacts`).Scan(&artifactCount); err != nil {
