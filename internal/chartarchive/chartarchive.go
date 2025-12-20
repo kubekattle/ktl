@@ -9,9 +9,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,11 +55,13 @@ type PackageOptions struct {
 }
 
 type PackageResult struct {
-	ArchivePath  string
-	ChartName    string
-	ChartVersion string
-	FileCount    int
-	TotalBytes   int64
+	ArchivePath   string
+	ChartDir      string
+	ChartName     string
+	ChartVersion  string
+	ContentSHA256 string
+	FileCount     int
+	TotalBytes    int64
 }
 
 func PackageDir(ctx context.Context, chartDir string, opts PackageOptions) (*PackageResult, error) {
@@ -71,6 +75,11 @@ func PackageDir(ctx context.Context, chartDir string, opts PackageOptions) (*Pac
 	if err := validateChartDir(chartDir); err != nil {
 		return nil, err
 	}
+	absDir, err := filepath.Abs(chartDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve chart dir: %w", err)
+	}
+	chartDir = filepath.Clean(absDir)
 
 	ch, err := loader.LoadDir(chartDir)
 	if err != nil {
@@ -256,6 +265,7 @@ func writeArchive(ctx context.Context, path string, chartDir string, ch *chart.C
 	var (
 		fileCount  int
 		totalBytes int64
+		digest     = sha256.New()
 	)
 	for _, f := range chartFilesSorted(ch) {
 		select {
@@ -267,22 +277,36 @@ func writeArchive(ctx context.Context, path string, chartDir string, ch *chart.C
 			continue
 		}
 		mode, size := fileModeAndSize(chartDir, f.Name, int64(len(f.Data)))
-		hash := sha256.Sum256(f.Data)
-		if _, err := stmt.ExecContext(ctx, f.Name, mode, size, fmt.Sprintf("%x", hash[:]), f.Data); err != nil {
+		fileHash := sha256.Sum256(f.Data)
+		fileHashHex := fmt.Sprintf("%x", fileHash[:])
+		recordDigest(digest, f.Name, fileHashHex)
+		if _, err := stmt.ExecContext(ctx, f.Name, mode, size, fileHashHex, f.Data); err != nil {
 			return nil, fmt.Errorf("insert file %s: %w", f.Name, err)
 		}
 		fileCount++
 		totalBytes += int64(len(f.Data))
 	}
 
+	contentSHA := fmt.Sprintf("%x", digest.Sum(nil))
+	if err := insertMeta(tx, ctx, map[string]string{
+		"chart_dir":      chartDir,
+		"content_sha256": contentSHA,
+		"file_count":     strconv.Itoa(fileCount),
+		"total_bytes":    strconv.FormatInt(totalBytes, 10),
+	}); err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return &PackageResult{
-		ChartName:    chartName(ch),
-		ChartVersion: chartVersion(ch),
-		FileCount:    fileCount,
-		TotalBytes:   totalBytes,
+		ChartDir:      chartDir,
+		ChartName:     chartName(ch),
+		ChartVersion:  chartVersion(ch),
+		ContentSHA256: contentSHA,
+		FileCount:     fileCount,
+		TotalBytes:    totalBytes,
 	}, nil
 }
 
@@ -370,4 +394,20 @@ func validateChartDir(chartDir string) error {
 		return fmt.Errorf("stat Chart.yaml: %w", err)
 	}
 	return nil
+}
+
+func recordDigest(h hash.Hash, path string, fileSHA256 string) {
+	if h == nil {
+		return
+	}
+	path = strings.TrimSpace(path)
+	fileSHA256 = strings.TrimSpace(fileSHA256)
+	if path == "" || fileSHA256 == "" {
+		return
+	}
+	// Stable encoding: one record per file, using a newline delimiter.
+	_, _ = h.Write([]byte(path))
+	_, _ = h.Write([]byte{'\n'})
+	_, _ = h.Write([]byte(fileSHA256))
+	_, _ = h.Write([]byte{'\n'})
 }

@@ -74,6 +74,22 @@ appVersion: "1.0.0"
 		t.Fatalf("expected chart name demo, got %q", chartName)
 	}
 
+	var chartDirMeta string
+	if err := db.QueryRow(`SELECT value FROM ktl_archive_meta WHERE key = 'chart_dir'`).Scan(&chartDirMeta); err != nil {
+		t.Fatalf("read chart_dir: %v", err)
+	}
+	if chartDirMeta == "" {
+		t.Fatalf("expected chart_dir to be populated")
+	}
+
+	var contentSHA string
+	if err := db.QueryRow(`SELECT value FROM ktl_archive_meta WHERE key = 'content_sha256'`).Scan(&contentSHA); err != nil {
+		t.Fatalf("read content_sha256: %v", err)
+	}
+	if contentSHA == "" {
+		t.Fatalf("expected content_sha256 to be populated")
+	}
+
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(1) FROM ktl_chart_files`).Scan(&count); err != nil {
 		t.Fatalf("count files: %v", err)
