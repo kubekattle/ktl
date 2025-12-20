@@ -176,6 +176,91 @@ func TestBuildCommandHelpListsAllFlags(t *testing.T) {
 	}
 }
 
+func TestBuildCommandRejectsInvalidFlagValuesAtParseTime(t *testing.T) {
+	disableSandboxForTests(t)
+	ctxDir := t.TempDir()
+
+	cases := []struct {
+		name       string
+		args       []string
+		wantSubstr string
+	}{
+		{
+			name:       "invalid mode",
+			args:       []string{"--mode", "nope", ctxDir},
+			wantSubstr: "must be one of",
+		},
+		{
+			name:       "invalid build-arg",
+			args:       []string{"--build-arg", "INVALID", ctxDir},
+			wantSubstr: "expected KEY=VALUE",
+		},
+		{
+			name:       "invalid cache-from missing type",
+			args:       []string{"--cache-from", "ref=cache/main,mode=max", ctxDir},
+			wantSubstr: "missing type",
+		},
+		{
+			name:       "invalid tag",
+			args:       []string{"--tag", "not a tag", ctxDir},
+			wantSubstr: "invalid tag",
+		},
+		{
+			name:       "invalid platform",
+			args:       []string{"--platform", "linux", ctxDir},
+			wantSubstr: "invalid platform",
+		},
+		{
+			name:       "invalid compose parallelism",
+			args:       []string{"--compose-parallelism", "-1", ctxDir},
+			wantSubstr: "must be",
+		},
+		{
+			name:       "invalid sandbox bind",
+			args:       []string{"--sandbox-bind", "/tmp", ctxDir},
+			wantSubstr: "expected host:guest",
+		},
+		{
+			name:       "invalid remote build address",
+			args:       []string{"--remote-build", "localhost", ctxDir},
+			wantSubstr: "expected host:port",
+		},
+		{
+			name:       "invalid tlog-upload",
+			args:       []string{"--tlog-upload", "maybe", ctxDir},
+			wantSubstr: "must be true or false",
+		},
+		{
+			name:       "empty cache-dir",
+			args:       []string{"--cache-dir", "", ctxDir},
+			wantSubstr: "cannot be empty",
+		},
+		{
+			name:       "invalid builder address",
+			args:       []string{"--builder", "buildkitd.sock", ctxDir},
+			wantSubstr: "expected a scheme",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newBuildCommandWithService(&recordingBuildService{})
+			cmd.SetIn(newFakeTTY())
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(tc.args)
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("error %q missing %q", err.Error(), tc.wantSubstr)
+			}
+		})
+	}
+}
+
 func containsSubstr(list []string, target string) bool {
 	for _, v := range list {
 		if strings.Contains(v, target) {

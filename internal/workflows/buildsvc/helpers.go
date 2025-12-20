@@ -70,6 +70,11 @@ func parseCacheSpecs(values []string) ([]buildkit.CacheSpec, error) {
 	return specs, nil
 }
 
+// ParseCacheSpecs exposes cache spec parsing for CLI parse-time validation.
+func ParseCacheSpecs(values []string) ([]buildkit.CacheSpec, error) {
+	return parseCacheSpecs(values)
+}
+
 func parseKeyValueCSV(raw string) (map[string]string, error) {
 	fields, err := csvutil.SplitFields(raw)
 	if err != nil {
