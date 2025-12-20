@@ -575,6 +575,8 @@ func (d *diagnosticEmitter) consume(status *client.SolveStatus) {
 		var dgst digest.Digest
 		if vertex.Digest != "" {
 			dgst = digest.Digest(vertex.Digest)
+		} else if vertex.Name != "" {
+			dgst = digest.FromString(vertex.Name)
 		}
 		if vertex.Cached {
 			d.emit(BuildDiagnostic{
