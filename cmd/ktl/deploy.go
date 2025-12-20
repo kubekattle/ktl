@@ -160,6 +160,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if resolvedNamespace != "" {
 				settings.SetNamespace(resolvedNamespace)
 			}
+			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
+			settings.Debug = helmDebug
 
 			if strings.TrimSpace(reusePlanPath) != "" {
 				planResult, err := loadPlanResultFromFile(reusePlanPath)
@@ -270,9 +272,10 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 
 			actionCfg := new(action.Configuration)
 			logFunc := func(format string, v ...interface{}) {
-				if shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) {
-					fmt.Fprintf(errOut, format+"\n", v...)
+				if !helmDebug {
+					return
 				}
+				fmt.Fprintf(errOut, "[helm] "+format+"\n", v...)
 			}
 			if err := actionCfg.Init(settings.RESTClientGetter(), resolvedNamespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
 				return fmt.Errorf("init helm action config: %w", err)
@@ -653,6 +656,8 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			if resolvedNamespace != "" {
 				settings.SetNamespace(resolvedNamespace)
 			}
+			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
+			settings.Debug = helmDebug
 
 			exists, err := namespaceExists(ctx, kubeClient.Clientset, resolvedNamespace)
 			if err != nil {
@@ -742,7 +747,10 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 
 			actionCfg := new(action.Configuration)
 			logFunc := func(format string, v ...interface{}) {
-				fmt.Fprintf(errOut, format+"\n", v...)
+				if !helmDebug {
+					return
+				}
+				fmt.Fprintf(errOut, "[helm] "+format+"\n", v...)
 			}
 			if err := actionCfg.Init(settings.RESTClientGetter(), resolvedNamespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
 				return fmt.Errorf("init helm action config: %w", err)
