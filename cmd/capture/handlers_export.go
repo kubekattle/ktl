@@ -37,4 +37,3 @@ func (s *server) handleExportNDJSON(w http.ResponseWriter, r *http.Request, sess
 		}
 	}
 }
-

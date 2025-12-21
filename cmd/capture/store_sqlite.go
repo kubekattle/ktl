@@ -58,9 +58,9 @@ type TimelineRow struct {
 }
 
 type LogsPage struct {
-	Cursor int64     `json:"cursor"`
-	Lines  []LogLine `json:"lines"`
-	HasMore bool     `json:"has_more"`
+	Cursor  int64     `json:"cursor"`
+	Lines   []LogLine `json:"lines"`
+	HasMore bool      `json:"has_more"`
 }
 
 type EventsPage struct {
@@ -238,13 +238,13 @@ LIMIT 4000
 	}
 	defer rows.Close()
 	out := make([]TimelineRow, 0, 512)
-		for rows.Next() {
-			var r TimelineRow
-			if err := rows.Scan(&r.BucketNS, &r.LogsTotal, &r.LogsWarn, &r.LogsFail, &r.LogsInfo, &r.Deploy, &r.Selection, &r.Artifacts, &r.AnyEvents); err != nil {
-				return nil, err
-			}
-			out = append(out, r)
+	for rows.Next() {
+		var r TimelineRow
+		if err := rows.Scan(&r.BucketNS, &r.LogsTotal, &r.LogsWarn, &r.LogsFail, &r.LogsInfo, &r.Deploy, &r.Selection, &r.Artifacts, &r.AnyEvents); err != nil {
+			return nil, err
 		}
+		out = append(out, r)
+	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
