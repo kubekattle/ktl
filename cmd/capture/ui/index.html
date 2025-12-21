@@ -236,11 +236,6 @@
               </div>
             </div>
           </div>
-          <div class="panel" style="margin-top:18px;">
-            <div class="label" style="font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650;">Events</div>
-            <div class="hint">Selection changes and deploy events</div>
-            <ul id="eventList" class="events" style="margin-top:14px;"></ul>
-          </div>
         </div>
       </div>
     </div>
@@ -261,7 +256,6 @@
       const el = (id) => document.getElementById(id);
       const state = { sessions: [], sessionId: "", q: "" };
       state.cursor = 0;
-      state.eventCursor = 0;
       state.follow = false;
       state.es = null;
       const initialSession = "__INITIAL_SESSION__";
@@ -389,7 +383,7 @@
           ts.textContent = fmtNS(l.ts_ns);
           const src = document.createElement("td");
           src.className = "src";
-          const nsPod = [l.namespace, l.pod].filter(Boolean).join("/");
+          const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
           const cont = l.container ? `:${l.container}` : "";
           src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
           const msg = document.createElement("td");
@@ -404,31 +398,6 @@
           tr.appendChild(src);
           tr.appendChild(msg);
           body.appendChild(tr);
-        }
-      }
-
-      function clearEvents() {
-        el("eventList").innerHTML = "";
-        state.eventCursor = 0;
-      }
-
-      function appendEvents(events) {
-        const list = el("eventList");
-        for (const e of (events || [])) {
-          const li = document.createElement("li");
-          const k = document.createElement("div");
-          k.className = "k";
-          k.textContent = e.kind || "event";
-          const m = document.createElement("div");
-          m.className = "m";
-          m.textContent = e.message || "";
-          const t = document.createElement("div");
-          t.className = "t";
-          t.textContent = fmtNS(e.ts_ns);
-          li.appendChild(k);
-          li.appendChild(m);
-          li.appendChild(t);
-          list.appendChild(li);
         }
       }
 
@@ -472,9 +441,7 @@
         await refreshMeta();
         await refreshTimeline();
         clearLogs();
-        clearEvents();
         await loadMoreLogs();
-        await loadMoreEvents();
         stopFollow();
       }
 
@@ -549,7 +516,7 @@
         const id = state.sessionId;
         const q = state.q;
         el("logStatus").textContent = "Loading…";
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${state.cursor||0}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${state.cursor||0}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         appendLogs(data.lines || []);
         state.cursor = data.cursor || state.cursor || 0;
@@ -565,7 +532,7 @@
         const first = body.firstElementChild;
         let cursor = state.cursor || 0;
         if (first && first.dataset && first.dataset.key) cursor = Number(first.dataset.key) || cursor;
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${cursor||0}&limit=300&dir=prev&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor||0}&limit=300&dir=prev&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         const frag = document.createDocumentFragment();
         for (const l of (data.lines || [])) {
@@ -576,7 +543,7 @@
           ts.textContent = fmtNS(l.ts_ns);
           const src = document.createElement("td");
           src.className = "src";
-          const nsPod = [l.namespace, l.pod].filter(Boolean).join("/");
+          const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
           const cont = l.container ? `:${l.container}` : "";
           src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
           const msg = document.createElement("td");
@@ -597,36 +564,19 @@
         syncURL();
       }
 
-      async function loadMoreEvents() {
-        const id = state.sessionId;
-        const q = state.q;
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/events?cursor=${state.eventCursor||0}&limit=200&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
-        const data = await res.json();
-        appendEvents(data.events || []);
-        state.eventCursor = data.cursor || state.eventCursor || 0;
-        syncURL();
-      }
-
       function startFollow() {
         stopFollow();
         const id = state.sessionId;
         const q = state.q;
-        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&event_cursor=${state.eventCursor||0}&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
+        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
         const es = new EventSource(url);
         state.es = es;
-        es.addEventListener("logs", (ev) => {
+        es.addEventListener("feed", (ev) => {
           const data = JSON.parse(ev.data);
           if (data && data.lines) {
             appendLogs(data.lines);
             state.cursor = data.cursor || state.cursor;
             el("logStatus").textContent = `Cursor ${state.cursor} (follow)`;
-          }
-        });
-        es.addEventListener("events", (ev) => {
-          const data = JSON.parse(ev.data);
-          if (data && data.events) {
-            appendEvents(data.events);
-            state.eventCursor = data.cursor || state.eventCursor;
           }
         });
         es.addEventListener("error", () => {});
@@ -643,18 +593,14 @@
         await refreshMeta();
         await refreshTimeline();
         clearLogs();
-        clearEvents();
         await loadMoreLogs();
-        await loadMoreEvents();
         stopFollow();
       });
       el("q").addEventListener("input", async (e) => {
         state.q = e.target.value || "";
         await refreshTimeline();
         clearLogs();
-        clearEvents();
         await loadMoreLogs();
-        await loadMoreEvents();
         stopFollow();
       });
       const onTimeChange = async () => {
@@ -662,9 +608,7 @@
         state.endNS = parseISOToNS(el("end").value);
         await refreshTimeline();
         clearLogs();
-        clearEvents();
         await loadMoreLogs();
-        await loadMoreEvents();
         stopFollow();
       };
       el("start").addEventListener("change", onTimeChange);
@@ -752,9 +696,7 @@
         state.endNS = 0;
         await refreshTimeline();
         clearLogs();
-        clearEvents();
         await loadMoreLogs();
-        await loadMoreEvents();
       });
 
       loadSessions().catch((err) => {

@@ -17,7 +17,7 @@ func (s *server) handleExportNDJSON(w http.ResponseWriter, r *http.Request, sess
 
 	cursor := int64(0)
 	for {
-		page, err := s.store.Logs(ctx, sessionID, cursor, 2000, search, startNS, endNS, "next")
+		page, err := s.store.Feed(ctx, sessionID, cursor, 2000, search, startNS, endNS, "next")
 		if err != nil {
 			return err
 		}

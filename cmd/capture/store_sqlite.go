@@ -378,6 +378,95 @@ LIMIT %d
 	return out, nil
 }
 
+// Feed returns a unified stream across all event kinds (logs, deploy events, selection, etc.).
+func (s *sqliteStore) Feed(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64, dir string) (LogsPage, error) {
+	if limit <= 0 {
+		limit = 300
+	}
+	keyExpr := `COALESCE(seq, id)`
+	tsExpr := `COALESCE(ts_ns, CAST(strftime('%s', ts) AS INTEGER) * 1000000000)`
+
+	where := "session_id = ?"
+	args := []any{sessionID}
+	if startNS > 0 {
+		where += " AND " + tsExpr + " >= ?"
+		args = append(args, startNS)
+	}
+	if endNS > 0 {
+		where += " AND " + tsExpr + " <= ?"
+		args = append(args, endNS)
+	}
+	if strings.TrimSpace(search) != "" {
+		where += " AND (message LIKE ? OR kind LIKE ? OR source LIKE ? OR namespace LIKE ? OR pod LIKE ? OR container LIKE ?)"
+		pat := "%" + search + "%"
+		args = append(args, pat, pat, pat, pat, pat, pat)
+	}
+
+	order := "ORDER BY k"
+	cursorOp := ">"
+	if strings.EqualFold(strings.TrimSpace(dir), "prev") {
+		order = "ORDER BY k DESC"
+		cursorOp = "<"
+	}
+	if cursor > 0 {
+		where += " AND " + keyExpr + " " + cursorOp + " ?"
+		args = append(args, cursor)
+	}
+
+	query := fmt.Sprintf(`
+SELECT
+  %s AS k,
+  COALESCE(seq, 0),
+  id,
+  %s AS ts_ns,
+  COALESCE(kind, ''),
+  COALESCE(level, ''),
+  COALESCE(source, ''),
+  COALESCE(namespace, ''),
+  COALESCE(pod, ''),
+  COALESCE(container, ''),
+  COALESCE(message, '')
+FROM ktl_capture_events
+WHERE %s
+%s
+LIMIT %d
+`, keyExpr, tsExpr, where, order, limit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return LogsPage{}, err
+	}
+	defer rows.Close()
+
+	out := LogsPage{Cursor: cursor}
+	for rows.Next() {
+		var l LogLine
+		if err := rows.Scan(&l.Key, &l.Seq, &l.ID, &l.TSNS, &l.Kind, &l.Level, &l.Source, &l.Namespace, &l.Pod, &l.Container, &l.Message); err != nil {
+			return LogsPage{}, err
+		}
+		out.Lines = append(out.Lines, l)
+		out.Cursor = l.Key
+		if len(out.Lines) == limit+1 {
+			out.HasMore = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return LogsPage{}, err
+	}
+	if out.HasMore {
+		out.Lines = out.Lines[:limit]
+	}
+	if strings.EqualFold(strings.TrimSpace(dir), "prev") {
+		for i, j := 0, len(out.Lines)-1; i < j; i, j = i+1, j-1 {
+			out.Lines[i], out.Lines[j] = out.Lines[j], out.Lines[i]
+		}
+		if len(out.Lines) > 0 {
+			out.Cursor = out.Lines[0].Key
+		}
+	}
+	return out, nil
+}
+
 func (s *sqliteStore) Events(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64) (EventsPage, error) {
 	if limit <= 0 {
 		limit = 200

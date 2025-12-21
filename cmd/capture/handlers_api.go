@@ -91,7 +91,7 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 			"rows":      rows,
 		})
 		return
-	case "logs":
+	case "feed":
 		q := r.URL.Query()
 		limit := int(parseInt64(q.Get("limit"), 300))
 		if limit < 50 {
@@ -105,7 +105,7 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		search := strings.TrimSpace(q.Get("q"))
 		startNS := parseInt64(q.Get("start_ns"), 0)
 		endNS := parseInt64(q.Get("end_ns"), 0)
-		out, err := s.store.Logs(r.Context(), id, cursor, limit, search, startNS, endNS, dir)
+		out, err := s.store.Feed(r.Context(), id, cursor, limit, search, startNS, endNS, dir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
