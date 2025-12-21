@@ -38,7 +38,7 @@
         backdrop-filter: blur(18px);
         padding: 28px 28px;
       }
-      .hero-title { font-size: 2.3rem; font-weight: 650; letter-spacing: -0.04em; margin: 0; }
+      h1 { font-size: 2.3rem; font-weight: 650; letter-spacing: -0.04em; margin: 0; }
       .subtitle { margin-top: 10px; color: var(--muted); font-size: 1rem; }
       .card-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
       .card {
@@ -52,7 +52,7 @@
       .card .value { margin-top: 8px; font-size: 1.7rem; font-weight: 650; }
       .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
       .search {
-        flex: 1 1 240px;
+        width: 100%;
         border-radius: 999px;
         border: 1px solid rgba(15,23,42,0.12);
         background: rgba(255,255,255,0.75);
@@ -62,7 +62,7 @@
         transition: box-shadow 160ms var(--ease), border-color 160ms var(--ease);
       }
       .search:focus { border-color: rgba(37,99,235,0.5); box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
-      .hint { color: var(--muted); font-size: 0.95rem; margin-top: 14px; }
+      .muted { color: var(--muted); font-size: 0.95rem; margin-top: 14px; }
       .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top: 18px; }
       select.select {
         border-radius: 999px;
@@ -135,8 +135,29 @@
       .tag.meta { background: rgba(15,23,42,0.06); color: rgba(15,23,42,0.70); }
       .panel-title-row { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
       .panel-title { font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650; }
-      .search-group { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-      .search-group .search { flex: 0 1 360px; }
+      .search-group { display:flex; align-items:center; gap:10px; flex: 1 1 100%; width: 100%; }
+      .search-chips { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .chip {
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.10);
+        background: rgba(15,23,42,0.05);
+        color: rgba(15,23,42,0.78);
+        font-weight: 650;
+        font-size: 0.85rem;
+      }
+      .chip button {
+        border: 0;
+        background: transparent;
+        color: rgba(15,23,42,0.55);
+        cursor: pointer;
+        font-size: 0.95rem;
+        line-height: 1;
+        padding: 0;
+      }
       .btn {
         border-radius: 999px;
         border: 1px solid rgba(15,23,42,0.12);
@@ -165,19 +186,19 @@
     </style>
   </head>
   <body>
-    <div class="chrome">
-      <div class="layout">
-        <div class="main">
-          <div class="panel">
-            <h1 class="hero-title">capture</h1>
-            <div id="subtitle" class="subtitle">Loading sessions…</div>
-            <div class="row">
-              <select id="sessionSelect" class="select"></select>
-              <input id="start" class="time" placeholder="Start (ISO)" />
-              <input id="end" class="time" placeholder="End (ISO)" />
-            </div>
-            <div class="hint" id="hint"></div>
-          </div>
+	    <div class="chrome">
+	      <div class="layout">
+	        <div class="main">
+	          <div class="panel">
+	            <h1>capture</h1>
+	            <div id="subtitle" class="subtitle">Loading sessions…</div>
+	            <div class="row">
+	              <select id="sessionSelect" class="select"></select>
+	              <input id="start" class="time" placeholder="Start (ISO)" />
+	              <input id="end" class="time" placeholder="End (ISO)" />
+	            </div>
+	            <div class="muted" id="hint"></div>
+	          </div>
           <div class="panel">
             <div class="panel-title-row">
               <div class="panel-title">Timeline</div>
@@ -187,14 +208,14 @@
             </div>
             <div class="hint">Drag to pan (coming soon). Click to jump (coming soon).</div>
           </div>
-          <div class="panel">
-            <div class="panel-title-row">
-              <div class="panel-title">Logs</div>
-              <div class="search-group">
-                <span class="tag meta">Search</span>
-                <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
-              </div>
-            </div>
+	          <div class="panel">
+	            <div class="panel-title-row">
+	              <div class="panel-title">Logs</div>
+	              <div class="search-group">
+	                <div id="chips" class="search-chips"></div>
+	                <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
+	              </div>
+	            </div>
             <div class="logs">
               <table>
                 <thead>
@@ -203,15 +224,15 @@
                 <tbody id="logBody"></tbody>
               </table>
             </div>
-            <div class="row" style="margin-top:12px;">
-              <button id="loadPrev" class="btn">Prev</button>
-              <button id="loadMore" class="btn">Next</button>
-              <span id="logStatus" class="hint"></span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+	            <div class="row" style="margin-top:12px;">
+	              <button id="loadPrev" class="btn">Prev</button>
+	              <button id="loadMore" class="btn">Next</button>
+	              <span id="logStatus" class="muted"></span>
+	            </div>
+	          </div>
+	        </div>
+	      </div>
+	    </div>
     <div id="drawerBackdrop" class="drawer-backdrop" role="dialog" aria-modal="true" aria-label="Log details">
       <div class="drawer">
         <div class="row" style="margin-top:0; justify-content:space-between;">
@@ -227,7 +248,7 @@
     </div>
     <script>
       const el = (id) => document.getElementById(id);
-      const state = { sessions: [], sessionId: "", q: "" };
+      const state = { sessions: [], sessionId: "", q: "", queries: [] };
       state.cursor = 0;
       const initialSession = "__INITIAL_SESSION__";
       state.startNS = 0;
@@ -415,10 +436,13 @@
         }
         const urlParams = new URLSearchParams(location.search);
         const fromURL = urlParams.get("session") || "";
-        state.q = urlParams.get("q") || "";
+        const qs = (urlParams.get("q") || "").trim();
+        state.queries = qs ? qs.split(",").map(s => s.trim()).filter(Boolean) : [];
+        state.q = "";
         state.startNS = Number(urlParams.get("start_ns") || "0") || 0;
         state.endNS = Number(urlParams.get("end_ns") || "0") || 0;
-        el("q").value = state.q;
+        el("q").value = "";
+        renderChips();
         el("start").value = fmtISOFromNS(state.startNS);
         el("end").value = fmtISOFromNS(state.endNS);
 
@@ -453,7 +477,7 @@
       function syncURL() {
         const p = new URLSearchParams();
         if (state.sessionId) p.set("session", state.sessionId);
-        if (state.q) p.set("q", state.q);
+        if (state.queries.length) p.set("q", state.queries.join(","));
         if (state.startNS) p.set("start_ns", String(state.startNS));
         if (state.endNS) p.set("end_ns", String(state.endNS));
         const next = `${location.pathname}?${p.toString()}`;
@@ -462,7 +486,7 @@
 
       async function refreshTimeline() {
         const id = state.sessionId;
-        const q = state.q;
+        const q = state.queries.join(",");
         const res = await fetch(`/api/session/${encodeURIComponent(id)}/timeline?bucket=5s&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         drawTimeline(data.rows || []);
@@ -485,7 +509,7 @@
 
       async function loadMoreLogs() {
         const id = state.sessionId;
-        const q = state.q;
+        const q = state.queries.join(",");
         el("logStatus").textContent = "Loading…";
         const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${state.cursor||0}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
@@ -497,7 +521,7 @@
 
       async function loadPrevLogs() {
         const id = state.sessionId;
-        const q = state.q;
+        const q = state.queries.join(",");
         const body = el("logBody");
         el("logStatus").textContent = "Loading…";
         const first = body.firstElementChild;
@@ -541,14 +565,48 @@
         clearLogs();
         await loadMoreLogs();
       });
+      function renderChips() {
+        const wrap = el("chips");
+        wrap.innerHTML = "";
+        for (const term of state.queries) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = term;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "×";
+          btn.addEventListener("click", async () => {
+            state.queries = state.queries.filter(t => t !== term);
+            renderChips();
+            await refreshTimeline();
+            clearLogs();
+            await loadMoreLogs();
+          });
+          chip.appendChild(btn);
+          wrap.appendChild(chip);
+        }
+      }
+
       el("q").addEventListener("keydown", async (e) => {
-        if (e.key !== "Enter") {
+        if (e.key === "Enter") {
+          const raw = (el("q").value || "").trim();
+          if (!raw) return;
+          // allow adding multiple terms separated by spaces/commas
+          const parts = raw.split(/[\\s,]+/).map(s => s.trim()).filter(Boolean);
+          for (const term of parts) {
+            if (!state.queries.includes(term)) state.queries.push(term);
+          }
+          el("q").value = "";
+          renderChips();
+          await refreshTimeline();
+          clearLogs();
+          await loadMoreLogs();
           return;
         }
-        state.q = el("q").value || "";
-        await refreshTimeline();
-        clearLogs();
-        await loadMoreLogs();
+        if (e.key === "Backspace" && !(el("q").value || "") && state.queries.length) {
+          state.queries.pop();
+          renderChips();
+        }
       });
       const onTimeChange = async () => {
         state.startNS = parseISOToNS(el("start").value);

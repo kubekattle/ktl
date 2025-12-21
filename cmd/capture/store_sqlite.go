@@ -215,9 +215,12 @@ func (s *sqliteStore) Timeline(ctx context.Context, sessionID string, bucket tim
 		args = append(args, endNS)
 	}
 	if strings.TrimSpace(search) != "" {
-		where += " AND (message LIKE ? OR namespace LIKE ? OR pod LIKE ? OR container LIKE ?)"
-		pat := "%" + search + "%"
-		args = append(args, pat, pat, pat, pat)
+		terms := splitSearchTerms(search)
+		for _, term := range terms {
+			where += " AND (message LIKE ? OR namespace LIKE ? OR pod LIKE ? OR container LIKE ? OR kind LIKE ? OR source LIKE ?)"
+			pat := "%" + term + "%"
+			args = append(args, pat, pat, pat, pat, pat, pat)
+		}
 	}
 
 	// Severity is inferred from level/message for logs; deploy uses level if present.
@@ -397,9 +400,12 @@ func (s *sqliteStore) Feed(ctx context.Context, sessionID string, cursor int64, 
 		args = append(args, endNS)
 	}
 	if strings.TrimSpace(search) != "" {
-		where += " AND (message LIKE ? OR kind LIKE ? OR source LIKE ? OR namespace LIKE ? OR pod LIKE ? OR container LIKE ?)"
-		pat := "%" + search + "%"
-		args = append(args, pat, pat, pat, pat, pat, pat)
+		terms := splitSearchTerms(search)
+		for _, term := range terms {
+			where += " AND (message LIKE ? OR kind LIKE ? OR source LIKE ? OR namespace LIKE ? OR pod LIKE ? OR container LIKE ?)"
+			pat := "%" + term + "%"
+			args = append(args, pat, pat, pat, pat, pat, pat)
+		}
 	}
 
 	order := "ORDER BY k"
@@ -465,6 +471,23 @@ LIMIT %d
 		}
 	}
 	return out, nil
+}
+
+func splitSearchTerms(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 func (s *sqliteStore) Events(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64) (EventsPage, error) {
