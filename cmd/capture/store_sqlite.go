@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -241,7 +242,43 @@ LIMIT 4000
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Best-effort overlay: bucket artifacts too (apply captures write lots of artifacts).
+	artRows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT
+  (%s / %d) * %d AS bucket_ns,
+  COUNT(1) AS artifacts
+FROM ktl_capture_artifacts
+WHERE session_id = ?
+GROUP BY bucket_ns
+ORDER BY bucket_ns
+LIMIT 4000
+`, `COALESCE(ts_ns, CAST(strftime('%s', ts) AS INTEGER) * 1000000000)`, bucketNS, bucketNS), sessionID)
+	if err == nil {
+		defer artRows.Close()
+		byBucket := map[int64]int{}
+		for i := range out {
+			byBucket[out[i].BucketNS] = i
+		}
+		for artRows.Next() {
+			var bucket int64
+			var n int64
+			if err := artRows.Scan(&bucket, &n); err != nil {
+				break
+			}
+			if idx, ok := byBucket[bucket]; ok {
+				out[idx].Artifacts = n
+				continue
+			}
+			out = append(out, TimelineRow{BucketNS: bucket, Artifacts: n})
+		}
+		_ = artRows.Err()
+		sort.Slice(out, func(i, j int) bool { return out[i].BucketNS < out[j].BucketNS })
+	}
+	return out, nil
 }
 
 func (s *sqliteStore) Logs(ctx context.Context, sessionID string, cursor int64, limit int, search string) (LogsPage, error) {

@@ -192,6 +192,7 @@
       state.eventCursor = 0;
       state.follow = false;
       state.es = null;
+      const initialSession = "__INITIAL_SESSION__";
 
       function fmtNS(ns) {
         if (!ns) return "—";
@@ -340,7 +341,8 @@
           el("hint").textContent = "Did you pass the correct .sqlite file produced by ktl --capture?";
           return;
         }
-        state.sessionId = state.sessions[0].session_id;
+        const preferred = initialSession && state.sessions.find(s => s.session_id === initialSession);
+        state.sessionId = preferred ? preferred.session_id : state.sessions[0].session_id;
         sel.value = state.sessionId;
         await refreshMeta();
         await refreshTimeline();
