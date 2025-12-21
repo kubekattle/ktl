@@ -45,6 +45,9 @@ type buildCLIOptions struct {
 	hermetic         bool
 	allowNetwork     bool
 	allowUnpinned    bool
+	policyRef        string
+	policyMode       string
+	policyReportPath string
 	attestDir        string
 	capturePath      string
 	captureTags      []string
@@ -169,6 +172,9 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.hermetic, "locked", false, "Alias for --hermetic")
 	cmd.Flags().BoolVar(&opts.allowNetwork, "allow-network", false, "Allow network egress when --hermetic is enabled")
 	cmd.Flags().BoolVar(&opts.allowUnpinned, "allow-unpinned-bases", false, "Allow unpinned base images (FROM without @sha256 digest) when --hermetic is enabled")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.policyRef, name: "--policy", allowEmpty: true, validator: nil}, "policy", "Policy bundle path or https URL to evaluate before/after build (OPA/Rego).")
+	cmd.Flags().Var(newEnumStringValue(&opts.policyMode, "enforce", "enforce", "warn"), "policy-mode", "Policy enforcement mode: enforce or warn")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.policyReportPath, name: "--policy-report", allowEmpty: true, validator: nil}, "policy-report", "Write a machine-readable policy report JSON to this path (defaults to --attest-dir/ktl-policy-report.json when --attest-dir is set)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.attestDir, name: "--attest-dir", allowEmpty: true, validator: nil}, "attest-dir", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.capturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture build logs/events to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
@@ -402,6 +408,9 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		Hermetic:           opts.hermetic,
 		AllowNetwork:       opts.allowNetwork,
 		AllowUnpinnedBases: opts.allowUnpinned,
+		PolicyRef:          opts.policyRef,
+		PolicyMode:         opts.policyMode,
+		PolicyReportPath:   opts.policyReportPath,
 		AttestSBOM:         opts.sbom,
 		AttestProvenance:   opts.provenance,
 		AttestationDir:     opts.attestDir,

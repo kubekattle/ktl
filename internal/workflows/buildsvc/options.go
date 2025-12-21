@@ -102,6 +102,9 @@ type Options struct {
 	Hermetic           bool
 	AllowNetwork       bool
 	AllowUnpinnedBases bool
+	PolicyRef          string
+	PolicyMode         string
+	PolicyReportPath   string
 	AttestProvenance   bool
 	AttestSBOM         bool
 	AttestationDir     string
