@@ -1408,6 +1408,7 @@
       var graphRenderPending = false;
       var numberFormatter = (typeof Intl !== 'undefined' && Intl.NumberFormat) ? new Intl.NumberFormat() : null;
       var currentExplainMarkdown = '';
+      var currentExplainCounts = null;
 
       var kindBuckets = [
         { id: 'all', label: 'All kinds', kinds: null },
@@ -2705,6 +2706,7 @@
           explainList.innerHTML = '';
           explainEmpty.hidden = false;
           currentExplainMarkdown = '';
+          currentExplainCounts = null;
           if (copyExplainBtn) {
             copyExplainBtn.disabled = true;
           }
@@ -2716,6 +2718,7 @@
           explainList.innerHTML = '';
           explainEmpty.hidden = false;
           currentExplainMarkdown = '';
+          currentExplainCounts = null;
           if (copyExplainBtn) {
             copyExplainBtn.disabled = true;
           }
@@ -2821,6 +2824,7 @@
 
         explainList.innerHTML = '';
         currentExplainMarkdown = '';
+        currentExplainCounts = null;
         if (findings.length === 0) {
           explainEmpty.hidden = false;
           if (copyExplainBtn) {
@@ -2840,6 +2844,12 @@
           var prefix = (f.severity === 'fail') ? '[HIGH]' : (f.severity === 'warn') ? '[WARN]' : '[NOTE]';
           return '  - ' + prefix + ' ' + f.title + (f.detail ? (': ' + f.detail) : '');
         }).join('\\n');
+        currentExplainCounts = findings.reduce(function(acc, f) {
+          if (f.severity === 'fail') acc.high += 1;
+          else if (f.severity === 'warn') acc.warn += 1;
+          else acc.note += 1;
+          return acc;
+        }, { high: 0, warn: 0, note: 0 });
         if (copyExplainBtn) {
           copyExplainBtn.disabled = false;
         }
@@ -2876,6 +2886,13 @@
             manifestView.textContent = '';
           }
           renderExplainManifest(node);
+          if (features && features.explainDiff && metaBadges && currentExplainCounts && (currentExplainCounts.high || currentExplainCounts.warn || currentExplainCounts.note)) {
+            var parts = [];
+            if (currentExplainCounts.high) parts.push(currentExplainCounts.high + ' high');
+            if (currentExplainCounts.warn) parts.push(currentExplainCounts.warn + ' watch');
+            if (currentExplainCounts.note) parts.push(currentExplainCounts.note + ' note');
+            addBadge('Explain', parts.join(', '));
+          }
           if (manifestStatus) {
             manifestStatus.textContent = 'Explain view highlights inferred risks; verify critical changes in Diff vs live.';
           }
