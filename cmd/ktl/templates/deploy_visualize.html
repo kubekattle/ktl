@@ -1005,6 +1005,59 @@
 	      text-transform:uppercase;
 	      color:var(--muted);
 	    }
+
+	    #warningsPanel {
+	      position:relative;
+	    }
+	    .warnings-toggle {
+	      position:absolute;
+	      top:18px;
+	      right:18px;
+	      width:34px;
+	      height:34px;
+	      border-radius:999px;
+	      border:1px solid rgba(15,23,42,0.12);
+	      background:rgba(255,255,255,0.75);
+	      color:var(--muted);
+	      cursor:pointer;
+	      display:flex;
+	      align-items:center;
+	      justify-content:center;
+	      font-weight:700;
+	      transition:box-shadow 0.2s var(--ease), transform 0.2s var(--ease), border-color 0.2s var(--ease);
+	    }
+	    .warnings-toggle:hover {
+	      transform:translateY(-1px);
+	      border-color:rgba(37,99,235,0.35);
+	      box-shadow:0 10px 24px rgba(15,23,42,0.12);
+	    }
+	    .warnings-toggle:focus-visible {
+	      outline:none;
+	      box-shadow:0 0 0 3px rgba(37,99,235,0.18);
+	      border-color:rgba(37,99,235,0.5);
+	    }
+	    .warnings-toggle[data-open="true"] {
+	      color:var(--text);
+	      border-color:rgba(37,99,235,0.45);
+	      box-shadow:0 0 0 3px rgba(37,99,235,0.14);
+	    }
+	    .warnings-badge {
+	      position:absolute;
+	      top:-4px;
+	      right:-4px;
+	      min-width:18px;
+	      height:18px;
+	      padding:0 6px;
+	      border-radius:999px;
+	      background:rgba(251,191,36,0.95);
+	      color:#1f2937;
+	      font-size:0.72rem;
+	      font-weight:750;
+	      line-height:18px;
+	      text-align:center;
+	      letter-spacing:0.04em;
+	      border:1px solid rgba(15,23,42,0.12);
+	    }
 	    .explain-jump {
 	      margin-left:auto;
 	      display:flex;
@@ -1198,7 +1251,11 @@
           </section>
 	          <section id="warningsPanel" class="hero-meta-block" hidden>
 	            <h3>Warnings</h3>
-	            <ul id="warningsList" class="warning-list"></ul>
+	            <button id="warningsToggle" class="warnings-toggle" type="button" aria-label="Show warnings" title="Show warnings" data-open="false">
+	              !
+	              <span id="warningsBadge" class="warnings-badge" hidden>0</span>
+	            </button>
+	            <ul id="warningsList" class="warning-list" hidden></ul>
 	          </section>
 	        </div>
       </div>
@@ -1526,6 +1583,8 @@
       var timelineList = document.getElementById('timelineList');
       var warningsPanel = document.getElementById('warningsPanel');
       var warningsList = document.getElementById('warningsList');
+      var warningsToggle = document.getElementById('warningsToggle');
+      var warningsBadge = document.getElementById('warningsBadge');
       var impactSummary = document.getElementById('impactSummary');
       var impactDetail = document.getElementById('impactDetail');
       var preflightList = document.getElementById('preflightList');
@@ -1650,6 +1709,7 @@
       bindHashWatcher();
       bindCopyLink();
       bindCopyExplain();
+      bindWarningsToggle();
       bindQuotaFilters();
       bindDownloadReport();
       bindDownloadButtons();
@@ -3655,6 +3715,30 @@
           var li = document.createElement('li');
           li.textContent = message;
           warningsList.appendChild(li);
+        });
+        if (warningsBadge) {
+          warningsBadge.textContent = String(warnings.length);
+          warningsBadge.hidden = warnings.length === 0;
+        }
+        if (warningsToggle) {
+          warningsToggle.hidden = warnings.length === 0;
+          // Keep collapsed by default to avoid clutter.
+          warningsToggle.setAttribute('data-open', 'false');
+          warningsToggle.setAttribute('aria-label', 'Show warnings');
+          warningsToggle.title = 'Show warnings';
+        }
+        warningsList.hidden = true;
+      }
+
+      function bindWarningsToggle() {
+        if (!warningsToggle || !warningsList) return;
+        warningsToggle.addEventListener('click', function() {
+          var open = warningsToggle.getAttribute('data-open') === 'true';
+          open = !open;
+          warningsToggle.setAttribute('data-open', open ? 'true' : 'false');
+          warningsToggle.setAttribute('aria-label', open ? 'Hide warnings' : 'Show warnings');
+          warningsToggle.title = open ? 'Hide warnings' : 'Show warnings';
+          warningsList.hidden = !open;
         });
       }
 
