@@ -60,6 +60,37 @@ func (g *secretsGuard) preflightBuildArgs(errOut io.Writer, buildArgs []string) 
 	return rep, nil
 }
 
+func (g *secretsGuard) postScanOCI(errOut io.Writer, ociLayoutDir string) (*secrets.Report, error) {
+	if g == nil || g.mode == secrets.ModeOff {
+		return nil, nil
+	}
+	findings, err := secrets.ScanOCIForSecrets(ociLayoutDir, 0)
+	if err != nil {
+		return nil, err
+	}
+	rep := &secrets.Report{
+		Mode:        g.mode,
+		Findings:    findings,
+		EvaluatedAt: time.Now().UTC(),
+	}
+	blocked := false
+	for _, f := range findings {
+		if f.Severity == secrets.SeverityBlock {
+			blocked = true
+			break
+		}
+	}
+	rep.Blocked = blocked && g.mode == secrets.ModeBlock
+	rep.Passed = !rep.Blocked
+	if g.reportPath != "" {
+		_ = secrets.WriteReport(g.reportPath, rep)
+	}
+	if err := g.printSummary(errOut, rep, "post", 10); err != nil {
+		return rep, err
+	}
+	return rep, nil
+}
+
 func (g *secretsGuard) printSummary(errOut io.Writer, rep *secrets.Report, phase string, max int) error {
 	if g == nil || rep == nil || errOut == nil {
 		return nil

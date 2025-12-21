@@ -528,6 +528,12 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
+	if secretGuard != nil && result != nil && strings.TrimSpace(result.OCIOutputPath) != "" {
+		if _, err := secretGuard.postScanOCI(errOut, result.OCIOutputPath); err != nil {
+			return nil, err
+		}
+	}
+
 	if strings.TrimSpace(opts.AttestationDir) != "" {
 		if result.OCIOutputPath == "" {
 			return nil, errors.New("--attest-dir requires an OCI layout export but no OCI output path is available")
