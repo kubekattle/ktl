@@ -43,7 +43,7 @@ func DefaultConfig() Config {
 				Enabled:   &enabled,
 				Severity:  SeverityWarn,
 				AppliesTo: []ApplyTo{ApplyBuildArgValue, ApplyOCIContent, ApplyLogLine},
-				Regex:     `\\beyJ[a-zA-Z0-9_-]{10,}\\.[a-zA-Z0-9_-]{10,}\\.[a-zA-Z0-9_-]{10,}\\b`,
+				Regex:     `\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b`,
 				Message:   "JWT-like token detected",
 			},
 			{
@@ -51,7 +51,7 @@ func DefaultConfig() Config {
 				Enabled:   &enabled,
 				Severity:  SeverityWarn,
 				AppliesTo: []ApplyTo{ApplyBuildArgValue, ApplyOCIContent, ApplyLogLine},
-				Regex:     `\\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\\b`,
+				Regex:     `\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b`,
 				Message:   "GitHub token-like string detected",
 			},
 			{

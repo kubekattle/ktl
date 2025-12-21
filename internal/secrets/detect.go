@@ -1,14 +1,6 @@
 package secrets
 
-import (
-	"regexp"
-	"strings"
-)
-
-var (
-	jwtRE     = regexp.MustCompile(`\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b`)
-	ghTokenRE = regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b`)
-)
+import "strings"
 
 func DetectBuildArgs(buildArgs []string) []Finding {
 	rules, _ := CompileConfig(DefaultConfig())
