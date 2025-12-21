@@ -48,6 +48,8 @@ type buildCLIOptions struct {
 	policyRef        string
 	policyMode       string
 	policyReportPath string
+	secretsMode      string
+	secretsReport    string
 	attestDir        string
 	capturePath      string
 	captureTags      []string
@@ -95,12 +97,13 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 		service = defaultBuildService
 	}
 	opts := buildCLIOptions{
-		contextDir: ".",
-		dockerfile: "Dockerfile",
-		builder:    buildkit.DefaultBuilderAddress(),
-		cacheDir:   buildkit.DefaultCacheDir(),
-		rm:         true,
-		policyMode: "enforce",
+		contextDir:  ".",
+		dockerfile:  "Dockerfile",
+		builder:     buildkit.DefaultBuilderAddress(),
+		cacheDir:    buildkit.DefaultCacheDir(),
+		rm:          true,
+		policyMode:  "enforce",
+		secretsMode: "warn",
 	}
 
 	cmd := &cobra.Command{
@@ -179,6 +182,8 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.policyRef, name: "--policy", allowEmpty: true, validator: nil}, "policy", "Policy bundle path or https URL to evaluate before/after build (OPA/Rego).")
 	cmd.Flags().Var(newEnumStringValue(&opts.policyMode, "enforce", "enforce", "warn"), "policy-mode", "Policy enforcement mode: enforce or warn")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.policyReportPath, name: "--policy-report", allowEmpty: true, validator: nil}, "policy-report", "Write a machine-readable policy report JSON to this path (defaults to --attest-dir/ktl-policy-report.json when --attest-dir is set)")
+	cmd.Flags().Var(newEnumStringValue(&opts.secretsMode, "warn", "warn", "block", "off"), "secrets", "Secret-leak guardrails: warn (default), block, or off")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.secretsReport, name: "--secrets-report", allowEmpty: true, validator: nil}, "secrets-report", "Write a machine-readable secrets report JSON to this path (defaults to --attest-dir/ktl-secrets-report.json when --attest-dir is set)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.attestDir, name: "--attest-dir", allowEmpty: true, validator: nil}, "attest-dir", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.capturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture build logs/events to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
@@ -415,6 +420,8 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		PolicyRef:          opts.policyRef,
 		PolicyMode:         opts.policyMode,
 		PolicyReportPath:   opts.policyReportPath,
+		SecretsMode:        opts.secretsMode,
+		SecretsReportPath:  opts.secretsReport,
 		AttestSBOM:         opts.sbom,
 		AttestProvenance:   opts.provenance,
 		AttestationDir:     opts.attestDir,

@@ -105,6 +105,8 @@ type Options struct {
 	PolicyRef          string
 	PolicyMode         string
 	PolicyReportPath   string
+	SecretsMode        string
+	SecretsReportPath  string
 	AttestProvenance   bool
 	AttestSBOM         bool
 	AttestationDir     string
