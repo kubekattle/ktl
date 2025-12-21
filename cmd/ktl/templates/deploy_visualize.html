@@ -1331,7 +1331,6 @@
 	            <div class="quota-header-row">
 	              <div>
 	                <h3>Namespace quota headroom</h3>
-	                <p class="muted">Compares current ResourceQuota usage with the rendered chart’s estimated requests, limits, and object counts.</p>
 	              </div>
 	              <div class="quota-controls" aria-label="Quota status filters">
 	                <span id="quotaOverallStatus" class="quota-status unknown">unknown</span>
@@ -3309,7 +3308,7 @@
             addBadge('Explain', parts.join(', '));
           }
           if (manifestStatus) {
-            manifestStatus.textContent = 'Explain view highlights inferred risks; verify critical changes in Diff vs live.';
+            manifestStatus.textContent = '';
           }
           return;
         }
@@ -3330,12 +3329,12 @@
               diffText = buildUnifiedDiff(base, rendered, 'comparison', 'rendered');
               if (diffText.trim()) {
                 manifestView.innerHTML = diffToHtml(diffText);
-                manifestStatus.textContent = 'Displaying unified diff (comparison vs rendered).';
+                manifestStatus.textContent = '';
                 primeDiffTools();
                 return;
               }
               manifestView.textContent = rendered;
-              manifestStatus.textContent = 'No changes detected between comparison and rendered manifest.';
+              manifestStatus.textContent = '';
               primeDiffTools();
               return;
             }
@@ -3343,29 +3342,17 @@
           var diff = manifestDiffs[node.id];
           if (diff && diff.trim()) {
             manifestView.innerHTML = diffToHtml(diff);
-            manifestStatus.textContent = 'Displaying unified diff (live vs rendered).';
+            manifestStatus.textContent = '';
             primeDiffTools();
             return;
           }
           manifestView.textContent = rendered;
           primeDiffTools();
-          if (liveManifests[node.id]) {
-            manifestStatus.textContent = 'No changes detected between live and rendered manifest.';
-          } else if (dataset.offlineFallback) {
-            manifestStatus.textContent = 'Diff unavailable because live data could not be retrieved.';
-          } else {
-            manifestStatus.textContent = 'Diff unavailable for this resource.';
-          }
+          manifestStatus.textContent = '';
           return;
         }
         manifestView.textContent = rendered;
-        if (liveManifests[node.id]) {
-          manifestStatus.textContent = 'Rendered manifest (live object exists).';
-        } else if (dataset.offlineFallback) {
-          manifestStatus.textContent = 'Rendered manifest (live data unavailable when generated).';
-        } else {
-          manifestStatus.textContent = 'Rendered manifest.';
-        }
+        manifestStatus.textContent = '';
       }
 
       function currentDiffText(node) {
@@ -3580,43 +3567,14 @@
 
       function updateDiffHint() {
         if (!diffHint) return;
-        if (manifestMode === 'explain') {
-          diffHint.textContent = 'Explain view infers likely rollout hazards from the diff.';
-        } else if (manifestMode !== 'diff') {
-          diffHint.textContent = '';
-        } else if (dataset.offlineFallback) {
-          diffHint.textContent = 'Diffs may be missing (live data unavailable).';
-        } else {
-          diffHint.textContent = 'Diff view compares rendered manifests to live cluster objects.';
-        }
+        diffHint.textContent = '';
       }
 
       function updateDiffStatus() {
         if (!diffStatus || !diffStatusMode || !diffStatusDetail || !diffStatusLive) return;
-        var modeLabel = manifestMode === 'diff' ? 'Diff vs live' : (manifestMode === 'explain' ? 'Explain diff' : 'Rendered');
-        diffStatusMode.textContent = modeLabel;
-        if (!currentNode) {
-          diffStatusDetail.textContent = '· Select a resource to view YAML.';
-          diffStatusLive.textContent = '';
-          return;
-        }
-        var hasRendered = !!manifests[currentNode.id];
-        var hasLive = !!liveManifests[currentNode.id];
-        var isOffline = !!dataset.offlineFallback;
-        if (manifestMode === 'diff') {
-          diffStatusDetail.textContent = hasRendered ? '· Showing diff.' : '· Rendered manifest missing.';
-        } else if (manifestMode === 'explain') {
-          diffStatusDetail.textContent = '· Showing inferred highlights.';
-        } else {
-          diffStatusDetail.textContent = hasRendered ? '· Showing rendered YAML.' : '· Rendered manifest missing.';
-        }
-        if (isOffline) {
-          diffStatusLive.textContent = 'Live data unavailable (offline).';
-        } else if (!hasLive) {
-          diffStatusLive.textContent = 'No live object found for this resource.';
-        } else {
-          diffStatusLive.textContent = 'Live object available.';
-        }
+        diffStatusMode.textContent = '';
+        diffStatusDetail.textContent = '';
+        diffStatusLive.textContent = '';
       }
 
       function hydrateHero() {
