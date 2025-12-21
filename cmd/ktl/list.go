@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -128,7 +129,9 @@ func newListCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 			client.Selector = selector
 			client.SetStateMask()
 
-			results, err := client.Run()
+			results, err := runWithCancel(cmd.Context(), func() ([]*release.Release, error) {
+				return client.Run()
+			})
 			if err != nil {
 				return err
 			}
@@ -182,6 +185,26 @@ func newListCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 
 	decorateCommandHelp(cmd, "List Flags")
 	return cmd
+}
+
+func runWithCancel[T any](ctx context.Context, fn func() (T, error)) (T, error) {
+	var zero T
+	if ctx == nil {
+		return fn()
+	}
+	done := make(chan struct{})
+	var out T
+	var err error
+	go func() {
+		defer close(done)
+		out, err = fn()
+	}()
+	select {
+	case <-ctx.Done():
+		return zero, ctx.Err()
+	case <-done:
+		return out, err
+	}
 }
 
 type releaseListElement struct {

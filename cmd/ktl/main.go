@@ -53,6 +53,10 @@ func main() {
 	err := rootCmd.ExecuteContext(ctx)
 	handleError(err)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Match conventional SIGINT exit code while keeping output clean.
+			os.Exit(130)
+		}
 		os.Exit(1)
 	}
 }
@@ -229,6 +233,9 @@ func registerViperCommands(commands ...*cobra.Command) {
 
 func handleError(err error) {
 	if err == nil || errors.Is(err, pflag.ErrHelp) {
+		return
+	}
+	if errors.Is(err, context.Canceled) {
 		return
 	}
 	message := err.Error()
