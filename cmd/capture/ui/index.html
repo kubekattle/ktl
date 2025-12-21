@@ -255,7 +255,8 @@
     <script>
       const el = (id) => document.getElementById(id);
       const state = { sessions: [], sessionId: "", q: "", queries: [] };
-      state.cursor = 0;
+      state.minKey = 0;
+      state.maxKey = 0;
       state.hasMoreNext = true;
       state.hasMorePrev = true;
       state.loadingNext = false;
@@ -409,9 +410,11 @@
           <tr id="topSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
           <tr id="bottomSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
         `;
-        state.cursor = 0;
+        state.minKey = 0;
+        state.maxKey = 0;
         state.hasMoreNext = true;
         state.hasMorePrev = true;
+        el("logStatus").textContent = "";
       }
 
       function appendLogs(lines) {
@@ -446,6 +449,12 @@
           tr.appendChild(src);
           tr.appendChild(msg);
           body.insertBefore(tr, bottom);
+        }
+        if (lines && lines.length) {
+          const firstKey = Number(lines[0].key) || 0;
+          const lastKey = Number(lines[lines.length - 1].key) || 0;
+          if (!state.minKey || (firstKey && firstKey < state.minKey)) state.minKey = firstKey;
+          if (!state.maxKey || (lastKey && lastKey > state.maxKey)) state.maxKey = lastKey;
         }
       }
 
@@ -552,15 +561,21 @@
         const q = state.queries.join(",");
         if (state.loadingNext || !state.hasMoreNext) return;
         state.loadingNext = true;
-        el("logStatus").textContent = "Loading…";
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${state.cursor||0}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
-        const data = await res.json();
-        appendLogs(data.lines || []);
-        state.cursor = data.cursor || state.cursor || 0;
-        state.hasMoreNext = !!data.has_more;
-        el("logStatus").textContent = (data.lines || []).length ? `Cursor ${state.cursor}${data.has_more ? "" : " (end)"}` : "No more lines";
-        syncURL();
-        state.loadingNext = false;
+        try {
+          el("logStatus").textContent = "Loading…";
+          const cursor = state.maxKey || 0;
+          const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          appendLogs(data.lines || []);
+          state.hasMoreNext = !!data.has_more;
+          el("logStatus").textContent = (data.lines || []).length ? `Loaded · ${data.has_more ? "more below" : "end"}` : "No more lines";
+          syncURL();
+        } catch (err) {
+          el("logStatus").textContent = `Error loading: ${err}`;
+        } finally {
+          state.loadingNext = false;
+        }
       }
 
       async function loadPrevLogs() {
@@ -568,56 +583,70 @@
         const q = state.queries.join(",");
         const body = el("logBody");
         if (state.loadingPrev || !state.hasMorePrev) return;
+        if (!state.minKey) return;
         state.loadingPrev = true;
-        el("logStatus").textContent = "Loading…";
         const scroller = el("logTable").closest(".logs");
         const beforeHeight = scroller ? scroller.scrollHeight : 0;
         const beforeTop = scroller ? scroller.scrollTop : 0;
-        const first = body.firstElementChild;
-        let cursor = state.cursor || 0;
-        if (first && first.dataset && first.dataset.key) cursor = Number(first.dataset.key) || cursor;
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor||0}&limit=300&dir=prev&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
-        const data = await res.json();
-        const frag = document.createDocumentFragment();
-        for (const l of (data.lines || [])) {
-          const tr = document.createElement("tr");
-          tr.dataset.key = l.key;
-          tr.dataset.ts_ns = l.ts_ns;
-          tr.dataset.namespace = l.namespace || "";
-          tr.dataset.pod = l.pod || "";
-          tr.dataset.container = l.container || "";
-          tr.dataset.message = l.message || "";
-          const ts = document.createElement("td");
-          ts.className = "ts";
-          ts.textContent = fmtYouTubeFromNS(l.ts_ns);
-          ts.title = fmtNS(l.ts_ns);
-          const src = document.createElement("td");
-          src.className = "src";
-          const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
-          const cont = l.container ? `:${l.container}` : "";
-          src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
-          const msg = document.createElement("td");
-          msg.className = "msg";
-          const tag = document.createElement("span");
-          const sev = classify(l.message);
-          tag.className = "tag " + (sev === "ok" ? "" : sev);
-          tag.textContent = sev === "ok" ? "log" : sev;
-          msg.appendChild(tag);
-          msg.appendChild(document.createTextNode(l.message || ""));
-          tr.appendChild(ts);
-          tr.appendChild(src);
-          tr.appendChild(msg);
-          frag.appendChild(tr);
+        try {
+          el("logStatus").textContent = "Loading…";
+          const cursor = state.minKey || 0;
+          const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor}&limit=300&dir=prev&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          const lines = data.lines || [];
+          if (lines.length) {
+            // reuse the existing row builder by temporarily appending to a fragment via appendLogs then moving rows:
+            // simpler: create rows inline (same as before)
+            const frag = document.createDocumentFragment();
+            for (const l of lines) {
+              const tr = document.createElement("tr");
+              tr.dataset.key = l.key;
+              tr.dataset.ts_ns = l.ts_ns;
+              tr.dataset.namespace = l.namespace || "";
+              tr.dataset.pod = l.pod || "";
+              tr.dataset.container = l.container || "";
+              tr.dataset.message = l.message || "";
+              const ts = document.createElement("td");
+              ts.className = "ts";
+              ts.textContent = fmtYouTubeFromNS(l.ts_ns);
+              ts.title = fmtNS(l.ts_ns);
+              const src = document.createElement("td");
+              src.className = "src";
+              const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
+              const cont = l.container ? `:${l.container}` : "";
+              src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
+              const msg = document.createElement("td");
+              msg.className = "msg";
+              const tag = document.createElement("span");
+              const sev = classify(l.message);
+              tag.className = "tag " + (sev === "ok" ? "" : sev);
+              tag.textContent = sev === "ok" ? "log" : sev;
+              msg.appendChild(tag);
+              msg.appendChild(document.createTextNode(l.message || ""));
+              tr.appendChild(ts);
+              tr.appendChild(src);
+              tr.appendChild(msg);
+              frag.appendChild(tr);
+            }
+            body.insertBefore(frag, el("topSentinelRow").nextSibling);
+            const firstKey = Number(lines[0].key) || 0;
+            const lastKey = Number(lines[lines.length - 1].key) || 0;
+            if (!state.minKey || (firstKey && firstKey < state.minKey)) state.minKey = firstKey;
+            if (!state.maxKey || (lastKey && lastKey > state.maxKey)) state.maxKey = lastKey;
+          }
+          state.hasMorePrev = !!data.has_more;
+          el("logStatus").textContent = lines.length ? `Loaded · ${data.has_more ? "more above" : "start"}` : "No previous lines";
+          syncURL();
+          if (scroller) {
+            const afterHeight = scroller.scrollHeight;
+            scroller.scrollTop = beforeTop + (afterHeight - beforeHeight);
+          }
+        } catch (err) {
+          el("logStatus").textContent = `Error loading: ${err}`;
+        } finally {
+          state.loadingPrev = false;
         }
-        body.insertBefore(frag, el("topSentinelRow").nextSibling);
-        state.hasMorePrev = !!data.has_more;
-        el("logStatus").textContent = (data.lines || []).length ? `Cursor ${data.cursor}${data.has_more ? "" : " (start)"}` : "No previous lines";
-        syncURL();
-        if (scroller) {
-          const afterHeight = scroller.scrollHeight;
-          scroller.scrollTop = beforeTop + (afterHeight - beforeHeight);
-        }
-        state.loadingPrev = false;
       }
 
       el("sessionSelect").addEventListener("change", async () => {
