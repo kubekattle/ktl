@@ -344,31 +344,32 @@ type deployPlanOptions struct {
 }
 
 type deployPlanResult struct {
-	ReleaseName       string               `json:"release"`
-	Namespace         string               `json:"namespace"`
-	ChartVersion      string               `json:"chartVersion,omitempty"`
-	ChartRef          string               `json:"chartReference,omitempty"`
-	RequestedChart    string               `json:"requestedChart,omitempty"`
-	RequestedVersion  string               `json:"requestedVersion,omitempty"`
-	ValuesFiles       []string             `json:"valuesFiles,omitempty"`
-	SetValues         []string             `json:"setValues,omitempty"`
-	SetStringValues   []string             `json:"setStringValues,omitempty"`
-	SetFileValues     []string             `json:"setFileValues,omitempty"`
-	GraphNodes        []deployGraphNode    `json:"graphNodes,omitempty"`
-	GraphEdges        []deployGraphEdge    `json:"graphEdges,omitempty"`
-	ManifestBlobs     map[string]string    `json:"manifestBlobs,omitempty"`
-	LiveManifests     map[string]string    `json:"liveManifestBlobs,omitempty"`
-	ManifestDiffs     map[string]string    `json:"manifestDiffs,omitempty"`
-	ManifestTemplates map[string]string    `json:"manifestTemplates,omitempty"`
-	TemplateSources   map[string]string    `json:"templateSources,omitempty"`
-	Changes           []planResourceChange `json:"changes"`
-	Summary           planSummary          `json:"summary"`
-	Warnings          []string             `json:"warnings,omitempty"`
-	DesiredQuota      *quotaReport         `json:"desiredQuota,omitempty"`
-	ClusterHost       string               `json:"clusterHost,omitempty"`
-	InstallCmd        string               `json:"installCommand,omitempty"`
-	GeneratedAt       time.Time            `json:"generatedAt"`
-	OfflineFallback   bool                 `json:"offlineFallback"`
+	ReleaseName       string                  `json:"release"`
+	Namespace         string                  `json:"namespace"`
+	ChartVersion      string                  `json:"chartVersion,omitempty"`
+	ChartRef          string                  `json:"chartReference,omitempty"`
+	RequestedChart    string                  `json:"requestedChart,omitempty"`
+	RequestedVersion  string                  `json:"requestedVersion,omitempty"`
+	ValuesFiles       []string                `json:"valuesFiles,omitempty"`
+	SetValues         []string                `json:"setValues,omitempty"`
+	SetStringValues   []string                `json:"setStringValues,omitempty"`
+	SetFileValues     []string                `json:"setFileValues,omitempty"`
+	GraphNodes        []deployGraphNode       `json:"graphNodes,omitempty"`
+	GraphEdges        []deployGraphEdge       `json:"graphEdges,omitempty"`
+	ManifestBlobs     map[string]string       `json:"manifestBlobs,omitempty"`
+	LiveManifests     map[string]string       `json:"liveManifestBlobs,omitempty"`
+	ManifestDiffs     map[string]string       `json:"manifestDiffs,omitempty"`
+	ManifestTemplates map[string]string       `json:"manifestTemplates,omitempty"`
+	TemplateSources   map[string]string       `json:"templateSources,omitempty"`
+	Changes           []planResourceChange    `json:"changes"`
+	Summary           planSummary             `json:"summary"`
+	Warnings          []string                `json:"warnings,omitempty"`
+	DesiredQuota      *quotaReport            `json:"desiredQuota,omitempty"`
+	DesiredQuotaByNS  map[string]*quotaReport `json:"desiredQuotaByNamespace,omitempty"`
+	ClusterHost       string                  `json:"clusterHost,omitempty"`
+	InstallCmd        string                  `json:"installCommand,omitempty"`
+	GeneratedAt       time.Time               `json:"generatedAt"`
+	OfflineFallback   bool                    `json:"offlineFallback"`
 }
 
 type planChangeKind string
@@ -571,12 +572,44 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 	manifestDiffs := buildManifestDiffs(liveManifestBlobs, manifestBlobs)
 	warnings := append([]string{}, lookupWarnings...)
 	warnings = append(warnings, planWarnings(changes)...)
-	desiredQuota := buildDesiredQuotaReport(desiredDocs, opts.Namespace)
-	if desiredQuota != nil && kubeClient != nil && kubeClient.Clientset != nil {
-		if err := populateQuotaLive(ctx, kubeClient.Clientset, desiredQuota); err != nil {
-			desiredQuota.Warnings = append(desiredQuota.Warnings, fmt.Sprintf("Failed to load namespace quotas: %v", err))
+	quotaNamespaces := map[string]struct{}{}
+	if strings.TrimSpace(opts.Namespace) != "" {
+		quotaNamespaces[opts.Namespace] = struct{}{}
+	}
+	for key, doc := range desiredDocs {
+		if key.Kind == "Namespace" {
+			continue
+		}
+		ns := strings.TrimSpace(key.Namespace)
+		if ns == "" && doc.Obj != nil {
+			ns = strings.TrimSpace(doc.Obj.GetNamespace())
+		}
+		if ns == "" {
+			continue
+		}
+		quotaNamespaces[ns] = struct{}{}
+	}
+	desiredQuotaByNS := map[string]*quotaReport{}
+	if len(quotaNamespaces) > 0 {
+		var nsList []string
+		for ns := range quotaNamespaces {
+			nsList = append(nsList, ns)
+		}
+		sort.Strings(nsList)
+		for _, ns := range nsList {
+			report := buildDesiredQuotaReport(desiredDocs, ns)
+			if report == nil {
+				continue
+			}
+			if kubeClient != nil && kubeClient.Clientset != nil {
+				if err := populateQuotaLive(ctx, kubeClient.Clientset, report); err != nil {
+					report.Warnings = append(report.Warnings, fmt.Sprintf("Failed to load namespace quotas: %v", err))
+				}
+			}
+			desiredQuotaByNS[ns] = report
 		}
 	}
+	desiredQuota := desiredQuotaByNS[opts.Namespace]
 
 	var cluster string
 	if kubeClient != nil && kubeClient.RESTConfig != nil {
@@ -604,6 +637,7 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 		Summary:           summary,
 		Warnings:          warnings,
 		DesiredQuota:      desiredQuota,
+		DesiredQuotaByNS:  desiredQuotaByNS,
 		ClusterHost:       cluster,
 		InstallCmd:        buildInstallCommand(opts),
 		GeneratedAt:       time.Now().UTC(),
@@ -1368,31 +1402,32 @@ type valuesDiffSummary struct {
 }
 
 type deployVisualizePayload struct {
-	Release           string            `json:"release"`
-	Namespace         string            `json:"namespace"`
-	Chart             string            `json:"chart"`
-	ClusterHost       string            `json:"clusterHost,omitempty"`
-	InstallCommand    string            `json:"installCommand,omitempty"`
-	ValuesFiles       []string          `json:"valuesFiles,omitempty"`
-	SetValues         []string          `json:"setValues,omitempty"`
-	SetStringValues   []string          `json:"setStringValues,omitempty"`
-	SetFileValues     []string          `json:"setFileValues,omitempty"`
-	Nodes             []deployGraphNode `json:"nodes"`
-	Edges             []deployGraphEdge `json:"edges"`
-	Manifests         map[string]string `json:"manifests"`
-	LiveManifests     map[string]string `json:"liveManifests,omitempty"`
-	ManifestDiffs     map[string]string `json:"manifestDiffs,omitempty"`
-	ManifestTemplates map[string]string `json:"manifestTemplates,omitempty"`
-	TemplateSources   map[string]string `json:"templateSources,omitempty"`
-	ChangeKinds       map[string]string `json:"changeKinds,omitempty"`
-	CompareManifests  map[string]string `json:"compareManifests,omitempty"`
-	CompareSummary    string            `json:"compareSummary,omitempty"`
-	Summary           planSummary       `json:"summary,omitempty"`
-	Warnings          []string          `json:"warnings,omitempty"`
-	ValuesDiff        valuesDiffSummary `json:"valuesDiff"`
-	DesiredQuota      *quotaReport      `json:"desiredQuota,omitempty"`
-	GeneratedAt       time.Time         `json:"generatedAt,omitempty"`
-	OfflineFallback   bool              `json:"offlineFallback"`
+	Release           string                  `json:"release"`
+	Namespace         string                  `json:"namespace"`
+	Chart             string                  `json:"chart"`
+	ClusterHost       string                  `json:"clusterHost,omitempty"`
+	InstallCommand    string                  `json:"installCommand,omitempty"`
+	ValuesFiles       []string                `json:"valuesFiles,omitempty"`
+	SetValues         []string                `json:"setValues,omitempty"`
+	SetStringValues   []string                `json:"setStringValues,omitempty"`
+	SetFileValues     []string                `json:"setFileValues,omitempty"`
+	Nodes             []deployGraphNode       `json:"nodes"`
+	Edges             []deployGraphEdge       `json:"edges"`
+	Manifests         map[string]string       `json:"manifests"`
+	LiveManifests     map[string]string       `json:"liveManifests,omitempty"`
+	ManifestDiffs     map[string]string       `json:"manifestDiffs,omitempty"`
+	ManifestTemplates map[string]string       `json:"manifestTemplates,omitempty"`
+	TemplateSources   map[string]string       `json:"templateSources,omitempty"`
+	ChangeKinds       map[string]string       `json:"changeKinds,omitempty"`
+	CompareManifests  map[string]string       `json:"compareManifests,omitempty"`
+	CompareSummary    string                  `json:"compareSummary,omitempty"`
+	Summary           planSummary             `json:"summary,omitempty"`
+	Warnings          []string                `json:"warnings,omitempty"`
+	ValuesDiff        valuesDiffSummary       `json:"valuesDiff"`
+	DesiredQuota      *quotaReport            `json:"desiredQuota,omitempty"`
+	DesiredQuotaByNS  map[string]*quotaReport `json:"desiredQuotaByNamespace,omitempty"`
+	GeneratedAt       time.Time               `json:"generatedAt,omitempty"`
+	OfflineFallback   bool                    `json:"offlineFallback"`
 }
 
 type deployVisualizeFeatures struct {
@@ -1408,26 +1443,27 @@ func buildDeployVisualizePayload(result *deployPlanResult, compare *deployPlanRe
 	}
 	changeKinds := buildChangeKindIndex(result.Changes)
 	payload := deployVisualizePayload{
-		Release:         result.ReleaseName,
-		Namespace:       result.Namespace,
-		Chart:           result.ChartRef,
-		ClusterHost:     result.ClusterHost,
-		InstallCommand:  result.InstallCmd,
-		ValuesFiles:     append([]string(nil), result.ValuesFiles...),
-		SetValues:       append([]string(nil), result.SetValues...),
-		SetStringValues: append([]string(nil), result.SetStringValues...),
-		SetFileValues:   append([]string(nil), result.SetFileValues...),
-		Nodes:           result.GraphNodes,
-		Edges:           result.GraphEdges,
-		Manifests:       result.ManifestBlobs,
-		LiveManifests:   result.LiveManifests,
-		ManifestDiffs:   result.ManifestDiffs,
-		ChangeKinds:     changeKinds,
-		Warnings:        append([]string(nil), result.Warnings...),
-		Summary:         result.Summary,
-		DesiredQuota:    result.DesiredQuota,
-		GeneratedAt:     result.GeneratedAt,
-		OfflineFallback: result.OfflineFallback,
+		Release:          result.ReleaseName,
+		Namespace:        result.Namespace,
+		Chart:            result.ChartRef,
+		ClusterHost:      result.ClusterHost,
+		InstallCommand:   result.InstallCmd,
+		ValuesFiles:      append([]string(nil), result.ValuesFiles...),
+		SetValues:        append([]string(nil), result.SetValues...),
+		SetStringValues:  append([]string(nil), result.SetStringValues...),
+		SetFileValues:    append([]string(nil), result.SetFileValues...),
+		Nodes:            result.GraphNodes,
+		Edges:            result.GraphEdges,
+		Manifests:        result.ManifestBlobs,
+		LiveManifests:    result.LiveManifests,
+		ManifestDiffs:    result.ManifestDiffs,
+		ChangeKinds:      changeKinds,
+		Warnings:         append([]string(nil), result.Warnings...),
+		Summary:          result.Summary,
+		DesiredQuota:     result.DesiredQuota,
+		DesiredQuotaByNS: result.DesiredQuotaByNS,
+		GeneratedAt:      result.GeneratedAt,
+		OfflineFallback:  result.OfflineFallback,
 	}
 	if compare != nil {
 		payload.CompareManifests = compare.ManifestBlobs
