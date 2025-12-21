@@ -45,7 +45,7 @@ func DetectBuildArgs(buildArgs []string) []Finding {
 					Rule:     "ARG_VALUE_LOOKS_SECRET",
 					Message:  "build-arg value looks like a secret; use --secret and mount it in BuildKit instead of --build-arg",
 					Key:      k,
-					Match:    redact(v),
+					Match:    Redact(v),
 				})
 				continue
 			}
@@ -65,7 +65,7 @@ func DetectBuildArgs(buildArgs []string) []Finding {
 				Rule:     "ARG_VALUE_SUSPECT",
 				Message:  "build-arg value looks secret-like; consider using --secret instead",
 				Key:      k,
-				Match:    redact(v),
+				Match:    Redact(v),
 			})
 		}
 	}
@@ -108,7 +108,7 @@ func looksSecretLike(v string) bool {
 	return false
 }
 
-func redact(v string) string {
+func Redact(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return ""
