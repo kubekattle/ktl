@@ -202,15 +202,14 @@
 	            </div>
 	            <div class="muted" id="hint"></div>
 	          </div>
-          <div class="panel">
-            <div class="panel-title-row">
-              <div class="panel-title">Timeline</div>
-            </div>
-            <div class="timeline-wrap">
-              <canvas id="timeline" class="timeline"></canvas>
-            </div>
-            <div class="muted">Drag to scrub. Click to jump.</div>
-          </div>
+	          <div class="panel">
+	            <div class="panel-title-row">
+	              <div class="panel-title">Timeline</div>
+	            </div>
+	            <div class="timeline-wrap">
+	              <canvas id="timeline" class="timeline"></canvas>
+	            </div>
+	          </div>
 	          <div class="panel">
 		            <div class="panel-title-row">
 		              <div class="panel-title">Logs</div>
@@ -551,8 +550,6 @@
           selection += (r.selection || 0);
           artifacts += (r.artifacts || 0);
         }
-        const stats = [`Lines ${lines}`, `Errors ${errors}`, `Deploy ${deploy}`, `Selection ${selection}`, `Artifacts ${artifacts}`].join(" · ");
-        el("hint").textContent = `Session ${state.sessionId} · ${stats}`;
         syncURL();
       }
 
