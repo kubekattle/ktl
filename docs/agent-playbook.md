@@ -30,6 +30,18 @@ go test ./cmd/ktl -run TestYourThing
 go test ./...
 ```
 
+### Work with profiles + app config (build)
+`ktl` supports a global `--profile dev|ci|secure|remote` flag and build defaults via config files:
+
+- Global: `~/.ktl/config.yaml`
+- Repo-local: `.ktl.yaml` at the repo root
+
+Validate:
+
+```bash
+go test ./cmd/ktl -run TestBuildProfile
+```
+
 ### Add a new subcommand
 
 1. Add a new `*_cmd.go` under `cmd/ktl/` and wire it from `cmd/ktl/main.go`.

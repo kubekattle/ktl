@@ -41,7 +41,8 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 	t.Setenv("MY_SECRET", "super-secret")
 
 	rec := &recordingBuildService{}
-	cmd := newBuildCommandWithService(rec)
+	profile := "dev"
+	cmd := newBuildCommandWithService(rec, &profile)
 	cmd.SetIn(newFakeTTY())
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -206,7 +207,8 @@ func TestBuildCommandNoCacheDisablesCacheImports(t *testing.T) {
 	disableSandboxForTests(t)
 	ctxDir := t.TempDir()
 	rec := &recordingBuildService{}
-	cmd := newBuildCommandWithService(rec)
+	profile := "dev"
+	cmd := newBuildCommandWithService(rec, &profile)
 	cmd.SetArgs([]string{
 		"--cache-from", "type=registry,ref=cache/main",
 		"--no-cache",
@@ -313,7 +315,8 @@ func TestBuildCommandMirrorFlagsRejectInvalidCombinations(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := newBuildCommandWithService(&recordingBuildService{})
+			profile := "dev"
+			cmd := newBuildCommandWithService(&recordingBuildService{}, &profile)
 			cmd.SetIn(newFakeTTY())
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
@@ -335,7 +338,8 @@ func TestBuildCommandDefaultBuilderIsNotForced(t *testing.T) {
 	ctxDir := t.TempDir()
 
 	rec := &recordingBuildService{}
-	cmd := newBuildCommandWithService(rec)
+	profile := "dev"
+	cmd := newBuildCommandWithService(rec, &profile)
 	cmd.SetIn(newFakeTTY())
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
@@ -417,7 +421,8 @@ func TestBuildCommandRejectsInvalidFlagValuesAtParseTime(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := newBuildCommandWithService(&recordingBuildService{})
+			profile := "dev"
+			cmd := newBuildCommandWithService(&recordingBuildService{}, &profile)
 			cmd.SetIn(newFakeTTY())
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})

@@ -95,12 +95,17 @@ type buildCLIOptions struct {
 var defaultBuildService buildsvc.Service = buildsvc.New(buildsvc.Dependencies{})
 
 func newBuildCommand() *cobra.Command {
-	return newBuildCommandWithService(defaultBuildService)
+	profile := "dev"
+	return newBuildCommandWithService(defaultBuildService, &profile)
 }
 
-func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
+func newBuildCommandWithService(service buildsvc.Service, globalProfile *string) *cobra.Command {
 	if service == nil {
 		service = defaultBuildService
+	}
+	if globalProfile == nil {
+		fallback := "dev"
+		globalProfile = &fallback
 	}
 	opts := buildCLIOptions{
 		contextDir:  ".",
@@ -110,7 +115,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 		rm:          true,
 		policyMode:  "enforce",
 		secretsMode: "warn",
-		profile:     "dev",
+		profile:     *globalProfile,
 	}
 
 	cmd := &cobra.Command{
@@ -147,6 +152,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 			if len(args) > 0 {
 				runOpts.contextDir = args[0]
 			}
+			runOpts.profile = *globalProfile
 			if !cmd.Flags().Changed("builder") {
 				runOpts.builder = ""
 			}
@@ -192,7 +198,6 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().Var(newEnumStringValue(&opts.secretsMode, "warn", "warn", "block", "off"), "secrets", "Secret-leak guardrails: warn (default), block, or off")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.secretsReport, name: "--secrets-report", allowEmpty: true, validator: nil}, "secrets-report", "Write a machine-readable secrets report JSON to this path (defaults to --attest-dir/ktl-secrets-report.json when --attest-dir is set)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.secretsConfig, name: "--secrets-config", allowEmpty: true, validator: nil}, "secrets-config", "Secrets rule config file or https URL (YAML/JSON). When unset, built-in defaults apply.")
-	cmd.Flags().Var(newEnumStringValue(&opts.profile, "dev", "dev", "ci", "secure", "remote"), "profile", "Build profile: dev, ci, secure, or remote (expands to sensible defaults)")
 	cmd.Flags().BoolVar(&opts.intentSecure, "secure", false, "Intent: secure build (implies hermetic+sandbox+attest+policy+secrets scan)")
 	cmd.Flags().BoolVar(&opts.intentPublish, "publish", false, "Intent: publish build (implies --push, and enables signing when combined with --sign)")
 	cmd.Flags().BoolVar(&opts.intentOCI, "oci", false, "Intent: export OCI layout and write attestations (implies --attest-dir when unset)")
@@ -239,7 +244,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxWorkdir, name: "--sandbox-workdir", allowEmpty: true, validator: nil}, "sandbox-workdir", "Working directory inside the sandbox (default: build context)")
 	cmd.PersistentFlags().BoolVar(&opts.sandboxRequired, "sandbox", false, "Require executing the build inside the sandbox (fail if unavailable)")
 
-	cmd.AddCommand(newBuildLoginCommand(&opts), newBuildLogoutCommand(&opts))
+	cmd.AddCommand(newBuildLoginCommand(&opts), newBuildLogoutCommand(&opts), newBuildSandboxCommand(&opts))
 
 	decorateCommandHelp(cmd, "Build Flags")
 	return cmd
@@ -316,6 +321,9 @@ func runBuildCommand(cmd *cobra.Command, service buildsvc.Service, opts buildCLI
 	}
 	if addr := strings.TrimSpace(opts.remoteAddr); addr != "" {
 		return runRemoteBuild(cmd, opts, addr)
+	}
+	if err := applyBuildDefaults(cmd, &opts); err != nil {
+		return err
 	}
 
 	streams := buildsvc.Streams{

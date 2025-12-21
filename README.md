@@ -32,6 +32,16 @@ make release   # cross-build archives into ./dist
 ## Examples
 See `examples.md` for up-to-date CLI examples.
 
+## Profiles and config (build defaults)
+`ktl` supports execution profiles to apply sensible defaults.
+
+- `ktl --profile dev|ci|secure|remote ...` sets a global profile (works with subcommands like `ktl build ...`).
+- Build defaults can also come from config files:
+  - Global: `~/.ktl/config.yaml`
+  - Repo-local: `.ktl.yaml` at the repo root
+
+CLI flags always win over profile/config defaults.
+
 ## Build policy gate (OPA/Rego)
 `ktl build` supports a fast “policy gate” so security can codify what’s allowed and developers get actionable failures locally and in CI.
 

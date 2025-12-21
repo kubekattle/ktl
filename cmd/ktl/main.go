@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strings"
+	"sync"
 	"syscall"
 	"text/template"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/example/ktl/internal/config"
 	"github.com/example/ktl/internal/featureflags"
 	"github.com/example/ktl/internal/logging"
+	"github.com/example/ktl/internal/workflows/buildsvc"
 	"github.com/fatih/color"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
@@ -55,6 +57,10 @@ func main() {
 }
 
 func newRootCommand() *cobra.Command {
+	return newRootCommandWithBuildService(defaultBuildService)
+}
+
+func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Command {
 	opts := config.NewOptions()
 	var kubeconfigPath string
 	var kubeContext string
@@ -62,6 +68,7 @@ func newRootCommand() *cobra.Command {
 	var featureFlagValues []string
 	var remoteAgentAddr string
 	var mirrorBusAddr string
+	globalProfile := "dev"
 	cmd := &cobra.Command{
 		Use:           "ktl [POD_QUERY]",
 		Short:         "High-performance multi-pod Kubernetes log tailer",
@@ -101,6 +108,7 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&kubeconfigPath, "kubeconfig", "k", "", "Path to the kubeconfig file to use for CLI requests")
 	cmd.PersistentFlags().StringVarP(&kubeContext, "context", "K", "", "Name of the kubeconfig context to use")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", logLevel, "Log level for ktl output (debug, info, warn, error)")
+	cmd.PersistentFlags().Var(newEnumStringValue(&globalProfile, "dev", "ci", "secure", "remote"), "profile", "Execution profile: dev, ci, secure, or remote (sets sensible defaults for supported commands)")
 	cmd.PersistentFlags().StringSliceVar(&featureFlagValues, "feature", nil, "Enable experimental ktl features (repeat or pass comma-separated names)")
 	if err := cmd.PersistentFlags().MarkHidden("feature"); err != nil {
 		cobra.CheckErr(err)
@@ -110,7 +118,7 @@ func newRootCommand() *cobra.Command {
 	logFlagNames := opts.BindFlags(cmd.Flags())
 	hideFlags(cmd.Flags(), logFlagNames)
 	logsCmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)
-	buildCmd := newBuildCommand()
+	buildCmd := newBuildCommandWithService(buildService, &globalProfile)
 	planCmd := newPlanCommand(&kubeconfigPath, &kubeContext)
 	listCmd := newListCommand(&kubeconfigPath, &kubeContext)
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
@@ -158,42 +166,63 @@ func bindViper(commands ...*cobra.Command) {
 	if len(commands) == 0 {
 		return
 	}
-	v := viper.New()
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	v.SetEnvPrefix("KTL")
-	v.AutomaticEnv()
-	configFile := os.Getenv("KTL_CONFIG")
-	configureConfigFile(v, configFile)
+	registerViperCommands(commands...)
+}
 
-	cobra.OnInitialize(func() {
-		for _, cmd := range commands {
-			if err := v.BindPFlags(cmd.Flags()); err != nil {
+var (
+	viperInitOnce sync.Once
+	viperMu       sync.Mutex
+	viperCmds     []*cobra.Command
+)
+
+func registerViperCommands(commands ...*cobra.Command) {
+	viperMu.Lock()
+	viperCmds = append(viperCmds, commands...)
+	viperMu.Unlock()
+
+	viperInitOnce.Do(func() {
+		v := viper.New()
+		v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+		v.SetEnvPrefix("KTL")
+		v.AutomaticEnv()
+
+		cobra.OnInitialize(func() {
+			configFile := os.Getenv("KTL_CONFIG")
+			configureConfigFile(v, configFile)
+
+			viperMu.Lock()
+			cmds := append([]*cobra.Command(nil), viperCmds...)
+			viperMu.Unlock()
+
+			for _, cmd := range cmds {
+				if err := v.BindPFlags(cmd.Flags()); err != nil {
+					cobra.CheckErr(err)
+				}
+				if err := v.BindPFlags(cmd.PersistentFlags()); err != nil {
+					cobra.CheckErr(err)
+				}
+			}
+			if err := readConfigFile(v, configFile != ""); err != nil {
 				cobra.CheckErr(err)
 			}
-			if err := v.BindPFlags(cmd.PersistentFlags()); err != nil {
-				cobra.CheckErr(err)
+			for _, cmd := range cmds {
+				flagSets := []*pflag.FlagSet{cmd.Flags(), cmd.PersistentFlags()}
+				for _, fs := range flagSets {
+					fs.VisitAll(func(f *pflag.Flag) {
+						if f.Changed {
+							return
+						}
+						if !v.IsSet(f.Name) {
+							return
+						}
+						val := fmt.Sprintf("%v", v.Get(f.Name))
+						if val != "" {
+							_ = f.Value.Set(val)
+						}
+					})
+				}
 			}
-		}
-		if err := readConfigFile(v, configFile != ""); err != nil {
-			cobra.CheckErr(err)
-		}
-		for _, cmd := range commands {
-			flagSets := []*pflag.FlagSet{cmd.Flags(), cmd.PersistentFlags()}
-			for _, fs := range flagSets {
-				fs.VisitAll(func(f *pflag.Flag) {
-					if f.Changed {
-						return
-					}
-					if !v.IsSet(f.Name) {
-						return
-					}
-					val := fmt.Sprintf("%v", v.Get(f.Name))
-					if val != "" {
-						_ = f.Value.Set(val)
-					}
-				})
-			}
-		}
+		})
 	})
 }
 
