@@ -43,6 +43,7 @@ See `examples.md` for up-to-date CLI examples.
 `ktl build` can also detect common secret leaks and stop (or warn) with pinpointed reasons:
 
 - `--secrets warn|block|off` controls enforcement.
+- `--secrets-config <file|https-url>` loads a YAML/JSON rule set (regex-based), similar to Trivy’s configurable checks.
 - `--secrets-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-secrets-report.json` when `--attest-dir` is set).
 
 Try the demo at `examples/secrets/demo`.

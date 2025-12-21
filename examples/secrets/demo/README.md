@@ -10,6 +10,24 @@ ktl build ./examples/secrets/demo \
   --secrets warn
 ```
 
+Using a custom config (Trivy-like):
+
+```bash
+ktl build ./examples/secrets/demo \
+  --attest-dir dist/attest-secrets \
+  --secrets warn \
+  --secrets-config ./examples/secrets/config/default.yaml
+```
+
+To ratchet to strict mode:
+
+```bash
+ktl build ./examples/secrets/demo \
+  --attest-dir dist/attest-secrets \
+  --secrets block \
+  --secrets-config ./examples/secrets/config/strict.yaml
+```
+
 To block the build on findings:
 
 ```bash
@@ -26,4 +44,3 @@ ktl build . --build-arg NPM_TOKEN=$NPM_TOKEN --secrets warn
 ```
 
 Expected guidance: use `--secret NPM_TOKEN` and mount it via BuildKit instead of passing it as a build arg.
-
