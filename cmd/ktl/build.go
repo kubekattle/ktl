@@ -51,6 +51,11 @@ type buildCLIOptions struct {
 	secretsMode      string
 	secretsReport    string
 	secretsConfig    string
+	profile          string
+	intentSecure     bool
+	intentPublish    bool
+	intentOCI        bool
+	wizard           bool
 	attestDir        string
 	capturePath      string
 	captureTags      []string
@@ -105,6 +110,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 		rm:          true,
 		policyMode:  "enforce",
 		secretsMode: "warn",
+		profile:     "dev",
 	}
 
 	cmd := &cobra.Command{
@@ -186,6 +192,11 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().Var(newEnumStringValue(&opts.secretsMode, "warn", "warn", "block", "off"), "secrets", "Secret-leak guardrails: warn (default), block, or off")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.secretsReport, name: "--secrets-report", allowEmpty: true, validator: nil}, "secrets-report", "Write a machine-readable secrets report JSON to this path (defaults to --attest-dir/ktl-secrets-report.json when --attest-dir is set)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.secretsConfig, name: "--secrets-config", allowEmpty: true, validator: nil}, "secrets-config", "Secrets rule config file or https URL (YAML/JSON). When unset, built-in defaults apply.")
+	cmd.Flags().Var(newEnumStringValue(&opts.profile, "dev", "dev", "ci", "secure", "remote"), "profile", "Build profile: dev, ci, secure, or remote (expands to sensible defaults)")
+	cmd.Flags().BoolVar(&opts.intentSecure, "secure", false, "Intent: secure build (implies hermetic+sandbox+attest+policy+secrets scan)")
+	cmd.Flags().BoolVar(&opts.intentPublish, "publish", false, "Intent: publish build (implies --push, and enables signing when combined with --sign)")
+	cmd.Flags().BoolVar(&opts.intentOCI, "oci", false, "Intent: export OCI layout and write attestations (implies --attest-dir when unset)")
+	cmd.Flags().BoolVar(&opts.wizard, "wizard", false, "Guided mode: prompt for a profile/config and print the generated command")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.attestDir, name: "--attest-dir", allowEmpty: true, validator: nil}, "attest-dir", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.capturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture build logs/events to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
