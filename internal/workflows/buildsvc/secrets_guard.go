@@ -1,6 +1,7 @@
 package buildsvc
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sort"
@@ -13,9 +14,10 @@ import (
 type secretsGuard struct {
 	mode       secrets.Mode
 	reportPath string
+	rules      secrets.CompiledRules
 }
 
-func newSecretsGuard(mode, reportPath, attestDir string) *secretsGuard {
+func newSecretsGuard(ctx context.Context, mode, reportPath, attestDir, configRef string) (*secretsGuard, error) {
 	m := secrets.ModeWarn
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case string(secrets.ModeOff):
@@ -29,14 +31,24 @@ func newSecretsGuard(mode, reportPath, attestDir string) *secretsGuard {
 	if reportPath == "" {
 		reportPath = secrets.DefaultReportPath(attestDir)
 	}
-	return &secretsGuard{mode: m, reportPath: reportPath}
+	base := secrets.DefaultConfig()
+	override, err := secrets.LoadConfig(ctx, configRef)
+	if err != nil {
+		return nil, err
+	}
+	merged := secrets.MergeConfig(base, override)
+	compiled, err := secrets.CompileConfig(merged)
+	if err != nil {
+		return nil, err
+	}
+	return &secretsGuard{mode: m, reportPath: reportPath, rules: compiled}, nil
 }
 
 func (g *secretsGuard) preflightBuildArgs(errOut io.Writer, buildArgs []string) (*secrets.Report, error) {
 	if g == nil || g.mode == secrets.ModeOff {
 		return nil, nil
 	}
-	findings := secrets.DetectBuildArgs(buildArgs)
+	findings := secrets.DetectBuildArgsWithRules(buildArgs, g.rules)
 	rep := &secrets.Report{
 		Mode:        g.mode,
 		Findings:    findings,
@@ -64,7 +76,7 @@ func (g *secretsGuard) postScanOCI(errOut io.Writer, ociLayoutDir string) (*secr
 	if g == nil || g.mode == secrets.ModeOff {
 		return nil, nil
 	}
-	findings, err := secrets.ScanOCIForSecrets(ociLayoutDir, 0)
+	findings, err := secrets.ScanOCIForSecretsWithRules(ociLayoutDir, 0, g.rules)
 	if err != nil {
 		return nil, err
 	}

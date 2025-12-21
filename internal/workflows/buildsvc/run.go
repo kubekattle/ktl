@@ -193,7 +193,10 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	secretGuard := newSecretsGuard(opts.SecretsMode, opts.SecretsReportPath, opts.AttestationDir)
+	secretGuard, err := newSecretsGuard(ctx, opts.SecretsMode, opts.SecretsReportPath, opts.AttestationDir, opts.SecretsConfigRef)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := secretGuard.preflightBuildArgs(errOut, opts.BuildArgs); err != nil {
 		return nil, err
 	}
