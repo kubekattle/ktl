@@ -55,7 +55,6 @@ type buildCLIOptions struct {
 	intentSecure     bool
 	intentPublish    bool
 	intentOCI        bool
-	wizard           bool
 	attestDir        string
 	capturePath      string
 	captureTags      []string
@@ -201,7 +200,6 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 	cmd.Flags().BoolVar(&opts.intentSecure, "secure", false, "Intent: secure build (implies hermetic+sandbox+attest+policy+secrets scan)")
 	cmd.Flags().BoolVar(&opts.intentPublish, "publish", false, "Intent: publish build (implies --push, and enables signing when combined with --sign)")
 	cmd.Flags().BoolVar(&opts.intentOCI, "oci", false, "Intent: export OCI layout and write attestations (implies --attest-dir when unset)")
-	cmd.Flags().BoolVar(&opts.wizard, "wizard", false, "Guided mode: prompt for a profile/config and print the generated command")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.attestDir, name: "--attest-dir", allowEmpty: true, validator: nil}, "attest-dir", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.capturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture build logs/events to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
