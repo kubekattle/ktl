@@ -258,6 +258,118 @@ func TestRun_UsesSandboxContextEnvForRelativeContextDir(t *testing.T) {
 	}
 }
 
+func TestRun_InteractiveRequiresTTY(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\nRUN echo ok\n")
+
+	dockerCfgPath := filepath.Join(dir, "config.json")
+	writeFile(t, dockerCfgPath, "{}\n")
+
+	var out, errOut bytes.Buffer
+	runner := &captureRunner{}
+	svc := New(Dependencies{
+		BuildRunner: runner,
+		Registry:    noopRegistry{},
+	})
+
+	_, runErr := svc.Run(context.Background(), Options{
+		ContextDir:       dir,
+		Dockerfile:       "Dockerfile",
+		AuthFile:         dockerCfgPath,
+		BuildMode:        string(ModeDockerfile),
+		Interactive:      true,
+		InteractiveShell: "/bin/sh",
+		Streams: Streams{
+			Out: &out,
+			Err: &errOut,
+		},
+	})
+	if runErr == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(runErr.Error(), "--interactive requires a TTY") {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+}
+
+func TestRun_InteractiveShellPropagatesToBuildRunner(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\nRUN echo ok\n")
+
+	dockerCfgPath := filepath.Join(dir, "config.json")
+	writeFile(t, dockerCfgPath, "{}\n")
+
+	var out, errOut bytes.Buffer
+	runner := &captureRunner{}
+	svc := New(Dependencies{
+		BuildRunner: runner,
+		Registry:    noopRegistry{},
+	})
+
+	_, runErr := svc.Run(context.Background(), Options{
+		ContextDir:       dir,
+		Dockerfile:       "Dockerfile",
+		AuthFile:         dockerCfgPath,
+		BuildMode:        string(ModeDockerfile),
+		Interactive:      true,
+		InteractiveShell: "/bin/bash -lc 'echo hi'",
+		Streams: Streams{
+			In:        strings.NewReader(""),
+			Out:       &out,
+			Err:       &errOut,
+			Terminals: []any{os.Stdin},
+		},
+	})
+	if runErr != nil {
+		t.Fatalf("Run returned error: %v\nstderr: %s", runErr, errOut.String())
+	}
+	if runner.last.Interactive == nil {
+		t.Fatalf("expected Interactive config to be set")
+	}
+	if got, want := strings.Join(runner.last.Interactive.Shell, " "), "/bin/bash -lc echo hi"; got != want {
+		t.Fatalf("unexpected interactive shell: %q (want %q)", got, want)
+	}
+	if runner.last.Interactive.Stdin == nil || runner.last.Interactive.Stdout == nil || runner.last.Interactive.Stderr == nil {
+		t.Fatalf("expected interactive stdio to be set")
+	}
+}
+
+func TestRun_InteractiveShellRejectsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\nRUN echo ok\n")
+
+	dockerCfgPath := filepath.Join(dir, "config.json")
+	writeFile(t, dockerCfgPath, "{}\n")
+
+	var out, errOut bytes.Buffer
+	runner := &captureRunner{}
+	svc := New(Dependencies{
+		BuildRunner: runner,
+		Registry:    noopRegistry{},
+	})
+
+	_, runErr := svc.Run(context.Background(), Options{
+		ContextDir:       dir,
+		Dockerfile:       "Dockerfile",
+		AuthFile:         dockerCfgPath,
+		BuildMode:        string(ModeDockerfile),
+		Interactive:      true,
+		InteractiveShell: "",
+		Streams: Streams{
+			In:        strings.NewReader(""),
+			Out:       &out,
+			Err:       &errOut,
+			Terminals: []any{os.Stdin},
+		},
+	})
+	if runErr == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(runErr.Error(), "--interactive-shell") {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+}
+
 func TestRun_AttestDirEnablesAttestations(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\n")

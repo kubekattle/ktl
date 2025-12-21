@@ -30,6 +30,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
@@ -239,7 +240,38 @@ func handleError(err error) {
 	case apierrors.IsForbidden(err):
 		message = fmt.Sprintf("%s\nHint: missing Kubernetes permissions. See docs/rbac.md for the verbs ktl requires.", err)
 	}
-	fmt.Fprintf(os.Stderr, "Error: %s\n", message)
+	writeHighlightedError(os.Stderr, message)
+}
+
+func writeHighlightedError(w io.Writer, message string) {
+	if w == nil {
+		return
+	}
+	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) && !color.NoColor {
+		errPrefix := color.New(color.FgRed, color.Bold).Sprint("Error:")
+		hintPrefix := color.New(color.FgYellow, color.Bold).Sprint("Hint:")
+		lines := strings.Split(message, "\n")
+		if len(lines) == 0 {
+			fmt.Fprintf(w, "%s\n", errPrefix)
+			return
+		}
+		fmt.Fprintf(w, "%s %s\n", errPrefix, lines[0])
+		for _, line := range lines[1:] {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "Hint:") {
+				rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "Hint:"))
+				if rest != "" {
+					fmt.Fprintf(w, "%s %s\n", hintPrefix, rest)
+				} else {
+					fmt.Fprintf(w, "%s\n", hintPrefix)
+				}
+				continue
+			}
+			fmt.Fprintf(w, "%s\n", line)
+		}
+		return
+	}
+	fmt.Fprintf(w, "Error: %s\n", message)
 }
 
 func streamFromStdin(ctx context.Context, opts *config.Options, in io.Reader, out io.Writer) error {
