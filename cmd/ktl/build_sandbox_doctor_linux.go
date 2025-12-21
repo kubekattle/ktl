@@ -24,6 +24,7 @@ type sandboxDoctorResult struct {
 	UserNS         string
 	Cgroup         string
 	PolicyPath     string
+	PolicySource   string
 	Policy         sandboxPolicySummary
 	ProbeMount     string
 	ProbeBind      string
@@ -85,6 +86,7 @@ func runBuildSandboxDoctor(cmd *cobra.Command, parent *buildCLIOptions, contextD
 		return err
 	}
 	res.PolicyPath = policyPath
+	res.PolicySource = sandboxPolicySource(parent.sandboxConfig, parent.hermetic, parent.allowNetwork)
 	policySummary, err := parseSandboxPolicy(policyPath)
 	if err != nil {
 		return fmt.Errorf("parse sandbox policy: %w", err)
@@ -116,7 +118,7 @@ func runBuildSandboxDoctor(cmd *cobra.Command, parent *buildCLIOptions, contextD
 
 	res.ProbeDNS = "skipped"
 	if _, err := exec.LookPath("getent"); err == nil {
-		res.ProbeDNS = probeSandbox(nsjailPath, append(baseArgs, "--", "/bin/sh", "-c", "getent hosts example.com >/dev/null && echo dns-ok"), res.Policy.NetworkMode == "isolated", false)
+		res.ProbeDNS = probeSandbox(nsjailPath, append(baseArgs, "--", "/bin/sh", "-c", "getent hosts example.com >/dev/null && echo dns-ok"), false, false)
 	} else {
 		res.ProbeNotes = append(res.ProbeNotes, "dns probe skipped: getent not found on host")
 	}
@@ -124,7 +126,7 @@ func runBuildSandboxDoctor(cmd *cobra.Command, parent *buildCLIOptions, contextD
 	res.ProbeConnect = "skipped"
 	if _, err := exec.LookPath("curl"); err == nil {
 		wantFail := res.Policy.NetworkMode == "isolated"
-		res.ProbeConnect = probeSandbox(nsjailPath, append(baseArgs, "--", "/bin/sh", "-c", "curl -fsSL --max-time 2 https://example.com >/dev/null && echo connect-ok"), wantFail, true)
+		res.ProbeConnect = probeSandbox(nsjailPath, append(baseArgs, "--", "/bin/sh", "-c", "curl -fsSL --max-time 2 https://example.com >/dev/null && echo connect-ok"), wantFail, false)
 	} else {
 		res.ProbeNotes = append(res.ProbeNotes, "connect probe skipped: curl not found on host")
 	}
@@ -135,7 +137,7 @@ func runBuildSandboxDoctor(cmd *cobra.Command, parent *buildCLIOptions, contextD
 	_ = os.Remove(logPath)
 
 	writeSandboxDoctorReport(cmd.ErrOrStderr(), res)
-	if strings.HasPrefix(res.ProbeMount, "fail") || strings.HasPrefix(res.ProbeBind, "fail") {
+	if strings.HasPrefix(res.ProbeMount, "fail") || strings.HasPrefix(res.ProbeBind, "fail") || strings.HasPrefix(res.ProbeConnect, "fail") {
 		return errors.New("sandbox doctor: required probes failed")
 	}
 	return nil
@@ -177,7 +179,7 @@ func probeSandbox(nsjailPath string, args []string, wantNetworkFailure bool, tol
 	out := strings.TrimSpace(buf.String())
 	if err == nil {
 		if wantNetworkFailure && strings.Contains(out, "connect-ok") {
-			return "warn (unexpected network access)"
+			return "fail (unexpected network access)"
 		}
 		return "ok"
 	}
@@ -223,7 +225,7 @@ func writeSandboxDoctorReport(w io.Writer, res sandboxDoctorResult) {
 	}
 	fmt.Fprintf(w, "  userns: %s\n", res.UserNS)
 	fmt.Fprintf(w, "  cgroup: %s\n", res.Cgroup)
-	fmt.Fprintf(w, "  policy: %s\n", res.PolicyPath)
+	fmt.Fprintf(w, "  policy: %s (%s)\n", res.PolicyPath, res.PolicySource)
 	fmt.Fprintf(w, "  network mode: %s\n", res.Policy.NetworkMode)
 	fmt.Fprintf(w, "  tmpfs mounts: %s\n", strings.Join(res.Policy.TmpfsMounts, ", "))
 	fmt.Fprintf(w, "  bind mounts: %d\n", res.Policy.BindMountCount)
@@ -242,6 +244,16 @@ func writeSandboxDoctorReport(w io.Writer, res sandboxDoctorResult) {
 			fmt.Fprintf(w, "    %s\n", line)
 		}
 	}
+}
+
+func sandboxPolicySource(explicit string, hermetic bool, allowNetwork bool) string {
+	if strings.TrimSpace(explicit) != "" {
+		return "explicit"
+	}
+	if hermetic && !allowNetwork {
+		return "embedded hermetic"
+	}
+	return "embedded default"
 }
 
 func doctorBaseBinds() []string {

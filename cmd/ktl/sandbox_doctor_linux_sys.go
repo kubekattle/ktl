@@ -21,6 +21,12 @@ func detectUserNS() string {
 			return "unknown (unprivileged_userns_clone=" + trimmed + ")"
 		}
 	}
+	if commandExists("unshare") {
+		cmd := exec.Command("unshare", "-Ur", "true")
+		if err := cmd.Run(); err == nil {
+			return "available (unshare -Ur ok)"
+		}
+	}
 	if _, err := os.Stat("/proc/self/ns/user"); err == nil {
 		return "present"
 	}
