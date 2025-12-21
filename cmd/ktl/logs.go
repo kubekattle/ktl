@@ -31,6 +31,10 @@ import (
 func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string) *cobra.Command {
 	var capturePath string
 	var captureTags []string
+	var deployPin string
+	var deployMode string
+	var deployRefresh time.Duration
+	var deployPruneGrace time.Duration
 	cmd := &cobra.Command{
 		Use:           "logs [POD_QUERY]",
 		Aliases:       []string{"tail"},
@@ -40,7 +44,7 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus, capturePath, captureTags)
+			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus, capturePath, captureTags, deployPin, deployMode, deployRefresh, deployPruneGrace)
 		},
 	}
 
@@ -50,11 +54,15 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 		flag.NoOptDefVal = "__auto__"
 	}
 	cmd.Flags().StringArrayVar(&captureTags, "capture-tag", nil, "Tag the capture session (KEY=VALUE). Repeatable.")
+	cmd.Flags().StringVar(&deployMode, "deploy-mode", "active", "When using deploy/<name>, pick which replica sets to follow: active, stable, canary, stable+canary")
+	cmd.Flags().StringVar(&deployPin, "deploy-pin", "", "Deprecated: use --deploy-mode. When using deploy/<name>, pin replica sets in the selection (comma-separated: stable,canary)")
+	cmd.Flags().DurationVar(&deployRefresh, "deploy-refresh", 2*time.Second, "When using deploy/<name>, refresh deployment selection at this interval (fallback when watch is unavailable)")
+	cmd.Flags().DurationVar(&deployPruneGrace, "deploy-prune-grace", 15*time.Second, "When using deploy/<name>, keep tailed pods for this long after they fall out of the selected replica sets")
 	decorateCommandHelp(cmd, "Log Flags")
 	return cmd
 }
 
-func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string, capturePath string, captureTags []string) error {
+func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string, capturePath string, captureTags []string, deployPin string, deployMode string, deployRefresh time.Duration, deployPruneGrace time.Duration) error {
 	if requestedHelp(opts.WSListenAddr) {
 		return cmd.Help()
 	}
@@ -102,9 +110,23 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		}
 	}
 
-	var (
-		tailerOpts []tailer.Option
-	)
+	var tailerOpts []tailer.Option
+	tailerOptions := opts
+	var deployLensStart func(*tailer.Tailer) error
+	if len(args) > 0 {
+		if kind, name, ok := parseDeployLogsTarget(args[0]); ok {
+			optsCopy := *opts
+			tailerOptions = &optsCopy
+			opt, start, err := prepareDeployLogsLens(ctx, cmd.ErrOrStderr(), kubeClient.Clientset, tailerOptions, kind, name, deployPin, deployMode, deployRefresh, deployPruneGrace)
+			if err != nil {
+				return err
+			}
+			if opt != nil {
+				tailerOpts = append(tailerOpts, opt)
+			}
+			deployLensStart = start
+		}
+	}
 	var captureRecorder *capture.Recorder
 	if strings.TrimSpace(capturePath) != "" {
 		path, err := capture.ResolvePath(cmd.CommandPath(), capturePath, time.Now())
@@ -165,15 +187,20 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		fmt.Fprintf(cmd.ErrOrStderr(), "Serving ktl websocket stream on %s\n", addr)
 	}
 
-	t, err := tailer.New(kubeClient.Clientset, opts, logger, tailerOpts...)
+	t, err := tailer.New(kubeClient.Clientset, tailerOptions, logger, tailerOpts...)
 	if err != nil {
 		return err
 	}
+	if deployLensStart != nil {
+		if err := deployLensStart(t); err != nil {
+			return err
+		}
+	}
 	if captureRecorder != nil {
-		_ = captureRecorder.RecordArtifact(ctx, "logs.options_json", captureJSON(opts))
+		_ = captureRecorder.RecordArtifact(ctx, "logs.options_json", captureJSON(tailerOptions))
 		_ = captureRecorder.RecordArtifact(ctx, "logs.cluster", clusterInfo)
-		if opts.PodQuery != "" {
-			_ = captureRecorder.RecordArtifact(ctx, "logs.pod_query", opts.PodQuery)
+		if tailerOptions.PodQuery != "" {
+			_ = captureRecorder.RecordArtifact(ctx, "logs.pod_query", tailerOptions.PodQuery)
 		}
 	}
 	return t.Run(ctx)

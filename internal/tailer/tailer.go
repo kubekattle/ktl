@@ -62,6 +62,8 @@ type Tailer struct {
 	cancel             context.CancelFunc
 	mu                 sync.Mutex
 	tails              map[containerKey]*tailState
+	podFilter          func(*corev1.Pod) bool
+	podDisplayOverride map[containerKey]string
 	podColors          []*color.Color
 	containerColors    []*color.Color
 	highlight          *color.Color
@@ -148,6 +150,16 @@ func WithOutput(w io.Writer) Option {
 	}
 }
 
+// WithPodFilter registers an optional callback that further restricts which pods are tailed.
+// It is evaluated after name/condition filters.
+func WithPodFilter(filter func(*corev1.Pod) bool) Option {
+	return func(t *Tailer) {
+		if filter != nil {
+			t.podFilter = filter
+		}
+	}
+}
+
 type containerKey struct {
 	Namespace string
 	Pod       string
@@ -210,16 +222,17 @@ func New(client kubernetes.Interface, opts *config.Options, logger logr.Logger, 
 	highlight := color.New(color.BgYellow, color.FgBlack)
 	defaultTemplate := !opts.JSONOutput && strings.TrimSpace(opts.Template) == config.DefaultTemplate()
 	t := &Tailer{
-		client:          client,
-		opts:            opts,
-		log:             logger.WithName("tailer"),
-		writer:          os.Stdout,
-		podRegex:        podRegex,
-		template:        tmpl,
-		tails:           make(map[containerKey]*tailState),
-		podColors:       podPalette,
-		containerColors: containerPalette,
-		highlight:       highlight,
+		client:             client,
+		opts:               opts,
+		log:                logger.WithName("tailer"),
+		writer:             os.Stdout,
+		podRegex:           podRegex,
+		template:           tmpl,
+		tails:              make(map[containerKey]*tailState),
+		podDisplayOverride: make(map[containerKey]string),
+		podColors:          podPalette,
+		containerColors:    containerPalette,
+		highlight:          highlight,
 		eventCols: map[string]*color.Color{
 			"Normal":  color.New(color.FgCyan),
 			"Warning": color.New(color.FgYellow),
@@ -351,6 +364,9 @@ func (t *Tailer) runOnce(ctx context.Context) error {
 					continue
 				}
 				if !t.podMatchesConditions(&pod) {
+					continue
+				}
+				if t.podFilter != nil && !t.podFilter(&pod) {
 					continue
 				}
 				matched = append(matched, pod.DeepCopy())
@@ -514,6 +530,9 @@ func (t *Tailer) handlePodAdd(obj interface{}) {
 	if !t.podMatchesConditions(pod) {
 		return
 	}
+	if t.podFilter != nil && !t.podFilter(pod) {
+		return
+	}
 	if t.nodeLogs != nil {
 		t.nodeLogs.ensureForPod(pod)
 	}
@@ -540,6 +559,37 @@ func (t *Tailer) handlePodDelete(obj interface{}) {
 	}
 	for _, container := range t.allPodContainers(pod) {
 		t.stopTail(pod.Namespace, pod.Name, container.Name, "pod_deleted")
+	}
+}
+
+// SetPodDisplayOverride overrides the rendered pod label for the given pod.
+// The override affects only output formatting, not Kubernetes API requests.
+func (t *Tailer) SetPodDisplayOverride(namespace, pod, display string) {
+	key := containerKey{Namespace: namespace, Pod: pod}
+	t.mu.Lock()
+	if strings.TrimSpace(display) == "" {
+		delete(t.podDisplayOverride, key)
+	} else {
+		t.podDisplayOverride[key] = display
+	}
+	t.mu.Unlock()
+}
+
+// PruneTails stops any active tails that do not satisfy keep.
+func (t *Tailer) PruneTails(keep func(namespace, pod, container string) bool, reason string) {
+	if keep == nil {
+		return
+	}
+	var toStop []containerKey
+	t.mu.Lock()
+	for k := range t.tails {
+		if !keep(k.Namespace, k.Pod, k.Container) {
+			toStop = append(toStop, k)
+		}
+	}
+	t.mu.Unlock()
+	for _, k := range toStop {
+		t.stopTail(k.Namespace, k.Pod, k.Container, reason)
 	}
 }
 
@@ -940,6 +990,15 @@ func (t *Tailer) outputLine(src logSource, namespace, pod, container, line strin
 	displayPod := pod
 	if src == sourceNode && namespace != "" {
 		displayPod = fmt.Sprintf("%s/%s", namespace, pod)
+	}
+	if src == sourcePod {
+		key := containerKey{Namespace: namespace, Pod: pod}
+		t.mu.Lock()
+		override := t.podDisplayOverride[key]
+		t.mu.Unlock()
+		if override != "" {
+			displayPod = override
+		}
 	}
 	containerTag := formatContainerTag(container)
 	timestampToken := ""
