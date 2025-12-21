@@ -1183,7 +1183,7 @@
 	                <span id="viewerGenerated">generated</span>
 	              </div>
 	              <div class="viewer-actions">
-	                <button id="downloadReportBtn" class="chip" type="button">Download HTML</button>
+	                <button id="printReportBtn" class="chip" type="button">Print</button>
 	              </div>
 	            </div>
 		            <p class="hero-eyebrow">ktl plan</p>
@@ -1546,7 +1546,7 @@
       var diffNextHunk = document.getElementById('diffNextHunk');
       var diffMatchMeta = document.getElementById('diffMatchMeta');
       var copyLinkBtn = document.getElementById('copyLinkBtn');
-      var downloadReportBtn = document.getElementById('downloadReportBtn');
+      var printReportBtn = document.getElementById('printReportBtn');
       var viewerCluster = document.getElementById('viewerCluster');
       var viewerNamespace = document.getElementById('viewerNamespace');
       var viewerRelease = document.getElementById('viewerRelease');
@@ -1711,7 +1711,7 @@
       bindCopyExplain();
       bindWarningsToggle();
       bindQuotaFilters();
-      bindDownloadReport();
+      bindPrintReport();
       bindDownloadButtons();
       bindCompareUpload();
       bindKeyboardShortcuts();
@@ -2509,18 +2509,13 @@
         setTimeout(function() { btn.textContent = previous; }, 1500);
       }
 
-      function bindDownloadReport() {
-        if (!downloadReportBtn) return;
-        downloadReportBtn.addEventListener('click', function() {
+      function bindPrintReport() {
+        if (!printReportBtn) return;
+        printReportBtn.addEventListener('click', function() {
           try {
-            var html = document.documentElement.outerHTML;
-            var ts = (dataset && dataset.generatedAt) ? new Date(dataset.generatedAt).toISOString().replace(/[:.]/g, '-') : '';
-            var slug = (dataset && dataset.release) ? String(dataset.release).toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'release';
-            var filename = 'ktl-deploy-visualize-' + slug + (ts ? '-' + ts : '') + '.html';
-            downloadText(html, filename);
-            toastButton(downloadReportBtn, 'Downloaded');
+            window.print();
           } catch (err) {
-            toastButton(downloadReportBtn, 'Failed');
+            toastButton(printReportBtn, 'Failed');
           }
         });
       }
