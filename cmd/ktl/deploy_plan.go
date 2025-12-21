@@ -57,6 +57,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	var format string
 	var outputPath string
 	var visualize bool
+	var visualizeExplain bool
 	var compareSource string
 	resolvedFormat := ""
 	resolveFormat := func() string {
@@ -87,6 +88,9 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 			}
 			if resolvedFormat == "text" && strings.TrimSpace(outputPath) != "" {
 				return fmt.Errorf("--output is only supported with --format=html, --format=json, --format=yaml, or --visualize")
+			}
+			if visualizeExplain && resolvedFormat != "visualize" {
+				return fmt.Errorf("--visualize-explain requires --visualize")
 			}
 			if strings.TrimSpace(compareSource) != "" && resolvedFormat != "visualize" {
 				return fmt.Errorf("--compare is only supported with --visualize")
@@ -191,7 +195,9 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 						return fmt.Errorf("load compare artifact: %w", cerr)
 					}
 				}
-				html, err := renderDeployVisualizeHTML(planResult, compareResult)
+				html, err := renderDeployVisualizeHTML(planResult, compareResult, deployVisualizeFeatures{
+					ExplainDiff: visualizeExplain,
+				})
 				if err != nil {
 					return err
 				}
@@ -255,6 +261,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	cmd.Flags().BoolVar(&renderHTML, "html", false, "Render the plan as a design-system HTML report (deprecated, use --format=html)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the rendered plan to this path (HTML defaults to ./ktl-deploy-plan-<release>-<timestamp>.html)")
 	cmd.Flags().BoolVar(&visualize, "visualize", false, "Render the interactive visualization")
+	cmd.Flags().BoolVar(&visualizeExplain, "visualize-explain", false, "Add an Explain Diff tab in --visualize output (experimental)")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
 
@@ -1249,7 +1256,11 @@ type deployVisualizePayload struct {
 	OfflineFallback   bool              `json:"offlineFallback"`
 }
 
-func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResult) (string, error) {
+type deployVisualizeFeatures struct {
+	ExplainDiff bool `json:"explainDiff"`
+}
+
+func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResult, features deployVisualizeFeatures) (string, error) {
 	if result == nil {
 		return "", fmt.Errorf("plan result is empty")
 	}
@@ -1283,7 +1294,13 @@ func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResu
 		return "", fmt.Errorf("encode viz payload: %w", err)
 	}
 	escaped := escapeJSONForScript(jsonData)
-	return strings.Replace(deployVisualizeHTMLTemplate, "__DATA__", escaped, 1), nil
+	featuresJSON, err := json.Marshal(features)
+	if err != nil {
+		return "", fmt.Errorf("encode viz features: %w", err)
+	}
+	html := strings.Replace(deployVisualizeHTMLTemplate, "__DATA__", escaped, 1)
+	html = strings.Replace(html, "__FEATURES__", escapeJSONForScript(featuresJSON), 1)
+	return html, nil
 }
 
 func escapeJSONForScript(data []byte) string {

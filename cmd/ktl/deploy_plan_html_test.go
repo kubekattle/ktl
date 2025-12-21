@@ -84,7 +84,7 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 		},
 		OfflineFallback: false,
 	}
-	html, err := renderDeployVisualizeHTML(result, nil)
+	html, err := renderDeployVisualizeHTML(result, nil, deployVisualizeFeatures{})
 	if err != nil {
 		t.Fatalf("render viz html: %v", err)
 	}
@@ -111,6 +111,15 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 	}
 	if !strings.Contains(html, `id="vizData"`) {
 		t.Fatalf("missing viz data block")
+	}
+	if strings.Contains(html, `helm\\.sh\\/hook`) {
+		t.Fatalf("expected helm hook regex to escape / with a single backslash (\\/), got %q", `helm\\.sh\\/hook`)
+	}
+	if !strings.Contains(html, `helm\\.sh\/hook`) {
+		t.Fatalf("expected helm hook regex to use \\/ escape, got %q", `helm\\.sh\/hook`)
+	}
+	if strings.Contains(html, "__FEATURES__") {
+		t.Fatalf("expected features placeholder to be replaced")
 	}
 	vizData := extractVizData(t, html)
 	var payload deployVisualizePayload
@@ -157,7 +166,7 @@ func TestRenderDeployVisualizeHTMLWithCompare(t *testing.T) {
 		ManifestBlobs: map[string]string{"prod|configmap|cfg": "kind: ConfigMap\nmetadata:\n  name: cfg-old"},
 		GeneratedAt:   time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
-	html, err := renderDeployVisualizeHTML(base, compare)
+	html, err := renderDeployVisualizeHTML(base, compare, deployVisualizeFeatures{})
 	if err != nil {
 		t.Fatalf("render viz html: %v", err)
 	}
@@ -171,6 +180,33 @@ func TestRenderDeployVisualizeHTMLWithCompare(t *testing.T) {
 	}
 	if payload.CompareSummary == "" || !strings.Contains(payload.CompareSummary, "demo-prev") {
 		t.Fatalf("expected compare summary, got %q", payload.CompareSummary)
+	}
+}
+
+func TestRenderDeployVisualizeHTMLWithExplainDiffFeature(t *testing.T) {
+	result := &deployPlanResult{
+		ReleaseName:   "demo",
+		Namespace:     "prod",
+		ChartRef:      "./chart",
+		GraphNodes:    []deployGraphNode{{ID: "prod|deployment|web", Kind: "Deployment", Name: "web", Namespace: "prod"}},
+		ManifestBlobs: map[string]string{"prod|deployment|web": "kind: Deployment\nmetadata:\n  name: web"},
+		ManifestDiffs: map[string]string{"prod|deployment|web": "--- live\n+++ rendered\n+  image: nginx:2\n-  image: nginx:1\n"},
+		Changes: []planResourceChange{
+			{Key: resourceKey{Namespace: "prod", Kind: "Deployment", Name: "web"}, Kind: changeUpdate},
+		},
+	}
+	html, err := renderDeployVisualizeHTML(result, nil, deployVisualizeFeatures{ExplainDiff: true})
+	if err != nil {
+		t.Fatalf("render viz html: %v", err)
+	}
+	if !strings.Contains(html, `id="ktlVizFeatures"`) {
+		t.Fatalf("expected viz features block")
+	}
+	if !strings.Contains(html, `"explainDiff":true`) {
+		t.Fatalf("expected explainDiff feature enabled")
+	}
+	if !strings.Contains(html, `id="manifestModeExplain"`) {
+		t.Fatalf("expected explain button present in template")
 	}
 }
 

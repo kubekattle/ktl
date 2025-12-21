@@ -2818,7 +2818,7 @@
           addFinding('fail', 'Elevated security settings', 'Admission policies may deny; confirm cluster pod security rules.');
         }
 
-        if (anyMatch(adds, /^\\s*helm\\.sh\\/hook:\\s*/) || anyMatch(dels, /^\\s*helm\\.sh\\/hook:\\s*/)) {
+        if (anyMatch(adds, /^\\s*helm\\.sh\/hook:\\s*/) || anyMatch(dels, /^\\s*helm\\.sh\/hook:\\s*/)) {
           addFinding('warn', 'Helm hook change', 'Hooks can affect ordering and atomic behavior; review delete policies.');
         }
 
