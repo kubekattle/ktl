@@ -75,6 +75,42 @@
         outline: none;
         min-width: 320px;
       }
+      .panel + .panel { margin-top: 18px; }
+      .timeline-wrap { margin-top: 18px; }
+      .timeline {
+        width: 100%;
+        height: 140px;
+        border-radius: 22px;
+        border: 1px solid rgba(15,23,42,0.10);
+        background: rgba(255,255,255,0.65);
+        overflow: hidden;
+      }
+      .logs {
+        margin-top: 18px;
+        border-radius: 22px;
+        border: 1px solid rgba(15,23,42,0.10);
+        background: rgba(255,255,255,0.65);
+        overflow: hidden;
+      }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px 12px; border-bottom: 1px solid rgba(15,23,42,0.06); vertical-align: top; }
+      th { text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.75rem; color: var(--muted); font-weight: 650; background: rgba(255,255,255,0.35); }
+      td.ts { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 170px; }
+      td.src { white-space: nowrap; width: 280px; font-variant-numeric: tabular-nums; }
+      td.msg { width: auto; }
+      .tag { display:inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(15,23,42,0.10); background: rgba(37,99,235,0.08); color: #1d4ed8; font-weight: 650; font-size: 0.78rem; margin-right: 8px; }
+      .tag.warn { background: rgba(251,191,36,0.18); color: #92400e; }
+      .tag.fail { background: rgba(239,68,68,0.14); color: #991b1b; }
+      .btn {
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.12);
+        background: rgba(255,255,255,0.75);
+        padding: 10px 14px;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: transform 160ms var(--ease), border-color 160ms var(--ease);
+      }
+      .btn:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
     </style>
   </head>
   <body>
@@ -87,8 +123,31 @@
             <div class="row">
               <select id="sessionSelect" class="select"></select>
               <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
+              <button id="reload" class="btn">Reload</button>
             </div>
             <div class="hint" id="hint"></div>
+          </div>
+          <div class="panel">
+            <div class="label" style="font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650;">Timeline</div>
+            <div class="timeline-wrap">
+              <canvas id="timeline" class="timeline"></canvas>
+            </div>
+            <div class="hint">Drag to pan (coming soon). Click to jump (coming soon).</div>
+          </div>
+          <div class="panel">
+            <div class="label" style="font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650;">Logs</div>
+            <div class="logs">
+              <table>
+                <thead>
+                  <tr><th>Timestamp</th><th>Source</th><th>Message</th></tr>
+                </thead>
+                <tbody id="logBody"></tbody>
+              </table>
+            </div>
+            <div class="row" style="margin-top:12px;">
+              <button id="loadMore" class="btn">Load more</button>
+              <span id="logStatus" class="hint"></span>
+            </div>
           </div>
         </div>
         <div class="insight-stack">
@@ -125,6 +184,103 @@
         return d.toISOString().replace("T", " ").replace("Z", "");
       }
 
+      function classify(msg) {
+        const m = (msg || "").toLowerCase();
+        if (m.includes("error") || m.includes("fatal") || m.includes("panic")) return "fail";
+        if (m.includes("warn")) return "warn";
+        return "ok";
+      }
+
+      function resizeCanvas(canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+        canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+        const ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return ctx;
+      }
+
+      function drawTimeline(rows) {
+        const canvas = el("timeline");
+        const ctx = resizeCanvas(canvas);
+        const w = canvas.getBoundingClientRect().width;
+        const h = canvas.getBoundingClientRect().height;
+        ctx.clearRect(0, 0, w, h);
+        const bars = rows || [];
+        if (bars.length === 0) {
+          ctx.fillStyle = "rgba(15,23,42,0.35)";
+          ctx.font = "14px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif";
+          ctx.fillText("No data", 14, 22);
+          return;
+        }
+        const max = Math.max(...bars.map(r => r.logs_total || 0), 1);
+        const gap = 2;
+        const bw = Math.max(2, Math.floor((w - 24) / Math.max(1, bars.length)));
+        const x0 = 12;
+        const y0 = h - 14;
+        for (let i = 0; i < bars.length; i++) {
+          const r = bars[i];
+          const total = r.logs_total || 0;
+          const fail = r.logs_fail || 0;
+          const warn = r.logs_warn || 0;
+          const ok = Math.max(0, total - fail - warn);
+          const height = Math.max(2, Math.floor((total / max) * (h - 28)));
+          const x = x0 + i * bw;
+          let y = y0;
+          // ok
+          const okH = Math.floor(height * (ok / Math.max(1, total)));
+          if (okH > 0) {
+            ctx.fillStyle = "rgba(37,99,235,0.20)";
+            ctx.fillRect(x, y - okH, bw - gap, okH);
+            y -= okH;
+          }
+          const warnH = Math.floor(height * (warn / Math.max(1, total)));
+          if (warnH > 0) {
+            ctx.fillStyle = "rgba(251,191,36,0.40)";
+            ctx.fillRect(x, y - warnH, bw - gap, warnH);
+            y -= warnH;
+          }
+          const failH = height - okH - warnH;
+          if (failH > 0) {
+            ctx.fillStyle = "rgba(239,68,68,0.45)";
+            ctx.fillRect(x, y - failH, bw - gap, failH);
+          }
+        }
+      }
+
+      function clearLogs() {
+        el("logBody").innerHTML = "";
+        state.cursor = 0;
+      }
+
+      function appendLogs(lines) {
+        const body = el("logBody");
+        for (const l of (lines || [])) {
+          const tr = document.createElement("tr");
+          const ts = document.createElement("td");
+          ts.className = "ts";
+          ts.textContent = fmtNS(l.ts_ns);
+          const src = document.createElement("td");
+          src.className = "src";
+          const nsPod = [l.namespace, l.pod].filter(Boolean).join("/");
+          const cont = l.container ? `:${l.container}` : "";
+          src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
+          const msg = document.createElement("td");
+          msg.className = "msg";
+          const tag = document.createElement("span");
+          const sev = classify(l.message);
+          tag.className = "tag " + (sev === "ok" ? "" : sev);
+          tag.textContent = sev === "ok" ? "log" : sev;
+          msg.appendChild(tag);
+          msg.appendChild(document.createTextNode(l.message || ""));
+          tr.appendChild(ts);
+          tr.appendChild(src);
+          tr.appendChild(msg);
+          body.appendChild(tr);
+        }
+      }
+
       async function loadSessions() {
         const res = await fetch("/api/sessions");
         const data = await res.json();
@@ -147,7 +303,9 @@
         state.sessionId = state.sessions[0].session_id;
         sel.value = state.sessionId;
         await refreshMeta();
-        await refreshQuickStats();
+        await refreshTimeline();
+        clearLogs();
+        await loadMoreLogs();
       }
 
       async function refreshMeta() {
@@ -181,13 +339,54 @@
         el("statErrors").textContent = String(errors);
       }
 
+      async function refreshTimeline() {
+        const id = state.sessionId;
+        const q = state.q;
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/timeline?bucket=5s&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        drawTimeline(data.rows || []);
+        let lines = 0;
+        let errors = 0;
+        for (const r of (data.rows || [])) {
+          lines += (r.logs_total || 0);
+          errors += (r.logs_fail || 0);
+        }
+        el("statLines").textContent = String(lines);
+        el("statErrors").textContent = String(errors);
+      }
+
+      async function loadMoreLogs() {
+        const id = state.sessionId;
+        const q = state.q;
+        el("logStatus").textContent = "Loading…";
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${state.cursor||0}&limit=300&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        appendLogs(data.lines || []);
+        state.cursor = data.cursor || state.cursor || 0;
+        el("logStatus").textContent = (data.lines || []).length ? `Cursor ${state.cursor}` : "No more lines";
+      }
+
       el("sessionSelect").addEventListener("change", async () => {
         await refreshMeta();
-        await refreshQuickStats();
+        await refreshTimeline();
+        clearLogs();
+        await loadMoreLogs();
       });
       el("q").addEventListener("input", async (e) => {
         state.q = e.target.value || "";
-        await refreshQuickStats();
+        await refreshTimeline();
+        clearLogs();
+        await loadMoreLogs();
+      });
+      el("reload").addEventListener("click", async () => {
+        await loadSessions();
+      });
+      el("loadMore").addEventListener("click", async () => {
+        await loadMoreLogs();
+      });
+
+      window.addEventListener("resize", () => {
+        refreshTimeline().catch(() => {});
       });
 
       loadSessions().catch((err) => {
