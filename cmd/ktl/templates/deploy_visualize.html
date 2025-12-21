@@ -2648,19 +2648,7 @@
           explainEmpty.hidden = false;
           return;
         }
-
-        var rendered = manifests[node.id] || '';
-        var diffText = '';
-        var usingCompare = manifestMode === 'diff' && diffBaselineMode === 'compare';
-        if (usingCompare && compareManifests) {
-          var base = compareManifests[node.id] || '';
-          if (base.trim() && rendered.trim()) {
-            diffText = buildUnifiedDiff(base, rendered, 'comparison', 'rendered');
-          }
-        }
-        if (!diffText) {
-          diffText = manifestDiffs[node.id] || '';
-        }
+        var diffText = currentDiffText(node);
 
         if (!diffText || !diffText.trim()) {
           explainList.innerHTML = '';
