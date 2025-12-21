@@ -17,6 +17,7 @@ func (s *server) handleStream(w http.ResponseWriter, r *http.Request, sessionID 
 		return
 	}
 	cursor := parseInt64(r.URL.Query().Get("cursor"), 0)
+	eventCursor := parseInt64(r.URL.Query().Get("event_cursor"), 0)
 	search := r.URL.Query().Get("q")
 	startNS := parseInt64(r.URL.Query().Get("start_ns"), 0)
 	endNS := parseInt64(r.URL.Query().Get("end_ns"), 0)
@@ -53,10 +54,22 @@ func (s *server) handleStream(w http.ResponseWriter, r *http.Request, sessionID 
 				return
 			}
 			if len(page.Lines) == 0 {
+				// fall through to events
+			} else {
+				cursor = page.Cursor
+				_ = send("logs", page)
+			}
+
+			events, err := s.store.Events(r.Context(), sessionID, eventCursor, 200, search, startNS, endNS)
+			if err != nil {
+				_ = send("error", map[string]any{"error": err.Error()})
+				return
+			}
+			if len(events.Events) == 0 {
 				continue
 			}
-			cursor = page.Cursor
-			_ = send("logs", page)
+			eventCursor = events.Cursor
+			_ = send("events", events)
 		}
 	}
 }

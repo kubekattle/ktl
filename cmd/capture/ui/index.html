@@ -605,7 +605,7 @@
         stopFollow();
         const id = state.sessionId;
         const q = state.q;
-        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
+        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&event_cursor=${state.eventCursor||0}&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
         const es = new EventSource(url);
         state.es = es;
         es.addEventListener("logs", (ev) => {
@@ -614,6 +614,13 @@
             appendLogs(data.lines);
             state.cursor = data.cursor || state.cursor;
             el("logStatus").textContent = `Cursor ${state.cursor} (follow)`;
+          }
+        });
+        es.addEventListener("events", (ev) => {
+          const data = JSON.parse(ev.data);
+          if (data && data.events) {
+            appendEvents(data.events);
+            state.eventCursor = data.cursor || state.eventCursor;
           }
         });
         es.addEventListener("error", () => {});
