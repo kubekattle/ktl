@@ -173,9 +173,6 @@
               <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
               <input id="start" class="time" placeholder="Start (ISO)" />
               <input id="end" class="time" placeholder="End (ISO)" />
-              <button id="reload" class="btn">Reload</button>
-              <button id="export" class="btn">Export NDJSON</button>
-              <button id="follow" class="btn">Follow: off</button>
             </div>
             <div class="hint" id="hint"></div>
           </div>
@@ -256,8 +253,6 @@
       const el = (id) => document.getElementById(id);
       const state = { sessions: [], sessionId: "", q: "" };
       state.cursor = 0;
-      state.follow = false;
-      state.es = null;
       const initialSession = "__INITIAL_SESSION__";
       state.startNS = 0;
       state.endNS = 0;
@@ -442,7 +437,6 @@
         await refreshTimeline();
         clearLogs();
         await loadMoreLogs();
-        stopFollow();
       }
 
       async function refreshMeta() {
@@ -564,44 +558,17 @@
         syncURL();
       }
 
-      function startFollow() {
-        stopFollow();
-        const id = state.sessionId;
-        const q = state.q;
-        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
-        const es = new EventSource(url);
-        state.es = es;
-        es.addEventListener("feed", (ev) => {
-          const data = JSON.parse(ev.data);
-          if (data && data.lines) {
-            appendLogs(data.lines);
-            state.cursor = data.cursor || state.cursor;
-            el("logStatus").textContent = `Cursor ${state.cursor} (follow)`;
-          }
-        });
-        es.addEventListener("error", () => {});
-      }
-
-      function stopFollow() {
-        if (state.es) {
-          state.es.close();
-          state.es = null;
-        }
-      }
-
       el("sessionSelect").addEventListener("change", async () => {
         await refreshMeta();
         await refreshTimeline();
         clearLogs();
         await loadMoreLogs();
-        stopFollow();
       });
       el("q").addEventListener("input", async (e) => {
         state.q = e.target.value || "";
         await refreshTimeline();
         clearLogs();
         await loadMoreLogs();
-        stopFollow();
       });
       const onTimeChange = async () => {
         state.startNS = parseISOToNS(el("start").value);
@@ -609,19 +576,9 @@
         await refreshTimeline();
         clearLogs();
         await loadMoreLogs();
-        stopFollow();
       };
       el("start").addEventListener("change", onTimeChange);
       el("end").addEventListener("change", onTimeChange);
-      el("reload").addEventListener("click", async () => {
-        await loadSessions();
-      });
-      el("export").addEventListener("click", async () => {
-        const id = state.sessionId;
-        const q = state.q;
-        const url = `/api/session/${encodeURIComponent(id)}/export?format=ndjson&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
-        window.location.href = url;
-      });
       el("loadMore").addEventListener("click", async () => {
         await loadMoreLogs();
       });
@@ -670,16 +627,6 @@
       window.addEventListener("keydown", (ev) => {
         if (ev.key === "Escape") el("drawerBackdrop").classList.remove("visible");
       });
-      el("follow").addEventListener("click", async () => {
-        state.follow = !state.follow;
-        el("follow").textContent = state.follow ? "Follow: on" : "Follow: off";
-        if (state.follow) {
-          startFollow();
-        } else {
-          stopFollow();
-        }
-      });
-
       window.addEventListener("resize", () => {
         refreshTimeline().catch(() => {});
       });
