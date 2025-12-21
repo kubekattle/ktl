@@ -946,6 +946,73 @@
 	    .quota-status.warn { color:#92400e; border-color:rgba(251,191,36,0.55); background:rgba(251,191,36,0.14); }
 	    .quota-status.fail { color:#991b1b; border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.12); }
 	    .quota-status.unknown { color:rgba(15,23,42,0.7); }
+	    .quota-header-row {
+	      display:flex;
+	      align-items:center;
+	      justify-content:space-between;
+	      gap:16px;
+	      flex-wrap:wrap;
+	    }
+	    .quota-controls {
+	      display:flex;
+	      gap:10px;
+	      align-items:center;
+	      flex-wrap:wrap;
+	    }
+	    .quota-filter-chip {
+	      border-radius:999px;
+	      border:1px solid rgba(15,23,42,0.12);
+	      background:rgba(255,255,255,0.75);
+	      padding:0.35rem 0.9rem;
+	      font-size:0.78rem;
+	      letter-spacing:0.16em;
+	      text-transform:uppercase;
+	      color:var(--muted);
+	      cursor:pointer;
+	    }
+	    .quota-filter-chip.active {
+	      border-color:rgba(37,99,235,0.45);
+	      box-shadow:0 0 0 3px rgba(37,99,235,0.15);
+	      color:var(--text);
+	    }
+	    details.quota-breakdown {
+	      border:1px solid rgba(15,23,42,0.08);
+	      border-radius:18px;
+	      background:rgba(255,255,255,0.72);
+	      padding:12px 14px;
+	    }
+	    details.quota-breakdown summary {
+	      cursor:pointer;
+	      list-style:none;
+	      display:flex;
+	      align-items:baseline;
+	      justify-content:space-between;
+	      gap:12px;
+	      font-weight:650;
+	    }
+	    details.quota-breakdown summary::-webkit-details-marker { display:none; }
+	    .quota-breakdown-meta {
+	      display:flex;
+	      gap:8px;
+	      align-items:center;
+	      flex-wrap:wrap;
+	      justify-content:flex-end;
+	    }
+	    .quota-count {
+	      font-variant-numeric: tabular-nums;
+	      font-size:0.8rem;
+	      letter-spacing:0.12em;
+	      text-transform:uppercase;
+	      color:var(--muted);
+	    }
+	    .explain-jump {
+	      margin-left:auto;
+	      display:flex;
+	      gap:8px;
+	      align-items:center;
+	      flex-wrap:wrap;
+	    }
+	    .explain-jump .chip { padding:0.35rem 0.85rem; }
 	    .graph-pane { display:flex; flex-direction:column; gap:16px; }
     .graph-header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; }
     .graph-legend { display:flex; gap:16px; align-items:center; font-size:0.85rem; color:var(--muted); }
@@ -1261,9 +1328,18 @@
 	            <p id="explainEmpty" class="muted" hidden>No notable changes detected for this resource.</p>
 	          </div>
 	          <div id="quotaView" class="quota-view" hidden>
-	            <div>
-	              <h3>Namespace quota headroom</h3>
-	              <p class="muted">Compares current ResourceQuota usage with the rendered chart’s estimated requests, limits, and object counts.</p>
+	            <div class="quota-header-row">
+	              <div>
+	                <h3>Namespace quota headroom</h3>
+	                <p class="muted">Compares current ResourceQuota usage with the rendered chart’s estimated requests, limits, and object counts.</p>
+	              </div>
+	              <div class="quota-controls" aria-label="Quota status filters">
+	                <span id="quotaOverallStatus" class="quota-status unknown">unknown</span>
+	                <button id="quotaFilterAll" class="quota-filter-chip active" type="button" data-quota-filter="all" aria-pressed="true">All</button>
+	                <button id="quotaFilterFail" class="quota-filter-chip" type="button" data-quota-filter="fail" aria-pressed="false">Fail</button>
+	                <button id="quotaFilterWarn" class="quota-filter-chip" type="button" data-quota-filter="warn" aria-pressed="false">Warn</button>
+	                <button id="quotaFilterPass" class="quota-filter-chip" type="button" data-quota-filter="pass" aria-pressed="false">Pass</button>
+	              </div>
 	            </div>
 	            <div id="quotaSummary" class="grid"></div>
 	            <div>
@@ -1284,6 +1360,10 @@
 	                </thead>
 	                <tbody id="quotaHeadroomBody"></tbody>
 	              </table>
+	            </div>
+	            <div>
+	              <h3>Per-quota drilldown</h3>
+	              <div id="quotaBreakdown"></div>
 	            </div>
 	            <div id="quotaWarningsPanel" hidden>
 	              <h3>Notes</h3>
@@ -1395,6 +1475,12 @@
 	      var quotaEmpty = document.getElementById('quotaEmpty');
 	      var quotaHeadroomTable = document.getElementById('quotaHeadroomTable');
 	      var quotaHeadroomBody = document.getElementById('quotaHeadroomBody');
+	      var quotaOverallStatus = document.getElementById('quotaOverallStatus');
+	      var quotaBreakdown = document.getElementById('quotaBreakdown');
+	      var quotaFilterAll = document.getElementById('quotaFilterAll');
+	      var quotaFilterFail = document.getElementById('quotaFilterFail');
+	      var quotaFilterWarn = document.getElementById('quotaFilterWarn');
+	      var quotaFilterPass = document.getElementById('quotaFilterPass');
 	      var quotaWarningsPanel = document.getElementById('quotaWarningsPanel');
 	      var quotaWarnings = document.getElementById('quotaWarnings');
       var diffSearch = document.getElementById('diffSearch');
@@ -1427,6 +1513,7 @@
 	      var compareOtherView = document.getElementById('compareOtherView');
 	      var compareTitle = document.getElementById('compareTitle');
 	      var quotaRendered = false;
+	      var quotaFilterMode = 'all';
       var heroHeadline = document.getElementById('heroHeadline');
       var heroChips = document.getElementById('heroChips');
       var heroCreates = document.getElementById('heroCreates');
@@ -1564,6 +1651,7 @@
       bindHashWatcher();
       bindCopyLink();
       bindCopyExplain();
+      bindQuotaFilters();
       bindDownloadReport();
       bindDownloadButtons();
       bindCompareUpload();
@@ -1706,6 +1794,11 @@
 	        var report = dataset.desiredQuota || null;
 	        if (!report) {
 	          if (quotaEmpty) quotaEmpty.hidden = false;
+	          if (quotaBreakdown) quotaBreakdown.innerHTML = '';
+	          if (quotaOverallStatus) {
+	            quotaOverallStatus.className = 'quota-status unknown';
+	            quotaOverallStatus.textContent = 'unknown';
+	          }
 	          return;
 	        }
 
@@ -1752,14 +1845,37 @@
 	        if (!rows.length) {
 	          if (quotaEmpty) quotaEmpty.hidden = false;
 	          if (quotaHeadroomTable) quotaHeadroomTable.hidden = true;
+	          if (quotaBreakdown) quotaBreakdown.innerHTML = '';
+	          if (quotaOverallStatus) {
+	            quotaOverallStatus.className = 'quota-status unknown';
+	            quotaOverallStatus.textContent = 'unknown';
+	          }
 	          return;
 	        }
 
 	        if (quotaEmpty) quotaEmpty.hidden = true;
 	        if (quotaHeadroomTable) quotaHeadroomTable.hidden = false;
+
+	        var overall = 'pass';
+	        for (var i = 0; i < rows.length; i++) {
+	          var s = String(rows[i].status || 'unknown').toLowerCase();
+	          if (s === 'fail') { overall = 'fail'; break; }
+	          if (s === 'warn') overall = 'warn';
+	          if (s === 'unknown' && overall === 'pass') overall = 'unknown';
+	        }
+	        if (quotaOverallStatus) {
+	          quotaOverallStatus.className = 'quota-status ' + overall;
+	          quotaOverallStatus.textContent = overall;
+	        }
+
 	        if (quotaHeadroomBody) {
 	          quotaHeadroomBody.innerHTML = '';
-	          rows.forEach(function(row) {
+	          var filtered = rows.filter(function(row) {
+	            var status = String(row.status || 'unknown').toLowerCase();
+	            if (quotaFilterMode === 'all') return true;
+	            return status === quotaFilterMode;
+	          });
+	          filtered.forEach(function(row) {
 	            var tr = document.createElement('tr');
 	            function td(text) {
 	              var cell = document.createElement('td');
@@ -1783,6 +1899,95 @@
 	            quotaHeadroomBody.appendChild(tr);
 	          });
 	        }
+
+	        if (quotaBreakdown) {
+	          quotaBreakdown.innerHTML = '';
+	          var byQuota = {};
+	          rows.forEach(function(row) {
+	            var quota = row.quota || 'unknown';
+	            if (!byQuota[quota]) byQuota[quota] = [];
+	            byQuota[quota].push(row);
+	          });
+	          Object.keys(byQuota).sort().forEach(function(quota) {
+	            var group = byQuota[quota] || [];
+	            var statusCounts = { fail: 0, warn: 0, pass: 0, unknown: 0 };
+	            group.forEach(function(row) {
+	              var s = String(row.status || 'unknown').toLowerCase();
+	              if (!statusCounts.hasOwnProperty(s)) s = 'unknown';
+	              statusCounts[s] += 1;
+	            });
+	            var dominant = 'pass';
+	            if (statusCounts.fail) dominant = 'fail';
+	            else if (statusCounts.warn) dominant = 'warn';
+	            else if (statusCounts.unknown && !statusCounts.pass) dominant = 'unknown';
+
+	            var details = document.createElement('details');
+	            details.className = 'quota-breakdown';
+	            details.open = dominant !== 'pass';
+	            var summary = document.createElement('summary');
+	            summary.innerHTML = '<span>' + escapeHTML(quota) + '</span>';
+	            var meta = document.createElement('span');
+	            meta.className = 'quota-breakdown-meta';
+	            var badge = document.createElement('span');
+	            badge.className = 'quota-status ' + dominant;
+	            badge.textContent = dominant;
+	            meta.appendChild(badge);
+	            var count = document.createElement('span');
+	            count.className = 'quota-count';
+	            count.textContent = statusCounts.fail + ' fail · ' + statusCounts.warn + ' warn · ' + statusCounts.pass + ' pass';
+	            meta.appendChild(count);
+	            summary.appendChild(meta);
+	            details.appendChild(summary);
+
+	            var table = document.createElement('table');
+	            table.className = 'quota-table';
+	            table.innerHTML = '<thead><tr><th>Resource</th><th>Hard</th><th>Used</th><th>Chart</th><th>After</th><th>Headroom</th><th>Status</th></tr></thead><tbody></tbody>';
+	            var body = table.querySelector('tbody');
+	            group.forEach(function(row) {
+	              var status = String(row.status || 'unknown').toLowerCase();
+	              if (quotaFilterMode !== 'all' && status !== quotaFilterMode) return;
+	              var tr = document.createElement('tr');
+	              function td(text) {
+	                var cell = document.createElement('td');
+	                cell.textContent = (text == null || text === '') ? '—' : String(text);
+	                return cell;
+	              }
+	              tr.appendChild(td(row.resource));
+	              tr.appendChild(td(row.hard));
+	              tr.appendChild(td(row.used));
+	              tr.appendChild(td(row.desired));
+	              tr.appendChild(td(row.after));
+	              tr.appendChild(td(row.headroom));
+	              var statusCell = document.createElement('td');
+	              var badge = document.createElement('span');
+	              badge.className = 'quota-status ' + status;
+	              badge.textContent = status;
+	              statusCell.appendChild(badge);
+	              tr.appendChild(statusCell);
+	              body.appendChild(tr);
+	            });
+	            details.appendChild(table);
+	            quotaBreakdown.appendChild(details);
+	          });
+	        }
+	      }
+
+	      function bindQuotaFilters() {
+	        var buttons = [quotaFilterAll, quotaFilterFail, quotaFilterWarn, quotaFilterPass].filter(Boolean);
+	        if (!buttons.length) return;
+	        buttons.forEach(function(btn) {
+	          btn.addEventListener('click', function() {
+	            var next = btn.getAttribute('data-quota-filter') || 'all';
+	            quotaFilterMode = next;
+	            buttons.forEach(function(other) {
+	              var active = other === btn;
+	              other.classList.toggle('active', active);
+	              other.setAttribute('aria-pressed', active ? 'true' : 'false');
+	            });
+	            quotaRendered = false;
+	            renderQuotaPane();
+	          });
+	        });
 	      }
 
       function buildKindChips() {
@@ -2910,8 +3115,8 @@
         }
 
         var findings = [];
-        function addFinding(severity, title, detail) {
-          findings.push({ severity: severity, title: title, detail: detail });
+        function addFinding(severity, title, detail, jumpQuery) {
+          findings.push({ severity: severity, title: title, detail: detail, jumpQuery: jumpQuery || '' });
         }
 
         var lines = diffText.split('\n');
@@ -2966,51 +3171,51 @@
           var detail = (beforeImages.length && afterImages.length)
             ? ('From ' + beforeImages.join(', ') + ' \u2192 ' + afterImages.join(', '))
             : 'Image fields changed; expect rollout/restart.';
-          addFinding('warn', 'Container image change', detail);
+          addFinding('warn', 'Container image change', detail, 'image:');
         }
 
         if (anyMatch(adds, /^\\s*replicas:\\s*\\d+/) || anyMatch(dels, /^\\s*replicas:\\s*\\d+/)) {
           var sample = firstLine(adds, /^\\s*replicas:\\s*\\d+/) || firstLine(dels, /^\\s*replicas:\\s*\\d+/);
-          addFinding('info', 'Replica count change', sample ? ('Replica count changed (' + sample + '). Autoscalers may override via HPA.') : 'Autoscalers may override replica changes if HPA is enabled.');
+          addFinding('info', 'Replica count change', sample ? ('Replica count changed (' + sample + '). Autoscalers may override via HPA.') : 'Autoscalers may override replica changes if HPA is enabled.', 'replicas:');
         }
 
         if (anyMatch(adds, /^\\s*selector:\\s*$/) || anyMatch(dels, /^\\s*selector:\\s*$/)) {
           var sampleSel = firstLine(adds, /^\\s*selector:\\s*$/) || firstLine(dels, /^\\s*selector:\\s*$/);
-          addFinding('fail', 'Selector changed', sampleSel ? ('Selector block changed (' + sampleSel + '). This can orphan workloads or break Service routing.') : 'Selector changes can orphan workloads or break Service routing.');
+          addFinding('fail', 'Selector changed', sampleSel ? ('Selector block changed (' + sampleSel + '). This can orphan workloads or break Service routing.') : 'Selector changes can orphan workloads or break Service routing.', 'selector:');
         }
 
         if (kind === 'service' && (anyMatch(adds, /^\\s*clusterIP:\\s*\\S+/) || anyMatch(dels, /^\\s*clusterIP:\\s*\\S+/))) {
-          addFinding('fail', 'Service clusterIP change', 'clusterIP is usually immutable; this may fail or force recreation.');
+          addFinding('fail', 'Service clusterIP change', 'clusterIP is usually immutable; this may fail or force recreation.', 'clusterIP:');
         }
 
         if (anyMatch(adds, /^\\s*(readinessProbe|livenessProbe):\\s*$/) || anyMatch(dels, /^\\s*(readinessProbe|livenessProbe):\\s*$/)) {
           var probeSample = firstLine(adds, /^\\s*(readinessProbe|livenessProbe):\\s*$/) || firstLine(dels, /^\\s*(readinessProbe|livenessProbe):\\s*$/);
-          addFinding('warn', 'Probe configuration changed', probeSample ? ('Probe block changed (' + probeSample + '). Probe changes can cause rollout stalls.') : 'Probe changes can cause rollout stalls if thresholds are too strict.');
+          addFinding('warn', 'Probe configuration changed', probeSample ? ('Probe block changed (' + probeSample + '). Probe changes can cause rollout stalls.') : 'Probe changes can cause rollout stalls if thresholds are too strict.', 'probe:');
         }
 
         if (anyMatch(adds, /^\\s*(requests|limits):\\s*$/) || anyMatch(dels, /^\\s*(requests|limits):\\s*$/) || anyMatch(adds, /^\\s*(cpu|memory):\\s*/) || anyMatch(dels, /^\\s*(cpu|memory):\\s*/)) {
-          addFinding('warn', 'Resource requests/limits change', 'May trigger scheduling changes; verify capacity during rollout.');
+          addFinding('warn', 'Resource requests/limits change', 'May trigger scheduling changes; verify capacity during rollout.', 'resources:');
         }
 
         if (anyMatch(adds, /^\\s*host:\\s*\\S+/) || anyMatch(dels, /^\\s*host:\\s*\\S+/)) {
           var hostSample = firstLine(adds, /^\\s*host:\\s*\\S+/) || firstLine(dels, /^\\s*host:\\s*\\S+/);
-          addFinding('warn', 'Ingress host change', hostSample ? ('Host changed (' + hostSample + '). Routing/DNS impact likely; confirm certificates.') : 'Routing/DNS impact likely; confirm certificates and external integrations.');
+          addFinding('warn', 'Ingress host change', hostSample ? ('Host changed (' + hostSample + '). Routing/DNS impact likely; confirm certificates.') : 'Routing/DNS impact likely; confirm certificates and external integrations.', 'host:');
         }
 
         if (kind === 'persistentvolumeclaim' && (anyMatch(adds, /^\\s*storage:\\s*\\S+/) || anyMatch(dels, /^\\s*storage:\\s*\\S+/))) {
-          addFinding('warn', 'PVC size change', 'Expansion depends on storage class; shrinking usually fails.');
+          addFinding('warn', 'PVC size change', 'Expansion depends on storage class; shrinking usually fails.', 'storage:');
         }
 
         if (kind === 'poddisruptionbudget' && (anyMatch(adds, /^\\s*(minAvailable|maxUnavailable):\\s*\\S+/) || anyMatch(dels, /^\\s*(minAvailable|maxUnavailable):\\s*\\S+/))) {
-          addFinding('warn', 'PDB budget changed', 'Tighter budgets can block rollouts and voluntary evictions.');
+          addFinding('warn', 'PDB budget changed', 'Tighter budgets can block rollouts and voluntary evictions.', 'minAvailable:');
         }
 
         if (anyMatch(adds, /^\\s*privileged:\\s*true\\s*$/) || anyMatch(adds, /^\\s*hostNetwork:\\s*true\\s*$/)) {
-          addFinding('fail', 'Elevated security settings', 'Admission policies may deny; confirm cluster pod security rules.');
+          addFinding('fail', 'Elevated security settings', 'Admission policies may deny; confirm cluster pod security rules.', 'privileged:');
         }
 
 	        if (anyIncludes(adds, 'helm.sh/hook:') || anyIncludes(dels, 'helm.sh/hook:')) {
-	          addFinding('warn', 'Helm hook change', 'Hooks can affect ordering and atomic behavior; review delete policies.');
+	          addFinding('warn', 'Helm hook change', 'Hooks can affect ordering and atomic behavior; review delete policies.', 'helm.sh/hook:');
 	        }
 
         explainList.innerHTML = '';
@@ -3059,6 +3264,25 @@
           title.className = 'explain-title';
           title.textContent = f.title;
           body.appendChild(title);
+
+          if (f.jumpQuery) {
+            var jump = document.createElement('div');
+            jump.className = 'explain-jump';
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'chip';
+            btn.textContent = 'View in diff';
+            btn.addEventListener('click', function() {
+              setManifestMode('diff');
+              if (diffSearch) {
+                diffSearch.value = f.jumpQuery;
+                runDiffSearch(true);
+                focusDiffMatch(0);
+              }
+            });
+            jump.appendChild(btn);
+            body.appendChild(jump);
+          }
           if (f.detail) {
             var detail = document.createElement('div');
             detail.className = 'explain-detail';
