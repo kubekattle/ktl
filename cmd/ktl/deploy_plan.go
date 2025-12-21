@@ -309,6 +309,7 @@ type deployPlanResult struct {
 	Changes           []planResourceChange `json:"changes"`
 	Summary           planSummary          `json:"summary"`
 	Warnings          []string             `json:"warnings,omitempty"`
+	DesiredQuota      *quotaReport         `json:"desiredQuota,omitempty"`
 	ClusterHost       string               `json:"clusterHost,omitempty"`
 	InstallCmd        string               `json:"installCommand,omitempty"`
 	GeneratedAt       time.Time            `json:"generatedAt"`
@@ -515,6 +516,7 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 	manifestDiffs := buildManifestDiffs(liveManifestBlobs, manifestBlobs)
 	warnings := append([]string{}, lookupWarnings...)
 	warnings = append(warnings, planWarnings(changes)...)
+	desiredQuota := buildDesiredQuotaReport(desiredDocs, opts.Namespace)
 
 	var cluster string
 	if kubeClient != nil && kubeClient.RESTConfig != nil {
@@ -541,6 +543,7 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 		Changes:           changes,
 		Summary:           summary,
 		Warnings:          warnings,
+		DesiredQuota:      desiredQuota,
 		ClusterHost:       cluster,
 		InstallCmd:        buildInstallCommand(opts),
 		GeneratedAt:       time.Now().UTC(),
@@ -1252,6 +1255,7 @@ type deployVisualizePayload struct {
 	Summary           planSummary       `json:"summary,omitempty"`
 	Warnings          []string          `json:"warnings,omitempty"`
 	ValuesDiff        valuesDiffSummary `json:"valuesDiff"`
+	DesiredQuota      *quotaReport      `json:"desiredQuota,omitempty"`
 	GeneratedAt       time.Time         `json:"generatedAt,omitempty"`
 	OfflineFallback   bool              `json:"offlineFallback"`
 }
@@ -1282,6 +1286,7 @@ func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResu
 		ChangeKinds:     changeKinds,
 		Warnings:        append([]string(nil), result.Warnings...),
 		Summary:         result.Summary,
+		DesiredQuota:    result.DesiredQuota,
 		GeneratedAt:     result.GeneratedAt,
 		OfflineFallback: result.OfflineFallback,
 	}
