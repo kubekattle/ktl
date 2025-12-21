@@ -122,6 +122,17 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	streams := opts.Streams
 	errOut := streams.ErrWriter()
 
+	if opts.Hermetic {
+		if !opts.AllowNetwork {
+			opts.RequireSandbox = true
+		}
+		if strings.TrimSpace(opts.AttestationDir) == "" {
+			return nil, errors.New("--hermetic requires --attest-dir so ktl can persist provenance (including external fetches)")
+		}
+		opts.AttestProvenance = true
+		opts.AttestSBOM = true
+	}
+
 	var logCloser io.Closer
 	if logPath := strings.TrimSpace(opts.LogFile); logPath != "" {
 		dir := filepath.Dir(logPath)
@@ -193,6 +204,8 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		} else if handled {
 			return &Result{}, nil
 		}
+	} else if opts.RequireSandbox && !sandboxActive() {
+		return nil, fmt.Errorf("sandbox is required but unavailable on this host (set KTL_SANDBOX_DISABLE=1 to opt out, or omit --hermetic/--sandbox)")
 	} else if opts.SandboxLogs {
 		return nil, fmt.Errorf("--sandbox-logs is only supported on Linux hosts with a sandbox runtime installed")
 	}
@@ -211,6 +224,12 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		stream: stream,
 		writer: errOut,
 	}}
+
+	var fetches *externalFetchCollector
+	if opts.Hermetic {
+		fetches = newExternalFetchCollector(start)
+		progressObservers = append(progressObservers, fetches)
+	}
 
 	var captureRecorder *capture.Recorder
 	if path := strings.TrimSpace(opts.CapturePath); path != "" {
@@ -311,6 +330,9 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 			if opts.ContextDir != "" {
 				_ = captureRecorder.RecordArtifact(context.Background(), "build_context", opts.ContextDir)
 			}
+			if fetches != nil {
+				_ = captureRecorder.RecordArtifact(context.Background(), "build.external_fetches_json", fetches.snapshotJSON())
+			}
 		}
 	}()
 
@@ -323,7 +345,27 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		if err := s.runComposeBuild(ctx, composeFiles, opts, progressObservers, diagnosticObservers, quietProgress, stream, streams); err != nil {
 			return nil, err
 		}
+		if fetches != nil {
+			if dir := strings.TrimSpace(opts.AttestationDir); dir != "" {
+				if err := os.MkdirAll(dir, 0o755); err == nil {
+					_ = os.WriteFile(filepath.Join(dir, "ktl-external-fetches.json"), []byte(fetches.snapshotJSON()), 0o644)
+				}
+			}
+		}
 		return &Result{}, nil
+	}
+
+	if opts.Hermetic {
+		dockerfilePath := opts.Dockerfile
+		if dockerfilePath == "" {
+			dockerfilePath = "Dockerfile"
+		}
+		if !filepath.IsAbs(dockerfilePath) {
+			dockerfilePath = filepath.Join(contextAbs, dockerfilePath)
+		}
+		if err := validatePinnedBaseImagesWithOptions(dockerfilePath, opts.AllowUnpinnedBases); err != nil {
+			return nil, err
+		}
 	}
 
 	buildArgs, err := parseKeyValueArgs(opts.BuildArgs)
@@ -456,6 +498,11 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 			}
 		} else if stream != nil {
 			stream.emitInfo("No attestations found in OCI layout")
+		}
+		if fetches != nil {
+			if err := os.MkdirAll(opts.AttestationDir, 0o755); err == nil {
+				_ = os.WriteFile(filepath.Join(opts.AttestationDir, "ktl-external-fetches.json"), []byte(fetches.snapshotJSON()), 0o644)
+			}
 		}
 	}
 

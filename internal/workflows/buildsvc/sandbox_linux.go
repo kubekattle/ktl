@@ -47,7 +47,13 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 
 	configPath := opts.SandboxConfig
 	if configPath == "" {
-		path, err := ensureDefaultSandboxConfig()
+		var path string
+		var err error
+		if opts.Hermetic && !opts.AllowNetwork {
+			path, err = ensureHermeticSandboxConfig()
+		} else {
+			path, err = ensureDefaultSandboxConfig()
+		}
 		if err != nil {
 			return false, err
 		}

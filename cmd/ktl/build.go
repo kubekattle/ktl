@@ -42,6 +42,9 @@ type buildCLIOptions struct {
 	cacheTo          []string
 	sbom             bool
 	provenance       bool
+	hermetic         bool
+	allowNetwork     bool
+	allowUnpinned    bool
 	attestDir        string
 	capturePath      string
 	captureTags      []string
@@ -162,6 +165,10 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().Var(&validatedCSVListValue{dest: &opts.platforms, validator: validatePlatform, name: "--platform"}, "platform", "Target platforms (comma-separated values like linux/amd64)")
 	cmd.Flags().BoolVar(&opts.sbom, "sbom", false, "Generate an SBOM attestation (in-toto) during the build")
 	cmd.Flags().BoolVar(&opts.provenance, "provenance", false, "Generate a SLSA provenance attestation (in-toto) during the build")
+	cmd.Flags().BoolVar(&opts.hermetic, "hermetic", false, "Enable hermetic/locked build mode (no network egress unless explicitly allowed; requires pinned base-image digests; records external fetches)")
+	cmd.Flags().BoolVar(&opts.hermetic, "locked", false, "Alias for --hermetic")
+	cmd.Flags().BoolVar(&opts.allowNetwork, "allow-network", false, "Allow network egress when --hermetic is enabled")
+	cmd.Flags().BoolVar(&opts.allowUnpinned, "allow-unpinned-bases", false, "Allow unpinned base images (FROM without @sha256 digest) when --hermetic is enabled")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.attestDir, name: "--attest-dir", allowEmpty: true, validator: nil}, "attest-dir", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.capturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture build logs/events to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
@@ -392,6 +399,9 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		Secrets:            append([]string(nil), opts.secrets...),
 		CacheFrom:          append([]string(nil), opts.cacheFrom...),
 		CacheTo:            append([]string(nil), opts.cacheTo...),
+		Hermetic:           opts.hermetic,
+		AllowNetwork:       opts.allowNetwork,
+		AllowUnpinnedBases: opts.allowUnpinned,
 		AttestSBOM:         opts.sbom,
 		AttestProvenance:   opts.provenance,
 		AttestationDir:     opts.attestDir,

@@ -99,6 +99,9 @@ type Options struct {
 	Secrets            []string
 	CacheFrom          []string
 	CacheTo            []string
+	Hermetic           bool
+	AllowNetwork       bool
+	AllowUnpinnedBases bool
 	AttestProvenance   bool
 	AttestSBOM         bool
 	AttestationDir     string

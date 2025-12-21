@@ -8,6 +8,8 @@ package buildsvc
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -36,6 +38,8 @@ func (s *service) runComposeBuild(ctx context.Context, composeFiles []string, op
 		BuilderAddr:          opts.Builder,
 		AllowBuilderFallback: opts.Builder == "",
 		CacheDir:             opts.CacheDir,
+		Hermetic:             opts.Hermetic,
+		AllowUnpinnedBases:   opts.AllowUnpinnedBases,
 		Push:                 opts.Push,
 		Load:                 opts.Load,
 		NoCache:              opts.NoCache,
@@ -59,6 +63,25 @@ func (s *service) runComposeBuild(ctx context.Context, composeFiles []string, op
 	results, err := s.composeRunner.BuildCompose(ctx, composeOpts)
 	if err != nil {
 		return err
+	}
+
+	if dir := strings.TrimSpace(opts.AttestationDir); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create --attest-dir: %w", err)
+		}
+		for _, svc := range results {
+			if svc.Result == nil || strings.TrimSpace(svc.Result.OCIOutputPath) == "" {
+				continue
+			}
+			dest := filepath.Join(dir, svc.Service)
+			_, attErr := buildkit.WriteAttestationsFromOCI(svc.Result.OCIOutputPath, dest)
+			if attErr != nil {
+				return attErr
+			}
+		}
+		if stream != nil {
+			stream.emitInfo(fmt.Sprintf("Wrote compose attestations to %s (one subdir per service)", dir))
+		}
 	}
 
 	sort.Slice(results, func(i, j int) bool {

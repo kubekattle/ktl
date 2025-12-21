@@ -37,6 +37,8 @@ type ComposeBuildOptions struct {
 	BuilderAddr          string
 	AllowBuilderFallback bool
 	CacheDir             string
+	Hermetic             bool
+	AllowUnpinnedBases   bool
 	Push                 bool
 	Load                 bool
 	NoCache              bool
@@ -361,6 +363,11 @@ func (r *composeRunner) buildComposeService(ctx context.Context, project *compos
 	}
 	if inlinePath != "" {
 		defer os.Remove(inlinePath)
+	}
+	if opts.Hermetic {
+		if err := validatePinnedBaseImagesWithOptions(dockerfilePath, opts.AllowUnpinnedBases); err != nil {
+			return ServiceBuildResult{}, fmt.Errorf("service %s: %w", name, err)
+		}
 	}
 
 	servicePlatforms := sliceFromStringList(svc.Build.Platforms)
