@@ -73,4 +73,3 @@ func (s *server) Shutdown(ctx context.Context) error {
 	}
 	return nil
 }
-

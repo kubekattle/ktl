@@ -128,4 +128,3 @@ func TestSQLiteStore_ReadsKtlCaptureDB(t *testing.T) {
 		t.Fatalf("Events=%d, want >=2", len(eventsPage.Events))
 	}
 }
-

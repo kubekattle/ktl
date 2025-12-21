@@ -46,14 +46,14 @@ type SessionMeta struct {
 }
 
 type TimelineRow struct {
-	BucketNS   int64 `json:"bucket_ns"`
-	LogsTotal  int64 `json:"logs_total"`
-	LogsWarn   int64 `json:"logs_warn"`
-	LogsFail   int64 `json:"logs_fail"`
-	Deploy     int64 `json:"deploy"`
-	Selection  int64 `json:"selection"`
-	Artifacts  int64 `json:"artifacts"`
-	AnyEvents  int64 `json:"any_events"`
+	BucketNS  int64 `json:"bucket_ns"`
+	LogsTotal int64 `json:"logs_total"`
+	LogsWarn  int64 `json:"logs_warn"`
+	LogsFail  int64 `json:"logs_fail"`
+	Deploy    int64 `json:"deploy"`
+	Selection int64 `json:"selection"`
+	Artifacts int64 `json:"artifacts"`
+	AnyEvents int64 `json:"any_events"`
 }
 
 type LogsPage struct {

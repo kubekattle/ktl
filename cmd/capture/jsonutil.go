@@ -19,4 +19,3 @@ func marshalJSON(v any) ([]byte, error) {
 	}
 	return out, nil
 }
-
