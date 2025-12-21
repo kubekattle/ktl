@@ -32,6 +32,13 @@ make release   # cross-build archives into ./dist
 ## Examples
 See `examples.md` for up-to-date CLI examples.
 
+## Build policy gate (OPA/Rego)
+`ktl build` supports a fast “policy gate” so security can codify what’s allowed and developers get actionable failures locally and in CI.
+
+- `--policy <dir|https-url>` points at an OPA/Rego bundle (see `examples/policy/demo`).
+- `--policy-mode warn|enforce` starts in warn mode and ratchets to enforcement.
+- `--policy-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-policy-report.json` when `--attest-dir` is set).
+
 ## Development
 ```bash
 make test   # go test ./...
