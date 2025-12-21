@@ -50,6 +50,7 @@ type TimelineRow struct {
 	LogsTotal int64 `json:"logs_total"`
 	LogsWarn  int64 `json:"logs_warn"`
 	LogsFail  int64 `json:"logs_fail"`
+	LogsInfo  int64 `json:"logs_info"`
 	Deploy    int64 `json:"deploy"`
 	Selection int64 `json:"selection"`
 	Artifacts int64 `json:"artifacts"`
@@ -211,13 +212,14 @@ func (s *sqliteStore) Timeline(ctx context.Context, sessionID string, bucket tim
 		args = append(args, pat, pat, pat, pat)
 	}
 
-	// Severity is inferred from message for plain logs; deploy uses level if present.
+	// Severity is inferred from level/message for logs; deploy uses level if present.
 	query := fmt.Sprintf(`
 SELECT
   %s AS bucket_ns,
   SUM(CASE WHEN kind = 'log' THEN 1 ELSE 0 END) AS logs_total,
-  SUM(CASE WHEN kind = 'log' AND lower(COALESCE(message, '')) LIKE '%%warn%%' THEN 1 ELSE 0 END) AS logs_warn,
-  SUM(CASE WHEN kind = 'log' AND (lower(COALESCE(message, '')) LIKE '%%error%%' OR lower(COALESCE(message, '')) LIKE '%%fatal%%' OR lower(COALESCE(message, '')) LIKE '%%panic%%') THEN 1 ELSE 0 END) AS logs_fail,
+  SUM(CASE WHEN kind = 'log' AND (lower(COALESCE(level, '')) = 'warn' OR lower(COALESCE(message, '')) LIKE '%%warn%%') THEN 1 ELSE 0 END) AS logs_warn,
+  SUM(CASE WHEN kind = 'log' AND (lower(COALESCE(level, '')) IN ('error','fatal') OR lower(COALESCE(message, '')) LIKE '%%error%%' OR lower(COALESCE(message, '')) LIKE '%%fatal%%' OR lower(COALESCE(message, '')) LIKE '%%panic%%') THEN 1 ELSE 0 END) AS logs_fail,
+  SUM(CASE WHEN kind = 'log' AND NOT (lower(COALESCE(level, '')) = 'warn' OR lower(COALESCE(level, '')) IN ('error','fatal') OR lower(COALESCE(message, '')) LIKE '%%warn%%' OR lower(COALESCE(message, '')) LIKE '%%error%%' OR lower(COALESCE(message, '')) LIKE '%%fatal%%' OR lower(COALESCE(message, '')) LIKE '%%panic%%') THEN 1 ELSE 0 END) AS logs_info,
   SUM(CASE WHEN kind = 'deploy' THEN 1 ELSE 0 END) AS deploy,
   SUM(CASE WHEN kind = 'selection' THEN 1 ELSE 0 END) AS selection,
   0 AS artifacts,
@@ -235,13 +237,13 @@ LIMIT 4000
 	}
 	defer rows.Close()
 	out := make([]TimelineRow, 0, 512)
-	for rows.Next() {
-		var r TimelineRow
-		if err := rows.Scan(&r.BucketNS, &r.LogsTotal, &r.LogsWarn, &r.LogsFail, &r.Deploy, &r.Selection, &r.Artifacts, &r.AnyEvents); err != nil {
-			return nil, err
+		for rows.Next() {
+			var r TimelineRow
+			if err := rows.Scan(&r.BucketNS, &r.LogsTotal, &r.LogsWarn, &r.LogsFail, &r.LogsInfo, &r.Deploy, &r.Selection, &r.Artifacts, &r.AnyEvents); err != nil {
+				return nil, err
+			}
+			out = append(out, r)
 		}
-		out = append(out, r)
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -281,7 +283,7 @@ LIMIT 4000
 	return out, nil
 }
 
-func (s *sqliteStore) Logs(ctx context.Context, sessionID string, cursor int64, limit int, search string) (LogsPage, error) {
+func (s *sqliteStore) Logs(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64) (LogsPage, error) {
 	if limit <= 0 {
 		limit = 300
 	}
@@ -290,6 +292,14 @@ func (s *sqliteStore) Logs(ctx context.Context, sessionID string, cursor int64, 
 
 	where := "session_id = ? AND kind = 'log'"
 	args := []any{sessionID}
+	if startNS > 0 {
+		where += " AND " + tsExpr + " >= ?"
+		args = append(args, startNS)
+	}
+	if endNS > 0 {
+		where += " AND " + tsExpr + " <= ?"
+		args = append(args, endNS)
+	}
 	if cursor > 0 {
 		where += " AND " + keyExpr + " > ?"
 		args = append(args, cursor)
@@ -335,7 +345,7 @@ LIMIT %d
 	return out, rows.Err()
 }
 
-func (s *sqliteStore) Events(ctx context.Context, sessionID string, cursor int64, limit int, search string) (EventsPage, error) {
+func (s *sqliteStore) Events(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64) (EventsPage, error) {
 	if limit <= 0 {
 		limit = 200
 	}
@@ -344,6 +354,14 @@ func (s *sqliteStore) Events(ctx context.Context, sessionID string, cursor int64
 
 	where := "session_id = ? AND kind != 'log'"
 	args := []any{sessionID}
+	if startNS > 0 {
+		where += " AND " + tsExpr + " >= ?"
+		args = append(args, startNS)
+	}
+	if endNS > 0 {
+		where += " AND " + tsExpr + " <= ?"
+		args = append(args, endNS)
+	}
 	if cursor > 0 {
 		where += " AND " + keyExpr + " > ?"
 		args = append(args, cursor)

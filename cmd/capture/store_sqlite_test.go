@@ -112,7 +112,7 @@ func TestSQLiteStore_ReadsKtlCaptureDB(t *testing.T) {
 		t.Fatalf("artifactTotal=%d, want >=1", artifactTotal)
 	}
 
-	logsPage, err := st.Logs(context.Background(), sessionID, 0, 10, "")
+	logsPage, err := st.Logs(context.Background(), sessionID, 0, 10, "", 0, 0)
 	if err != nil {
 		t.Fatalf("Logs: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestSQLiteStore_ReadsKtlCaptureDB(t *testing.T) {
 		t.Fatalf("Logs lines=%d, want 2", len(logsPage.Lines))
 	}
 
-	eventsPage, err := st.Events(context.Background(), sessionID, 0, 10, "")
+	eventsPage, err := st.Events(context.Background(), sessionID, 0, 10, "", 0, 0)
 	if err != nil {
 		t.Fatalf("Events: %v", err)
 	}

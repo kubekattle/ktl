@@ -55,7 +55,9 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		cursor := parseInt64(q.Get("cursor"), 0)
 		search := strings.TrimSpace(q.Get("q"))
-		out, err := s.store.Events(r.Context(), id, cursor, limit, search)
+		startNS := parseInt64(q.Get("start_ns"), 0)
+		endNS := parseInt64(q.Get("end_ns"), 0)
+		out, err := s.store.Events(r.Context(), id, cursor, limit, search, startNS, endNS)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -100,7 +102,9 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		cursor := parseInt64(q.Get("cursor"), 0)
 		search := strings.TrimSpace(q.Get("q"))
-		out, err := s.store.Logs(r.Context(), id, cursor, limit, search)
+		startNS := parseInt64(q.Get("start_ns"), 0)
+		endNS := parseInt64(q.Get("end_ns"), 0)
+		out, err := s.store.Logs(r.Context(), id, cursor, limit, search, startNS, endNS)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

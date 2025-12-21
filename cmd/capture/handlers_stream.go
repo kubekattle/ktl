@@ -18,6 +18,8 @@ func (s *server) handleStream(w http.ResponseWriter, r *http.Request, sessionID 
 	}
 	cursor := parseInt64(r.URL.Query().Get("cursor"), 0)
 	search := r.URL.Query().Get("q")
+	startNS := parseInt64(r.URL.Query().Get("start_ns"), 0)
+	endNS := parseInt64(r.URL.Query().Get("end_ns"), 0)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -45,7 +47,7 @@ func (s *server) handleStream(w http.ResponseWriter, r *http.Request, sessionID 
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			page, err := s.store.Logs(r.Context(), sessionID, cursor, 400, search)
+			page, err := s.store.Logs(r.Context(), sessionID, cursor, 400, search, startNS, endNS)
 			if err != nil {
 				_ = send("error", map[string]any{"error": err.Error()})
 				return
