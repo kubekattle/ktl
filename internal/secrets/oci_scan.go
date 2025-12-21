@@ -35,6 +35,11 @@ type ociManifest struct {
 }
 
 func ScanOCIForSecrets(ociLayoutDir string, byteLimit int64) ([]Finding, error) {
+	rules, _ := CompileConfig(DefaultConfig())
+	return ScanOCIForSecretsWithRules(ociLayoutDir, byteLimit, rules)
+}
+
+func ScanOCIForSecretsWithRules(ociLayoutDir string, byteLimit int64, rules CompiledRules) ([]Finding, error) {
 	ociLayoutDir = strings.TrimSpace(ociLayoutDir)
 	if ociLayoutDir == "" {
 		return nil, errors.New("oci layout dir is required")
@@ -72,7 +77,7 @@ func ScanOCIForSecrets(ociLayoutDir string, byteLimit int64) ([]Finding, error) 
 			if err != nil {
 				continue
 			}
-			layerFindings, _ := scanLayerTar(layerPath, byteLimit)
+			layerFindings, _ := scanLayerTar(layerPath, byteLimit, rules)
 			for i := range layerFindings {
 				layerFindings[i].Source = SourceOCI
 			}
@@ -99,7 +104,7 @@ func blobPath(layoutDir string, digest string) (string, error) {
 	return filepath.Join(layoutDir, "blobs", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])), nil
 }
 
-func scanLayerTar(path string, byteLimit int64) ([]Finding, error) {
+func scanLayerTar(path string, byteLimit int64, rules CompiledRules) ([]Finding, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -137,16 +142,19 @@ func scanLayerTar(path string, byteLimit int64) ([]Finding, error) {
 		if name == "" {
 			continue
 		}
-		// quick path-based heuristics
-		lower := strings.ToLower(name)
-		if strings.Contains(lower, ".npmrc") || strings.Contains(lower, ".pypirc") || strings.Contains(lower, "pip.conf") || strings.Contains(lower, ".netrc") || strings.Contains(lower, "config.json") {
-			findings = append(findings, Finding{
-				Severity: SeverityWarn,
-				Source:   SourceOCI,
-				Rule:     "SUSPECT_CRED_FILE",
-				Message:  "possible credential/config file in image layer",
-				Location: name,
-			})
+		for _, r := range rules.Rules {
+			if r.re == nil {
+				continue
+			}
+			if r.Applies(ApplyOCIPath) && r.re.MatchString(name) {
+				findings = append(findings, Finding{
+					Severity: r.Severity,
+					Source:   SourceOCI,
+					Rule:     r.ID,
+					Message:  firstNonEmpty(r.Message, "secrets rule matched OCI path"),
+					Location: name,
+				})
+			}
 		}
 		// scan file content (bounded)
 		limit := int64(256 << 10)
@@ -155,44 +163,21 @@ func scanLayerTar(path string, byteLimit int64) ([]Finding, error) {
 		}
 		buf, _ := io.ReadAll(io.LimitReader(tr, limit))
 		text := string(buf)
-		if privateKeyRE.MatchString(text) {
+		for _, r := range rules.Rules {
+			if r.re == nil || !r.Applies(ApplyOCIContent) {
+				continue
+			}
+			if !r.re.MatchString(text) {
+				continue
+			}
+			match := r.re.FindString(text)
 			findings = append(findings, Finding{
-				Severity: SeverityBlock,
+				Severity: r.Severity,
 				Source:   SourceOCI,
-				Rule:     "PRIVATE_KEY",
-				Message:  "private key material detected in image layer",
+				Rule:     r.ID,
+				Message:  firstNonEmpty(r.Message, "secrets rule matched OCI content"),
 				Location: name,
-				Match:    "-----BEGIN PRIVATE KEY-----",
-			})
-		}
-		if jwtRE.MatchString(text) {
-			findings = append(findings, Finding{
-				Severity: SeverityWarn,
-				Source:   SourceOCI,
-				Rule:     "JWT",
-				Message:  "JWT-like token detected in image layer",
-				Location: name,
-				Match:    Redact(jwtRE.FindString(text)),
-			})
-		}
-		if ghTokenRE.MatchString(text) {
-			findings = append(findings, Finding{
-				Severity: SeverityWarn,
-				Source:   SourceOCI,
-				Rule:     "GITHUB_TOKEN",
-				Message:  "GitHub token-like string detected in image layer",
-				Location: name,
-				Match:    Redact(ghTokenRE.FindString(text)),
-			})
-		}
-		if awsAccessKeyRE.MatchString(text) {
-			findings = append(findings, Finding{
-				Severity: SeverityWarn,
-				Source:   SourceOCI,
-				Rule:     "AWS_ACCESS_KEY_ID",
-				Message:  "AWS access key id-like string detected in image layer",
-				Location: name,
-				Match:    Redact(awsAccessKeyRE.FindString(text)),
+				Match:    Redact(match),
 			})
 		}
 	}

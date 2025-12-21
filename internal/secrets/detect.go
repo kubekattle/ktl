@@ -6,10 +6,8 @@ import (
 )
 
 var (
-	jwtRE          = regexp.MustCompile(`\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b`)
-	privateKeyRE   = regexp.MustCompile(`-----BEGIN ([A-Z ]+ )?PRIVATE KEY-----`)
-	ghTokenRE      = regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b`)
-	awsAccessKeyRE = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
+	jwtRE     = regexp.MustCompile(`\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b`)
+	ghTokenRE = regexp.MustCompile(`\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b`)
 )
 
 func DetectBuildArgs(buildArgs []string) []Finding {
