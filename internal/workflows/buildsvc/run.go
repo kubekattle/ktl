@@ -193,6 +193,11 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
+	gate, err := newPolicyGate(ctx, opts.PolicyRef, opts.PolicyMode, opts.PolicyReportPath, opts.AttestationDir)
+	if err != nil {
+		return nil, err
+	}
+
 	if strings.TrimSpace(opts.AttestationDir) != "" && !opts.AttestProvenance && !opts.AttestSBOM {
 		opts.AttestProvenance = true
 		opts.AttestSBOM = true
@@ -342,6 +347,14 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	if mode == modeCompose {
+		if gate != nil {
+			pre := buildPolicyInput(time.Now(), contextDir, "", append([]string(nil), opts.Tags...), dockerfileMeta{}, opts.AttestationDir)
+			if rep, err := gate.eval(ctx, pre); err != nil {
+				return nil, err
+			} else if err := gate.enforceOrWarn(errOut, rep, "pre", 10); err != nil {
+				return nil, err
+			}
+		}
 		if err := s.runComposeBuild(ctx, composeFiles, opts, progressObservers, diagnosticObservers, quietProgress, stream, streams); err != nil {
 			return nil, err
 		}
@@ -350,6 +363,14 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 				if err := os.MkdirAll(dir, 0o755); err == nil {
 					_ = os.WriteFile(filepath.Join(dir, "ktl-external-fetches.json"), []byte(fetches.snapshotJSON()), 0o644)
 				}
+			}
+		}
+		if gate != nil {
+			post := buildPolicyInput(time.Now(), contextDir, "", append([]string(nil), opts.Tags...), dockerfileMeta{}, opts.AttestationDir)
+			if rep, err := gate.eval(ctx, post); err != nil {
+				return nil, err
+			} else if err := gate.enforceOrWarn(errOut, rep, "post", 10); err != nil {
+				return nil, err
 			}
 		}
 		return &Result{}, nil
@@ -364,6 +385,28 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 			dockerfilePath = filepath.Join(contextAbs, dockerfilePath)
 		}
 		if err := validatePinnedBaseImagesWithOptions(dockerfilePath, opts.AllowUnpinnedBases); err != nil {
+			return nil, err
+		}
+	}
+
+	var dfMeta dockerfileMeta
+	if gate != nil {
+		dockerfilePath := opts.Dockerfile
+		if dockerfilePath == "" {
+			dockerfilePath = "Dockerfile"
+		}
+		if !filepath.IsAbs(dockerfilePath) {
+			dockerfilePath = filepath.Join(contextAbs, dockerfilePath)
+		}
+		meta, derr := readDockerfileMeta(dockerfilePath)
+		if derr != nil {
+			return nil, fmt.Errorf("policy gate: read dockerfile metadata: %w", derr)
+		}
+		dfMeta = meta
+		pre := buildPolicyInput(time.Now(), contextDir, "", append([]string(nil), opts.Tags...), dfMeta, opts.AttestationDir)
+		if rep, err := gate.eval(ctx, pre); err != nil {
+			return nil, err
+		} else if err := gate.enforceOrWarn(errOut, rep, "pre", 10); err != nil {
 			return nil, err
 		}
 	}
@@ -503,6 +546,15 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 			if err := os.MkdirAll(opts.AttestationDir, 0o755); err == nil {
 				_ = os.WriteFile(filepath.Join(opts.AttestationDir, "ktl-external-fetches.json"), []byte(fetches.snapshotJSON()), 0o644)
 			}
+		}
+	}
+
+	if gate != nil && result != nil {
+		post := buildPolicyInput(time.Now(), contextDir, strings.TrimSpace(result.Digest), append([]string(nil), tags...), dfMeta, opts.AttestationDir)
+		if rep, err := gate.eval(ctx, post); err != nil {
+			return nil, err
+		} else if err := gate.enforceOrWarn(errOut, rep, "post", 10); err != nil {
+			return nil, err
 		}
 	}
 
