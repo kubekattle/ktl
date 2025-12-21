@@ -9,10 +9,28 @@ import (
 )
 
 var (
-	fromLineRE     = regexp.MustCompile(`(?i)^\s*from\s+([^\s]+)`)
+	fromLineRE     = regexp.MustCompile(`(?i)^\s*from\s+(.+)$`)
 	sha256DigestRE = regexp.MustCompile(`@sha256:[a-f0-9]{64}$`)
-	stagePrefixRE  = regexp.MustCompile(`(?i)^\s*--platform=[^\s]+\s+`)
 )
+
+func parseFromImageRef(fromLine string) (string, bool) {
+	m := fromLineRE.FindStringSubmatch(fromLine)
+	if len(m) != 2 {
+		return "", false
+	}
+	rest := strings.TrimSpace(m[1])
+	if rest == "" {
+		return "", false
+	}
+	fields := strings.Fields(rest)
+	for len(fields) > 0 && strings.HasPrefix(fields[0], "--") {
+		fields = fields[1:]
+	}
+	if len(fields) == 0 {
+		return "", false
+	}
+	return strings.TrimSpace(fields[0]), true
+}
 
 func validatePinnedBaseImagesWithOptions(dockerfilePath string, allowUnpinned bool) error {
 	dockerfilePath = strings.TrimSpace(dockerfilePath)
@@ -37,12 +55,10 @@ func validatePinnedBaseImagesWithOptions(dockerfilePath string, allowUnpinned bo
 		if idx := strings.Index(line, "#"); idx >= 0 {
 			line = strings.TrimSpace(line[:idx])
 		}
-		m := fromLineRE.FindStringSubmatch(line)
-		if len(m) < 2 {
+		ref, ok := parseFromImageRef(line)
+		if !ok {
 			continue
 		}
-		ref := strings.TrimSpace(m[1])
-		ref = stagePrefixRE.ReplaceAllString(ref, "")
 		if ref == "" || strings.EqualFold(ref, "scratch") {
 			continue
 		}
