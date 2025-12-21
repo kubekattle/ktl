@@ -123,11 +123,12 @@
         white-space: pre-wrap;
         word-break: break-word;
       }
-      table { width: 100%; border-collapse: collapse; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       th, td { padding: 10px 12px; border-bottom: 1px solid rgba(15,23,42,0.06); vertical-align: top; }
-      th { text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.75rem; color: var(--muted); font-weight: 650; background: rgba(255,255,255,0.35); }
-      td.ts { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 170px; }
-      td.src { white-space: nowrap; width: 280px; font-variant-numeric: tabular-nums; }
+      th { text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.75rem; color: var(--muted); font-weight: 650; background: rgba(255,255,255,0.35); position: relative; user-select: none; }
+      th .resizer { position: absolute; right: 0; top: 0; height: 100%; width: 10px; cursor: col-resize; }
+      td.ts { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 140px; }
+      td.src { white-space: nowrap; width: 320px; font-variant-numeric: tabular-nums; }
       td.msg { width: auto; }
       .tag { display:inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(15,23,42,0.10); background: rgba(37,99,235,0.08); color: #1d4ed8; font-weight: 650; font-size: 0.78rem; margin-right: 8px; }
       .tag.warn { background: rgba(251,191,36,0.18); color: #92400e; }
@@ -206,7 +207,7 @@
             <div class="timeline-wrap">
               <canvas id="timeline" class="timeline"></canvas>
             </div>
-            <div class="hint">Drag to pan (coming soon). Click to jump (coming soon).</div>
+            <div class="muted">Drag to scrub. Click to jump.</div>
           </div>
 	          <div class="panel">
 	            <div class="panel-title-row">
@@ -219,7 +220,11 @@
             <div class="logs">
               <table>
                 <thead>
-                  <tr><th>Timestamp</th><th>Source</th><th>Message</th></tr>
+                  <tr>
+                    <th id="colTs">Timestamp<span class="resizer" data-col="ts"></span></th>
+                    <th id="colSrc">Source<span class="resizer" data-col="src"></span></th>
+                    <th id="colMsg">Message<span class="resizer" data-col="msg"></span></th>
+                  </tr>
                 </thead>
                 <tbody id="logBody"></tbody>
               </table>
@@ -253,11 +258,30 @@
       const initialSession = "__INITIAL_SESSION__";
       state.startNS = 0;
       state.endNS = 0;
+      state.sessionStartNS = 0;
 
       function fmtNS(ns) {
         if (!ns) return "—";
         const d = new Date(ns / 1e6);
         return d.toISOString().replace("T", " ").replace("Z", "");
+      }
+
+      function youtubeTimestampSeconds(totalSeconds) {
+        totalSeconds = Math.max(0, Math.floor(totalSeconds || 0));
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = totalSeconds % 60;
+        const pad2 = (n) => String(n).padStart(2, "0");
+        if (h > 0) return `${h}:${pad2(m)}:${pad2(s)}`;
+        return `${m}:${pad2(s)}`;
+      }
+
+      function fmtYouTubeFromNS(tsNS) {
+        if (!tsNS) return "—";
+        const base = state.sessionStartNS || 0;
+        if (!base) return fmtNS(tsNS);
+        const deltaSeconds = (tsNS - base) / 1e9;
+        return youtubeTimestampSeconds(deltaSeconds);
       }
 
       function parseISOToNS(raw) {
@@ -390,7 +414,8 @@
           tr.dataset.message = l.message || "";
           const ts = document.createElement("td");
           ts.className = "ts";
-          ts.textContent = fmtNS(l.ts_ns);
+          ts.textContent = fmtYouTubeFromNS(l.ts_ns);
+          ts.title = fmtNS(l.ts_ns);
           const src = document.createElement("td");
           src.className = "src";
           const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
@@ -466,6 +491,7 @@
         if (meta.kube_context) parts.push(meta.kube_context);
         if (meta.namespace) parts.push(`ns/${meta.namespace}`);
         el("subtitle").textContent = parts.join(" · ") || meta.command || "capture";
+        state.sessionStartNS = meta.started_at_ns || 0;
         el("hint").textContent = `Session ${meta.session_id}`;
         const start = meta.started_at_ns ? fmtNS(meta.started_at_ns) : "";
         const end = meta.ended_at_ns ? fmtNS(meta.ended_at_ns) : "";
@@ -533,9 +559,15 @@
         for (const l of (data.lines || [])) {
           const tr = document.createElement("tr");
           tr.dataset.key = l.key;
+          tr.dataset.ts_ns = l.ts_ns;
+          tr.dataset.namespace = l.namespace || "";
+          tr.dataset.pod = l.pod || "";
+          tr.dataset.container = l.container || "";
+          tr.dataset.message = l.message || "";
           const ts = document.createElement("td");
           ts.className = "ts";
-          ts.textContent = fmtNS(l.ts_ns);
+          ts.textContent = fmtYouTubeFromNS(l.ts_ns);
+          ts.title = fmtNS(l.ts_ns);
           const src = document.createElement("td");
           src.className = "src";
           const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
@@ -635,7 +667,7 @@
         if (ns) meta.push(`ns/${ns}`);
         if (pod) meta.push(pod);
         if (container) meta.push(container);
-        if (ts) meta.push(fmtNS(ts));
+        if (ts) meta.push(fmtYouTubeFromNS(ts));
         el("drawerMeta").textContent = meta.join(" · ");
         el("drawerBody").textContent = tr.dataset.message || "";
         el("drawerBackdrop").classList.add("visible");
@@ -744,6 +776,50 @@
         applyScrubAtX(ev);
         scheduleScrubUpdate();
       });
+
+      // Column resizing (Timestamp / Source / Message)
+      (function initColumnResizers() {
+        const minW = 90;
+        const selectorsByCol = {
+          ts: ["#colTs", "td.ts"],
+          src: ["#colSrc", "td.src"],
+          msg: ["#colMsg", "td.msg"],
+        };
+        let activeCol = "";
+        let startX = 0;
+        let startW = 0;
+
+        function setColWidth(col, px) {
+          px = Math.max(minW, Math.floor(px));
+          const selectors = selectorsByCol[col];
+          if (!selectors) return;
+          for (const sel of selectors) {
+            document.querySelectorAll(sel).forEach((node) => {
+              node.style.width = px + "px";
+            });
+          }
+        }
+
+        document.querySelectorAll("th .resizer").forEach((handle) => {
+          handle.addEventListener("mousedown", (e) => {
+            activeCol = handle.dataset.col || "";
+            const th = handle.parentElement;
+            if (!activeCol || !th) return;
+            startX = e.clientX;
+            startW = th.getBoundingClientRect().width;
+            e.preventDefault();
+          });
+        });
+
+        window.addEventListener("mousemove", (e) => {
+          if (!activeCol) return;
+          const dx = e.clientX - startX;
+          setColWidth(activeCol, startW + dx);
+        });
+        window.addEventListener("mouseup", () => {
+          activeCol = "";
+        });
+      })();
 
       loadSessions().catch((err) => {
         el("subtitle").textContent = "Failed to load sessions";
