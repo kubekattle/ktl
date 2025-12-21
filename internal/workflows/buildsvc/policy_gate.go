@@ -69,6 +69,9 @@ func (g *policyGate) enforceOrWarn(errOut ioStringWriter, rep *policy.Report, ph
 	if rep.DenyCount == 0 && rep.WarnCount == 0 {
 		return nil
 	}
+	if g.reportPath != "" {
+		fmt.Fprintf(errOut, "Policy report: %s\n", g.reportPath)
+	}
 	if max <= 0 {
 		max = 10
 	}
