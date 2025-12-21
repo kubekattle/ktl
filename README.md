@@ -39,6 +39,14 @@ See `examples.md` for up-to-date CLI examples.
 - `--policy-mode warn|enforce` starts in warn mode and ratchets to enforcement.
 - `--policy-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-policy-report.json` when `--attest-dir` is set).
 
+## Build secrets guardrails
+`ktl build` can also detect common secret leaks and stop (or warn) with pinpointed reasons:
+
+- `--secrets warn|block|off` controls enforcement.
+- `--secrets-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-secrets-report.json` when `--attest-dir` is set).
+
+Try the demo at `examples/secrets/demo`.
+
 ## Development
 ```bash
 make test   # go test ./...
