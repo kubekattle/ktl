@@ -348,21 +348,7 @@
     .empty-state .chips .chip { cursor:default; }
     .empty-state .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .empty-state .actions .cta { padding:10px 14px; }
-    .diff-status {
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      flex-wrap:wrap;
-      margin-top:10px;
-      padding:10px 12px;
-      border-radius:18px;
-      border:1px solid rgba(15,23,42,0.12);
-      background:rgba(255,255,255,0.6);
-      color:var(--text);
-      font-size:0.92rem;
-    }
-    .diff-status .muted { color:var(--muted); }
+
     /* keyboard shortcuts are always available; no help modal */
     .meta-list {
       display:grid;
@@ -1163,7 +1149,13 @@
       .chip,
       .cta,
       .info-banner { display:none !important; }
-      .panel { box-shadow:none !important; backdrop-filter:none; }
+      .panel {
+        box-shadow:none !important;
+        backdrop-filter:none;
+        opacity:1 !important;
+        transform:none !important;
+        animation:none !important;
+      }
     }
   </style>
 </head>
@@ -1334,7 +1326,7 @@
             <h2 id="selectionTitle">Select a resource</h2>
             <div id="breadcrumbs" class="breadcrumbs muted">No resource selected</div>
           </div>
-          <button id="copyLinkBtn" class="chip" type="button">Copy link</button>
+          <button id="copyLinkBtn" class="chip" type="button">Copy apply</button>
         </div>
           <div id="metaBadges" class="meta-badges"></div>
           <div class="dependency-panel">
@@ -1366,10 +1358,6 @@
             <button id="diffPrevHunk" class="chip" type="button" disabled>Prev hunk</button>
             <button id="diffNextHunk" class="chip" type="button" disabled>Next hunk</button>
             <span id="diffMatchMeta" class="muted"></span>
-          </div>
-          <div id="diffStatus" class="diff-status" aria-live="polite">
-            <span><strong id="diffStatusMode">Rendered</strong> <span id="diffStatusDetail" class="muted"></span></span>
-            <span id="diffStatusLive" class="muted"></span>
           </div>
           <pre id="manifestView" class="manifest-view" data-view="rendered" aria-live="polite">Select a resource to view its rendered YAML.</pre>
 	          <div id="explainView" class="explain-view" hidden>
@@ -1556,10 +1544,6 @@
       var emptyState = document.getElementById('emptyState');
       var emptyStateChips = document.getElementById('emptyStateChips');
       var resetFiltersBtn = document.getElementById('resetFiltersBtn');
-      var diffStatus = document.getElementById('diffStatus');
-      var diffStatusMode = document.getElementById('diffStatusMode');
-      var diffStatusDetail = document.getElementById('diffStatusDetail');
-      var diffStatusLive = document.getElementById('diffStatusLive');
       /* help modal removed */
       var compareUpload = document.getElementById('compareUpload');
       var compareMeta = document.getElementById('compareMeta');
@@ -2468,12 +2452,15 @@
       function bindCopyLink() {
         if (!copyLinkBtn) return;
         copyLinkBtn.addEventListener('click', function() {
-          if (!currentNode) return;
-          var text = window.location.href;
+          var text = (dataset && dataset.installCommand) ? String(dataset.installCommand) : '';
+          if (!text.trim()) {
+            toastButton(copyLinkBtn, 'No command');
+            return;
+          }
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(showCopyToast, showCopyToast);
+            navigator.clipboard.writeText(text).then(function() { toastButton(copyLinkBtn, 'Copied'); }, function() { toastButton(copyLinkBtn, 'Copied'); });
           } else {
-            showCopyToast();
+            toastButton(copyLinkBtn, 'Copied');
           }
         });
       }
@@ -2495,10 +2482,8 @@
       }
 
       function showCopyToast() {
-        if (!copyLinkBtn) return;
-        var previous = copyLinkBtn.textContent;
-        copyLinkBtn.textContent = 'Link copied';
-        setTimeout(function() { copyLinkBtn.textContent = previous; }, 1500);
+        // Deprecated: replaced by toastButton usage.
+        return;
       }
 
       function toastButton(btn, label) {
@@ -3625,10 +3610,7 @@
       }
 
       function updateDiffStatus() {
-        if (!diffStatus || !diffStatusMode || !diffStatusDetail || !diffStatusLive) return;
-        diffStatusMode.textContent = '';
-        diffStatusDetail.textContent = '';
-        diffStatusLive.textContent = '';
+        return;
       }
 
       function hydrateHero() {
