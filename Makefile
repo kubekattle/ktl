@@ -29,6 +29,9 @@ RELEASE_BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 CHANGELOG_FILE ?= $(DIST_DIR)/CHANGELOG-$(RELEASE_TAG).md
 PREVIOUS_TAG ?= $(shell git describe --tags --abbrev=0 HEAD~1 2>/dev/null)
 
+CAPTURE_BINARY ?= capture
+CAPTURE_PKG ?= ./cmd/capture
+
 .DEFAULT_GOAL := help
 
 .PHONY: help build build-% install release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-%
@@ -46,6 +49,11 @@ build: ## Build ktl for the current platform into ./bin/ktl
 	@mkdir -p $(BIN_DIR)
 	$(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY) $(PKG)
 
+build-capture: ## Build capture for the current platform into ./bin/capture
+	@echo ">> building $(CAPTURE_BINARY) for $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)"
+	@mkdir -p $(BIN_DIR)
+	$(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(CAPTURE_BINARY) $(CAPTURE_PKG)
+
 build-%: ## Build ktl for <os>-<arch> into ./bin/ktl-<os>-<arch>[.exe]
 	@mkdir -p $(BIN_DIR)
 	@target="$*"; os="$${target%-*}"; arch="$${target#*-}"; \
@@ -61,6 +69,10 @@ build-%: ## Build ktl for <os>-<arch> into ./bin/ktl-<os>-<arch>[.exe]
 install: ## Install ktl into GOPATH/bin or GOBIN
 	@echo ">> installing $(BINARY) ($(VERSION))"
 	$(GO) install $(GOFLAGS) -ldflags '$(LDFLAGS)' $(PKG)
+
+install-capture: ## Install capture into GOPATH/bin or GOBIN
+	@echo ">> installing $(CAPTURE_BINARY) ($(VERSION))"
+	$(GO) install $(GOFLAGS) -ldflags '$(LDFLAGS)' $(CAPTURE_PKG)
 
 release: ## Cross-build release artifacts into ./dist
 	@echo ">> building release artifacts for: $(RELEASE_PLATFORMS)"
