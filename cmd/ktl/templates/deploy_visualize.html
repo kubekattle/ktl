@@ -2691,6 +2691,13 @@
           return out;
         }
 
+        function firstLine(arr, re) {
+          for (var j = 0; j < arr.length; j++) {
+            if (re.test(arr[j])) return arr[j].trim();
+          }
+          return '';
+        }
+
         var kind = (node.kind || '').toLowerCase();
 
         var beforeImages = collect(dels, /^\\s*image:\\s*([^\\s#]+)\\s*$/, 4);
@@ -2703,11 +2710,13 @@
         }
 
         if (anyMatch(adds, /^\\s*replicas:\\s*\\d+/) || anyMatch(dels, /^\\s*replicas:\\s*\\d+/)) {
-          addFinding('info', 'Replica count change', 'Autoscalers may override replica changes if HPA is enabled.');
+          var sample = firstLine(adds, /^\\s*replicas:\\s*\\d+/) || firstLine(dels, /^\\s*replicas:\\s*\\d+/);
+          addFinding('info', 'Replica count change', sample ? ('Replica count changed (' + sample + '). Autoscalers may override via HPA.') : 'Autoscalers may override replica changes if HPA is enabled.');
         }
 
         if (anyMatch(adds, /^\\s*selector:\\s*$/) || anyMatch(dels, /^\\s*selector:\\s*$/)) {
-          addFinding('fail', 'Selector changed', 'Selector changes can orphan workloads or break Service routing.');
+          var sampleSel = firstLine(adds, /^\\s*selector:\\s*$/) || firstLine(dels, /^\\s*selector:\\s*$/);
+          addFinding('fail', 'Selector changed', sampleSel ? ('Selector block changed (' + sampleSel + '). This can orphan workloads or break Service routing.') : 'Selector changes can orphan workloads or break Service routing.');
         }
 
         if (kind === 'service' && (anyMatch(adds, /^\\s*clusterIP:\\s*\\S+/) || anyMatch(dels, /^\\s*clusterIP:\\s*\\S+/))) {
@@ -2715,7 +2724,8 @@
         }
 
         if (anyMatch(adds, /^\\s*(readinessProbe|livenessProbe):\\s*$/) || anyMatch(dels, /^\\s*(readinessProbe|livenessProbe):\\s*$/)) {
-          addFinding('warn', 'Probe configuration changed', 'Probe changes can cause rollout stalls if thresholds are too strict.');
+          var probeSample = firstLine(adds, /^\\s*(readinessProbe|livenessProbe):\\s*$/) || firstLine(dels, /^\\s*(readinessProbe|livenessProbe):\\s*$/);
+          addFinding('warn', 'Probe configuration changed', probeSample ? ('Probe block changed (' + probeSample + '). Probe changes can cause rollout stalls.') : 'Probe changes can cause rollout stalls if thresholds are too strict.');
         }
 
         if (anyMatch(adds, /^\\s*(requests|limits):\\s*$/) || anyMatch(dels, /^\\s*(requests|limits):\\s*$/) || anyMatch(adds, /^\\s*(cpu|memory):\\s*/) || anyMatch(dels, /^\\s*(cpu|memory):\\s*/)) {
@@ -2723,7 +2733,8 @@
         }
 
         if (anyMatch(adds, /^\\s*host:\\s*\\S+/) || anyMatch(dels, /^\\s*host:\\s*\\S+/)) {
-          addFinding('warn', 'Ingress host change', 'Routing/DNS impact likely; confirm certificates and external integrations.');
+          var hostSample = firstLine(adds, /^\\s*host:\\s*\\S+/) || firstLine(dels, /^\\s*host:\\s*\\S+/);
+          addFinding('warn', 'Ingress host change', hostSample ? ('Host changed (' + hostSample + '). Routing/DNS impact likely; confirm certificates.') : 'Routing/DNS impact likely; confirm certificates and external integrations.');
         }
 
         if (kind === 'persistentvolumeclaim' && (anyMatch(adds, /^\\s*storage:\\s*\\S+/) || anyMatch(dels, /^\\s*storage:\\s*\\S+/))) {
