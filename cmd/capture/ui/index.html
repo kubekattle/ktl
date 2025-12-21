@@ -42,7 +42,7 @@
       }
       .hero-title { font-size: 2.3rem; font-weight: 650; letter-spacing: -0.04em; margin: 0; }
       .subtitle { margin-top: 10px; color: var(--muted); font-size: 1rem; }
-      .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.1rem; margin-top: 18px; }
+      .card-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
       .card {
         border-radius: 24px;
         padding: 18px 18px;
@@ -205,7 +205,7 @@
         </div>
         <div class="insight-stack">
           <div class="panel">
-            <div class="card-grid">
+            <div class="card-stack">
               <div class="card">
                 <div class="label">Sessions</div>
                 <div id="statSessions" class="value">—</div>
