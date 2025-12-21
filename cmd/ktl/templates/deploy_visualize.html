@@ -1187,7 +1187,6 @@
 	              </div>
 	            </div>
 		            <p class="hero-eyebrow">ktl plan</p>
-		            <h2 class="hero-headline" id="heroHeadline">Deployment overview</h2>
 		            <div id="heroChips" class="hero-chips"></div>
 	          </div>
 	          <div class="hero-metrics">
@@ -3633,9 +3632,10 @@
       }
 
       function hydrateHero() {
-        if (!heroHeadline) return;
         var release = dataset.release || '';
-        heroHeadline.textContent = release ? 'Deploying ' + release : 'Deployment overview';
+        if (heroHeadline) {
+          heroHeadline.textContent = release ? 'Deploying ' + release : 'Deployment overview';
+        }
         var summary = dataset.summary || {};
         if (heroCreates) heroCreates.textContent = formatNumber(summary.creates);
         if (heroUpdates) heroUpdates.textContent = formatNumber(summary.updates);
