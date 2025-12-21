@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -101,17 +102,23 @@ func openSQLiteStore(path string, readOnly bool) (*sqliteStore, error) {
 	if path == "" {
 		return nil, fmt.Errorf("capture db path is required")
 	}
-	if _, err := os.Stat(path); err != nil {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve capture db path: %w", err)
+	}
+	if _, err := os.Stat(absPath); err != nil {
 		return nil, fmt.Errorf("open capture db: %w", err)
 	}
-	dsn := path
+	dsn := absPath
 	if readOnly {
 		// modernc.org/sqlite understands URI parameters in a "file:" DSN.
-		u := url.URL{Scheme: "file", Path: path}
+		u := url.URL{Scheme: "file", Path: absPath}
 		q := u.Query()
 		q.Set("mode", "ro")
 		q.Set("_busy_timeout", "5000")
 		u.RawQuery = q.Encode()
+		// Avoid relative "file:foo.db" edge cases by forcing an absolute path.
+		// url.URL{Scheme:"file",Path:"/abs"} formats as "file:/abs" which SQLite accepts.
 		dsn = u.String()
 	}
 	db, err := sql.Open("sqlite", dsn)
@@ -126,7 +133,7 @@ func openSQLiteStore(path string, readOnly bool) (*sqliteStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	return &sqliteStore{db: db, path: path}, nil
+	return &sqliteStore{db: db, path: absPath}, nil
 }
 
 func (s *sqliteStore) Close() error {
