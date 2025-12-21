@@ -2704,6 +2704,10 @@
         if (!node) {
           explainList.innerHTML = '';
           explainEmpty.hidden = false;
+          currentExplainMarkdown = '';
+          if (copyExplainBtn) {
+            copyExplainBtn.disabled = true;
+          }
           return;
         }
         var diffText = currentDiffText(node);
@@ -2711,6 +2715,10 @@
         if (!diffText || !diffText.trim()) {
           explainList.innerHTML = '';
           explainEmpty.hidden = false;
+          currentExplainMarkdown = '';
+          if (copyExplainBtn) {
+            copyExplainBtn.disabled = true;
+          }
           return;
         }
 
@@ -2815,6 +2823,9 @@
         currentExplainMarkdown = '';
         if (findings.length === 0) {
           explainEmpty.hidden = false;
+          if (copyExplainBtn) {
+            copyExplainBtn.disabled = true;
+          }
           return;
         }
         explainEmpty.hidden = true;
@@ -2829,6 +2840,9 @@
           var prefix = (f.severity === 'fail') ? '[HIGH]' : (f.severity === 'warn') ? '[WARN]' : '[NOTE]';
           return '  - ' + prefix + ' ' + f.title + (f.detail ? (': ' + f.detail) : '');
         }).join('\\n');
+        if (copyExplainBtn) {
+          copyExplainBtn.disabled = false;
+        }
 
         findings.forEach(function(f) {
           var li = document.createElement('li');
