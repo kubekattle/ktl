@@ -45,7 +45,7 @@ build: ## Build ktl for the current platform into ./bin/ktl
 
 build-%: ## Build ktl for <os>-<arch> into ./bin/ktl-<os>-<arch>[.exe]
 	@mkdir -p $(BIN_DIR)
-	@os=$${*%*-}; arch=$${*#*-}; \
+	@target="$*"; os="$${target%-*}"; arch="$${target#*-}"; \
 	if [ "$$os" = "$$arch" ]; then \
 		printf "invalid build target '%s' (expected os-arch)\n" "$*"; \
 		exit 1; \

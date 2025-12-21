@@ -132,6 +132,61 @@ func appendAttestation(t *testing.T, lp layout.Path, subject v1.Hash, predicateT
 	}
 }
 
+func appendAttestationWithoutStatementSubject(t *testing.T, lp layout.Path, subject v1.Hash, predicateType string) {
+	t.Helper()
+	statement := map[string]any{
+		"_type":         "https://in-toto.io/Statement/v0.1",
+		"predicateType": predicateType,
+		"subject":       []any{},
+		"predicate":     map[string]any{"example": true},
+	}
+	stmtBytes, err := json.Marshal(statement)
+	if err != nil {
+		t.Fatalf("marshal statement: %v", err)
+	}
+	stmtHash := writeBlob(t, lp, stmtBytes)
+
+	cfgBytes := []byte(`{"architecture":"unknown","os":"unknown","config":{},"rootfs":{"type":"layers","diff_ids":[]}}`)
+	cfgHash := writeBlob(t, lp, cfgBytes)
+
+	manifest := v1.Manifest{
+		SchemaVersion: 2,
+		MediaType:     types.OCIManifestSchema1,
+		Config: v1.Descriptor{
+			MediaType: types.OCIConfigJSON,
+			Digest:    cfgHash,
+			Size:      int64(len(cfgBytes)),
+		},
+		Layers: []v1.Descriptor{{
+			MediaType: types.MediaType("application/vnd.in-toto+json"),
+			Digest:    stmtHash,
+			Size:      int64(len(stmtBytes)),
+			Annotations: map[string]string{
+				"in-toto.io/predicate-type": predicateType,
+			},
+		}},
+	}
+	rawManifest, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	manifestHash := writeBlob(t, lp, rawManifest)
+
+	desc := v1.Descriptor{
+		MediaType: types.OCIManifestSchema1,
+		Digest:    manifestHash,
+		Size:      int64(len(rawManifest)),
+		Platform:  &v1.Platform{OS: "unknown", Architecture: "unknown"},
+		Annotations: map[string]string{
+			"vnd.docker.reference.type":   "attestation-manifest",
+			"vnd.docker.reference.digest": subject.String(),
+		},
+	}
+	if err := lp.AppendDescriptor(desc); err != nil {
+		t.Fatalf("append attestation descriptor: %v", err)
+	}
+}
+
 func TestWriteAttestationsFromOCI_LegacyAndOCISubject(t *testing.T) {
 	tmp := t.TempDir()
 	lp, err := layout.Write(tmp, empty.Index)
@@ -157,6 +212,25 @@ func TestWriteAttestationsFromOCI_LegacyAndOCISubject(t *testing.T) {
 		if _, err := os.Stat(f.Path); err != nil {
 			t.Fatalf("expected file to exist: %s: %v", f.Path, err)
 		}
+	}
+}
+
+func TestWriteAttestationsFromOCI_AllowsEmptyStatementSubject(t *testing.T) {
+	tmp := t.TempDir()
+	lp, err := layout.Write(tmp, empty.Index)
+	if err != nil {
+		t.Fatalf("layout write: %v", err)
+	}
+	subject := appendSubjectImage(t, lp)
+	appendAttestationWithoutStatementSubject(t, lp, subject, "https://spdx.dev/Document")
+
+	outDir := filepath.Join(tmp, "out")
+	files, err := WriteAttestationsFromOCI(tmp, outDir)
+	if err != nil {
+		t.Fatalf("WriteAttestationsFromOCI: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 attestation file, got %d", len(files))
 	}
 }
 
@@ -212,5 +286,29 @@ func TestWriteAttestationsFromOCI_RejectsMismatchedSubject(t *testing.T) {
 	_, err = WriteAttestationsFromOCI(tmp, filepath.Join(tmp, "out"))
 	if err == nil {
 		t.Fatalf("expected error, got nil")
+	}
+}
+
+func TestWriteAttestationsFromOCI_WalksNestedIndexes(t *testing.T) {
+	tmp := t.TempDir()
+	lp, err := layout.Write(tmp, empty.Index)
+	if err != nil {
+		t.Fatalf("layout write: %v", err)
+	}
+
+	subject := appendSubjectImage(t, lp)
+	appendAttestation(t, lp, subject, "https://spdx.dev/Document", true)
+
+	if err := lp.AppendIndex(empty.Index); err != nil {
+		t.Fatalf("append nested index: %v", err)
+	}
+
+	outDir := filepath.Join(tmp, "out")
+	files, err := WriteAttestationsFromOCI(tmp, outDir)
+	if err != nil {
+		t.Fatalf("WriteAttestationsFromOCI: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 attestation file, got %d", len(files))
 	}
 }

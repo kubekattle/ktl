@@ -10,8 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/layout"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 )
 
 type AttestationFile struct {
@@ -56,7 +55,72 @@ type inTotoStatement struct {
 	} `json:"subject"`
 }
 
-func subjectDigestMatches(statement inTotoStatement, subject v1.Hash) bool {
+type ociIndex struct {
+	Manifests []struct {
+		MediaType    string            `json:"mediaType"`
+		Digest       string            `json:"digest"`
+		Annotations  map[string]string `json:"annotations"`
+		ArtifactType string            `json:"artifactType"`
+		Platform     any               `json:"platform"`
+	} `json:"manifests"`
+}
+
+type ociManifest struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	MediaType     string `json:"mediaType"`
+	Subject       *struct {
+		Digest string `json:"digest"`
+	} `json:"subject"`
+	Layers []struct {
+		MediaType    string            `json:"mediaType"`
+		Digest       string            `json:"digest"`
+		Annotations  map[string]string `json:"annotations"`
+		ArtifactType string            `json:"artifactType"`
+	} `json:"layers"`
+}
+
+type parsedDigest struct {
+	Algorithm string
+	Hex       string
+}
+
+func (d parsedDigest) String() string { return d.Algorithm + ":" + d.Hex }
+
+func parseSHA256Digest(value string) (parsedDigest, error) {
+	value = strings.TrimSpace(value)
+	parts := strings.Split(value, ":")
+	if len(parts) != 2 {
+		return parsedDigest{}, fmt.Errorf("invalid digest %q", value)
+	}
+	alg := strings.TrimSpace(parts[0])
+	hex := strings.TrimSpace(parts[1])
+	if alg != "sha256" {
+		return parsedDigest{}, fmt.Errorf("unsupported digest algorithm %q", alg)
+	}
+	if len(hex) != 64 {
+		return parsedDigest{}, fmt.Errorf("invalid sha256 hex length for %q", value)
+	}
+	for _, r := range hex {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
+			return parsedDigest{}, fmt.Errorf("invalid sha256 hex for %q", value)
+		}
+	}
+	return parsedDigest{Algorithm: "sha256", Hex: strings.ToLower(hex)}, nil
+}
+
+func blobPath(layoutDir string, digest parsedDigest) string {
+	return filepath.Join(layoutDir, "blobs", digest.Algorithm, digest.Hex)
+}
+
+func readJSON(path string, out any) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
+}
+
+func subjectDigestMatches(statement inTotoStatement, subject parsedDigest) bool {
 	for _, entry := range statement.Subject {
 		for alg, hex := range entry.Digest {
 			if strings.EqualFold(strings.TrimSpace(alg), subject.Algorithm) && strings.EqualFold(strings.TrimSpace(hex), subject.Hex) {
@@ -102,16 +166,12 @@ func uniquePath(dir, base string) (string, error) {
 // The output is meant to be used for later publication (e.g. signing/transparency log upload)
 // without requiring immediate registry referrer support.
 func WriteAttestationsFromOCI(ociLayoutDir, destDir string) ([]AttestationFile, error) {
-	lp, err := layout.FromPath(ociLayoutDir)
-	if err != nil {
-		return nil, fmt.Errorf("open OCI layout %s: %w", ociLayoutDir, err)
+	ociLayoutDir = strings.TrimSpace(ociLayoutDir)
+	if ociLayoutDir == "" {
+		return nil, fmt.Errorf("open OCI layout: path is empty")
 	}
-	idx, err := lp.ImageIndex()
-	if err != nil {
-		return nil, fmt.Errorf("load OCI index: %w", err)
-	}
-	manifest, err := idx.IndexManifest()
-	if err != nil {
+	var root ociIndex
+	if err := readJSON(filepath.Join(ociLayoutDir, "index.json"), &root); err != nil {
 		return nil, fmt.Errorf("read OCI index manifest: %w", err)
 	}
 
@@ -124,82 +184,121 @@ func WriteAttestationsFromOCI(ociLayoutDir, destDir string) ([]AttestationFile, 
 	}
 
 	out := []AttestationFile{}
-	for _, desc := range manifest.Manifests {
+
+	seen := map[string]struct{}{}
+	var walkIndex func(idx ociIndex) error
+	var walkDescriptor func(mediaType, digest string, annotations map[string]string) error
+
+	walkIndex = func(idx ociIndex) error {
+		for _, m := range idx.Manifests {
+			if err := walkDescriptor(m.MediaType, m.Digest, m.Annotations); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	walkDescriptor = func(mediaType, digest string, annotations map[string]string) error {
+		mt := strings.TrimSpace(mediaType)
+		digest = strings.TrimSpace(digest)
+		if digest == "" {
+			return nil
+		}
+		key := mt + "|" + digest
+		if _, ok := seen[key]; ok {
+			return nil
+		}
+		seen[key] = struct{}{}
+
+		// Index/manifest list.
+		if mt == string(types.OCIImageIndex) || mt == string(types.DockerManifestList) {
+			parsed, err := parseSHA256Digest(digest)
+			if err != nil {
+				return nil
+			}
+			path := blobPath(ociLayoutDir, parsed)
+			var child ociIndex
+			if err := readJSON(path, &child); err != nil {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				// Best-effort: if the blob isn't an index, ignore it.
+				return nil
+			}
+			return walkIndex(child)
+		}
+
+		// Image/attestation manifest.
+		parsed, err := parseSHA256Digest(digest)
+		if err != nil {
+			return nil
+		}
+		var man ociManifest
+		if err := readJSON(blobPath(ociLayoutDir, parsed), &man); err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return nil
+		}
+
 		subject := ""
-		if desc.Annotations != nil && desc.Annotations["vnd.docker.reference.type"] == "attestation-manifest" {
-			subject = strings.TrimSpace(desc.Annotations["vnd.docker.reference.digest"])
+		if annotations != nil && annotations["vnd.docker.reference.type"] == "attestation-manifest" {
+			subject = strings.TrimSpace(annotations["vnd.docker.reference.digest"])
+		}
+		if subject == "" && man.Subject != nil {
+			subject = strings.TrimSpace(man.Subject.Digest)
+		}
+		subjectParsed, err := parseSHA256Digest(subject)
+		if err != nil {
+			subjectParsed = parsedDigest{}
 		}
 
-		img, err := lp.Image(desc.Digest)
-		if err != nil {
-			return nil, fmt.Errorf("load attestation manifest %s: %w", desc.Digest.String(), err)
-		}
-		raw, err := img.RawManifest()
-		if err != nil {
-			return nil, fmt.Errorf("read attestation manifest JSON %s: %w", desc.Digest.String(), err)
-		}
-		var parsed v1.Manifest
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return nil, fmt.Errorf("parse attestation manifest JSON %s: %w", desc.Digest.String(), err)
-		}
-		if subject == "" && parsed.Subject != nil {
-			subject = strings.TrimSpace(parsed.Subject.Digest.String())
-		}
-		if subject == "" {
-			continue
-		}
-		subjectHash, err := v1.NewHash(subject)
-		if err != nil {
-			return nil, fmt.Errorf("parse subject digest %s: %w", subject, err)
-		}
-
-		for _, layerDesc := range parsed.Layers {
-			if strings.TrimSpace(string(layerDesc.MediaType)) != "application/vnd.in-toto+json" {
+		for _, layer := range man.Layers {
+			if strings.TrimSpace(layer.MediaType) != "application/vnd.in-toto+json" {
 				continue
 			}
-			layerDigest := strings.TrimSpace(layerDesc.Digest.String())
-			if layerDigest == "" {
+			layerDigest := strings.TrimSpace(layer.Digest)
+			if layerDigest == "" || subjectParsed.Hex == "" {
 				continue
 			}
 			predicateType := ""
-			if layerDesc.Annotations != nil {
-				predicateType = strings.TrimSpace(layerDesc.Annotations["in-toto.io/predicate-type"])
+			if layer.Annotations != nil {
+				predicateType = strings.TrimSpace(layer.Annotations["in-toto.io/predicate-type"])
 			}
 
-			hash, err := v1.NewHash(layerDigest)
+			layerParsed, err := parseSHA256Digest(layerDigest)
 			if err != nil {
-				return nil, fmt.Errorf("parse layer digest %s: %w", layerDigest, err)
+				continue
 			}
-			rc, err := lp.Blob(hash)
-			if err != nil {
-				return nil, fmt.Errorf("open attestation blob %s: %w", layerDigest, err)
-			}
-			body, readErr := io.ReadAll(rc)
-			_ = rc.Close()
+			body, readErr := os.ReadFile(blobPath(ociLayoutDir, layerParsed))
 			if readErr != nil {
-				return nil, fmt.Errorf("read attestation blob %s: %w", layerDigest, readErr)
+				if os.IsNotExist(readErr) {
+					continue
+				}
+				return fmt.Errorf("read attestation blob %s: %w", layerDigest, readErr)
 			}
+
 			var statement inTotoStatement
 			if err := json.Unmarshal(body, &statement); err != nil {
-				return nil, fmt.Errorf("parse in-toto statement %s: %w", layerDigest, err)
+				continue
 			}
-			if !subjectDigestMatches(statement, subjectHash) {
-				return nil, fmt.Errorf("attestation %s subject digest does not match referenced subject %s", layerDigest, subject)
+			if len(statement.Subject) > 0 && !subjectDigestMatches(statement, subjectParsed) {
+				return fmt.Errorf("attestation %s subject digest does not match referenced subject %s", layerDigest, subject)
 			}
 			if predicateType == "" {
 				predicateType = strings.TrimSpace(statement.PredicateType)
 			}
 			filename := fmt.Sprintf(
 				"%s_%s.json",
-				sanitizeFilenamePart(subjectHash.Hex),
+				sanitizeFilenamePart(subjectParsed.Hex),
 				sanitizeFilenamePart(predicateType),
 			)
 			dst, err := uniquePath(destDir, filename)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if err := copyToFile(dst, bytes.NewReader(body)); err != nil {
-				return nil, fmt.Errorf("write attestation blob %s: %w", layerDigest, err)
+				return fmt.Errorf("write attestation blob %s: %w", layerDigest, err)
 			}
 			out = append(out, AttestationFile{
 				Path:          dst,
@@ -208,6 +307,35 @@ func WriteAttestationsFromOCI(ociLayoutDir, destDir string) ([]AttestationFile, 
 				LayerDigest:   layerDigest,
 			})
 		}
+
+		return nil
 	}
+
+	if err := walkIndex(root); err != nil {
+		return nil, err
+	}
+
+	// Fallback: if index.json doesn't reference any usable attestation manifests,
+	// scan all blobs and try to treat them as indexes.
+	if len(out) == 0 {
+		dir := filepath.Join(ociLayoutDir, "blobs", "sha256")
+		entries, err := os.ReadDir(dir)
+		if err == nil {
+			for _, ent := range entries {
+				if ent.IsDir() {
+					continue
+				}
+				hex := strings.TrimSpace(ent.Name())
+				if hex == "" {
+					continue
+				}
+				if err := walkDescriptor(string(types.OCIImageIndex), "sha256:"+hex, nil); err != nil {
+					// Best-effort.
+					continue
+				}
+			}
+		}
+	}
+
 	return out, nil
 }

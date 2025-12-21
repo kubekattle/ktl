@@ -448,28 +448,33 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			} else if shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
 				fmt.Fprintf(errOut, "Applying release %s\n", releaseName)
 			}
-			if stream != nil && stream.HasObservers() {
-				statusUpdaters = append(statusUpdaters, stream.UpdateResources)
-				cancelFeed, err := streamReleaseFeed(ctx, kubeClient, releaseName, resolvedNamespace, currentLogLevel, stream)
-				if err != nil {
-					return err
+			// When rendering a plan/diff (dry-run), don't start Kubernetes watchers or resource tracking:
+			// - resources aren't created, so "Pending/Unknown" tracking is misleading
+			// - status tracking requires live API discovery calls that can fail on minimal RBAC
+			if !dryRun && !diff {
+				if stream != nil && stream.HasObservers() {
+					statusUpdaters = append(statusUpdaters, stream.UpdateResources)
+					cancelFeed, err := streamReleaseFeed(ctx, kubeClient, releaseName, resolvedNamespace, currentLogLevel, stream)
+					if err != nil {
+						return err
+					}
+					stopLogFeed = cancelFeed
+					stream.EmitEvent("info", fmt.Sprintf("Watching Kubernetes events for release %s in namespace %s", releaseName, resolvedNamespace))
 				}
-				stopLogFeed = cancelFeed
-				stream.EmitEvent("info", fmt.Sprintf("Watching Kubernetes events for release %s in namespace %s", releaseName, resolvedNamespace))
-			}
 
-			if len(statusUpdaters) > 0 {
-				trackerCtx, cancel := context.WithCancel(ctx)
-				multiUpdate := func(rows []deploy.ResourceStatus) {
-					for _, fn := range statusUpdaters {
-						if fn != nil {
-							fn(rows)
+				if len(statusUpdaters) > 0 {
+					trackerCtx, cancel := context.WithCancel(ctx)
+					multiUpdate := func(rows []deploy.ResourceStatus) {
+						for _, fn := range statusUpdaters {
+							if fn != nil {
+								fn(rows)
+							}
 						}
 					}
+					tracker := deploy.NewResourceTracker(kubeClient, resolvedNamespace, releaseName, trackerManifest, multiUpdate)
+					go tracker.Run(trackerCtx)
+					cancelTrack = cancel
 				}
-				tracker := deploy.NewResourceTracker(kubeClient, resolvedNamespace, releaseName, trackerManifest, multiUpdate)
-				go tracker.Run(trackerCtx)
-				cancelTrack = cancel
 			}
 			defer func() {
 				if cancelTrack != nil {
@@ -1266,6 +1271,7 @@ func renderManifestForTracking(ctx context.Context, settings *cli.EnvSettings, n
 		SetStringValues: setStringValues,
 		SetFileValues:   setFileValues,
 		IncludeCRDs:     true,
+		UseCluster:      true,
 	})
 	if err != nil {
 		return "", err

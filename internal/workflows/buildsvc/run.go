@@ -159,10 +159,13 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	if contextDir == "" {
 		contextDir = "."
 	}
-	if sandboxActive() && !filepath.IsAbs(contextDir) {
+	if sandboxActive() {
 		if envContext := strings.TrimSpace(sandboxContextFromEnv()); envContext != "" {
 			contextDir = envContext
 			opts.ContextDir = envContext
+		}
+		if envCache := strings.TrimSpace(sandboxCacheFromEnv()); envCache != "" {
+			opts.CacheDir = envCache
 		}
 	}
 	cacheDir := opts.CacheDir
@@ -182,10 +185,6 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	if strings.TrimSpace(opts.AttestationDir) != "" && !opts.AttestProvenance && !opts.AttestSBOM {
 		opts.AttestProvenance = true
 		opts.AttestSBOM = true
-	}
-
-	if opts.SandboxWorkdir == "" {
-		opts.SandboxWorkdir = contextAbs
 	}
 
 	if injector := getSandboxInjector(); injector != nil {

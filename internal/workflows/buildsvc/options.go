@@ -125,6 +125,7 @@ type Options struct {
 	SandboxConfig      string
 	SandboxBin         string
 	SandboxBinds       []string
+	SandboxBindHome    bool
 	SandboxWorkdir     string
 	SandboxLogs        bool
 	SandboxProbePath   string

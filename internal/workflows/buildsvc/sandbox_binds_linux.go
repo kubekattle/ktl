@@ -41,27 +41,18 @@ var etcFileBinds = []string{
 	"/etc/docker",
 }
 
-func buildSandboxBinds(contextDir, cacheDir, builderAddr, exePath, homeDir string, extra []string) []sandboxBind {
-	homeBound := homeDir != "" && pathExists(homeDir)
-	binds := make([]sandboxBind, 0, 5+len(extra)+len(dockerSocketCandidates))
-	if contextDir != "" {
-		if !(homeBound && pathWithin(homeDir, contextDir)) {
-			binds = append(binds, makeSandboxBind(contextDir, contextDir, false))
-		}
+func buildSandboxBinds(hostContextDir, guestContextDir, hostCacheDir, guestCacheDir, builderAddr string, bindHome bool, homeDir string, extra []string) []sandboxBind {
+	homeBound := bindHome && homeDir != "" && pathExists(homeDir)
+	binds := make([]sandboxBind, 0, 6+len(extra)+len(dockerSocketCandidates))
+	if hostContextDir != "" && guestContextDir != "" {
+		binds = append(binds, makeSandboxBind(hostContextDir, guestContextDir, false))
 	}
-	cacheCovered := false
-	if homeDir != "" {
-		if rel, err := filepath.Rel(homeDir, cacheDir); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			cacheCovered = true
-		}
-	}
-	if cacheDir != "" && !cacheCovered {
-		binds = append(binds, makeSandboxBind(cacheDir, cacheDir, false))
+	if hostCacheDir != "" && guestCacheDir != "" {
+		binds = append(binds, makeSandboxBind(hostCacheDir, guestCacheDir, false))
 	}
 	if sock := builderSocketPath(builderAddr); sock != "" && fileExists(sock) {
 		binds = append(binds, makeSandboxBind(sock, sock, true))
 	}
-	_ = exePath
 	for _, candidate := range dockerSocketCandidates {
 		if fileExists(candidate) {
 			binds = append(binds, makeSandboxBind(candidate, candidate, false))

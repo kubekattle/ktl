@@ -44,3 +44,10 @@ func sandboxContextFromEnv() string {
 	}
 	return os.Getenv(legacySandboxContextEnvKey)
 }
+
+func sandboxCacheFromEnv() string {
+	if v := os.Getenv(sandboxCacheEnvKey); v != "" {
+		return v
+	}
+	return os.Getenv(legacySandboxCacheEnvKey)
+}

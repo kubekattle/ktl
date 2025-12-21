@@ -79,9 +79,14 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 	if err != nil {
 		return false, err
 	}
+	_ = sandboxExe
+
+	guestContext := "/workspace"
+	guestCache := "/ktl-cache"
+	sandboxExeGuest := filepath.Join(guestCache, "sandbox-bin", "ktl")
 
 	homeDir, _ := os.UserHomeDir()
-	binds := buildSandboxBinds(contextAbs, cacheDir, builderAddr, sandboxExe, homeDir, opts.SandboxBinds)
+	binds := buildSandboxBinds(contextAbs, guestContext, cacheDir, guestCache, builderAddr, opts.SandboxBindHome, homeDir, opts.SandboxBinds)
 
 	logDir := filepath.Join(cacheDir, "sandbox-logs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
@@ -90,17 +95,16 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 	logPath := filepath.Join(logDir, fmt.Sprintf("sandbox-%d.log", time.Now().UnixNano()))
 
 	args := []string{"--config", configPath, "--log", logPath}
-	if !opts.SandboxLogs {
-		args = append(args, "--quiet")
+	workdir := strings.TrimSpace(opts.SandboxWorkdir)
+	if workdir == "" {
+		workdir = guestContext
 	}
-	if opts.SandboxWorkdir != "" {
-		args = append(args, "--cwd", opts.SandboxWorkdir)
-	}
+	args = append(args, "--cwd", workdir)
 	for _, bind := range binds {
 		args = append(args, bind.flag, bind.spec)
 	}
 	args = append(args, "--")
-	args = append(args, sandboxExe)
+	args = append(args, sandboxExeGuest)
 	args = append(args, os.Args[1:]...)
 
 	sandboxCmd := exec.Command(bin, args...)
@@ -112,10 +116,10 @@ func maybeReexecInSandbox(ctx context.Context, opts *Options, streams Streams, c
 		legacySandboxActiveEnvKey+"=1",
 	)
 	env = append(env,
-		fmt.Sprintf("%s=%s", sandboxContextEnvKey, contextAbs),
-		fmt.Sprintf("%s=%s", legacySandboxContextEnvKey, contextAbs),
-		fmt.Sprintf("%s=%s", sandboxCacheEnvKey, cacheDir),
-		fmt.Sprintf("%s=%s", legacySandboxCacheEnvKey, cacheDir),
+		fmt.Sprintf("%s=%s", sandboxContextEnvKey, guestContext),
+		fmt.Sprintf("%s=%s", legacySandboxContextEnvKey, guestContext),
+		fmt.Sprintf("%s=%s", sandboxCacheEnvKey, guestCache),
+		fmt.Sprintf("%s=%s", legacySandboxCacheEnvKey, guestCache),
 		fmt.Sprintf("%s=%s", sandboxBuilderEnvKey, builderAddr),
 		fmt.Sprintf("%s=%s", legacySandboxBuilderEnvKey, builderAddr),
 		fmt.Sprintf("%s=%s", sandboxLogPathEnvKey, logPath),

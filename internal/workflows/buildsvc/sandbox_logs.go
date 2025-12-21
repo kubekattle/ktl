@@ -40,6 +40,9 @@ func startSandboxLogStreamer(ctx context.Context, path string, out io.Writer, ob
 func streamSandboxFile(ctx context.Context, path string, out io.Writer, observer func(string)) error {
 	file, err := waitForSandboxLog(ctx, path)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
 		return err
 	}
 	defer file.Close()

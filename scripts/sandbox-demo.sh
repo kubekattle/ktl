@@ -26,13 +26,22 @@ need() {
 contains() {
   local needle="$1"
   if command -v rg >/dev/null 2>&1; then
-    rg -q --fixed-strings "$needle"
+    rg -q --fixed-strings -- "$needle" -
   else
     grep -Fq "$needle"
   fi
 }
 
-need go
+require_probe_line() {
+  local output="$1"
+  local path="$2"
+  if ! printf "%s" "$output" | contains "[probe] stat \"$path\":" ; then
+    note_fail "нет строки probe в выводе (вместо этого была ошибка запуска/песочницы?)"
+    return 1
+  fi
+  return 0
+}
+
 need uname
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -42,6 +51,8 @@ if [[ "$os" != "linux" ]]; then
 fi
 
 if [[ ! -x "$ktl_bin" ]]; then
+  need go
+  need make
   yellow "Не найден бинарник ktl по пути $ktl_bin — собираю: make build"
   make build >/dev/null
 fi
@@ -135,6 +146,9 @@ chmod 0644 "$probe_host_root_file"
 nosb_probe_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
 sandbox_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
 
+require_probe_line "$nosb_probe_out" "$probe_host_root_file" || true
+require_probe_line "$sandbox_probe_out" "$probe_host_root_file" || true
+
 if printf "%s" "$nosb_probe_out" | contains "[probe] stat \"$probe_host_root_file\": OK" ; then
   note_pass "без песочницы ktl видит host-only файл (probe OK)"
 else
@@ -155,13 +169,19 @@ cat >&2 <<EOF
 И проверим, что он доступен:
   - без песочницы (ожидаемо),
   - в песочнице (это важно: песочница не ломает обычный билд).
+
+Важно: внутри песочницы ktl маппит build context в /workspace, поэтому для sandbox-run мы
+проверяем probe по относительному пути (относительно /workspace).
 EOF
 
 printf "demo-probe-context-%s\n" "$(date +%s)" >"$probe_ctx_file"
 chmod 0644 "$probe_ctx_file"
 
 nosb_ctx_probe_out="$(KTL_SANDBOX_DISABLE=1 "$ktl_bin" build "$baseline_ctx" --sandbox-probe-path "$probe_ctx_file" 2>&1 || true)"
-sandbox_ctx_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-probe-path "$probe_ctx_file" 2>&1 || true)"
+sandbox_ctx_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-probe-path "$probe_ctx_file_rel" 2>&1 || true)"
+
+require_probe_line "$nosb_ctx_probe_out" "$probe_ctx_file" || true
+require_probe_line "$sandbox_ctx_probe_out" "$probe_ctx_file_rel" || true
 
 if printf "%s" "$nosb_ctx_probe_out" | contains "[probe] stat \"$probe_ctx_file\": OK" ; then
   note_pass "без песочницы файл в контексте виден (probe OK)"
@@ -169,7 +189,7 @@ else
   note_fail "ожидали probe OK для файла в контексте без песочницы"
 fi
 
-if printf "%s" "$sandbox_ctx_probe_out" | contains "[probe] stat \"$probe_ctx_file\": OK" ; then
+if printf "%s" "$sandbox_ctx_probe_out" | contains "[probe] stat \"$probe_ctx_file_rel\": OK" ; then
   note_pass "в песочнице файл в контексте виден (probe OK) — билд не сломан"
 else
   note_fail "ожидали probe OK для файла в контексте в песочнице"
@@ -181,15 +201,16 @@ cat >&2 <<EOF
 Если нам действительно нужно дать доступ, мы делаем это ЯВНО.
 
 Сейчас мы пробросим один конкретный файл:
-  --sandbox-bind "$probe_host_root_file:$probe_host_root_file"
+  --sandbox-bind "$probe_host_root_file:/workspace/host-only.txt"
 
 Ожидаемое поведение:
   - В песочнице без bind: probe НЕ OK (см. Тест 2)
   - В песочнице с bind:  probe OK
 EOF
 
-sandbox_bind_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-bind "$probe_host_root_file:$probe_host_root_file" --sandbox-probe-path "$probe_host_root_file" 2>&1 || true)"
-if printf "%s" "$sandbox_bind_probe_out" | contains "[probe] stat \"$probe_host_root_file\": OK" ; then
+sandbox_bind_probe_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$policy" --sandbox-bind "$probe_host_root_file:/workspace/host-only.txt" --sandbox-probe-path "host-only.txt" 2>&1 || true)"
+require_probe_line "$sandbox_bind_probe_out" "host-only.txt" || true
+if printf "%s" "$sandbox_bind_probe_out" | contains "[probe] stat \"host-only.txt\": OK" ; then
   note_pass "явный --sandbox-bind сработал: host-only файл стал видимым"
 else
   note_fail "ожидали probe OK с явным --sandbox-bind, но не увидели"

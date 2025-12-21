@@ -271,6 +271,7 @@ func TestBuildCommandHelpListsAllFlags(t *testing.T) {
 		"--sandbox-config",
 		"--sandbox-logs",
 		"--sandbox-probe-path",
+		"--sandbox-bind-home",
 		"--sandbox",
 		"--sandbox-workdir",
 		"--sbom",

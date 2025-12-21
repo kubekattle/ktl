@@ -27,6 +27,9 @@ type TemplateOptions struct {
 	SetStringValues []string
 	SetFileValues   []string
 	IncludeCRDs     bool
+	// UseCluster toggles between "client-only" rendering (fast, offline) and cluster-aware
+	// rendering (uses discovery to match actual API versions/capabilities).
+	UseCluster bool
 }
 
 // TemplateResult holds rendered manifests and optional notes.
@@ -76,7 +79,7 @@ func RenderTemplate(ctx context.Context, actionCfg *action.Configuration, settin
 	installer.ReleaseName = opts.ReleaseName
 	installer.Namespace = namespace
 	installer.Replace = true
-	installer.ClientOnly = true
+	installer.ClientOnly = !opts.UseCluster
 	installer.IncludeCRDs = opts.IncludeCRDs
 
 	rel, err := installer.RunWithContext(ctx, chartRequested, vals)

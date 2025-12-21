@@ -41,6 +41,11 @@ command -v nsjail
 export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 ```
 
+Если на хосте нет Go toolchain, демо всё равно можно прогнать с уже собранным бинарником:
+
+- локально собрать `ktl` под Linux и загрузить его на хост (см. `scripts/remote-sandbox-demo.sh`), или
+- вручную передать путь к бинарнику через `KTL_BIN=/path/to/ktl` (в этом случае `scripts/sandbox-demo.sh` не требует `go`).
+
 ## Демо 1 (основное): “`ktl` без песочницы vs `ktl` в песочнице”
 
 Этот демо‑набор делает несколько проверок и печатает понятный итог (`PASS`/`FAIL`/`SKIP`).

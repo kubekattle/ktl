@@ -66,6 +66,7 @@ type buildCLIOptions struct {
 	sandboxConfig    string
 	sandboxBin       string
 	sandboxBinds     []string
+	sandboxBindHome  bool
 	sandboxWorkdir   string
 	sandboxLogs      bool
 	sandboxProbePath string
@@ -199,6 +200,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxConfig, name: "--sandbox-config", allowEmpty: true, validator: nil}, "sandbox-config", "Path to a sandbox runtime config file")
 	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxBin, name: "--sandbox-bin", allowEmpty: true, validator: nil}, "sandbox-bin", "Path to the sandbox runtime binary")
 	attachValidatedStringArray(cmd.PersistentFlags(), "sandbox-bind", &opts.sandboxBinds, "Additional sandbox bind mounts (host:guest)", validateSandboxBind)
+	cmd.PersistentFlags().BoolVar(&opts.sandboxBindHome, "sandbox-bind-home", false, "Bind-mount the current user's home directory into the sandbox (use with caution; prefer --authfile/--secret/--sandbox-bind)")
 	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxWorkdir, name: "--sandbox-workdir", allowEmpty: true, validator: nil}, "sandbox-workdir", "Working directory inside the sandbox (default: build context)")
 	cmd.PersistentFlags().BoolVar(&opts.sandboxRequired, "sandbox", false, "Require executing the build inside the sandbox (fail if unavailable)")
 
@@ -416,6 +418,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		SandboxConfig:      opts.sandboxConfig,
 		SandboxBin:         opts.sandboxBin,
 		SandboxBinds:       append([]string(nil), opts.sandboxBinds...),
+		SandboxBindHome:    opts.sandboxBindHome,
 		SandboxWorkdir:     opts.sandboxWorkdir,
 		SandboxLogs:        opts.sandboxLogs,
 		SandboxProbePath:   opts.sandboxProbePath,
