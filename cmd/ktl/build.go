@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -134,56 +135,115 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 		SilenceErrors: true,
 	}
 
-	cmd.Flags().StringVarP(&opts.dockerfile, "file", "f", opts.dockerfile, "Path to the Dockerfile (default: Dockerfile)")
-	cmd.Flags().StringSliceVarP(&opts.tags, "tag", "t", nil, "One or more image tags to apply to the result")
-	cmd.Flags().StringSliceVar(&opts.platforms, "platform", nil, "Target platforms (comma-separated values like linux/amd64)")
-	cmd.Flags().StringArrayVar(&opts.buildArgs, "build-arg", nil, "Add a build-time variable (KEY=VALUE)")
-	cmd.Flags().StringArrayVar(&opts.secrets, "secret", nil, "Expose an environment variable as a BuildKit secret (NAME)")
-	cmd.Flags().StringArrayVar(&opts.cacheFrom, "cache-from", nil, "Cache import sources (comma-separated key=value pairs)")
-	cmd.Flags().StringArrayVar(&opts.cacheTo, "cache-to", nil, "Cache export destinations (comma-separated key=value pairs)")
+	attachValidatedStringArray(cmd.Flags(), "build-arg", &opts.buildArgs, "Add a build-time variable (KEY=VALUE)", func(raw string) error {
+		_, err := buildsvc.ParseKeyValueArgs([]string{raw})
+		return err
+	})
+
+	attachValidatedStringArray(cmd.Flags(), "secret", &opts.secrets, "Expose an environment variable as a BuildKit secret (NAME)", validateEnvVarName)
+
+	attachValidatedStringArray(cmd.Flags(), "cache-from", &opts.cacheFrom, "Cache import sources (comma-separated key=value pairs)", func(raw string) error {
+		_, err := buildsvc.ParseCacheSpecs([]string{raw})
+		return err
+	})
+	attachValidatedStringArray(cmd.Flags(), "cache-to", &opts.cacheTo, "Cache export destinations (comma-separated key=value pairs)", func(raw string) error {
+		_, err := buildsvc.ParseCacheSpecs([]string{raw})
+		return err
+	})
+
+	cmd.Flags().VarP(&validatedStringValue{dest: &opts.dockerfile, name: "--file", validator: func(raw string) error {
+		if strings.TrimSpace(raw) == "" {
+			return fmt.Errorf("dockerfile path cannot be empty")
+		}
+		return nil
+	}}, "file", "f", "Path to the Dockerfile (default: Dockerfile)")
+	cmd.Flags().VarP(&validatedCSVListValue{dest: &opts.tags, validator: validateTag, name: "--tag"}, "tag", "t", "One or more image tags to apply to the result")
+	cmd.Flags().Var(&validatedCSVListValue{dest: &opts.platforms, validator: validatePlatform, name: "--platform"}, "platform", "Target platforms (comma-separated values like linux/amd64)")
 	cmd.Flags().BoolVar(&opts.sbom, "sbom", false, "Generate an SBOM attestation (in-toto) during the build")
 	cmd.Flags().BoolVar(&opts.provenance, "provenance", false, "Generate a SLSA provenance attestation (in-toto) during the build")
-	cmd.Flags().StringVar(&opts.attestDir, "attest-dir", "", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
-	cmd.Flags().StringVar(&opts.capturePath, "capture", "", "Capture build logs/events to a SQLite database at this path")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.attestDir, name: "--attest-dir", allowEmpty: true, validator: nil}, "attest-dir", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.capturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture build logs/events to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
 		flag.NoOptDefVal = "__auto__"
 	}
-	cmd.Flags().StringArrayVar(&opts.captureTags, "capture-tag", nil, "Tag the capture session (KEY=VALUE). Repeatable.")
+	attachValidatedStringArray(cmd.Flags(), "capture-tag", &opts.captureTags, "Tag the capture session (KEY=VALUE). Repeatable.", func(raw string) error {
+		_, err := buildsvc.ParseKeyValueArgs([]string{raw})
+		return err
+	})
 	cmd.Flags().BoolVar(&opts.push, "push", false, "Push all tags to their registries after a successful build")
 	cmd.Flags().BoolVar(&opts.load, "load", false, "Load the resulting image into the local container runtime (docker build --load)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Disable BuildKit cache usage")
-	cmd.Flags().StringVar(&opts.builder, "builder", opts.builder, "BuildKit address (override with KTL_BUILDKIT_HOST)")
-	cmd.Flags().StringVar(&opts.cacheDir, "cache-dir", opts.cacheDir, "Local cache directory for BuildKit metadata")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.builder, name: "--builder", validator: validateBuildkitAddr}, "builder", "BuildKit address (override with KTL_BUILDKIT_HOST)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.cacheDir, name: "--cache-dir", allowEmpty: false, validator: nil}, "cache-dir", "Local cache directory for BuildKit metadata")
 	cmd.Flags().BoolVar(&opts.sign, "sign", false, "Sign pushed image tags with cosign after a successful build (requires --push)")
-	cmd.Flags().StringVar(&opts.signKey, "sign-key", "", "cosign key reference for signing (e.g. awskms://..., gcpkms://..., azurekms://...)")
-	cmd.Flags().StringVar(&opts.rekorURL, "rekor-url", "", "Override the Rekor transparency log URL used by cosign")
-	cmd.Flags().StringVar(&opts.tlogUpload, "tlog-upload", "", "Override cosign transparency log upload (true/false); default uses cosign's behavior")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.signKey, name: "--sign-key", allowEmpty: true, validator: nil}, "sign-key", "cosign key reference for signing (e.g. awskms://..., gcpkms://..., azurekms://...)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.rekorURL, name: "--rekor-url", allowEmpty: true, validator: nil}, "rekor-url", "Override the Rekor transparency log URL used by cosign")
+	cmd.Flags().Var(&optionalBoolStringValue{dest: &opts.tlogUpload}, "tlog-upload", "Override cosign transparency log upload (true/false); default uses cosign's behavior")
 	cmd.Flags().BoolVarP(&opts.interactive, "interactive", "i", false, "Drop into an interactive shell when a RUN step fails")
-	cmd.Flags().StringVar(&opts.interactiveShell, "interactive-shell", "/bin/sh", "Shell command to start when --interactive attaches")
-	cmd.Flags().StringVar(&opts.buildMode, "mode", string(buildsvc.ModeAuto), "Build mode: auto, dockerfile, or compose")
-	cmd.Flags().StringArrayVar(&opts.composeFiles, "compose-file", nil, "Compose file(s) to use when building compose projects")
-	cmd.Flags().StringArrayVar(&opts.composeProfiles, "compose-profile", nil, "Compose profile(s) to enable")
-	cmd.Flags().StringArrayVar(&opts.composeServices, "compose-service", nil, "Compose service(s) to build (default: all buildable services)")
-	cmd.Flags().StringVar(&opts.composeProject, "compose-project", "", "Override the compose project name")
-	cmd.Flags().IntVar(&opts.composeParallel, "compose-parallelism", 0, "Max parallel compose builds (default: NumCPU)")
-	cmd.Flags().StringVar(&opts.logFile, "logfile", "", "Log to file instead of stdout/stderr")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.interactiveShell, name: "--interactive-shell", allowEmpty: false, validator: nil}, "interactive-shell", "Shell command to start when --interactive attaches")
+	_ = cmd.Flags().Set("interactive-shell", "/bin/sh")
+	cmd.Flags().Var(newEnumStringValue(&opts.buildMode, string(buildsvc.ModeAuto), string(buildsvc.ModeDockerfile), string(buildsvc.ModeCompose)), "mode", "Build mode: auto, dockerfile, or compose")
+	attachValidatedStringArray(cmd.Flags(), "compose-file", &opts.composeFiles, "Compose file(s) to use when building compose projects", nil)
+	attachValidatedStringArray(cmd.Flags(), "compose-profile", &opts.composeProfiles, "Compose profile(s) to enable", nil)
+	attachValidatedStringArray(cmd.Flags(), "compose-service", &opts.composeServices, "Compose service(s) to build (default: all buildable services)", nil)
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.composeProject, name: "--compose-project", allowEmpty: true, validator: nil}, "compose-project", "Override the compose project name")
+	cmd.Flags().Var(&nonNegativeIntValue{dest: &opts.composeParallel}, "compose-parallelism", "Max parallel compose builds (default: NumCPU)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.logFile, name: "--logfile", allowEmpty: true, validator: nil}, "logfile", "Log to file instead of stdout/stderr")
 	cmd.Flags().BoolVar(&opts.rm, "rm", true, "Remove intermediate containers after a successful build")
 	cmd.Flags().BoolVarP(&opts.quiet, "quiet", "q", false, "Refrain from announcing build instructions and progress")
 	cmd.Flags().BoolVar(&opts.sandboxLogs, "sandbox-logs", false, "Stream sandbox runtime logs to stderr and the websocket mirror (when --ws-listen is set)")
-	cmd.Flags().StringVar(&opts.sandboxProbePath, "sandbox-probe-path", "", "Probe filesystem visibility before building by attempting to stat this host path")
-	cmd.Flags().StringVar(&opts.wsListenAddr, "ws-listen", "", "Serve the raw BuildKit event stream over WebSocket at this address (e.g. :9085)")
-	cmd.Flags().StringVar(&opts.remoteAddr, "remote-build", "", "Execute this build via a remote ktl-agent gRPC endpoint (host:port)")
-	cmd.PersistentFlags().StringVar(&opts.authFile, "authfile", "", "Path to the authentication file (Docker config.json)")
-	cmd.PersistentFlags().StringVar(&opts.sandboxConfig, "sandbox-config", "", "Path to a sandbox runtime config file")
-	cmd.PersistentFlags().StringVar(&opts.sandboxBin, "sandbox-bin", "", "Path to the sandbox runtime binary")
-	cmd.PersistentFlags().StringArrayVar(&opts.sandboxBinds, "sandbox-bind", nil, "Additional sandbox bind mounts (host:guest)")
-	cmd.PersistentFlags().StringVar(&opts.sandboxWorkdir, "sandbox-workdir", "", "Working directory inside the sandbox (default: build context)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.sandboxProbePath, name: "--sandbox-probe-path", allowEmpty: true, validator: nil}, "sandbox-probe-path", "Probe filesystem visibility before building by attempting to stat this host path")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.wsListenAddr, name: "--ws-listen", allowEmpty: true, validator: validateWSListenAddr}, "ws-listen", "Serve the raw BuildKit event stream over WebSocket at this address (e.g. :9085)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.remoteAddr, name: "--remote-build", allowEmpty: true, validator: validateRemoteAddr}, "remote-build", "Execute this build via a remote ktl-agent gRPC endpoint (host:port)")
+	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.authFile, name: "--authfile", allowEmpty: true, validator: nil}, "authfile", "Path to the authentication file (Docker config.json)")
+	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxConfig, name: "--sandbox-config", allowEmpty: true, validator: nil}, "sandbox-config", "Path to a sandbox runtime config file")
+	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxBin, name: "--sandbox-bin", allowEmpty: true, validator: nil}, "sandbox-bin", "Path to the sandbox runtime binary")
+	attachValidatedStringArray(cmd.PersistentFlags(), "sandbox-bind", &opts.sandboxBinds, "Additional sandbox bind mounts (host:guest)", validateSandboxBind)
+	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxWorkdir, name: "--sandbox-workdir", allowEmpty: true, validator: nil}, "sandbox-workdir", "Working directory inside the sandbox (default: build context)")
 	cmd.PersistentFlags().BoolVar(&opts.sandboxRequired, "sandbox", false, "Require executing the build inside the sandbox (fail if unavailable)")
 
 	cmd.AddCommand(newBuildLoginCommand(&opts), newBuildLogoutCommand(&opts))
 
 	decorateCommandHelp(cmd, "Build Flags")
 	return cmd
+}
+
+type validatedStringValue struct {
+	dest       *string
+	name       string
+	allowEmpty bool
+	validator  func(string) error
+}
+
+func (v *validatedStringValue) String() string {
+	if v == nil || v.dest == nil {
+		return ""
+	}
+	return *v.dest
+}
+
+func (v *validatedStringValue) Set(s string) error {
+	raw := strings.TrimSpace(s)
+	if raw == "" {
+		if v.allowEmpty {
+			*v.dest = ""
+			return nil
+		}
+		return fmt.Errorf("%s cannot be empty", v.name)
+	}
+	if v.validator != nil {
+		if err := v.validator(raw); err != nil {
+			return err
+		}
+	}
+	*v.dest = raw
+	return nil
+}
+
+func (v *validatedStringValue) Type() string { return "string" }
+
+func attachValidatedStringArray(flags *pflag.FlagSet, name string, dest *[]string, usage string, validator func(string) error) {
+	flags.Var(&validatedStringArrayValue{dest: dest, validator: validator, name: "--" + name}, name, usage)
 }
 
 var errMissingBuildContext = errors.New("'ktl build' requires 1 argument (CONTEXT). Try '.' for the current directory")

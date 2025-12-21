@@ -8,6 +8,7 @@ package buildsvc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -186,6 +187,16 @@ func (r *captureRunner) BuildDockerfile(ctx context.Context, opts buildkit.Docke
 	return &buildkit.BuildResult{Digest: "sha256:deadbeef"}, nil
 }
 
+type errRunner struct {
+	last buildkit.DockerfileBuildOptions
+	err  error
+}
+
+func (r *errRunner) BuildDockerfile(ctx context.Context, opts buildkit.DockerfileBuildOptions) (*buildkit.BuildResult, error) {
+	r.last = opts
+	return nil, r.err
+}
+
 type noopRegistry struct{}
 
 func (noopRegistry) RecordBuild(tags []string, layoutPath string) error { return nil }
@@ -244,6 +255,99 @@ func TestRun_UsesSandboxContextEnvForRelativeContextDir(t *testing.T) {
 	}
 	if runner.last.ContextDir != ctxDir {
 		t.Fatalf("expected build ContextDir %q, got %q", ctxDir, runner.last.ContextDir)
+	}
+}
+
+func TestRun_AttestDirEnablesAttestations(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\n")
+
+	dockerCfgPath := filepath.Join(dir, "docker", "config.json")
+	writeFile(t, dockerCfgPath, "{}\n")
+
+	runner := &errRunner{err: errors.New("stop")}
+	svc := New(Dependencies{
+		BuildRunner: runner,
+		Registry:    noopRegistry{},
+	})
+
+	_, err := svc.Run(context.Background(), Options{
+		ContextDir:     dir,
+		Dockerfile:     "Dockerfile",
+		AuthFile:       dockerCfgPath,
+		BuildMode:      string(ModeDockerfile),
+		AttestationDir: filepath.Join(dir, "attest"),
+		Streams: Streams{
+			Out: &bytes.Buffer{},
+			Err: &bytes.Buffer{},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "stop") {
+		t.Fatalf("expected stop error, got %v", err)
+	}
+	if !runner.last.AttestProvenance || !runner.last.AttestSBOM {
+		t.Fatalf("expected attestations enabled, got provenance=%v sbom=%v", runner.last.AttestProvenance, runner.last.AttestSBOM)
+	}
+}
+
+func TestRun_AttestDirRequiresOCIOutputOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\n")
+
+	dockerCfgPath := filepath.Join(dir, "docker", "config.json")
+	writeFile(t, dockerCfgPath, "{}\n")
+
+	runner := &captureRunner{}
+	svc := New(Dependencies{
+		BuildRunner: runner,
+		Registry:    noopRegistry{},
+	})
+
+	_, err := svc.Run(context.Background(), Options{
+		ContextDir:     dir,
+		Dockerfile:     "Dockerfile",
+		AuthFile:       dockerCfgPath,
+		BuildMode:      string(ModeDockerfile),
+		AttestationDir: filepath.Join(dir, "attest"),
+		Tags:           []string{"example.com/app:test"},
+		Streams: Streams{
+			Out: &bytes.Buffer{},
+			Err: &bytes.Buffer{},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "--attest-dir requires an OCI layout export") {
+		t.Fatalf("expected attest-dir error, got %v", err)
+	}
+}
+
+func TestRun_SignRequiresPush(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "Dockerfile"), "FROM scratch\n")
+
+	dockerCfgPath := filepath.Join(dir, "docker", "config.json")
+	writeFile(t, dockerCfgPath, "{}\n")
+
+	runner := &captureRunner{}
+	svc := New(Dependencies{
+		BuildRunner: runner,
+		Registry:    noopRegistry{},
+	})
+
+	_, err := svc.Run(context.Background(), Options{
+		ContextDir: dir,
+		Dockerfile: "Dockerfile",
+		AuthFile:   dockerCfgPath,
+		BuildMode:  string(ModeDockerfile),
+		Tags:       []string{"example.com/app:test"},
+		Sign:       true,
+		Push:       false,
+		Streams: Streams{
+			Out: &bytes.Buffer{},
+			Err: &bytes.Buffer{},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "--sign requires --push") {
+		t.Fatalf("expected sign requires push error, got %v", err)
 	}
 }
 

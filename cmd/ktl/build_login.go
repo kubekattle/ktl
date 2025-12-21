@@ -32,7 +32,15 @@ func newBuildLoginCommand(parent *buildCLIOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login [SERVER]",
 		Short: "Log in to a container registry",
-		Args:  cobra.MaximumNArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+				return err
+			}
+			if len(args) == 0 {
+				return nil
+			}
+			return validateRegistryServerArg(args[0])
+		},
 		Example: `  # Login to Docker Hub (interactive prompts if flags are omitted)
   ktl build login
 
@@ -49,8 +57,8 @@ func newBuildLoginCommand(parent *buildCLIOptions) *cobra.Command {
 		SilenceErrors: true,
 	}
 
-	cmd.Flags().StringVarP(&opts.Username, "username", "u", "", "Registry username")
-	cmd.Flags().StringVarP(&opts.Password, "password", "p", "", "Registry password or token (prefer --password-stdin)")
+	cmd.Flags().VarP(&validatedStringValue{dest: &opts.Username, name: "--username", allowEmpty: false, validator: nil}, "username", "u", "Registry username")
+	cmd.Flags().VarP(&validatedStringValue{dest: &opts.Password, name: "--password", allowEmpty: false, validator: nil}, "password", "p", "Registry password or token (prefer --password-stdin)")
 	cmd.Flags().BoolVar(&opts.PasswordStdin, "password-stdin", false, "Read the password/token from stdin")
 	decorateCommandHelp(cmd, "Login Flags")
 
@@ -61,7 +69,15 @@ func newBuildLogoutCommand(parent *buildCLIOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logout [SERVER]",
 		Short: "Log out of a container registry",
-		Args:  cobra.MaximumNArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.MaximumNArgs(1)(cmd, args); err != nil {
+				return err
+			}
+			if len(args) == 0 {
+				return nil
+			}
+			return validateRegistryServerArg(args[0])
+		},
 		Example: `  # Logout of Docker Hub
   ktl build logout
 
