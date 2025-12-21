@@ -126,11 +126,14 @@
       }
       table { width: 100%; border-collapse: collapse; table-layout: fixed; }
       th, td { padding: 10px 12px; border-bottom: 1px solid rgba(15,23,42,0.06); vertical-align: top; }
+      th:not(:last-child), td:not(:last-child) { border-right: 1px solid rgba(15,23,42,0.09); }
       th { text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.75rem; color: var(--muted); font-weight: 650; background: rgba(255,255,255,0.35); position: relative; user-select: none; }
       th .resizer { position: absolute; right: 0; top: 0; height: 100%; width: 10px; cursor: col-resize; }
-      td.ts { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 140px; }
+      th .resizer::after { content: ""; position: absolute; right: 4px; top: 8px; bottom: 8px; width: 2px; border-radius: 999px; background: rgba(15,23,42,0.16); }
+      td.ts { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 104px; }
       td.src { white-space: nowrap; width: 220px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
       td.msg { width: auto; }
+      #colTs { width: 104px; }
       #colSrc { width: 220px; }
       .tag { display:inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(15,23,42,0.10); background: rgba(37,99,235,0.08); color: #1d4ed8; font-weight: 650; font-size: 0.78rem; margin-right: 8px; }
       .tag.warn { background: rgba(251,191,36,0.18); color: #92400e; }
@@ -200,7 +203,7 @@
 	              <input id="start" class="time" placeholder="Start (ISO)" />
 	              <input id="end" class="time" placeholder="End (ISO)" />
 	            </div>
-	            <div class="muted" id="hint"></div>
+	            <!-- hint removed -->
 	          </div>
 	          <div class="panel">
 	            <div class="panel-title-row">
@@ -233,7 +236,7 @@
 		                </tbody>
 		              </table>
 		            </div>
-		            <div class="muted" id="logStatus" style="margin-top:12px;"></div>
+		            <!-- log status removed -->
 		          </div>
 	        </div>
 	      </div>
@@ -413,7 +416,11 @@
         state.maxKey = 0;
         state.hasMoreNext = true;
         state.hasMorePrev = true;
-        el("logStatus").textContent = "";
+      }
+
+      function setLogStatus(text) {
+        const node = document.getElementById("logStatus");
+        if (node) node.textContent = text || "";
       }
 
       function appendLogs(lines) {
@@ -477,7 +484,6 @@
         }
         if (state.sessions.length === 0) {
           el("subtitle").textContent = "No capture sessions found.";
-          el("hint").textContent = "Did you pass the correct .sqlite file produced by ktl --capture?";
           return;
         }
         const urlParams = new URLSearchParams(location.search);
@@ -514,11 +520,8 @@
         if (meta.namespace) parts.push(`ns/${meta.namespace}`);
         el("subtitle").textContent = parts.join(" · ") || meta.command || "capture";
         state.sessionStartNS = meta.started_at_ns || 0;
-        el("hint").style.display = "";
-        el("hint").textContent = `Session ${meta.session_id}`;
         const start = meta.started_at_ns ? fmtNS(meta.started_at_ns) : "";
         const end = meta.ended_at_ns ? fmtNS(meta.ended_at_ns) : "";
-        // Range is reflected via the hint line (timeline stats).
       }
 
       // refreshQuickStats removed (stats are shown in the hint line).
@@ -560,17 +563,19 @@
         if (state.loadingNext || !state.hasMoreNext) return;
         state.loadingNext = true;
         try {
-          el("logStatus").textContent = "Loading…";
+          setLogStatus("Loading…");
           const cursor = state.maxKey || 0;
           const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           appendLogs(data.lines || []);
           state.hasMoreNext = !!data.has_more;
-          el("logStatus").textContent = (data.lines || []).length ? `Loaded · ${data.has_more ? "more below" : "end"}` : "No more lines";
+          setLogStatus((data.lines || []).length
+            ? (data.has_more ? "Loaded (more below)" : "Loaded")
+            : "No more lines");
           syncURL();
         } catch (err) {
-          el("logStatus").textContent = `Error loading: ${err}`;
+          setLogStatus(`Error loading: ${err}`);
         } finally {
           state.loadingNext = false;
         }
@@ -587,7 +592,7 @@
         const beforeHeight = scroller ? scroller.scrollHeight : 0;
         const beforeTop = scroller ? scroller.scrollTop : 0;
         try {
-          el("logStatus").textContent = "Loading…";
+          setLogStatus("Loading…");
           const cursor = state.minKey || 0;
           const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor}&limit=300&dir=prev&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -634,14 +639,16 @@
             if (!state.maxKey || (lastKey && lastKey > state.maxKey)) state.maxKey = lastKey;
           }
           state.hasMorePrev = !!data.has_more;
-          el("logStatus").textContent = lines.length ? `Loaded · ${data.has_more ? "more above" : "start"}` : "No previous lines";
+          setLogStatus(lines.length
+            ? (data.has_more ? "Loaded (more above)" : "Loaded")
+            : "No previous lines");
           syncURL();
           if (scroller) {
             const afterHeight = scroller.scrollHeight;
             scroller.scrollTop = beforeTop + (afterHeight - beforeHeight);
           }
         } catch (err) {
-          el("logStatus").textContent = `Error loading: ${err}`;
+          setLogStatus(`Error loading: ${err}`);
         } finally {
           state.loadingPrev = false;
         }
@@ -697,11 +704,6 @@
         }
       });
 
-      // Clicking/focusing the search box hides the hint rail (no close affordance needed).
-      el("q").addEventListener("focus", () => {
-        el("hint").textContent = "";
-        el("hint").style.display = "none";
-      });
       const onTimeChange = async () => {
         state.startNS = parseISOToNS(el("start").value);
         state.endNS = parseISOToNS(el("end").value);
@@ -900,7 +902,6 @@
 
       loadSessions().catch((err) => {
         el("subtitle").textContent = "Failed to load sessions";
-        el("hint").textContent = String(err);
       });
 
       // initialize infinite scroll once DOM is ready
