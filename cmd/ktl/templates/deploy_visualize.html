@@ -944,7 +944,9 @@
 	      gap:10px;
 	      align-items:center;
 	      flex-wrap:wrap;
+	      width:100%;
 	    }
+	    .quota-controls .quota-status { flex:0 0 auto; }
 	    .quota-filter-chip {
 	      border-radius:999px;
 	      border:1px solid rgba(15,23,42,0.12);
@@ -955,6 +957,9 @@
 	      text-transform:uppercase;
 	      color:var(--muted);
 	      cursor:pointer;
+	      flex:1 1 0;
+	      min-width:0;
+	      text-align:center;
 	    }
 	    .quota-filter-chip.active {
 	      border-color:rgba(37,99,235,0.45);
