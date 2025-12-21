@@ -713,6 +713,12 @@
       font-size:1rem;
       letter-spacing:-0.01em;
     }
+    .explain-title-row {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
     .explain-header p { margin:6px 0 0; }
     .explain-list {
       list-style:none;
@@ -1192,7 +1198,10 @@
           <pre id="manifestView" class="manifest-view" data-view="rendered" aria-live="polite">Select a resource to view its rendered YAML.</pre>
           <div id="explainView" class="explain-view" hidden>
             <div class="explain-header">
-              <h3>Explain diff</h3>
+              <div class="explain-title-row">
+                <h3>Explain diff</h3>
+                <button id="copyExplainBtn" class="chip" type="button">Copy notes</button>
+              </div>
               <p class="muted">Highlights common rollout and ownership hazards inferred from the diff.</p>
             </div>
             <ul id="explainList" class="explain-list"></ul>
@@ -1297,6 +1306,7 @@
       var explainView = document.getElementById('explainView');
       var explainList = document.getElementById('explainList');
       var explainEmpty = document.getElementById('explainEmpty');
+      var copyExplainBtn = document.getElementById('copyExplainBtn');
       var diffSearch = document.getElementById('diffSearch');
       var diffPrevMatch = document.getElementById('diffPrevMatch');
       var diffNextMatch = document.getElementById('diffNextMatch');
@@ -1397,6 +1407,7 @@
       var graphSelectedId = null;
       var graphRenderPending = false;
       var numberFormatter = (typeof Intl !== 'undefined' && Intl.NumberFormat) ? new Intl.NumberFormat() : null;
+      var currentExplainMarkdown = '';
 
       var kindBuckets = [
         { id: 'all', label: 'All kinds', kinds: null },
@@ -1460,6 +1471,7 @@
       bindRestoreNotice();
       bindHashWatcher();
       bindCopyLink();
+      bindCopyExplain();
       bindDownloadReport();
       bindDownloadButtons();
       bindCompareUpload();
@@ -2014,6 +2026,22 @@
             navigator.clipboard.writeText(text).then(showCopyToast, showCopyToast);
           } else {
             showCopyToast();
+          }
+        });
+      }
+
+      function bindCopyExplain() {
+        if (!copyExplainBtn) return;
+        copyExplainBtn.addEventListener('click', function() {
+          if (!currentNode || !currentExplainMarkdown) {
+            toastButton(copyExplainBtn, 'Nothing to copy');
+            return;
+          }
+          var text = currentExplainMarkdown;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function() { toastButton(copyExplainBtn, 'Copied'); }, function() { toastButton(copyExplainBtn, 'Copied'); });
+          } else {
+            toastButton(copyExplainBtn, 'Copied');
           }
         });
       }
@@ -2754,6 +2782,7 @@
         }
 
         explainList.innerHTML = '';
+        currentExplainMarkdown = '';
         if (findings.length === 0) {
           explainEmpty.hidden = false;
           return;
@@ -2765,6 +2794,11 @@
         var label = (node.namespace ? ('ns/' + node.namespace + ' \u00b7 ') : '') + (node.kindLabel || node.kind) + ' ' + node.displayName;
         summary.innerHTML = '<strong>' + escapeHTML(label) + '</strong><span class=\"muted\"> \u00b7 inferred highlights</span>';
         explainList.appendChild(summary);
+
+        currentExplainMarkdown = '- ' + label + '\\n' + findings.map(function(f) {
+          var prefix = (f.severity === 'fail') ? '[HIGH]' : (f.severity === 'warn') ? '[WARN]' : '[NOTE]';
+          return '  - ' + prefix + ' ' + f.title + (f.detail ? (': ' + f.detail) : '');
+        }).join('\\n');
 
         findings.forEach(function(f) {
           var li = document.createElement('li');
