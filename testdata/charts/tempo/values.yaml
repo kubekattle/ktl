@@ -9,7 +9,7 @@ nameOverride: ""
 fullnameOverride: ""
 
 # -- Define the amount of instances
-replicas: 111
+replicas: 1
 
 # -- Number of old history to retain to allow rollback (If not set, default Kubernetes value is set to 10)
 # revisionHistoryLimit: 1
@@ -33,13 +33,13 @@ tempo:
   #   - myRegistryKeySecretName
 
   updateStrategy: RollingUpdate
-  resources: {}
-  #  requests:
-  #    cpu: 1000m
-  #    memory: 4Gi
-  #  limits:
-  #    cpu: 2000m
-  #    memory: 6Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
   memBallastSizeMbs: 1024
   multitenancyEnabled: false
@@ -258,13 +258,22 @@ tempoQuery:
     #    hosts:
     #      - query.tempo.example.com
 
-  resources: {}
-  #  requests:
-  #    cpu: 1000m
-  #    memory: 4Gi
-  #  limits:
-  #    cpu: 2000m
-  #    memory: 6Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+quota:
+  enabled: false
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "50"
 
   ## Additional container arguments
   extraArgs: {}
