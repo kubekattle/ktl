@@ -701,6 +701,61 @@
       line-height:1.4;
     }
     .manifest-view[data-view="diff"] { background:#111827; }
+    .explain-view {
+      border-radius:24px;
+      border:1px solid var(--border);
+      background:rgba(255,255,255,0.75);
+      padding:20px 20px 16px;
+    }
+    .explain-view[hidden] { display:none; }
+    .explain-header h3 {
+      margin:0;
+      font-size:1rem;
+      letter-spacing:-0.01em;
+    }
+    .explain-header p { margin:6px 0 0; }
+    .explain-list {
+      list-style:none;
+      margin:16px 0 0;
+      padding:0;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .explain-summary {
+      padding:10px 12px;
+      border-radius:16px;
+      border:1px solid rgba(15,23,42,0.12);
+      background:rgba(255,255,255,0.8);
+    }
+    .explain-item {
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      padding:12px 12px 12px 10px;
+      border-radius:16px;
+      border:1px solid rgba(15,23,42,0.12);
+      background:rgba(255,255,255,0.8);
+    }
+    .explain-badge {
+      flex:0 0 auto;
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:0.75rem;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+      font-weight:650;
+      border:1px solid rgba(15,23,42,0.12);
+      color:var(--text);
+      background:rgba(15,23,42,0.05);
+      font-variant-numeric: tabular-nums;
+    }
+    .explain-badge.warn { border-color:rgba(251,191,36,0.55); background:rgba(251,191,36,0.16); color:#a16207; }
+    .explain-badge.fail { border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.14); color:#b91c1c; }
+    .explain-badge.info { border-color:rgba(37,99,235,0.35); background:rgba(37,99,235,0.12); color:#1d4ed8; }
+    .explain-body { flex:1; min-width:0; }
+    .explain-title { font-weight:650; margin:0 0 2px; }
+    .explain-detail { color:var(--muted); font-size:0.92rem; line-height:1.45; }
     .diff-toolbar {
       position:sticky;
       top:0;
@@ -935,6 +990,7 @@
   </style>
 </head>
 <body>
+  <script id="ktlVizFeatures" type="application/json">__FEATURES__</script>
   <div class="chrome">
     <p id="releaseSummary" class="sr-only"></p>
     <section class="panel hero-panel" aria-label="Release summary">
@@ -1113,6 +1169,7 @@
           <div class="manifest-toggle" role="group" aria-label="Manifest display mode">
             <button type="button" class="active" data-manifest-mode="rendered">Rendered YAML</button>
             <button type="button" data-manifest-mode="diff">Diff vs live</button>
+            <button id="manifestModeExplain" type="button" data-manifest-mode="explain" hidden>Explain diff</button>
             <span id="diffHint" class="muted"></span>
           </div>
           <div id="diffToolbar" class="diff-toolbar" hidden aria-label="Diff tools">
@@ -1133,6 +1190,14 @@
             <span id="diffStatusLive" class="muted"></span>
           </div>
           <pre id="manifestView" class="manifest-view" data-view="rendered" aria-live="polite">Select a resource to view its rendered YAML.</pre>
+          <div id="explainView" class="explain-view" hidden>
+            <div class="explain-header">
+              <h3>Explain diff</h3>
+              <p class="muted">Highlights common rollout and ownership hazards inferred from the diff.</p>
+            </div>
+            <ul id="explainList" class="explain-list"></ul>
+            <p id="explainEmpty" class="muted" hidden>No notable changes detected for this resource.</p>
+          </div>
           <div class="download-actions">
             <button type="button" data-download="rendered">Download rendered YAML</button>
             <button type="button" data-download="diff">Download diff</button>
@@ -1169,6 +1234,16 @@
       } catch (err) {
         datasetParseError = err;
         dataset = {};
+      }
+
+      var features = {};
+      var featuresEl = document.getElementById('ktlVizFeatures');
+      if (featuresEl && featuresEl.textContent) {
+        try {
+          features = JSON.parse(featuresEl.textContent) || {};
+        } catch (err) {
+          features = {};
+        }
       }
 
       function storageKeyPart(value) {
@@ -1218,6 +1293,10 @@
       var diffBaseline = document.getElementById('diffBaseline');
       var diffBaselineLive = document.getElementById('diffBaselineLive');
       var diffBaselineCompare = document.getElementById('diffBaselineCompare');
+      var manifestModeExplain = document.getElementById('manifestModeExplain');
+      var explainView = document.getElementById('explainView');
+      var explainList = document.getElementById('explainList');
+      var explainEmpty = document.getElementById('explainEmpty');
       var diffSearch = document.getElementById('diffSearch');
       var diffPrevMatch = document.getElementById('diffPrevMatch');
       var diffNextMatch = document.getElementById('diffNextMatch');
@@ -1359,6 +1438,18 @@
         searchInput.value = pendingFilterTerm;
       }
 
+      if (!features || !features.explainDiff) {
+        if (manifestMode === 'explain') {
+          manifestMode = 'rendered';
+          persistState({ manifestMode: manifestMode });
+        }
+        if (manifestModeExplain) {
+          manifestModeExplain.hidden = true;
+        }
+      } else if (manifestModeExplain) {
+        manifestModeExplain.hidden = false;
+      }
+
       setupManifestToggle();
       buildKindChips();
       buildChangeChip();
@@ -1474,6 +1565,10 @@
             });
             if (manifestView) {
               manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
+              manifestView.hidden = manifestMode === 'explain';
+            }
+            if (explainView) {
+              explainView.hidden = manifestMode !== 'explain';
             }
             if (currentNode) {
               renderManifest(currentNode);
@@ -1486,6 +1581,10 @@
         });
         if (manifestView) {
           manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
+          manifestView.hidden = manifestMode === 'explain';
+        }
+        if (explainView) {
+          explainView.hidden = manifestMode !== 'explain';
         }
       }
 
@@ -1954,7 +2053,7 @@
           button.addEventListener('click', function() {
             if (!currentNode) return;
             var mode = button.getAttribute('data-download');
-            var content = mode === 'diff' ? manifestDiffs[currentNode.id] : manifests[currentNode.id];
+            var content = mode === 'diff' ? currentDiffText(currentNode) : manifests[currentNode.id];
             if (!content) return;
             var ext = mode === 'diff' ? 'diff' : 'yaml';
             var filename = (currentNode.namespace || 'cluster') + '-' + currentNode.displayName + '.' + ext;
@@ -2533,8 +2632,178 @@
         });
       }
 
+      function escapeHTML(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function renderExplainManifest(node) {
+        if (!explainList || !explainEmpty) return;
+        if (!node) {
+          explainList.innerHTML = '';
+          explainEmpty.hidden = false;
+          return;
+        }
+
+        var rendered = manifests[node.id] || '';
+        var diffText = '';
+        var usingCompare = manifestMode === 'diff' && diffBaselineMode === 'compare';
+        if (usingCompare && compareManifests) {
+          var base = compareManifests[node.id] || '';
+          if (base.trim() && rendered.trim()) {
+            diffText = buildUnifiedDiff(base, rendered, 'comparison', 'rendered');
+          }
+        }
+        if (!diffText) {
+          diffText = manifestDiffs[node.id] || '';
+        }
+
+        if (!diffText || !diffText.trim()) {
+          explainList.innerHTML = '';
+          explainEmpty.hidden = false;
+          return;
+        }
+
+        var findings = [];
+        function addFinding(severity, title, detail) {
+          findings.push({ severity: severity, title: title, detail: detail });
+        }
+
+        var lines = diffText.split('\n');
+        var adds = [];
+        var dels = [];
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (!line) continue;
+          if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue;
+          if (line.startsWith('+')) adds.push(line.slice(1));
+          else if (line.startsWith('-')) dels.push(line.slice(1));
+        }
+
+        function anyMatch(arr, re) {
+          for (var j = 0; j < arr.length; j++) {
+            if (re.test(arr[j])) return true;
+          }
+          return false;
+        }
+
+        function collect(arr, re, limit) {
+          var out = [];
+          for (var j = 0; j < arr.length; j++) {
+            var m = arr[j].match(re);
+            if (m) {
+              out.push(m[1] || m[0]);
+              if (limit && out.length >= limit) break;
+            }
+          }
+          return out;
+        }
+
+        var kind = (node.kind || '').toLowerCase();
+
+        var beforeImages = collect(dels, /^\\s*image:\\s*([^\\s#]+)\\s*$/, 4);
+        var afterImages = collect(adds, /^\\s*image:\\s*([^\\s#]+)\\s*$/, 4);
+        if (beforeImages.length || afterImages.length) {
+          var detail = (beforeImages.length && afterImages.length)
+            ? ('From ' + beforeImages.join(', ') + ' \u2192 ' + afterImages.join(', '))
+            : 'Image fields changed; expect rollout/restart.';
+          addFinding('warn', 'Container image change', detail);
+        }
+
+        if (anyMatch(adds, /^\\s*replicas:\\s*\\d+/) || anyMatch(dels, /^\\s*replicas:\\s*\\d+/)) {
+          addFinding('info', 'Replica count change', 'Autoscalers may override replica changes if HPA is enabled.');
+        }
+
+        if (anyMatch(adds, /^\\s*selector:\\s*$/) || anyMatch(dels, /^\\s*selector:\\s*$/)) {
+          addFinding('fail', 'Selector changed', 'Selector changes can orphan workloads or break Service routing.');
+        }
+
+        if (kind === 'service' && (anyMatch(adds, /^\\s*clusterIP:\\s*\\S+/) || anyMatch(dels, /^\\s*clusterIP:\\s*\\S+/))) {
+          addFinding('fail', 'Service clusterIP change', 'clusterIP is usually immutable; this may fail or force recreation.');
+        }
+
+        if (anyMatch(adds, /^\\s*(readinessProbe|livenessProbe):\\s*$/) || anyMatch(dels, /^\\s*(readinessProbe|livenessProbe):\\s*$/)) {
+          addFinding('warn', 'Probe configuration changed', 'Probe changes can cause rollout stalls if thresholds are too strict.');
+        }
+
+        if (anyMatch(adds, /^\\s*(requests|limits):\\s*$/) || anyMatch(dels, /^\\s*(requests|limits):\\s*$/) || anyMatch(adds, /^\\s*(cpu|memory):\\s*/) || anyMatch(dels, /^\\s*(cpu|memory):\\s*/)) {
+          addFinding('warn', 'Resource requests/limits change', 'May trigger scheduling changes; verify capacity during rollout.');
+        }
+
+        if (anyMatch(adds, /^\\s*host:\\s*\\S+/) || anyMatch(dels, /^\\s*host:\\s*\\S+/)) {
+          addFinding('warn', 'Ingress host change', 'Routing/DNS impact likely; confirm certificates and external integrations.');
+        }
+
+        if (kind === 'persistentvolumeclaim' && (anyMatch(adds, /^\\s*storage:\\s*\\S+/) || anyMatch(dels, /^\\s*storage:\\s*\\S+/))) {
+          addFinding('warn', 'PVC size change', 'Expansion depends on storage class; shrinking usually fails.');
+        }
+
+        if (kind === 'poddisruptionbudget' && (anyMatch(adds, /^\\s*(minAvailable|maxUnavailable):\\s*\\S+/) || anyMatch(dels, /^\\s*(minAvailable|maxUnavailable):\\s*\\S+/))) {
+          addFinding('warn', 'PDB budget changed', 'Tighter budgets can block rollouts and voluntary evictions.');
+        }
+
+        if (anyMatch(adds, /^\\s*privileged:\\s*true\\s*$/) || anyMatch(adds, /^\\s*hostNetwork:\\s*true\\s*$/)) {
+          addFinding('fail', 'Elevated security settings', 'Admission policies may deny; confirm cluster pod security rules.');
+        }
+
+        if (anyMatch(adds, /^\\s*helm\\.sh\\/hook:\\s*/) || anyMatch(dels, /^\\s*helm\\.sh\\/hook:\\s*/)) {
+          addFinding('warn', 'Helm hook change', 'Hooks can affect ordering and atomic behavior; review delete policies.');
+        }
+
+        explainList.innerHTML = '';
+        if (findings.length === 0) {
+          explainEmpty.hidden = false;
+          return;
+        }
+        explainEmpty.hidden = true;
+
+        var summary = document.createElement('li');
+        summary.className = 'explain-summary';
+        var label = (node.namespace ? ('ns/' + node.namespace + ' \u00b7 ') : '') + (node.kindLabel || node.kind) + ' ' + node.displayName;
+        summary.innerHTML = '<strong>' + escapeHTML(label) + '</strong><span class=\"muted\"> \u00b7 inferred highlights</span>';
+        explainList.appendChild(summary);
+
+        findings.forEach(function(f) {
+          var li = document.createElement('li');
+          li.className = 'explain-item';
+          var badge = document.createElement('span');
+          badge.className = 'explain-badge ' + f.severity;
+          badge.textContent = (f.severity === 'fail') ? 'High risk' : (f.severity === 'warn') ? 'Watch' : 'Note';
+          li.appendChild(badge);
+
+          var body = document.createElement('div');
+          body.className = 'explain-body';
+          var title = document.createElement('div');
+          title.className = 'explain-title';
+          title.textContent = f.title;
+          body.appendChild(title);
+          if (f.detail) {
+            var detail = document.createElement('div');
+            detail.className = 'explain-detail';
+            detail.textContent = f.detail;
+            body.appendChild(detail);
+          }
+          li.appendChild(body);
+          explainList.appendChild(li);
+        });
+      }
+
       function renderManifest(node) {
         var rendered = manifests[node.id] || 'Rendered YAML unavailable for this resource.';
+        if (manifestMode === 'explain') {
+          if (manifestView) {
+            manifestView.textContent = '';
+          }
+          renderExplainManifest(node);
+          if (manifestStatus) {
+            manifestStatus.textContent = 'Explain view highlights inferred risks; verify critical changes in Diff vs live.';
+          }
+          return;
+        }
         if (manifestMode === 'diff') {
           var mode = diffBaselineMode === 'compare' ? 'compare' : 'live';
           var diffText = '';
@@ -2588,6 +2857,18 @@
         } else {
           manifestStatus.textContent = 'Rendered manifest.';
         }
+      }
+
+      function currentDiffText(node) {
+        if (!node) return '';
+        var rendered = manifests[node.id] || '';
+        if (!rendered.trim()) return '';
+        if (diffBaselineMode === 'compare' && compareManifests) {
+          var base = compareManifests[node.id] || '';
+          if (!base.trim()) return '';
+          return buildUnifiedDiff(base, rendered, 'comparison', 'rendered') || '';
+        }
+        return (manifestDiffs && manifestDiffs[node.id]) ? String(manifestDiffs[node.id]) : '';
       }
 
       var diffMatchElements = [];
@@ -2780,7 +3061,7 @@
         downloadButtons.forEach(function(button) {
           var mode = button.getAttribute('data-download');
           if (mode === 'diff') {
-            var hasDiff = currentNode && manifestDiffs[currentNode.id];
+            var hasDiff = !!currentDiffText(currentNode);
             button.disabled = !hasDiff;
           } else {
             button.disabled = !currentNode;
@@ -2790,7 +3071,9 @@
 
       function updateDiffHint() {
         if (!diffHint) return;
-        if (manifestMode !== 'diff') {
+        if (manifestMode === 'explain') {
+          diffHint.textContent = 'Explain view infers likely rollout hazards from the diff.';
+        } else if (manifestMode !== 'diff') {
           diffHint.textContent = '';
         } else if (dataset.offlineFallback) {
           diffHint.textContent = 'Diffs may be missing (live data unavailable).';
@@ -2801,7 +3084,7 @@
 
       function updateDiffStatus() {
         if (!diffStatus || !diffStatusMode || !diffStatusDetail || !diffStatusLive) return;
-        var modeLabel = manifestMode === 'diff' ? 'Diff vs live' : 'Rendered';
+        var modeLabel = manifestMode === 'diff' ? 'Diff vs live' : (manifestMode === 'explain' ? 'Explain diff' : 'Rendered');
         diffStatusMode.textContent = modeLabel;
         if (!currentNode) {
           diffStatusDetail.textContent = '· Select a resource to view YAML.';
@@ -2813,6 +3096,8 @@
         var isOffline = !!dataset.offlineFallback;
         if (manifestMode === 'diff') {
           diffStatusDetail.textContent = hasRendered ? '· Showing diff.' : '· Rendered manifest missing.';
+        } else if (manifestMode === 'explain') {
+          diffStatusDetail.textContent = '· Showing inferred highlights.';
         } else {
           diffStatusDetail.textContent = hasRendered ? '· Showing rendered YAML.' : '· Rendered manifest missing.';
         }
