@@ -2391,6 +2391,36 @@
             setPane('tree');
             return;
           }
+          if ((key === 'e' || key === 'E') && features && features.explainDiff) {
+            evt.preventDefault();
+            if (manifestMode === 'explain') {
+              manifestMode = 'rendered';
+            } else {
+              manifestMode = 'explain';
+            }
+            persistState({ manifestMode: manifestMode });
+            manifestModeButtons.forEach(function(btn) {
+              var mode = btn.getAttribute('data-manifest-mode');
+              var active = mode === manifestMode;
+              btn.classList.toggle('active', active);
+              btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+            if (manifestView) {
+              manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
+              manifestView.hidden = manifestMode === 'explain';
+            }
+            if (explainView) {
+              explainView.hidden = manifestMode !== 'explain';
+            }
+            if (currentNode) {
+              renderManifest(currentNode);
+            }
+            updateDiffHint();
+            updateDiffStatus();
+            updateDiffToolbarVisibility();
+            updateDownloadButtons();
+            return;
+          }
         });
       }
 
