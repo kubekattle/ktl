@@ -101,10 +101,11 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 			limit = 2000
 		}
 		cursor := parseInt64(q.Get("cursor"), 0)
+		dir := strings.TrimSpace(q.Get("dir"))
 		search := strings.TrimSpace(q.Get("q"))
 		startNS := parseInt64(q.Get("start_ns"), 0)
 		endNS := parseInt64(q.Get("end_ns"), 0)
-		out, err := s.store.Logs(r.Context(), id, cursor, limit, search, startNS, endNS)
+		out, err := s.store.Logs(r.Context(), id, cursor, limit, search, startNS, endNS, dir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -47,7 +47,7 @@ func (s *server) handleStream(w http.ResponseWriter, r *http.Request, sessionID 
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			page, err := s.store.Logs(r.Context(), sessionID, cursor, 400, search, startNS, endNS)
+			page, err := s.store.Logs(r.Context(), sessionID, cursor, 400, search, startNS, endNS, "")
 			if err != nil {
 				_ = send("error", map[string]any{"error": err.Error()})
 				return

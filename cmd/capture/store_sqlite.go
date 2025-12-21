@@ -60,6 +60,7 @@ type TimelineRow struct {
 type LogsPage struct {
 	Cursor int64     `json:"cursor"`
 	Lines  []LogLine `json:"lines"`
+	HasMore bool     `json:"has_more"`
 }
 
 type EventsPage struct {
@@ -283,7 +284,7 @@ LIMIT 4000
 	return out, nil
 }
 
-func (s *sqliteStore) Logs(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64) (LogsPage, error) {
+func (s *sqliteStore) Logs(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64, dir string) (LogsPage, error) {
 	if limit <= 0 {
 		limit = 300
 	}
@@ -300,14 +301,21 @@ func (s *sqliteStore) Logs(ctx context.Context, sessionID string, cursor int64, 
 		where += " AND " + tsExpr + " <= ?"
 		args = append(args, endNS)
 	}
-	if cursor > 0 {
-		where += " AND " + keyExpr + " > ?"
-		args = append(args, cursor)
-	}
 	if strings.TrimSpace(search) != "" {
 		where += " AND (message LIKE ? OR namespace LIKE ? OR pod LIKE ? OR container LIKE ?)"
 		pat := "%" + search + "%"
 		args = append(args, pat, pat, pat, pat)
+	}
+
+	order := "ORDER BY k"
+	cursorOp := ">"
+	if strings.EqualFold(strings.TrimSpace(dir), "prev") {
+		order = "ORDER BY k DESC"
+		cursorOp = "<"
+	}
+	if cursor > 0 {
+		where += " AND " + keyExpr + " " + cursorOp + " ?"
+		args = append(args, cursor)
 	}
 
 	query := fmt.Sprintf(`
@@ -325,9 +333,9 @@ SELECT
   COALESCE(message, '')
 FROM ktl_capture_events
 WHERE %s
-ORDER BY k
+%s
 LIMIT %d
-`, keyExpr, tsExpr, where, limit)
+`, keyExpr, tsExpr, where, order, limit+1)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return LogsPage{}, err
@@ -341,8 +349,26 @@ LIMIT %d
 		}
 		out.Lines = append(out.Lines, l)
 		out.Cursor = l.Key
+		if len(out.Lines) == limit+1 {
+			out.HasMore = true
+			break
+		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return LogsPage{}, err
+	}
+	if out.HasMore {
+		out.Lines = out.Lines[:limit]
+	}
+	if strings.EqualFold(strings.TrimSpace(dir), "prev") {
+		for i, j := 0, len(out.Lines)-1; i < j; i, j = i+1, j-1 {
+			out.Lines[i], out.Lines[j] = out.Lines[j], out.Lines[i]
+		}
+		if len(out.Lines) > 0 {
+			out.Cursor = out.Lines[0].Key
+		}
+	}
+	return out, nil
 }
 
 func (s *sqliteStore) Events(ctx context.Context, sessionID string, cursor int64, limit int, search string, startNS, endNS int64) (EventsPage, error) {

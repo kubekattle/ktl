@@ -163,7 +163,8 @@
               </table>
             </div>
             <div class="row" style="margin-top:12px;">
-              <button id="loadMore" class="btn">Load more</button>
+              <button id="loadPrev" class="btn">Prev</button>
+              <button id="loadMore" class="btn">Next</button>
               <span id="logStatus" class="hint"></span>
             </div>
           </div>
@@ -330,6 +331,7 @@
         const body = el("logBody");
         for (const l of (lines || [])) {
           const tr = document.createElement("tr");
+          tr.dataset.key = l.key;
           const ts = document.createElement("td");
           ts.className = "ts";
           ts.textContent = fmtNS(l.ts_ns);
@@ -490,11 +492,51 @@
         const id = state.sessionId;
         const q = state.q;
         el("logStatus").textContent = "Loading…";
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${state.cursor||0}&limit=300&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${state.cursor||0}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         appendLogs(data.lines || []);
         state.cursor = data.cursor || state.cursor || 0;
-        el("logStatus").textContent = (data.lines || []).length ? `Cursor ${state.cursor}` : "No more lines";
+        el("logStatus").textContent = (data.lines || []).length ? `Cursor ${state.cursor}${data.has_more ? "" : " (end)"}` : "No more lines";
+        syncURL();
+      }
+
+      async function loadPrevLogs() {
+        const id = state.sessionId;
+        const q = state.q;
+        const body = el("logBody");
+        el("logStatus").textContent = "Loading…";
+        const first = body.firstElementChild;
+        let cursor = state.cursor || 0;
+        if (first && first.dataset && first.dataset.key) cursor = Number(first.dataset.key) || cursor;
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${cursor||0}&limit=300&dir=prev&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+        const data = await res.json();
+        const frag = document.createDocumentFragment();
+        for (const l of (data.lines || [])) {
+          const tr = document.createElement("tr");
+          tr.dataset.key = l.key;
+          const ts = document.createElement("td");
+          ts.className = "ts";
+          ts.textContent = fmtNS(l.ts_ns);
+          const src = document.createElement("td");
+          src.className = "src";
+          const nsPod = [l.namespace, l.pod].filter(Boolean).join("/");
+          const cont = l.container ? `:${l.container}` : "";
+          src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
+          const msg = document.createElement("td");
+          msg.className = "msg";
+          const tag = document.createElement("span");
+          const sev = classify(l.message);
+          tag.className = "tag " + (sev === "ok" ? "" : sev);
+          tag.textContent = sev === "ok" ? "log" : sev;
+          msg.appendChild(tag);
+          msg.appendChild(document.createTextNode(l.message || ""));
+          tr.appendChild(ts);
+          tr.appendChild(src);
+          tr.appendChild(msg);
+          frag.appendChild(tr);
+        }
+        body.prepend(frag);
+        el("logStatus").textContent = (data.lines || []).length ? `Cursor ${data.cursor}${data.has_more ? "" : " (start)"}` : "No previous lines";
         syncURL();
       }
 
@@ -568,6 +610,9 @@
       });
       el("loadMore").addEventListener("click", async () => {
         await loadMoreLogs();
+      });
+      el("loadPrev").addEventListener("click", async () => {
+        await loadPrevLogs();
       });
       el("follow").addEventListener("click", async () => {
         state.follow = !state.follow;
