@@ -50,6 +50,7 @@ type buildCLIOptions struct {
 	policyReportPath string
 	secretsMode      string
 	secretsReport    string
+	secretsConfig    string
 	attestDir        string
 	capturePath      string
 	captureTags      []string
@@ -184,6 +185,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.policyReportPath, name: "--policy-report", allowEmpty: true, validator: nil}, "policy-report", "Write a machine-readable policy report JSON to this path (defaults to --attest-dir/ktl-policy-report.json when --attest-dir is set)")
 	cmd.Flags().Var(newEnumStringValue(&opts.secretsMode, "warn", "warn", "block", "off"), "secrets", "Secret-leak guardrails: warn (default), block, or off")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.secretsReport, name: "--secrets-report", allowEmpty: true, validator: nil}, "secrets-report", "Write a machine-readable secrets report JSON to this path (defaults to --attest-dir/ktl-secrets-report.json when --attest-dir is set)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.secretsConfig, name: "--secrets-config", allowEmpty: true, validator: nil}, "secrets-config", "Secrets rule config file or https URL (YAML/JSON). When unset, built-in defaults apply.")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.attestDir, name: "--attest-dir", allowEmpty: true, validator: nil}, "attest-dir", "Write generated attestations (SBOM/provenance) to this directory as JSON files (implies --sbom and --provenance; requires OCI layout export)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.capturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture build logs/events to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
@@ -422,6 +424,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		PolicyReportPath:   opts.policyReportPath,
 		SecretsMode:        opts.secretsMode,
 		SecretsReportPath:  opts.secretsReport,
+		SecretsConfigRef:   opts.secretsConfig,
 		AttestSBOM:         opts.sbom,
 		AttestProvenance:   opts.provenance,
 		AttestationDir:     opts.attestDir,
