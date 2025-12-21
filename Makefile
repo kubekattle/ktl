@@ -32,6 +32,9 @@ PREVIOUS_TAG ?= $(shell git describe --tags --abbrev=0 HEAD~1 2>/dev/null)
 .DEFAULT_GOAL := help
 
 .PHONY: help build build-% install release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-%
+ 
+PACKAGE_IMAGE ?= ktl-packager
+PACKAGE_PLATFORMS ?= linux/amd64
 
 help: ## Show this help menu
 	@echo "Available targets:"
@@ -181,6 +184,25 @@ tidy: ## Ensure go.mod/go.sum are tidy
 
 verify: ## Run fmt, lint, and test
 	$(MAKE) fmt lint test
+
+package: ## Build .deb/.rpm packages into ./dist (Docker-based)
+	@mkdir -p "$(DIST_DIR)"
+	@for platform in $(PACKAGE_PLATFORMS); do \
+		os=$${platform%/*}; arch=$${platform#*/}; \
+		image="$(PACKAGE_IMAGE)-$$arch"; \
+		echo ">> building packaging image $$image ($$platform)"; \
+		docker buildx build --load --platform "$$platform" -f packaging/Dockerfile -t "$$image" .; \
+		echo ">> packaging $$platform"; \
+		docker run --rm --platform "$$platform" \
+			-e VERSION="$(VERSION)" \
+			-e LDFLAGS="$(LDFLAGS)" \
+			-e TARGETOS="$$os" \
+			-e TARGETARCH="$$arch" \
+			-e OUT_DIR="/out" \
+			-v "$$(pwd):/src" \
+			-v "$$(pwd)/$(DIST_DIR):/out" \
+			"$$image"; \
+	done
 
 docs: $(DOCS_PDF) $(DOCS_HTML) ## Build Russian feature guide PDF and HTML outputs
 

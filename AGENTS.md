@@ -42,6 +42,7 @@ If you’re an AI agent (or using one), start with:
 | `go test -tags=integration ./cmd/ktl -run TestBuildRunsInsideSandbox` | Linux + Docker + sandbox runtime required; proves `ktl build` re-execs inside the sandbox end-to-end. |
 | `make fmt` / `make lint` | Enforce gofmt + `go vet`. No manual whitespace tweaks. |
 | `make release` | Cross-platform builds under `dist/`; only on clean tags. For ad-hoc GOOS/GOARCH, follow the README recipe. |
+| `make package` | Build Linux `.deb` + `.rpm` packages into `dist/` via Docker (see `packaging/`). |
 | `ktl build ... --ws-listen :9085` | Expose the build stream over WebSocket (for external consumers). |
 | `ktl apply ... --ui :8080 --ws-listen :9086` | Mirror Helm rollouts with the deploy viewer (phase timeline, resource readiness grid, manifest diff, event feed) so reviewers can follow along remotely. |
 | `ktl apply ...` (TTY) | Auto-enables the deploy console: metadata banner, inline phase badges, sticky warning rail, and adaptive resource table (use `--console-wide` to force the 100+ col layout). |
