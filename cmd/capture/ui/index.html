@@ -332,6 +332,24 @@
             ctx.fillRect(x, markerY - 6, Math.max(1, bw - gap), 2);
           }
         }
+
+        // scrubber (current window start)
+        if (state.startNS) {
+          let idx = -1;
+          for (let i = 0; i < bars.length; i++) {
+            if ((bars[i].bucket_ns || 0) >= state.startNS) { idx = i; break; }
+          }
+          if (idx < 0) idx = bars.length - 1;
+          const x = x0 + idx * bw;
+          ctx.save();
+          ctx.strokeStyle = "rgba(37,99,235,0.75)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, 8);
+          ctx.lineTo(x, h - 8);
+          ctx.stroke();
+          ctx.restore();
+        }
       }
 
       function clearLogs() {
@@ -593,19 +611,80 @@
         refreshTimeline().catch(() => {});
       });
 
-      el("timeline").addEventListener("click", async (ev) => {
+      function windowSpanNS() {
+        if (state.startNS && state.endNS && state.endNS > state.startNS) {
+          return state.endNS - state.startNS;
+        }
+        // default window: 2 minutes
+        return 2 * 60 * 1e9;
+      }
+
+      let scrubDragging = false;
+      let scrubRAF = 0;
+      let scrubLastNS = 0;
+      let scrubDebounce = 0;
+
+      function scheduleScrubUpdate() {
+        if (scrubDebounce) clearTimeout(scrubDebounce);
+        scrubDebounce = setTimeout(async () => {
+          el("start").value = fmtISOFromNS(state.startNS);
+          el("end").value = fmtISOFromNS(state.endNS);
+          await refreshTimeline();
+          clearLogs();
+          await loadMoreLogs();
+        }, 180);
+      }
+
+      function applyScrubAtX(ev) {
         if (!state.timeline || !state.timeline.bars || state.timeline.bars.length === 0) return;
         const rect = ev.target.getBoundingClientRect();
-        const x = ev.clientX - rect.left;
-        const i = Math.max(0, Math.min(state.timeline.bars.length - 1, Math.floor((x - state.timeline.x0) / state.timeline.bw)));
-        const bucket = state.timeline.bars[i];
+        const x = Math.max(0, Math.min(rect.width, ev.clientX - rect.left));
+        const bars = state.timeline.bars;
+        const idx = Math.max(0, Math.min(bars.length - 1, Math.floor((x - state.timeline.x0) / state.timeline.bw)));
+        const bucket = bars[idx];
         if (!bucket) return;
+        scrubLastNS = bucket.bucket_ns;
+        const span = windowSpanNS();
         state.startNS = bucket.bucket_ns;
-        // keep end empty, just jump start to clicked bucket window
-        state.endNS = 0;
-        await refreshTimeline();
-        clearLogs();
-        await loadMoreLogs();
+        state.endNS = bucket.bucket_ns + span;
+        // redraw scrubber line quickly (no refetch)
+        if (scrubRAF) cancelAnimationFrame(scrubRAF);
+        scrubRAF = requestAnimationFrame(() => {
+          // re-render timeline with existing bars and scrubber
+          drawTimeline(bars);
+          const canvas = el("timeline");
+          const ctx = canvas.getContext("2d");
+          const w = canvas.getBoundingClientRect().width;
+          const h = canvas.getBoundingClientRect().height;
+          ctx.save();
+          ctx.strokeStyle = "rgba(37,99,235,0.85)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, 8);
+          ctx.lineTo(x, h - 8);
+          ctx.stroke();
+          ctx.restore();
+        });
+      }
+
+      el("timeline").addEventListener("mousedown", async (ev) => {
+        scrubDragging = true;
+        applyScrubAtX(ev);
+      });
+      window.addEventListener("mousemove", (ev) => {
+        if (!scrubDragging) return;
+        applyScrubAtX(ev);
+        scheduleScrubUpdate();
+      });
+      window.addEventListener("mouseup", (ev) => {
+        if (!scrubDragging) return;
+        scrubDragging = false;
+        applyScrubAtX(ev);
+        scheduleScrubUpdate();
+      });
+      el("timeline").addEventListener("click", async (ev) => {
+        applyScrubAtX(ev);
+        scheduleScrubUpdate();
       });
 
       loadSessions().catch((err) => {
