@@ -5,4 +5,6 @@ ktl-capture-*.sqlite-wal
 ktl-capture-*.sqlite-shm
 testdata/build/dockerfile/dist/*
 dist/
+*.deb
+*.rpm
 .DS_Store
