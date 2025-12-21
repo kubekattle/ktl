@@ -65,6 +65,16 @@
       }
       .search:focus { border-color: rgba(37,99,235,0.5); box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
       .hint { color: var(--muted); font-size: 0.95rem; margin-top: 14px; }
+      .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top: 18px; }
+      select.select {
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.12);
+        background: rgba(255,255,255,0.75);
+        padding: 12px 16px;
+        font-size: 1rem;
+        outline: none;
+        min-width: 320px;
+      }
     </style>
   </head>
   <body>
@@ -73,11 +83,12 @@
         <div class="main">
           <div class="panel">
             <h1 class="hero-title">ktl capture</h1>
-            <div class="subtitle">Timeline-first replay UI (work in progress)</div>
-            <div class="toolbar">
-              <input class="search" placeholder="Search (coming soon)" disabled />
+            <div id="subtitle" class="subtitle">Loading sessions…</div>
+            <div class="row">
+              <select id="sessionSelect" class="select"></select>
+              <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
             </div>
-            <div class="hint">Next: session picker, timeline, and log replay.</div>
+            <div class="hint" id="hint"></div>
           </div>
         </div>
         <div class="insight-stack">
@@ -85,25 +96,104 @@
             <div class="card-grid">
               <div class="card">
                 <div class="label">Sessions</div>
-                <div class="value">—</div>
+                <div id="statSessions" class="value">—</div>
               </div>
               <div class="card">
                 <div class="label">Lines</div>
-                <div class="value">—</div>
+                <div id="statLines" class="value">—</div>
               </div>
               <div class="card">
                 <div class="label">Errors</div>
-                <div class="value">—</div>
+                <div id="statErrors" class="value">—</div>
               </div>
               <div class="card">
                 <div class="label">Range</div>
-                <div class="value">—</div>
+                <div id="statRange" class="value">—</div>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+    <script>
+      const el = (id) => document.getElementById(id);
+      const state = { sessions: [], sessionId: "", q: "" };
+
+      function fmtNS(ns) {
+        if (!ns) return "—";
+        const d = new Date(ns / 1e6);
+        return d.toISOString().replace("T", " ").replace("Z", "");
+      }
+
+      async function loadSessions() {
+        const res = await fetch("/api/sessions");
+        const data = await res.json();
+        state.sessions = data.sessions || [];
+        el("statSessions").textContent = String(state.sessions.length);
+        const sel = el("sessionSelect");
+        sel.innerHTML = "";
+        for (const s of state.sessions) {
+          const opt = document.createElement("option");
+          opt.value = s.session_id;
+          const started = s.started_at_ns ? fmtNS(s.started_at_ns) : "—";
+          opt.textContent = `${started} · ${s.command} · ${s.session_id.slice(0, 8)}`;
+          sel.appendChild(opt);
+        }
+        if (state.sessions.length === 0) {
+          el("subtitle").textContent = "No capture sessions found.";
+          el("hint").textContent = "Did you pass the correct .sqlite file produced by ktl --capture?";
+          return;
+        }
+        state.sessionId = state.sessions[0].session_id;
+        sel.value = state.sessionId;
+        await refreshMeta();
+        await refreshQuickStats();
+      }
+
+      async function refreshMeta() {
+        const id = el("sessionSelect").value;
+        state.sessionId = id;
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/meta`);
+        const meta = await res.json();
+        const parts = [];
+        if (meta.cluster) parts.push(meta.cluster);
+        if (meta.kube_context) parts.push(meta.kube_context);
+        if (meta.namespace) parts.push(`ns/${meta.namespace}`);
+        el("subtitle").textContent = parts.join(" · ") || meta.command || "capture";
+        el("hint").textContent = `Session ${meta.session_id}`;
+        const start = meta.started_at_ns ? fmtNS(meta.started_at_ns) : "";
+        const end = meta.ended_at_ns ? fmtNS(meta.ended_at_ns) : "";
+        el("statRange").textContent = start && end ? `${start} → ${end}` : (start || "—");
+      }
+
+      async function refreshQuickStats() {
+        const id = state.sessionId;
+        const q = state.q;
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/timeline?bucket=10s&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        let lines = 0;
+        let errors = 0;
+        for (const r of (data.rows || [])) {
+          lines += (r.logs_total || 0);
+          errors += (r.logs_fail || 0);
+        }
+        el("statLines").textContent = String(lines);
+        el("statErrors").textContent = String(errors);
+      }
+
+      el("sessionSelect").addEventListener("change", async () => {
+        await refreshMeta();
+        await refreshQuickStats();
+      });
+      el("q").addEventListener("input", async (e) => {
+        state.q = e.target.value || "";
+        await refreshQuickStats();
+      });
+
+      loadSessions().catch((err) => {
+        el("subtitle").textContent = "Failed to load sessions";
+        el("hint").textContent = String(err);
+      });
+    </script>
   </body>
 </html>
-
