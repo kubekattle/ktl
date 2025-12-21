@@ -205,6 +205,8 @@
       state.follow = false;
       state.es = null;
       const initialSession = "__INITIAL_SESSION__";
+      state.startNS = 0;
+      state.endNS = 0;
 
       function fmtNS(ns) {
         if (!ns) return "—";
@@ -368,7 +370,15 @@
           el("hint").textContent = "Did you pass the correct .sqlite file produced by ktl --capture?";
           return;
         }
-        const preferred = initialSession && state.sessions.find(s => s.session_id === initialSession);
+        const urlParams = new URLSearchParams(location.search);
+        const fromURL = urlParams.get("session") || "";
+        state.q = urlParams.get("q") || "";
+        state.startNS = Number(urlParams.get("start_ns") || "0") || 0;
+        state.endNS = Number(urlParams.get("end_ns") || "0") || 0;
+        el("q").value = state.q;
+
+        const preferred = (fromURL && state.sessions.find(s => s.session_id === fromURL)) ||
+                          (initialSession && state.sessions.find(s => s.session_id === initialSession));
         state.sessionId = preferred ? preferred.session_id : state.sessions[0].session_id;
         sel.value = state.sessionId;
         await refreshMeta();
@@ -411,10 +421,20 @@
         el("statErrors").textContent = String(errors);
       }
 
+      function syncURL() {
+        const p = new URLSearchParams();
+        if (state.sessionId) p.set("session", state.sessionId);
+        if (state.q) p.set("q", state.q);
+        if (state.startNS) p.set("start_ns", String(state.startNS));
+        if (state.endNS) p.set("end_ns", String(state.endNS));
+        const next = `${location.pathname}?${p.toString()}`;
+        history.replaceState({}, "", next);
+      }
+
       async function refreshTimeline() {
         const id = state.sessionId;
         const q = state.q;
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/timeline?bucket=5s&q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/timeline?bucket=5s&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         drawTimeline(data.rows || []);
         let lines = 0;
@@ -434,33 +454,36 @@
         el("statDeploy").textContent = String(deploy);
         el("statSelection").textContent = String(selection);
         el("statArtifacts").textContent = String(artifacts);
+        syncURL();
       }
 
       async function loadMoreLogs() {
         const id = state.sessionId;
         const q = state.q;
         el("logStatus").textContent = "Loading…";
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${state.cursor||0}&limit=300&q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/logs?cursor=${state.cursor||0}&limit=300&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         appendLogs(data.lines || []);
         state.cursor = data.cursor || state.cursor || 0;
         el("logStatus").textContent = (data.lines || []).length ? `Cursor ${state.cursor}` : "No more lines";
+        syncURL();
       }
 
       async function loadMoreEvents() {
         const id = state.sessionId;
         const q = state.q;
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/events?cursor=${state.eventCursor||0}&limit=200&q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/events?cursor=${state.eventCursor||0}&limit=200&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         appendEvents(data.events || []);
         state.eventCursor = data.cursor || state.eventCursor || 0;
+        syncURL();
       }
 
       function startFollow() {
         stopFollow();
         const id = state.sessionId;
         const q = state.q;
-        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&q=${encodeURIComponent(q)}`;
+        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
         const es = new EventSource(url);
         state.es = es;
         es.addEventListener("logs", (ev) => {
