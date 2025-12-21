@@ -2741,12 +2741,19 @@
           else if (line.startsWith('-')) dels.push(line.slice(1));
         }
 
-        function anyMatch(arr, re) {
-          for (var j = 0; j < arr.length; j++) {
-            if (re.test(arr[j])) return true;
-          }
-          return false;
-        }
+	        function anyMatch(arr, re) {
+	          for (var j = 0; j < arr.length; j++) {
+	            if (re.test(arr[j])) return true;
+	          }
+	          return false;
+	        }
+
+	        function anyIncludes(arr, needle) {
+	          for (var j = 0; j < arr.length; j++) {
+	            if (arr[j].indexOf(needle) !== -1) return true;
+	          }
+	          return false;
+	        }
 
         function collect(arr, re, limit) {
           var out = [];
@@ -2818,9 +2825,9 @@
           addFinding('fail', 'Elevated security settings', 'Admission policies may deny; confirm cluster pod security rules.');
         }
 
-        if (anyMatch(adds, /^\\s*helm\\.sh\/hook:\\s*/) || anyMatch(dels, /^\\s*helm\\.sh\/hook:\\s*/)) {
-          addFinding('warn', 'Helm hook change', 'Hooks can affect ordering and atomic behavior; review delete policies.');
-        }
+	        if (anyIncludes(adds, 'helm.sh/hook:') || anyIncludes(dels, 'helm.sh/hook:')) {
+	          addFinding('warn', 'Helm hook change', 'Hooks can affect ordering and atomic behavior; review delete policies.');
+	        }
 
         explainList.innerHTML = '';
         currentExplainMarkdown = '';

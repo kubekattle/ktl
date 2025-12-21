@@ -112,11 +112,11 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 	if !strings.Contains(html, `id="vizData"`) {
 		t.Fatalf("missing viz data block")
 	}
-	if strings.Contains(html, `helm\\.sh\\/hook`) {
-		t.Fatalf("expected helm hook regex to escape / with a single backslash (\\/), got %q", `helm\\.sh\\/hook`)
+	if strings.Contains(html, `helm\\.sh`) {
+		t.Fatalf("expected helm hook heuristic to avoid regex literals, got %q", `helm\\.sh`)
 	}
-	if !strings.Contains(html, `helm\\.sh\/hook`) {
-		t.Fatalf("expected helm hook regex to use \\/ escape, got %q", `helm\\.sh\/hook`)
+	if !strings.Contains(html, `helm.sh/hook:`) {
+		t.Fatalf("expected helm hook heuristic to match on literal key, got %q", `helm.sh/hook:`)
 	}
 	if strings.Contains(html, "__FEATURES__") {
 		t.Fatalf("expected features placeholder to be replaced")
