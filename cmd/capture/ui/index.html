@@ -27,10 +27,8 @@
       .chrome { max-width: 1200px; margin: 0 auto; padding: 48px 56px 72px; }
       .layout { display: flex; gap: 24px; align-items: flex-start; }
       .main { flex: 1 1 auto; min-width: 0; }
-      .insight-stack { width: 320px; flex: 0 0 320px; position: sticky; top: 24px; }
       @media (max-width: 1100px) {
         .layout { flex-direction: column; }
-        .insight-stack { width: 100%; position: static; }
       }
       .panel {
         background: var(--surface);
@@ -134,6 +132,11 @@
       .tag { display:inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(15,23,42,0.10); background: rgba(37,99,235,0.08); color: #1d4ed8; font-weight: 650; font-size: 0.78rem; margin-right: 8px; }
       .tag.warn { background: rgba(251,191,36,0.18); color: #92400e; }
       .tag.fail { background: rgba(239,68,68,0.14); color: #991b1b; }
+      .tag.meta { background: rgba(15,23,42,0.06); color: rgba(15,23,42,0.70); }
+      .panel-title-row { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+      .panel-title { font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650; }
+      .search-group { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+      .search-group .search { flex: 0 1 360px; }
       .btn {
         border-radius: 999px;
         border: 1px solid rgba(15,23,42,0.12);
@@ -170,21 +173,28 @@
             <div id="subtitle" class="subtitle">Loading sessions…</div>
             <div class="row">
               <select id="sessionSelect" class="select"></select>
-              <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
               <input id="start" class="time" placeholder="Start (ISO)" />
               <input id="end" class="time" placeholder="End (ISO)" />
             </div>
             <div class="hint" id="hint"></div>
           </div>
           <div class="panel">
-            <div class="label" style="font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650;">Timeline</div>
+            <div class="panel-title-row">
+              <div class="panel-title">Timeline</div>
+            </div>
             <div class="timeline-wrap">
               <canvas id="timeline" class="timeline"></canvas>
             </div>
             <div class="hint">Drag to pan (coming soon). Click to jump (coming soon).</div>
           </div>
           <div class="panel">
-            <div class="label" style="font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650;">Logs</div>
+            <div class="panel-title-row">
+              <div class="panel-title">Logs</div>
+              <div class="search-group">
+                <span class="tag meta">Search</span>
+                <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
+              </div>
+            </div>
             <div class="logs">
               <table>
                 <thead>
@@ -197,40 +207,6 @@
               <button id="loadPrev" class="btn">Prev</button>
               <button id="loadMore" class="btn">Next</button>
               <span id="logStatus" class="hint"></span>
-            </div>
-          </div>
-        </div>
-        <div class="insight-stack">
-          <div class="panel">
-            <div class="card-stack">
-              <div class="card">
-                <div class="label">Sessions</div>
-                <div id="statSessions" class="value">—</div>
-              </div>
-              <div class="card">
-                <div class="label">Lines</div>
-                <div id="statLines" class="value">—</div>
-              </div>
-              <div class="card">
-                <div class="label">Deploy</div>
-                <div id="statDeploy" class="value">—</div>
-              </div>
-              <div class="card">
-                <div class="label">Range</div>
-                <div id="statRange" class="value">—</div>
-              </div>
-              <div class="card">
-                <div class="label">Selection</div>
-                <div id="statSelection" class="value">—</div>
-              </div>
-              <div class="card">
-                <div class="label">Artifacts</div>
-                <div id="statArtifacts" class="value">—</div>
-              </div>
-              <div class="card">
-                <div class="label">Errors</div>
-                <div id="statErrors" class="value">—</div>
-              </div>
             </div>
           </div>
         </div>
@@ -400,7 +376,6 @@
         const res = await fetch("/api/sessions");
         const data = await res.json();
         state.sessions = data.sessions || [];
-        el("statSessions").textContent = String(state.sessions.length);
         const sel = el("sessionSelect");
         sel.innerHTML = "";
         for (const s of state.sessions) {
@@ -452,23 +427,10 @@
         el("hint").textContent = `Session ${meta.session_id}`;
         const start = meta.started_at_ns ? fmtNS(meta.started_at_ns) : "";
         const end = meta.ended_at_ns ? fmtNS(meta.ended_at_ns) : "";
-        el("statRange").textContent = start && end ? `${start} → ${end}` : (start || "—");
+        // Range is reflected via the hint line (timeline stats).
       }
 
-      async function refreshQuickStats() {
-        const id = state.sessionId;
-        const q = state.q;
-        const res = await fetch(`/api/session/${encodeURIComponent(id)}/timeline?bucket=10s&q=${encodeURIComponent(q)}`);
-        const data = await res.json();
-        let lines = 0;
-        let errors = 0;
-        for (const r of (data.rows || [])) {
-          lines += (r.logs_total || 0);
-          errors += (r.logs_fail || 0);
-        }
-        el("statLines").textContent = String(lines);
-        el("statErrors").textContent = String(errors);
-      }
+      // refreshQuickStats removed (stats are shown in the hint line).
 
       function syncURL() {
         const p = new URLSearchParams();
@@ -498,11 +460,8 @@
           selection += (r.selection || 0);
           artifacts += (r.artifacts || 0);
         }
-        el("statLines").textContent = String(lines);
-        el("statErrors").textContent = String(errors);
-        el("statDeploy").textContent = String(deploy);
-        el("statSelection").textContent = String(selection);
-        el("statArtifacts").textContent = String(artifacts);
+        const stats = [`Lines ${lines}`, `Errors ${errors}`, `Deploy ${deploy}`, `Selection ${selection}`, `Artifacts ${artifacts}`].join(" · ");
+        el("hint").textContent = `Session ${state.sessionId} · ${stats}`;
         syncURL();
       }
 
@@ -564,8 +523,11 @@
         clearLogs();
         await loadMoreLogs();
       });
-      el("q").addEventListener("input", async (e) => {
-        state.q = e.target.value || "";
+      el("q").addEventListener("keydown", async (e) => {
+        if (e.key !== "Enter") {
+          return;
+        }
+        state.q = el("q").value || "";
         await refreshTimeline();
         clearLogs();
         await loadMoreLogs();
