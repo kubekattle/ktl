@@ -88,7 +88,8 @@
         border-radius: 22px;
         border: 1px solid rgba(15,23,42,0.10);
         background: rgba(255,255,255,0.65);
-        overflow: hidden;
+        overflow: auto;
+        max-height: 560px;
       }
       .drawer-backdrop {
         position: fixed;
@@ -218,24 +219,23 @@
 		                <div id="chips" class="search-chips"></div>
 		              </div>
 		            </div>
-            <div class="logs">
-              <table>
-                <thead>
-                  <tr>
-                    <th id="colTs">Timestamp<span class="resizer" data-col="ts"></span></th>
-                    <th id="colSrc">Source<span class="resizer" data-col="src"></span></th>
-                    <th id="colMsg">Message<span class="resizer" data-col="msg"></span></th>
-                  </tr>
-                </thead>
-                <tbody id="logBody"></tbody>
-              </table>
-            </div>
-	            <div class="row" style="margin-top:12px;">
-	              <button id="loadPrev" class="btn">Prev</button>
-	              <button id="loadMore" class="btn">Next</button>
-	              <span id="logStatus" class="muted"></span>
-	            </div>
-	          </div>
+		            <div class="logs">
+		              <table id="logTable">
+		                <thead>
+		                  <tr>
+		                    <th id="colTs">Timestamp<span class="resizer" data-col="ts"></span></th>
+		                    <th id="colSrc">Source<span class="resizer" data-col="src"></span></th>
+		                    <th id="colMsg">Message<span class="resizer" data-col="msg"></span></th>
+		                  </tr>
+		                </thead>
+		                <tbody id="logBody">
+		                  <tr id="topSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+		                  <tr id="bottomSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+		                </tbody>
+		              </table>
+		            </div>
+		            <div class="muted" id="logStatus" style="margin-top:12px;"></div>
+		          </div>
 	        </div>
 	      </div>
 	    </div>
@@ -256,10 +256,15 @@
       const el = (id) => document.getElementById(id);
       const state = { sessions: [], sessionId: "", q: "", queries: [] };
       state.cursor = 0;
+      state.hasMoreNext = true;
+      state.hasMorePrev = true;
+      state.loadingNext = false;
+      state.loadingPrev = false;
       const initialSession = "__INITIAL_SESSION__";
       state.startNS = 0;
       state.endNS = 0;
       state.sessionStartNS = 0;
+      state.observersReady = false;
 
       function fmtNS(ns) {
         if (!ns) return "—";
@@ -399,12 +404,19 @@
       }
 
       function clearLogs() {
-        el("logBody").innerHTML = "";
+        const body = el("logBody");
+        body.innerHTML = `
+          <tr id="topSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+          <tr id="bottomSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+        `;
         state.cursor = 0;
+        state.hasMoreNext = true;
+        state.hasMorePrev = true;
       }
 
       function appendLogs(lines) {
         const body = el("logBody");
+        const bottom = el("bottomSentinelRow");
         for (const l of (lines || [])) {
           const tr = document.createElement("tr");
           tr.dataset.key = l.key;
@@ -433,7 +445,7 @@
           tr.appendChild(ts);
           tr.appendChild(src);
           tr.appendChild(msg);
-          body.appendChild(tr);
+          body.insertBefore(tr, bottom);
         }
       }
 
@@ -480,6 +492,7 @@
         await refreshTimeline();
         clearLogs();
         await loadMoreLogs();
+        ensureInfiniteScroll();
       }
 
       async function refreshMeta() {
@@ -537,20 +550,29 @@
       async function loadMoreLogs() {
         const id = state.sessionId;
         const q = state.queries.join(",");
+        if (state.loadingNext || !state.hasMoreNext) return;
+        state.loadingNext = true;
         el("logStatus").textContent = "Loading…";
         const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${state.cursor||0}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
         const data = await res.json();
         appendLogs(data.lines || []);
         state.cursor = data.cursor || state.cursor || 0;
+        state.hasMoreNext = !!data.has_more;
         el("logStatus").textContent = (data.lines || []).length ? `Cursor ${state.cursor}${data.has_more ? "" : " (end)"}` : "No more lines";
         syncURL();
+        state.loadingNext = false;
       }
 
       async function loadPrevLogs() {
         const id = state.sessionId;
         const q = state.queries.join(",");
         const body = el("logBody");
+        if (state.loadingPrev || !state.hasMorePrev) return;
+        state.loadingPrev = true;
         el("logStatus").textContent = "Loading…";
+        const scroller = el("logTable").closest(".logs");
+        const beforeHeight = scroller ? scroller.scrollHeight : 0;
+        const beforeTop = scroller ? scroller.scrollTop : 0;
         const first = body.firstElementChild;
         let cursor = state.cursor || 0;
         if (first && first.dataset && first.dataset.key) cursor = Number(first.dataset.key) || cursor;
@@ -587,9 +609,15 @@
           tr.appendChild(msg);
           frag.appendChild(tr);
         }
-        body.prepend(frag);
+        body.insertBefore(frag, el("topSentinelRow").nextSibling);
+        state.hasMorePrev = !!data.has_more;
         el("logStatus").textContent = (data.lines || []).length ? `Cursor ${data.cursor}${data.has_more ? "" : " (start)"}` : "No previous lines";
         syncURL();
+        if (scroller) {
+          const afterHeight = scroller.scrollHeight;
+          scroller.scrollTop = beforeTop + (afterHeight - beforeHeight);
+        }
+        state.loadingPrev = false;
       }
 
       el("sessionSelect").addEventListener("change", async () => {
@@ -650,12 +678,27 @@
       };
       el("start").addEventListener("change", onTimeChange);
       el("end").addEventListener("change", onTimeChange);
-      el("loadMore").addEventListener("click", async () => {
-        await loadMoreLogs();
-      });
-      el("loadPrev").addEventListener("click", async () => {
-        await loadPrevLogs();
-      });
+      function ensureInfiniteScroll() {
+        if (state.observersReady) return;
+        const scroller = el("logTable").closest(".logs");
+        const topRow = el("topSentinelRow");
+        const bottomRow = el("bottomSentinelRow");
+        if (!scroller || !topRow || !bottomRow) return;
+        const io = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            if (entry.target === bottomRow) {
+              loadMoreLogs().catch(() => {});
+            }
+            if (entry.target === topRow) {
+              loadPrevLogs().catch(() => {});
+            }
+          }
+        }, { root: scroller, threshold: 0.1 });
+        io.observe(bottomRow);
+        io.observe(topRow);
+        state.observersReady = true;
+      }
 
       function openDrawerFromRow(tr) {
         if (!tr) return;
@@ -826,6 +869,9 @@
         el("subtitle").textContent = "Failed to load sessions";
         el("hint").textContent = String(err);
       });
+
+      // initialize infinite scroll once DOM is ready
+      ensureInfiniteScroll();
     </script>
   </body>
 </html>
