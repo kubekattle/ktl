@@ -174,6 +174,7 @@
               <input id="start" class="time" placeholder="Start (ISO)" />
               <input id="end" class="time" placeholder="End (ISO)" />
               <button id="reload" class="btn">Reload</button>
+              <button id="export" class="btn">Export NDJSON</button>
               <button id="follow" class="btn">Follow: off</button>
             </div>
             <div class="hint" id="hint"></div>
@@ -670,6 +671,12 @@
       el("end").addEventListener("change", onTimeChange);
       el("reload").addEventListener("click", async () => {
         await loadSessions();
+      });
+      el("export").addEventListener("click", async () => {
+        const id = state.sessionId;
+        const q = state.q;
+        const url = `/api/session/${encodeURIComponent(id)}/export?format=ndjson&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`;
+        window.location.href = url;
       });
       el("loadMore").addEventListener("click", async () => {
         await loadMoreLogs();

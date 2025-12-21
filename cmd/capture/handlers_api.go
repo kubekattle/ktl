@@ -112,6 +112,23 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, out)
 		return
+	case "export":
+		format := strings.TrimSpace(r.URL.Query().Get("format"))
+		if format == "" {
+			format = "ndjson"
+		}
+		if format != "ndjson" {
+			http.Error(w, "unsupported format", http.StatusBadRequest)
+			return
+		}
+		search := strings.TrimSpace(r.URL.Query().Get("q"))
+		startNS := parseInt64(r.URL.Query().Get("start_ns"), 0)
+		endNS := parseInt64(r.URL.Query().Get("end_ns"), 0)
+		if err := s.handleExportNDJSON(w, r, id, search, startNS, endNS); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		return
 	default:
 		http.NotFound(w, r)
 		return
