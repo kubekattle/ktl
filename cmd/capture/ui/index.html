@@ -168,12 +168,24 @@
                 <div id="statLines" class="value">—</div>
               </div>
               <div class="card">
-                <div class="label">Errors</div>
-                <div id="statErrors" class="value">—</div>
+                <div class="label">Deploy</div>
+                <div id="statDeploy" class="value">—</div>
               </div>
               <div class="card">
                 <div class="label">Range</div>
                 <div id="statRange" class="value">—</div>
+              </div>
+              <div class="card">
+                <div class="label">Selection</div>
+                <div id="statSelection" class="value">—</div>
+              </div>
+              <div class="card">
+                <div class="label">Artifacts</div>
+                <div id="statArtifacts" class="value">—</div>
+              </div>
+              <div class="card">
+                <div class="label">Errors</div>
+                <div id="statErrors" class="value">—</div>
               </div>
             </div>
           </div>
@@ -261,6 +273,21 @@
           if (failH > 0) {
             ctx.fillStyle = "rgba(239,68,68,0.45)";
             ctx.fillRect(x, y - failH, bw - gap, failH);
+          }
+
+          // event markers
+          const markerY = h - 10;
+          if ((r.deploy || 0) > 0) {
+            ctx.fillStyle = "rgba(37,99,235,0.85)";
+            ctx.fillRect(x, markerY, Math.max(1, bw - gap), 2);
+          }
+          if ((r.selection || 0) > 0) {
+            ctx.fillStyle = "rgba(251,191,36,0.95)";
+            ctx.fillRect(x, markerY - 3, Math.max(1, bw - gap), 2);
+          }
+          if ((r.artifacts || 0) > 0) {
+            ctx.fillStyle = "rgba(15,23,42,0.35)";
+            ctx.fillRect(x, markerY - 6, Math.max(1, bw - gap), 2);
           }
         }
       }
@@ -392,12 +419,21 @@
         drawTimeline(data.rows || []);
         let lines = 0;
         let errors = 0;
+        let deploy = 0;
+        let selection = 0;
+        let artifacts = 0;
         for (const r of (data.rows || [])) {
           lines += (r.logs_total || 0);
           errors += (r.logs_fail || 0);
+          deploy += (r.deploy || 0);
+          selection += (r.selection || 0);
+          artifacts += (r.artifacts || 0);
         }
         el("statLines").textContent = String(lines);
         el("statErrors").textContent = String(errors);
+        el("statDeploy").textContent = String(deploy);
+        el("statSelection").textContent = String(selection);
+        el("statArtifacts").textContent = String(artifacts);
       }
 
       async function loadMoreLogs() {
