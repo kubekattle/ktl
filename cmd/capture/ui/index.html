@@ -111,6 +111,16 @@
         transition: transform 160ms var(--ease), border-color 160ms var(--ease);
       }
       .btn:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
+      .time {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.12);
+        background: rgba(255,255,255,0.75);
+        padding: 10px 14px;
+        font-size: 0.95rem;
+        outline: none;
+        width: 170px;
+      }
       ul.events { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
       ul.events li { padding: 10px 12px; border-radius: 20px; background: var(--surface-soft); border: 1px solid rgba(15,23,42,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); }
       ul.events li .k { font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
@@ -128,6 +138,8 @@
             <div class="row">
               <select id="sessionSelect" class="select"></select>
               <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
+              <input id="start" class="time" placeholder="Start (ISO)" />
+              <input id="end" class="time" placeholder="End (ISO)" />
               <button id="reload" class="btn">Reload</button>
               <button id="follow" class="btn">Follow: off</button>
             </div>
@@ -212,6 +224,20 @@
         if (!ns) return "—";
         const d = new Date(ns / 1e6);
         return d.toISOString().replace("T", " ").replace("Z", "");
+      }
+
+      function parseISOToNS(raw) {
+        raw = (raw || "").trim();
+        if (!raw) return 0;
+        const d = new Date(raw);
+        if (!isFinite(d.getTime())) return 0;
+        return Math.floor(d.getTime() * 1e6);
+      }
+
+      function fmtISOFromNS(ns) {
+        if (!ns) return "";
+        const d = new Date(ns / 1e6);
+        return d.toISOString();
       }
 
       function classify(msg) {
@@ -377,6 +403,8 @@
         state.startNS = Number(urlParams.get("start_ns") || "0") || 0;
         state.endNS = Number(urlParams.get("end_ns") || "0") || 0;
         el("q").value = state.q;
+        el("start").value = fmtISOFromNS(state.startNS);
+        el("end").value = fmtISOFromNS(state.endNS);
 
         const preferred = (fromURL && state.sessions.find(s => s.session_id === fromURL)) ||
                           (initialSession && state.sessions.find(s => s.session_id === initialSession));
@@ -523,6 +551,18 @@
         await loadMoreEvents();
         stopFollow();
       });
+      const onTimeChange = async () => {
+        state.startNS = parseISOToNS(el("start").value);
+        state.endNS = parseISOToNS(el("end").value);
+        await refreshTimeline();
+        clearLogs();
+        clearEvents();
+        await loadMoreLogs();
+        await loadMoreEvents();
+        stopFollow();
+      };
+      el("start").addEventListener("change", onTimeChange);
+      el("end").addEventListener("change", onTimeChange);
       el("reload").addEventListener("click", async () => {
         await loadSessions();
       });
