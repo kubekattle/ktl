@@ -517,6 +517,11 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 	warnings := append([]string{}, lookupWarnings...)
 	warnings = append(warnings, planWarnings(changes)...)
 	desiredQuota := buildDesiredQuotaReport(desiredDocs, opts.Namespace)
+	if desiredQuota != nil && kubeClient != nil && kubeClient.Clientset != nil {
+		if err := populateQuotaLive(ctx, kubeClient.Clientset, desiredQuota); err != nil {
+			desiredQuota.Warnings = append(desiredQuota.Warnings, fmt.Sprintf("Failed to load namespace quotas: %v", err))
+		}
+	}
 
 	var cluster string
 	if kubeClient != nil && kubeClient.RESTConfig != nil {

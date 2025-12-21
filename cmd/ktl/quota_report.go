@@ -28,6 +28,8 @@ type quotaUsageTotals struct {
 type quotaReport struct {
 	Namespace string           `json:"namespace"`
 	Desired   quotaUsageTotals `json:"desired"`
+	Live      []quotaSnapshot  `json:"live,omitempty"`
+	Headroom  []quotaHeadroom  `json:"headroom,omitempty"`
 	Warnings  []string         `json:"warnings,omitempty"`
 }
 
