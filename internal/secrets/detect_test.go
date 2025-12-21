@@ -24,3 +24,28 @@ func TestRedactText(t *testing.T) {
 		t.Fatalf("expected redaction")
 	}
 }
+
+func TestDetectBuildArgsWithRulesNegative(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Version: "v1",
+		Rules: []Rule{
+			{
+				ID:        "only_npm_token_name",
+				Severity:  SeverityWarn,
+				AppliesTo: []ApplyTo{ApplyBuildArgName},
+				Regex:     `^NPM_TOKEN$`,
+				Message:   "match NPM_TOKEN",
+			},
+		},
+	}
+	compiled, err := CompileConfig(cfg)
+	if err != nil {
+		t.Fatalf("CompileConfig: %v", err)
+	}
+	findings := DetectBuildArgsWithRules([]string{"FOO=bar"}, compiled)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
