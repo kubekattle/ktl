@@ -514,6 +514,7 @@
         if (meta.namespace) parts.push(`ns/${meta.namespace}`);
         el("subtitle").textContent = parts.join(" · ") || meta.command || "capture";
         state.sessionStartNS = meta.started_at_ns || 0;
+        el("hint").style.display = "";
         el("hint").textContent = `Session ${meta.session_id}`;
         const start = meta.started_at_ns ? fmtNS(meta.started_at_ns) : "";
         const end = meta.ended_at_ns ? fmtNS(meta.ended_at_ns) : "";
@@ -694,6 +695,12 @@
           state.queries.pop();
           renderChips();
         }
+      });
+
+      // Clicking/focusing the search box hides the hint rail (no close affordance needed).
+      el("q").addEventListener("focus", () => {
+        el("hint").textContent = "";
+        el("hint").style.display = "none";
       });
       const onTimeChange = async () => {
         state.startNS = parseISOToNS(el("start").value);
