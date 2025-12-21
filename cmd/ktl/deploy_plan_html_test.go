@@ -109,6 +109,9 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 	if !strings.Contains(html, `id="diffToolbar"`) {
 		t.Fatalf("missing diff toolbar")
 	}
+	if !strings.Contains(html, `data-manifest-mode="quota"`) {
+		t.Fatalf("missing quota manifest mode")
+	}
 	if !strings.Contains(html, `id="vizData"`) {
 		t.Fatalf("missing viz data block")
 	}

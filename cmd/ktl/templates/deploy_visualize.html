@@ -881,20 +881,72 @@
       grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
       gap:16px;
     }
-    .compare-manifest {
-      border-radius:16px;
-      border:1px solid var(--border);
-      background:#0f172a;
-      color:#e2e8f0;
+	    .compare-manifest {
+	      border-radius:16px;
+	      border:1px solid var(--border);
+	      background:#0f172a;
+	      color:#e2e8f0;
       padding:16px;
       min-height:160px;
       font-family:"SFMono-Regular","Consolas","Liberation Mono",monospace;
       font-size:0.8rem;
       line-height:1.4;
-      overflow:auto;
-      white-space:pre;
-    }
-    .graph-pane { display:flex; flex-direction:column; gap:16px; }
+	      overflow:auto;
+	      white-space:pre;
+	    }
+
+	    .quota-view {
+	      display:flex;
+	      flex-direction:column;
+	      gap:24px;
+	    }
+
+	    .quota-table {
+	      width:100%;
+	      border-collapse:collapse;
+	      font-size:0.95rem;
+	      background:rgba(255,255,255,0.55);
+	      border:1px solid var(--border);
+	      border-radius:16px;
+	      overflow:hidden;
+	    }
+
+	    .quota-table th,
+	    .quota-table td {
+	      padding:12px 14px;
+	      border-bottom:1px solid rgba(15,23,42,0.06);
+	      vertical-align:top;
+	      text-align:left;
+	      font-variant-numeric: tabular-nums;
+	    }
+
+	    .quota-table th {
+	      text-transform:uppercase;
+	      letter-spacing:0.18em;
+	      font-size:0.78rem;
+	      color:var(--muted);
+	      background:rgba(255,255,255,0.75);
+	    }
+
+	    .quota-status {
+	      display:inline-flex;
+	      align-items:center;
+	      gap:8px;
+	      padding:4px 10px;
+	      border-radius:999px;
+	      font-size:0.78rem;
+	      font-weight:600;
+	      text-transform:uppercase;
+	      letter-spacing:0.18em;
+	      border:1px solid var(--border);
+	      background:rgba(255,255,255,0.75);
+	    }
+
+	    .quota-status.pass { color:#065f46; border-color:rgba(16,185,129,0.45); background:rgba(16,185,129,0.12); }
+	    .quota-status.warn { color:#92400e; border-color:rgba(251,191,36,0.55); background:rgba(251,191,36,0.14); }
+	    .quota-status.fail { color:#991b1b; border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.12); }
+	    .quota-status.unknown { color:rgba(15,23,42,0.7); }
+	    .graph-pane { display:flex; flex-direction:column; gap:16px; }
     .graph-header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; }
     .graph-legend { display:flex; gap:16px; align-items:center; font-size:0.85rem; color:var(--muted); }
     .legend-item { display:flex; align-items:center; gap:6px; }
@@ -1172,12 +1224,13 @@
               <ul id="referencedByList" class="dependency-list"></ul>
             </div>
           </div>
-          <div class="manifest-toggle" role="group" aria-label="Manifest display mode">
-            <button type="button" class="active" data-manifest-mode="rendered">Rendered YAML</button>
-            <button type="button" data-manifest-mode="diff">Diff vs live</button>
-            <button id="manifestModeExplain" type="button" data-manifest-mode="explain" hidden>Explain diff</button>
-            <span id="diffHint" class="muted"></span>
-          </div>
+	          <div class="manifest-toggle" role="group" aria-label="Manifest display mode">
+	            <button type="button" class="active" data-manifest-mode="rendered">Rendered YAML</button>
+	            <button type="button" data-manifest-mode="diff">Diff vs live</button>
+	            <button type="button" data-manifest-mode="quota">Quota</button>
+	            <button id="manifestModeExplain" type="button" data-manifest-mode="explain" hidden>Explain diff</button>
+	            <span id="diffHint" class="muted"></span>
+	          </div>
           <div id="diffToolbar" class="diff-toolbar" hidden aria-label="Diff tools">
             <div id="diffBaseline" class="diff-baseline" hidden>
               <span class="label">Baseline</span>
@@ -1196,17 +1249,47 @@
             <span id="diffStatusLive" class="muted"></span>
           </div>
           <pre id="manifestView" class="manifest-view" data-view="rendered" aria-live="polite">Select a resource to view its rendered YAML.</pre>
-          <div id="explainView" class="explain-view" hidden>
-            <div class="explain-header">
-              <div class="explain-title-row">
-                <h3>Explain diff</h3>
-                <button id="copyExplainBtn" class="chip" type="button">Copy notes</button>
-              </div>
-              <p class="muted">Highlights common rollout and ownership hazards inferred from the diff.</p>
-            </div>
-            <ul id="explainList" class="explain-list"></ul>
-            <p id="explainEmpty" class="muted" hidden>No notable changes detected for this resource.</p>
-          </div>
+	          <div id="explainView" class="explain-view" hidden>
+	            <div class="explain-header">
+	              <div class="explain-title-row">
+	                <h3>Explain diff</h3>
+	                <button id="copyExplainBtn" class="chip" type="button">Copy notes</button>
+	              </div>
+	              <p class="muted">Highlights common rollout and ownership hazards inferred from the diff.</p>
+	            </div>
+	            <ul id="explainList" class="explain-list"></ul>
+	            <p id="explainEmpty" class="muted" hidden>No notable changes detected for this resource.</p>
+	          </div>
+	          <div id="quotaView" class="quota-view" hidden>
+	            <div>
+	              <h3>Namespace quota headroom</h3>
+	              <p class="muted">Compares current ResourceQuota usage with the rendered chart’s estimated requests, limits, and object counts.</p>
+	            </div>
+	            <div id="quotaSummary" class="grid"></div>
+	            <div>
+	              <h3>Headroom (used + chart)</h3>
+	              <p id="quotaEmpty" class="muted" hidden>No ResourceQuota data available for this namespace (missing permissions or no quotas defined).</p>
+	              <table id="quotaHeadroomTable" class="quota-table" hidden>
+	                <thead>
+	                  <tr>
+	                    <th>Quota</th>
+	                    <th>Resource</th>
+	                    <th>Hard</th>
+	                    <th>Used</th>
+	                    <th>Chart</th>
+	                    <th>After</th>
+	                    <th>Headroom</th>
+	                    <th>Status</th>
+	                  </tr>
+	                </thead>
+	                <tbody id="quotaHeadroomBody"></tbody>
+	              </table>
+	            </div>
+	            <div id="quotaWarningsPanel" hidden>
+	              <h3>Notes</h3>
+	              <ul id="quotaWarnings" class="warning-list"></ul>
+	            </div>
+	          </div>
           <div class="download-actions">
             <button type="button" data-download="rendered">Download rendered YAML</button>
             <button type="button" data-download="diff">Download diff</button>
@@ -1302,11 +1385,18 @@
       var diffBaseline = document.getElementById('diffBaseline');
       var diffBaselineLive = document.getElementById('diffBaselineLive');
       var diffBaselineCompare = document.getElementById('diffBaselineCompare');
-      var manifestModeExplain = document.getElementById('manifestModeExplain');
-      var explainView = document.getElementById('explainView');
-      var explainList = document.getElementById('explainList');
-      var explainEmpty = document.getElementById('explainEmpty');
-      var copyExplainBtn = document.getElementById('copyExplainBtn');
+	      var manifestModeExplain = document.getElementById('manifestModeExplain');
+	      var explainView = document.getElementById('explainView');
+	      var explainList = document.getElementById('explainList');
+	      var explainEmpty = document.getElementById('explainEmpty');
+	      var copyExplainBtn = document.getElementById('copyExplainBtn');
+	      var quotaView = document.getElementById('quotaView');
+	      var quotaSummary = document.getElementById('quotaSummary');
+	      var quotaEmpty = document.getElementById('quotaEmpty');
+	      var quotaHeadroomTable = document.getElementById('quotaHeadroomTable');
+	      var quotaHeadroomBody = document.getElementById('quotaHeadroomBody');
+	      var quotaWarningsPanel = document.getElementById('quotaWarningsPanel');
+	      var quotaWarnings = document.getElementById('quotaWarnings');
       var diffSearch = document.getElementById('diffSearch');
       var diffPrevMatch = document.getElementById('diffPrevMatch');
       var diffNextMatch = document.getElementById('diffNextMatch');
@@ -1334,8 +1424,9 @@
       var compareMeta = document.getElementById('compareMeta');
       var compareColumns = document.getElementById('compareColumns');
       var compareBaseView = document.getElementById('compareBaseView');
-      var compareOtherView = document.getElementById('compareOtherView');
-      var compareTitle = document.getElementById('compareTitle');
+	      var compareOtherView = document.getElementById('compareOtherView');
+	      var compareTitle = document.getElementById('compareTitle');
+	      var quotaRendered = false;
       var heroHeadline = document.getElementById('heroHeadline');
       var heroChips = document.getElementById('heroChips');
       var heroCreates = document.getElementById('heroCreates');
@@ -1563,43 +1654,136 @@
         };
       }
 
-      function setupManifestToggle() {
-        manifestModeButtons.forEach(function(button) {
-          var mode = button.getAttribute('data-manifest-mode');
-          button.classList.toggle('active', mode === manifestMode);
-          button.setAttribute('aria-pressed', mode === manifestMode ? 'true' : 'false');
-          button.addEventListener('click', function() {
-            if (!mode || manifestMode === mode) return;
-            manifestMode = mode;
-            persistState({ manifestMode: manifestMode });
-            manifestModeButtons.forEach(function(btn) {
-              btn.classList.toggle('active', btn === button);
-              btn.setAttribute('aria-pressed', btn === button ? 'true' : 'false');
-            });
-            if (manifestView) {
-              manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
-              manifestView.hidden = manifestMode === 'explain';
-            }
-            if (explainView) {
-              explainView.hidden = manifestMode !== 'explain';
-            }
-            if (currentNode) {
-              renderManifest(currentNode);
-            }
-            updateDiffHint();
-            updateDiffStatus();
-            updateDiffToolbarVisibility();
-            updateDownloadButtons();
-          });
-        });
-        if (manifestView) {
-          manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
-          manifestView.hidden = manifestMode === 'explain';
-        }
-        if (explainView) {
-          explainView.hidden = manifestMode !== 'explain';
-        }
-      }
+	      function setupManifestToggle() {
+	        manifestModeButtons.forEach(function(button) {
+	          var mode = button.getAttribute('data-manifest-mode');
+	          button.classList.toggle('active', mode === manifestMode);
+	          button.setAttribute('aria-pressed', mode === manifestMode ? 'true' : 'false');
+	          button.addEventListener('click', function() {
+	            if (!mode || manifestMode === mode) return;
+	            manifestMode = mode;
+	            persistState({ manifestMode: manifestMode });
+	            manifestModeButtons.forEach(function(btn) {
+	              btn.classList.toggle('active', btn === button);
+	              btn.setAttribute('aria-pressed', btn === button ? 'true' : 'false');
+	            });
+	            applyManifestModeVisibility();
+	            if (manifestMode === 'quota') {
+	              renderQuotaPane();
+	            } else if (currentNode) {
+	              renderManifest(currentNode);
+	            }
+	            updateDiffHint();
+	            updateDiffStatus();
+	            updateDiffToolbarVisibility();
+	            updateDownloadButtons();
+	          });
+	        });
+	        applyManifestModeVisibility();
+	        if (manifestMode === 'quota') {
+	          renderQuotaPane();
+	        }
+	      }
+
+	      function applyManifestModeVisibility() {
+	        if (manifestView) {
+	          manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
+	          manifestView.hidden = (manifestMode === 'explain' || manifestMode === 'quota');
+	        }
+	        if (explainView) {
+	          explainView.hidden = manifestMode !== 'explain';
+	        }
+	        if (quotaView) {
+	          quotaView.hidden = manifestMode !== 'quota';
+	        }
+	      }
+
+	      function renderQuotaPane() {
+	        if (quotaRendered) return;
+	        quotaRendered = true;
+	        if (!quotaView) return;
+
+	        var report = dataset.desiredQuota || null;
+	        if (!report) {
+	          if (quotaEmpty) quotaEmpty.hidden = false;
+	          return;
+	        }
+
+	        if (quotaWarningsPanel && quotaWarnings) {
+	          var warnings = report.warnings || [];
+	          quotaWarnings.innerHTML = '';
+	          if (warnings.length) {
+	            warnings.forEach(function(msg) {
+	              var li = document.createElement('li');
+	              li.textContent = msg;
+	              quotaWarnings.appendChild(li);
+	            });
+	            quotaWarningsPanel.hidden = false;
+	          } else {
+	            quotaWarningsPanel.hidden = true;
+	          }
+	        }
+
+	        if (quotaSummary) {
+	          quotaSummary.innerHTML = '';
+	          var desired = report.desired || {};
+	          var items = [
+	            { label: 'CPU Requests', value: (desired.cpuRequests && desired.cpuRequests.value) || '0' },
+	            { label: 'Memory Requests', value: (desired.memoryRequests && desired.memoryRequests.value) || '0' },
+	            { label: 'Pods', value: String(desired.pods || 0) },
+	            { label: 'Storage', value: (desired.storage && desired.storage.value) || '0' }
+	          ];
+	          items.forEach(function(item) {
+	            var card = document.createElement('div');
+	            card.className = 'card';
+	            var label = document.createElement('div');
+	            label.className = 'label';
+	            label.textContent = item.label;
+	            var value = document.createElement('div');
+	            value.className = 'value';
+	            value.textContent = item.value;
+	            card.appendChild(label);
+	            card.appendChild(value);
+	            quotaSummary.appendChild(card);
+	          });
+	        }
+
+	        var rows = report.headroom || [];
+	        if (!rows.length) {
+	          if (quotaEmpty) quotaEmpty.hidden = false;
+	          if (quotaHeadroomTable) quotaHeadroomTable.hidden = true;
+	          return;
+	        }
+
+	        if (quotaEmpty) quotaEmpty.hidden = true;
+	        if (quotaHeadroomTable) quotaHeadroomTable.hidden = false;
+	        if (quotaHeadroomBody) {
+	          quotaHeadroomBody.innerHTML = '';
+	          rows.forEach(function(row) {
+	            var tr = document.createElement('tr');
+	            function td(text) {
+	              var cell = document.createElement('td');
+	              cell.textContent = (text == null || text === '') ? '—' : String(text);
+	              return cell;
+	            }
+	            tr.appendChild(td(row.quota));
+	            tr.appendChild(td(row.resource));
+	            tr.appendChild(td(row.hard));
+	            tr.appendChild(td(row.used));
+	            tr.appendChild(td(row.desired));
+	            tr.appendChild(td(row.after));
+	            tr.appendChild(td(row.headroom));
+	            var statusCell = document.createElement('td');
+	            var badge = document.createElement('span');
+	            var status = String(row.status || 'unknown').toLowerCase();
+	            badge.className = 'quota-status ' + status;
+	            badge.textContent = status;
+	            statusCell.appendChild(badge);
+	            tr.appendChild(statusCell);
+	            quotaHeadroomBody.appendChild(tr);
+	          });
+	        }
+	      }
 
       function buildKindChips() {
         if (!chipContainer) return;
