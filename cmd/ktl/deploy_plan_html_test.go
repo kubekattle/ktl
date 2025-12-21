@@ -149,6 +149,54 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 	}
 }
 
+func TestBuildDeployVisualizePayloadMatchesEmbeddedJSON(t *testing.T) {
+	result := &deployPlanResult{
+		ReleaseName:   "demo",
+		Namespace:     "prod",
+		ChartRef:      "./chart",
+		GraphNodes:    []deployGraphNode{{ID: "prod|deployment|web", Kind: "Deployment", Name: "web", Namespace: "prod"}},
+		GraphEdges:    []deployGraphEdge{{From: "prod|deployment|web", To: "prod|configmap|cfg"}},
+		ManifestBlobs: map[string]string{"prod|deployment|web": "kind: Deployment\nmetadata:\n  name: web"},
+		ManifestDiffs: map[string]string{"prod|deployment|web": "--- live\n+++ rendered\n"},
+		Changes: []planResourceChange{
+			{Key: resourceKey{Namespace: "prod", Kind: "Deployment", Name: "web"}, Kind: changeUpdate},
+		},
+		GeneratedAt: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+	}
+
+	embeddedHTML, err := renderDeployVisualizeHTML(result, nil, deployVisualizeFeatures{})
+	if err != nil {
+		t.Fatalf("render viz html: %v", err)
+	}
+	var embedded deployVisualizePayload
+	if err := json.Unmarshal([]byte(extractVizData(t, embeddedHTML)), &embedded); err != nil {
+		t.Fatalf("parse embedded payload: %v", err)
+	}
+
+	built, err := buildDeployVisualizePayload(result, nil)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	builtJSON, err := json.Marshal(built)
+	if err != nil {
+		t.Fatalf("marshal built payload: %v", err)
+	}
+	var roundTripped deployVisualizePayload
+	if err := json.Unmarshal(builtJSON, &roundTripped); err != nil {
+		t.Fatalf("round trip built payload: %v", err)
+	}
+
+	if roundTripped.Release != embedded.Release || roundTripped.Namespace != embedded.Namespace || roundTripped.Chart != embedded.Chart {
+		t.Fatalf("mismatched payload identity: built=%+v embedded=%+v", roundTripped, embedded)
+	}
+	if len(roundTripped.Nodes) != len(embedded.Nodes) || len(roundTripped.Manifests) != len(embedded.Manifests) {
+		t.Fatalf("mismatched payload shape: built=%+v embedded=%+v", roundTripped, embedded)
+	}
+	if roundTripped.ChangeKinds["prod|deployment|web"] != embedded.ChangeKinds["prod|deployment|web"] {
+		t.Fatalf("mismatched changeKinds: built=%+v embedded=%+v", roundTripped.ChangeKinds, embedded.ChangeKinds)
+	}
+}
+
 func TestRenderDeployVisualizeHTMLWithCompare(t *testing.T) {
 	base := &deployPlanResult{
 		ReleaseName:   "demo",

@@ -53,7 +53,6 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	var setStringValues []string
 	var setFileValues []string
 	var includeCRDs bool
-	var renderHTML bool
 	var format string
 	var outputPath string
 	var visualize bool
@@ -61,17 +60,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	var compareSource string
 	resolvedFormat := ""
 	resolveFormat := func() string {
-		selected := strings.ToLower(strings.TrimSpace(format))
-		if renderHTML {
-			selected = "html"
-		}
-		if visualize {
-			selected = "visualize"
-		}
-		if selected == "" {
-			selected = "text"
-		}
-		return selected
+		return resolveDeployPlanFormat(format, visualize)
 	}
 
 	cmd := &cobra.Command{
@@ -82,17 +71,17 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			resolvedFormat = resolveFormat()
 			switch resolvedFormat {
-			case "text", "json", "yaml", "html", "visualize":
+			case "text", "json", "yaml", "html", "visualize-html", "visualize-json", "visualize-yaml":
 			default:
 				return fmt.Errorf("unsupported format %q (expected text, json, yaml, html, or visualize)", resolvedFormat)
 			}
 			if resolvedFormat == "text" && strings.TrimSpace(outputPath) != "" {
 				return fmt.Errorf("--output is only supported with --format=html, --format=json, --format=yaml, or --visualize")
 			}
-			if visualizeExplain && resolvedFormat != "visualize" {
+			if visualizeExplain && !visualize {
 				return fmt.Errorf("--visualize-explain requires --visualize")
 			}
-			if strings.TrimSpace(compareSource) != "" && resolvedFormat != "visualize" {
+			if strings.TrimSpace(compareSource) != "" && !visualize {
 				return fmt.Errorf("--compare is only supported with --visualize")
 			}
 			return nil
@@ -182,7 +171,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Plan written to %s\n", path)
 				return nil
-			case "visualize":
+			case "visualize-html":
 				path := strings.TrimSpace(outputPath)
 				if path == "" {
 					path = defaultDeployVisualizeOutputPath(release, planResult.GeneratedAt)
@@ -212,6 +201,51 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 					return fmt.Errorf("write visualize html: %w", err)
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Visualization written to %s\n", path)
+				return nil
+			case "visualize-json", "visualize-yaml":
+				path := strings.TrimSpace(outputPath)
+				if path == "" {
+					ext := "json"
+					if selectedFormat == "visualize-yaml" {
+						ext = "yaml"
+					}
+					path = defaultDeployVisualizeDataOutputPath(release, planResult.GeneratedAt, ext)
+				}
+				var compareResult *deployPlanResult
+				if strings.TrimSpace(compareSource) != "" {
+					var cerr error
+					compareResult, cerr = loadPlanResultFromSource(ctx, compareSource)
+					if cerr != nil {
+						return fmt.Errorf("load compare artifact: %w", cerr)
+					}
+				}
+				payload, err := buildDeployVisualizePayload(planResult, compareResult)
+				if err != nil {
+					return err
+				}
+				var data []byte
+				if selectedFormat == "visualize-yaml" {
+					data, err = yaml.Marshal(payload)
+					if err != nil {
+						return fmt.Errorf("marshal viz yaml: %w", err)
+					}
+				} else {
+					data, err = json.MarshalIndent(payload, "", "  ")
+					if err != nil {
+						return fmt.Errorf("marshal viz json: %w", err)
+					}
+				}
+				if path == "-" {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\n", data)
+					return nil
+				}
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					return fmt.Errorf("create output dir: %w", err)
+				}
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					return fmt.Errorf("write visualize data: %w", err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Visualization data written to %s\n", path)
 				return nil
 			case "json":
 				data, err := json.MarshalIndent(planResult, "", "  ")
@@ -258,7 +292,6 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	cmd.Flags().BoolVar(&includeCRDs, "include-crds", false, "Render CRDs in addition to the main chart objects")
 	cmd.Flags().StringVar(&compareSource, "compare", "", "Plan artifact (path or URL) to embed for visualize comparisons")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, yaml, or html")
-	cmd.Flags().BoolVar(&renderHTML, "html", false, "Render the plan as a design-system HTML report (deprecated, use --format=html)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the rendered plan to this path (HTML defaults to ./ktl-deploy-plan-<release>-<timestamp>.html)")
 	cmd.Flags().BoolVar(&visualize, "visualize", false, "Render the interactive visualization")
 	cmd.Flags().BoolVar(&visualizeExplain, "visualize-explain", false, "Add an Explain Diff tab in --visualize output (experimental)")
@@ -274,6 +307,28 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	}
 	decorateCommandHelp(cmd, section)
 	return cmd
+}
+
+func resolveDeployPlanFormat(format string, visualize bool) string {
+	selected := strings.ToLower(strings.TrimSpace(format))
+	if visualize {
+		switch selected {
+		case "", "text":
+			// Preserve the original behavior: if the user asked for text output,
+			// --visualize should not force HTML.
+			selected = "text"
+		case "visualize", "html":
+			selected = "visualize-html"
+		case "json":
+			selected = "visualize-json"
+		case "yaml", "yml":
+			selected = "visualize-yaml"
+		}
+	}
+	if selected == "" {
+		selected = "text"
+	}
+	return selected
 }
 
 type deployPlanOptions struct {
@@ -1118,8 +1173,38 @@ func renderDeployPlan(out io.Writer, result *deployPlanResult) {
 		namespace = "(context namespace)"
 	}
 	fmt.Fprintf(out, "Release %s @ %s\n", result.ReleaseName, namespace)
+	if !result.GeneratedAt.IsZero() {
+		fmt.Fprintf(out, "Generated at: %s\n", result.GeneratedAt.Format(time.RFC3339))
+	}
+	if result.ClusterHost != "" {
+		fmt.Fprintf(out, "Cluster: %s\n", result.ClusterHost)
+	}
 	if result.ChartVersion != "" {
 		fmt.Fprintf(out, "Chart version: %s\n", result.ChartVersion)
+	}
+	if result.ChartRef != "" {
+		fmt.Fprintf(out, "Chart: %s\n", result.ChartRef)
+	}
+	if result.RequestedChart != "" && result.RequestedChart != result.ChartRef {
+		fmt.Fprintf(out, "Requested chart: %s\n", result.RequestedChart)
+	}
+	if result.RequestedVersion != "" {
+		fmt.Fprintf(out, "Requested version: %s\n", result.RequestedVersion)
+	}
+	if len(result.ValuesFiles) > 0 {
+		fmt.Fprintf(out, "Values files:\n%s\n", indent(strings.Join(result.ValuesFiles, "\n"), "  - "))
+	}
+	if len(result.SetValues) > 0 {
+		fmt.Fprintf(out, "Set values:\n%s\n", indent(strings.Join(result.SetValues, "\n"), "  - "))
+	}
+	if len(result.SetStringValues) > 0 {
+		fmt.Fprintf(out, "Set-string values:\n%s\n", indent(strings.Join(result.SetStringValues, "\n"), "  - "))
+	}
+	if len(result.SetFileValues) > 0 {
+		fmt.Fprintf(out, "Set-file values:\n%s\n", indent(strings.Join(result.SetFileValues, "\n"), "  - "))
+	}
+	if result.InstallCmd != "" {
+		fmt.Fprintf(out, "Install command: %s\n", result.InstallCmd)
 	}
 	fmt.Fprintf(out, "Creates: %d, Updates: %d, Deletes: %d, Unchanged: %d\n\n", result.Summary.Creates, result.Summary.Updates, result.Summary.Deletes, result.Summary.Unchanged)
 
@@ -1141,11 +1226,56 @@ func renderDeployPlan(out io.Writer, result *deployPlanResult) {
 			fmt.Fprintf(out, "- %s\n", warn)
 		}
 	}
+	if result.DesiredQuota != nil {
+		fmt.Fprintln(out, "\nDesired quota:")
+		data, err := yaml.Marshal(result.DesiredQuota)
+		if err == nil && len(data) > 0 {
+			fmt.Fprintf(out, "%s\n", indent(strings.TrimRight(string(data), "\n"), "  "))
+		}
+	}
 	if len(result.GraphEdges) > 0 {
 		fmt.Fprintln(out, "\nResource dependencies:")
 		for _, line := range summarizeGraphEdges(result.GraphNodes, result.GraphEdges) {
 			fmt.Fprintf(out, "- %s\n", line)
 		}
+	}
+	if len(result.GraphNodes) > 0 {
+		fmt.Fprintln(out, "\nResources:")
+		for _, node := range result.GraphNodes {
+			ns := node.Namespace
+			if ns == "" {
+				ns = namespace
+			}
+			fmt.Fprintf(out, "- %s %s/%s (%s)\n", node.Kind, ns, node.Name, node.Source)
+		}
+	}
+	writeStringMapSection(out, "\nRendered manifests:", result.ManifestBlobs)
+	writeStringMapSection(out, "\nLive manifests:", result.LiveManifests)
+	writeStringMapSection(out, "\nManifest diffs:", result.ManifestDiffs)
+	writeStringMapSection(out, "\nTemplate sources:", result.TemplateSources)
+	writeStringMapSection(out, "\nManifest templates:", result.ManifestTemplates)
+	if result.OfflineFallback {
+		fmt.Fprintln(out, "\nOffline fallback: true")
+	}
+}
+
+func writeStringMapSection(out io.Writer, title string, m map[string]string) {
+	if len(m) == 0 {
+		return
+	}
+	fmt.Fprintln(out, title)
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := strings.TrimRight(m[k], "\n")
+		if v == "" {
+			continue
+		}
+		fmt.Fprintf(out, "- %s\n", k)
+		fmt.Fprintf(out, "%s\n", indent(v, "    "))
 	}
 }
 
@@ -1269,12 +1399,12 @@ type deployVisualizeFeatures struct {
 	ExplainDiff bool `json:"explainDiff"`
 }
 
-func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResult, features deployVisualizeFeatures) (string, error) {
+func buildDeployVisualizePayload(result *deployPlanResult, compare *deployPlanResult) (deployVisualizePayload, error) {
 	if result == nil {
-		return "", fmt.Errorf("plan result is empty")
+		return deployVisualizePayload{}, fmt.Errorf("plan result is empty")
 	}
 	if len(result.GraphNodes) == 0 {
-		return "", fmt.Errorf("no resources available to visualize (chart rendered zero objects)")
+		return deployVisualizePayload{}, fmt.Errorf("no resources available to visualize (chart rendered zero objects)")
 	}
 	changeKinds := buildChangeKindIndex(result.Changes)
 	payload := deployVisualizePayload{
@@ -1283,6 +1413,10 @@ func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResu
 		Chart:           result.ChartRef,
 		ClusterHost:     result.ClusterHost,
 		InstallCommand:  result.InstallCmd,
+		ValuesFiles:     append([]string(nil), result.ValuesFiles...),
+		SetValues:       append([]string(nil), result.SetValues...),
+		SetStringValues: append([]string(nil), result.SetStringValues...),
+		SetFileValues:   append([]string(nil), result.SetFileValues...),
 		Nodes:           result.GraphNodes,
 		Edges:           result.GraphEdges,
 		Manifests:       result.ManifestBlobs,
@@ -1299,6 +1433,14 @@ func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResu
 		payload.CompareManifests = compare.ManifestBlobs
 		payload.CompareSummary = describePlanSummary(compare)
 	}
+	return payload, nil
+}
+
+func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResult, features deployVisualizeFeatures) (string, error) {
+	payload, err := buildDeployVisualizePayload(result, compare)
+	if err != nil {
+		return "", err
+	}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("encode viz payload: %w", err)
@@ -1311,6 +1453,21 @@ func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResu
 	html := strings.Replace(deployVisualizeHTMLTemplate, "__DATA__", escaped, 1)
 	html = strings.Replace(html, "__FEATURES__", escapeJSONForScript(featuresJSON), 1)
 	return html, nil
+}
+
+func defaultDeployVisualizeDataOutputPath(release string, generatedAt time.Time, ext string) string {
+	slug := sanitizeFilename(release)
+	if slug == "" {
+		slug = "release"
+	}
+	stamp := time.Now()
+	if !generatedAt.IsZero() {
+		stamp = generatedAt
+	}
+	if strings.TrimSpace(ext) == "" {
+		ext = "json"
+	}
+	return fmt.Sprintf("ktl-deploy-visualize-%s-%s.%s", slug, stamp.Format("20060102-150405"), ext)
 }
 
 func escapeJSONForScript(data []byte) string {
