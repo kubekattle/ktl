@@ -249,6 +249,7 @@
         const bw = Math.max(2, Math.floor((w - 24) / Math.max(1, bars.length)));
         const x0 = 12;
         const y0 = h - 14;
+        state.timeline = { x0, bw, bars };
         for (let i = 0; i < bars.length; i++) {
           const r = bars[i];
           const total = r.logs_total || 0;
@@ -540,6 +541,23 @@
 
       window.addEventListener("resize", () => {
         refreshTimeline().catch(() => {});
+      });
+
+      el("timeline").addEventListener("click", async (ev) => {
+        if (!state.timeline || !state.timeline.bars || state.timeline.bars.length === 0) return;
+        const rect = ev.target.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const i = Math.max(0, Math.min(state.timeline.bars.length - 1, Math.floor((x - state.timeline.x0) / state.timeline.bw)));
+        const bucket = state.timeline.bars[i];
+        if (!bucket) return;
+        state.startNS = bucket.bucket_ns;
+        // keep end empty, just jump start to clicked bucket window
+        state.endNS = 0;
+        await refreshTimeline();
+        clearLogs();
+        clearEvents();
+        await loadMoreLogs();
+        await loadMoreEvents();
       });
 
       loadSessions().catch((err) => {
