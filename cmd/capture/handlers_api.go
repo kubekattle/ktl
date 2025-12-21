@@ -44,6 +44,27 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, meta)
 		return
+	case "events":
+		q := r.URL.Query()
+		limit := int(parseInt64(q.Get("limit"), 200))
+		if limit < 50 {
+			limit = 50
+		}
+		if limit > 2000 {
+			limit = 2000
+		}
+		cursor := parseInt64(q.Get("cursor"), 0)
+		search := strings.TrimSpace(q.Get("q"))
+		out, err := s.store.Events(r.Context(), id, cursor, limit, search)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	case "stream":
+		s.handleStream(w, r, id)
+		return
 	case "timeline":
 		q := r.URL.Query()
 		bucket := parseDuration(q.Get("bucket"), 1*time.Second)
@@ -126,4 +147,3 @@ func parseDuration(raw string, def time.Duration) time.Duration {
 	}
 	return def
 }
-

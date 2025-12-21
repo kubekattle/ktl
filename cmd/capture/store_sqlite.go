@@ -60,7 +60,26 @@ type LogsPage struct {
 	Lines  []LogLine `json:"lines"`
 }
 
+type EventsPage struct {
+	Cursor int64       `json:"cursor"`
+	Events []EventLine `json:"events"`
+}
+
 type LogLine struct {
+	Key       int64  `json:"key"`
+	Seq       int64  `json:"seq"`
+	ID        int64  `json:"id"`
+	TSNS      int64  `json:"ts_ns"`
+	Kind      string `json:"kind"`
+	Level     string `json:"level,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Pod       string `json:"pod,omitempty"`
+	Container string `json:"container,omitempty"`
+	Message   string `json:"message"`
+}
+
+type EventLine struct {
 	Key       int64  `json:"key"`
 	Seq       int64  `json:"seq"`
 	ID        int64  `json:"id"`
@@ -275,6 +294,60 @@ LIMIT %d
 		}
 		out.Lines = append(out.Lines, l)
 		out.Cursor = l.Key
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteStore) Events(ctx context.Context, sessionID string, cursor int64, limit int, search string) (EventsPage, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	keyExpr := `COALESCE(seq, id)`
+	tsExpr := `COALESCE(ts_ns, CAST(strftime('%s', ts) AS INTEGER) * 1000000000)`
+
+	where := "session_id = ? AND kind != 'log'"
+	args := []any{sessionID}
+	if cursor > 0 {
+		where += " AND " + keyExpr + " > ?"
+		args = append(args, cursor)
+	}
+	if strings.TrimSpace(search) != "" {
+		where += " AND (message LIKE ? OR kind LIKE ? OR source LIKE ? OR namespace LIKE ? OR pod LIKE ?)"
+		pat := "%" + search + "%"
+		args = append(args, pat, pat, pat, pat, pat)
+	}
+
+	query := fmt.Sprintf(`
+SELECT
+  %s AS k,
+  COALESCE(seq, 0),
+  id,
+  %s AS ts_ns,
+  COALESCE(kind, ''),
+  COALESCE(level, ''),
+  COALESCE(source, ''),
+  COALESCE(namespace, ''),
+  COALESCE(pod, ''),
+  COALESCE(container, ''),
+  COALESCE(message, '')
+FROM ktl_capture_events
+WHERE %s
+ORDER BY k
+LIMIT %d
+`, keyExpr, tsExpr, where, limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return EventsPage{}, err
+	}
+	defer rows.Close()
+	out := EventsPage{Cursor: cursor}
+	for rows.Next() {
+		var e EventLine
+		if err := rows.Scan(&e.Key, &e.Seq, &e.ID, &e.TSNS, &e.Kind, &e.Level, &e.Source, &e.Namespace, &e.Pod, &e.Container, &e.Message); err != nil {
+			return EventsPage{}, err
+		}
+		out.Events = append(out.Events, e)
+		out.Cursor = e.Key
 	}
 	return out, rows.Err()
 }

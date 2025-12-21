@@ -111,6 +111,11 @@
         transition: transform 160ms var(--ease), border-color 160ms var(--ease);
       }
       .btn:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
+      ul.events { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+      ul.events li { padding: 10px 12px; border-radius: 20px; background: var(--surface-soft); border: 1px solid rgba(15,23,42,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); }
+      ul.events li .k { font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+      ul.events li .m { margin-top: 6px; font-size: 0.95rem; color: var(--text); }
+      ul.events li .t { margin-top: 6px; font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
     </style>
   </head>
   <body>
@@ -124,6 +129,7 @@
               <select id="sessionSelect" class="select"></select>
               <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
               <button id="reload" class="btn">Reload</button>
+              <button id="follow" class="btn">Follow: off</button>
             </div>
             <div class="hint" id="hint"></div>
           </div>
@@ -171,12 +177,21 @@
               </div>
             </div>
           </div>
+          <div class="panel" style="margin-top:18px;">
+            <div class="label" style="font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650;">Events</div>
+            <div class="hint">Selection changes and deploy events</div>
+            <ul id="eventList" class="events" style="margin-top:14px;"></ul>
+          </div>
         </div>
       </div>
     </div>
     <script>
       const el = (id) => document.getElementById(id);
       const state = { sessions: [], sessionId: "", q: "" };
+      state.cursor = 0;
+      state.eventCursor = 0;
+      state.follow = false;
+      state.es = null;
 
       function fmtNS(ns) {
         if (!ns) return "—";
@@ -281,6 +296,31 @@
         }
       }
 
+      function clearEvents() {
+        el("eventList").innerHTML = "";
+        state.eventCursor = 0;
+      }
+
+      function appendEvents(events) {
+        const list = el("eventList");
+        for (const e of (events || [])) {
+          const li = document.createElement("li");
+          const k = document.createElement("div");
+          k.className = "k";
+          k.textContent = e.kind || "event";
+          const m = document.createElement("div");
+          m.className = "m";
+          m.textContent = e.message || "";
+          const t = document.createElement("div");
+          t.className = "t";
+          t.textContent = fmtNS(e.ts_ns);
+          li.appendChild(k);
+          li.appendChild(m);
+          li.appendChild(t);
+          list.appendChild(li);
+        }
+      }
+
       async function loadSessions() {
         const res = await fetch("/api/sessions");
         const data = await res.json();
@@ -305,7 +345,10 @@
         await refreshMeta();
         await refreshTimeline();
         clearLogs();
+        clearEvents();
         await loadMoreLogs();
+        await loadMoreEvents();
+        stopFollow();
       }
 
       async function refreshMeta() {
@@ -366,23 +409,72 @@
         el("logStatus").textContent = (data.lines || []).length ? `Cursor ${state.cursor}` : "No more lines";
       }
 
+      async function loadMoreEvents() {
+        const id = state.sessionId;
+        const q = state.q;
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/events?cursor=${state.eventCursor||0}&limit=200&q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        appendEvents(data.events || []);
+        state.eventCursor = data.cursor || state.eventCursor || 0;
+      }
+
+      function startFollow() {
+        stopFollow();
+        const id = state.sessionId;
+        const q = state.q;
+        const url = `/api/session/${encodeURIComponent(id)}/stream?cursor=${state.cursor||0}&q=${encodeURIComponent(q)}`;
+        const es = new EventSource(url);
+        state.es = es;
+        es.addEventListener("logs", (ev) => {
+          const data = JSON.parse(ev.data);
+          if (data && data.lines) {
+            appendLogs(data.lines);
+            state.cursor = data.cursor || state.cursor;
+            el("logStatus").textContent = `Cursor ${state.cursor} (follow)`;
+          }
+        });
+        es.addEventListener("error", () => {});
+      }
+
+      function stopFollow() {
+        if (state.es) {
+          state.es.close();
+          state.es = null;
+        }
+      }
+
       el("sessionSelect").addEventListener("change", async () => {
         await refreshMeta();
         await refreshTimeline();
         clearLogs();
+        clearEvents();
         await loadMoreLogs();
+        await loadMoreEvents();
+        stopFollow();
       });
       el("q").addEventListener("input", async (e) => {
         state.q = e.target.value || "";
         await refreshTimeline();
         clearLogs();
+        clearEvents();
         await loadMoreLogs();
+        await loadMoreEvents();
+        stopFollow();
       });
       el("reload").addEventListener("click", async () => {
         await loadSessions();
       });
       el("loadMore").addEventListener("click", async () => {
         await loadMoreLogs();
+      });
+      el("follow").addEventListener("click", async () => {
+        state.follow = !state.follow;
+        el("follow").textContent = state.follow ? "Follow: on" : "Follow: off";
+        if (state.follow) {
+          startFollow();
+        } else {
+          stopFollow();
+        }
       });
 
       window.addEventListener("resize", () => {
