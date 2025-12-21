@@ -1,0 +1,12 @@
+{
+  "required_labels": [
+    "org.opencontainers.image.source",
+    "org.opencontainers.image.revision",
+    "org.opencontainers.image.vendor"
+  ],
+  "blocked_registries": [
+    "docker.io/library/"
+  ],
+  "allow_unpinned_bases": []
+}
+
