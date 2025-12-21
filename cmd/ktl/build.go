@@ -100,6 +100,7 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 		builder:    buildkit.DefaultBuilderAddress(),
 		cacheDir:   buildkit.DefaultCacheDir(),
 		rm:         true,
+		policyMode: "enforce",
 	}
 
 	cmd := &cobra.Command{
@@ -107,6 +108,9 @@ func newBuildCommandWithService(service buildsvc.Service) *cobra.Command {
 		Short: "Build container images with BuildKit",
 		Example: `  # Build the current directory
   ktl build .
+
+  # Enforce an OPA/Rego policy bundle (writes JSON evidence to dist/attest)
+  ktl build . --attest-dir dist/attest --policy ./examples/policy/demo --policy-mode enforce
 
   # Auto-detect a compose project and build all services
   ktl build ./testdata/build/compose
