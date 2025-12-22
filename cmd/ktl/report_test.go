@@ -17,7 +17,6 @@ func TestWriteReportLine_StableOrder(t *testing.T) {
 		Revision:  9,
 		ElapsedMS: 4958,
 		DryRun:    false,
-		Diff:      false,
 	})
 
 	got := buf.String()

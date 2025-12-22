@@ -24,7 +24,6 @@ type reportLine struct {
 	ElapsedMS int64
 
 	DryRun      bool
-	Diff        bool
 	KeepHistory bool
 	Wait        bool
 }
@@ -63,9 +62,6 @@ func reportFields(r reportLine) map[string]string {
 	}
 	if r.DryRun {
 		fields["dry_run"] = "true"
-	}
-	if r.Diff {
-		fields["diff"] = "true"
 	}
 	if r.KeepHistory {
 		fields["keep_history"] = "true"

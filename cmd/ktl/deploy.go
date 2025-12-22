@@ -61,13 +61,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	upgrade := false
 	var createNamespace bool
 	var dryRun bool
-	var diff bool
 	var watchDuration time.Duration
 	var uiAddr string
 	var wsListenAddr string
-	var reusePlanPath string
-	var consoleWide bool
-	var consoleDetails bool
 	var verbose bool
 	var autoApprove bool
 	var nonInteractive bool
@@ -90,18 +86,15 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				if watchDuration > 0 {
 					return fmt.Errorf("--watch is not supported with --remote-agent")
 				}
-				if strings.TrimSpace(reusePlanPath) != "" {
-					return fmt.Errorf("--reuse-plan is not supported with --remote-agent")
-				}
 				if strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "" {
 					return fmt.Errorf("--ui/--ws-listen are not supported with --remote-agent")
 				}
 			}
-			if watchDuration > 0 && (dryRun || diff) {
-				return fmt.Errorf("--watch cannot be combined with --dry-run or --diff")
+			if watchDuration > 0 && dryRun {
+				return fmt.Errorf("--watch cannot be combined with --dry-run")
 			}
-			if err := validateNonInteractive(cmd, nonInteractive, autoApprove, dryRun || diff); err != nil {
-				return fmt.Errorf("%w (or use --diff/--dry-run)", err)
+			if err := validateNonInteractive(cmd, nonInteractive, autoApprove, dryRun); err != nil {
+				return fmt.Errorf("%w (or use --dry-run)", err)
 			}
 			if timeout <= 0 {
 				return fmt.Errorf("--timeout must be > 0")
@@ -139,7 +132,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					UpgradeOnly:     upgrade,
 					CreateNamespace: createNamespace,
 					DryRun:          dryRun,
-					Diff:            diff,
+					Diff:            false,
 					KubeConfig:      kubeconfig,
 					KubeContext:     kubeContext,
 					RemoteAddr:      strings.TrimSpace(*remoteAgent),
@@ -148,9 +141,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			kubeClient, err := kube.New(ctx, *kubeconfig, *kubeContext)
 			if err != nil {
 				return err
-			}
-			if diff && !dryRun {
-				dryRun = true
 			}
 
 			resolvedNamespace := ""
@@ -175,39 +165,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			settings.Debug = helmDebug
 
 			interactive := isTerminalWriter(errOut) && isTerminalReader(cmd.InOrStdin())
-
-			if strings.TrimSpace(reusePlanPath) != "" {
-				planResult, err := loadPlanResultFromFile(reusePlanPath)
-				if err != nil {
-					return fmt.Errorf("load plan %q: %w", reusePlanPath, err)
-				}
-				if chart == "" {
-					chart = firstNonEmpty(planResult.ChartRef, planResult.RequestedChart)
-				}
-				if releaseName == "" {
-					releaseName = planResult.ReleaseName
-				}
-				if namespace != nil && strings.TrimSpace(*namespace) == "" && strings.TrimSpace(planResult.Namespace) != "" {
-					*namespace = planResult.Namespace
-					resolvedNamespace = *namespace
-					settings.SetNamespace(resolvedNamespace)
-				}
-				if version == "" {
-					version = planResult.RequestedVersion
-				}
-				if len(valuesFiles) == 0 && len(planResult.ValuesFiles) > 0 {
-					valuesFiles = append([]string(nil), planResult.ValuesFiles...)
-				}
-				if len(setValues) == 0 && len(planResult.SetValues) > 0 {
-					setValues = append([]string(nil), planResult.SetValues...)
-				}
-				if len(setStringValues) == 0 && len(planResult.SetStringValues) > 0 {
-					setStringValues = append([]string(nil), planResult.SetStringValues...)
-				}
-				if len(setFileValues) == 0 && len(planResult.SetFileValues) > 0 {
-					setFileValues = append([]string(nil), planResult.SetFileValues...)
-				}
-			}
 
 			exists, err := namespaceExists(ctx, kubeClient.Clientset, resolvedNamespace)
 			if err != nil {
@@ -292,8 +249,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			}
 
 			// Terraform-like safety rail: show a concise plan summary and ask for confirmation
-			// before making any cluster changes (unless --auto-approve or in dry-run/diff mode).
-			if !dryRun && !diff && !autoApprove {
+			// before making any cluster changes (unless --auto-approve or in dry-run mode).
+			if !dryRun && !autoApprove {
 				preview, previewErr := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
 					Chart:           chart,
 					Version:         version,
@@ -477,7 +434,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 							Version:   crumb.Version,
 							Namespace: resolvedNamespace,
 							DryRun:    dryRun,
-							Diff:      diff,
+							Diff:      false,
 						})
 					}
 				}
@@ -488,7 +445,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						Version:   summary.Version,
 						Namespace: resolvedNamespace,
 						DryRun:    dryRun,
-						Diff:      diff,
+						Diff:      false,
 					})
 				}
 				summary.Action = actionHeadline
@@ -511,7 +468,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				Version:   version,
 				Namespace: resolvedNamespace,
 				DryRun:    dryRun,
-				Diff:      diff,
+				Diff:      false,
 			})
 
 			trackerManifest, err := renderManifestForTracking(ctx, settings, resolvedNamespace, chart, version, releaseName, valuesFiles, setValues, setStringValues, setFileValues)
@@ -589,10 +546,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					SetStringValues: append([]string(nil), setStringValues...),
 				}
 				console = ui.NewDeployConsole(errOut, meta, ui.DeployConsoleOptions{
-					Enabled:         true,
-					Wide:            consoleWide,
-					Width:           width,
-					DetailsExpanded: consoleDetails,
+					Enabled: true,
+					Width:   width,
 				})
 			}
 
@@ -627,10 +582,10 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			} else if shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
 				fmt.Fprintf(errOut, "Applying release %s\n", releaseName)
 			}
-			// When rendering a plan/diff (dry-run), don't start Kubernetes watchers or resource tracking:
+			// When rendering a plan (dry-run), don't start Kubernetes watchers or resource tracking:
 			// - resources aren't created, so "Pending/Unknown" tracking is misleading
 			// - status tracking requires live API discovery calls that can fail on minimal RBAC
-			if !dryRun && !diff {
+			if !dryRun {
 				if stream != nil && stream.HasObservers() {
 					statusUpdaters = append(statusUpdaters, stream.UpdateResources)
 					cancelFeed, err := streamReleaseFeed(ctx, kubeClient, releaseName, resolvedNamespace, currentLogLevel, stream)
@@ -699,7 +654,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				Atomic:            atomic,
 				CreateNamespace:   createNamespace,
 				DryRun:            dryRun,
-				Diff:              diff,
+				Diff:              false,
 				UpgradeOnly:       upgrade,
 				ProgressObservers: progressObservers,
 			})
@@ -731,17 +686,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				captureHelmRelease(ctx, captureRecorder, rel)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Release %s %s\n", rel.Name, status)
-			if diff {
-				if result.ManifestDiff == "" {
-					fmt.Fprintln(cmd.OutOrStdout(), "Diff: no changes")
-				} else {
-					fmt.Fprintln(cmd.OutOrStdout(), "Diff:")
-					fmt.Fprintln(cmd.OutOrStdout(), result.ManifestDiff)
-				}
-				if captureRecorder != nil {
-					_ = captureRecorder.RecordArtifact(ctx, "apply.diff.unified", result.ManifestDiff)
-				}
-			}
 			if rel.Info != nil && rel.Info.Notes != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "Notes:\n%s\n", rel.Info.Notes)
 				if stream != nil {
@@ -752,7 +696,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					_ = captureRecorder.RecordArtifact(ctx, "apply.status", status)
 				}
 			}
-			if watchDuration > 0 && !dryRun && !diff {
+			if watchDuration > 0 && !dryRun {
 				fmt.Fprintf(errOut, "Watching release %s for %s...\n", rel.Name, watchDuration)
 				var watchObserver tailer.LogObserver
 				if stream != nil && stream.HasObservers() {
@@ -773,7 +717,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				Version:   version,
 				Revision:  rel.Version,
 				DryRun:    dryRun,
-				Diff:      diff,
 				ElapsedMS: time.Since(startedAt).Milliseconds(),
 			}
 			reportReady = true
@@ -793,21 +736,17 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().BoolVar(&upgrade, "upgrade", upgrade, "Only perform the upgrade path (skip install fallback)")
 	cmd.Flags().BoolVar(&createNamespace, "create-namespace", false, "Create the release namespace if it does not exist")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render the chart without applying it")
-	cmd.Flags().BoolVar(&diff, "diff", false, "Show a manifest diff (implies --dry-run)")
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
 	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --auto-approve)")
 	cmd.Flags().BoolVar(&planServer, "plan-server", false, "Use server-side dry-run to classify replacements (slower; requires RBAC)")
 	cmd.Flags().DurationVar(&watchDuration, "watch", 0, "After a successful deploy, stream logs/events for this long (e.g. 2m)")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "Time to wait for any Kubernetes operation")
-	cmd.Flags().BoolVar(&consoleWide, "console-wide", false, "Force wide console layout even on narrow terminals")
-	cmd.Flags().BoolVar(&consoleDetails, "console-details", false, "Always show metadata details even on narrow terminals")
 	cmd.Flags().StringVar(&uiAddr, "ui", "", "Serve the live deploy viewer at this address (e.g. :8080)")
 	if flag := cmd.Flags().Lookup("ui"); flag != nil {
 		flag.NoOptDefVal = ":8080"
 	}
 	cmd.Flags().StringVar(&wsListenAddr, "ws-listen", "", "Serve the raw deploy event stream over WebSocket at this address (e.g. :9086)")
-	cmd.Flags().StringVar(&reusePlanPath, "reuse-plan", "", "Path to a ktl plan artifact (HTML or JSON) to reuse chart inputs")
 	cmd.Flags().BoolVar(&driftGuard, "drift-guard", false, "Fail if live cluster resources drift from the last applied Helm release state")
 	cmd.Flags().StringVar(&driftGuardMode, "drift-guard-mode", "last-applied", "Drift guard mode: last-applied (compare to current Helm release) or desired (compare to newly rendered manifest)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
@@ -855,8 +794,6 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	var wsListenAddr string
 	var force bool
 	var disableHooks bool
-	var consoleWide bool
-	var consoleDetails bool
 	var verbose bool
 	var capturePath string
 	var captureTags []string
@@ -1034,10 +971,8 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			if shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) && isTerminalWriter(errOut) {
 				width, _ := terminalWidth(errOut)
 				console = ui.NewDeployConsole(errOut, meta, ui.DeployConsoleOptions{
-					Enabled:         true,
-					Wide:            consoleWide,
-					Width:           width,
-					DetailsExpanded: consoleDetails,
+					Enabled: true,
+					Width:   width,
 				})
 				console.UpdateMetadata(meta)
 			} else if shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) {
@@ -1322,8 +1257,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	cmd.Flags().StringVar(&wsListenAddr, "ws-listen", "", "Serve the destroy event stream over WebSocket (e.g. :9087)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force uninstall even if Kubernetes resources are in a bad state")
 	cmd.Flags().BoolVar(&disableHooks, "disable-hooks", false, "Disable Helm hooks while destroying the release")
-	cmd.Flags().BoolVar(&consoleWide, "console-wide", false, "Force wide console layout even on narrow terminals")
-	cmd.Flags().BoolVar(&consoleDetails, "console-details", false, "Always show metadata details even on narrow terminals")
+	// --console-wide/--console-details removed.
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
 	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture destroy events/logs to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
@@ -1826,15 +1760,6 @@ func renderPhaseDurationsLine(durations map[string]string) string {
 		parts = append(parts, fmt.Sprintf("%s=%s", item.name, item.val))
 	}
 	return strings.Join(parts, ", ")
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func buildDestroySuggestion(release, namespace string, flags *pflag.FlagSet) string {
