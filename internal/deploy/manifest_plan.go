@@ -334,42 +334,6 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 	return out, nil
 }
 
-func normalizeObjectForPlan(obj *unstructured.Unstructured) *unstructured.Unstructured {
-	if obj == nil {
-		return &unstructured.Unstructured{}
-	}
-	clone := obj.DeepCopy()
-
-	unstructured.RemoveNestedField(clone.Object, "status")
-
-	if meta, ok := clone.Object["metadata"].(map[string]interface{}); ok {
-		delete(meta, "creationTimestamp")
-		delete(meta, "generation")
-		delete(meta, "managedFields")
-		delete(meta, "resourceVersion")
-		delete(meta, "uid")
-		delete(meta, "selfLink")
-		delete(meta, "finalizers")
-		if ann, ok := meta["annotations"].(map[string]interface{}); ok {
-			delete(ann, "helm.sh/chart")
-			for k := range ann {
-				if strings.HasPrefix(k, "checksum/") {
-					delete(ann, k)
-				}
-			}
-			if len(ann) == 0 {
-				delete(meta, "annotations")
-			} else {
-				meta["annotations"] = ann
-			}
-		}
-		clone.Object["metadata"] = meta
-	}
-
-	normalizeListOrder(clone.Object)
-	return clone
-}
-
 func detectHelmHook(obj *unstructured.Unstructured) (bool, string) {
 	if obj == nil {
 		return false, ""

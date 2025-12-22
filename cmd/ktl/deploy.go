@@ -71,6 +71,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var verbose bool
 	var autoApprove bool
 	var nonInteractive bool
+	var planServer bool
 	var capturePath string
 	var captureTags []string
 	timeout := 5 * time.Minute
@@ -256,6 +257,26 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				})
 				if previewErr != nil {
 					return previewErr
+				}
+				if planServer && preview != nil && preview.Release != nil && preview.PlanSummary != nil {
+					hints, hintErr := deploy.DetectServerSideReplaceKeys(ctx, kubeClient, preview.Release.Manifest, deploy.ServerPlanOptions{FieldManager: "ktl-plan", Force: true})
+					if hintErr != nil && shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
+						fmt.Fprintf(errOut, "Warning: server-side plan check failed: %v\n", hintErr)
+					}
+					if len(hints) > 0 {
+						for i := range preview.PlanSummary.Changes {
+							ch := preview.PlanSummary.Changes[i]
+							if ch.IsHook || ch.Action != deploy.PlanUpdate {
+								continue
+							}
+							key := fmt.Sprintf("%s/%s/%s/%s/%s", strings.ToLower(strings.TrimSpace(ch.Group)), strings.ToLower(strings.TrimSpace(ch.Version)), strings.ToLower(strings.TrimSpace(ch.Kind)), strings.TrimSpace(ch.Namespace), strings.TrimSpace(ch.Name))
+							if hints[key] {
+								preview.PlanSummary.Changes[i].Action = deploy.PlanReplace
+								preview.PlanSummary.Change--
+								preview.PlanSummary.Replace++
+							}
+						}
+					}
 				}
 				if preview != nil && preview.PlanSummary != nil {
 					fmt.Fprintf(errOut, "Plan: %d to add, %d to change, %d to replace, %d to destroy.\n", preview.PlanSummary.Add, preview.PlanSummary.Change, preview.PlanSummary.Replace, preview.PlanSummary.Destroy)
@@ -699,6 +720,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
 	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")
 	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --auto-approve)")
+	cmd.Flags().BoolVar(&planServer, "plan-server", false, "Use server-side dry-run to classify replacements (slower; requires RBAC)")
 	cmd.Flags().DurationVar(&watchDuration, "watch", 0, "After a successful deploy, stream logs/events for this long (e.g. 2m)")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "Time to wait for any Kubernetes operation")
 	cmd.Flags().BoolVar(&consoleWide, "console-wide", false, "Force wide console layout even on narrow terminals")
