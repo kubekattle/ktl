@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/example/ktl/internal/kube"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -80,7 +81,7 @@ func DetectServerSideReplaceKeys(ctx context.Context, client *kube.Client, propo
 		if applyErr == nil {
 			continue
 		}
-		if isImmutableFieldError(applyErr) {
+		if isImmutableFieldError(applyErr, obj.Kind) {
 			replace[planObjectKey(obj.Group, obj.Version, obj.Kind, obj.Namespace, obj.Name)] = true
 			continue
 		}
@@ -88,20 +89,78 @@ func DetectServerSideReplaceKeys(ctx context.Context, client *kube.Client, propo
 	return replace, nil
 }
 
-func isImmutableFieldError(err error) bool {
+func isImmutableFieldError(err error, kind string) bool {
 	if err == nil {
 		return false
 	}
+	kind = strings.TrimSpace(kind)
+	// Prefer structured status details when available.
+	if statusErr, ok := err.(*apierrors.StatusError); ok && statusErr != nil {
+		status := statusErr.ErrStatus
+		if status.Details != nil {
+			for _, cause := range status.Details.Causes {
+				field := strings.TrimSpace(cause.Field)
+				message := strings.TrimSpace(cause.Message)
+				if looksLikeImmutableCause(kind, field, "", message) {
+					return true
+				}
+			}
+		}
+	}
+
+	// Fall back to string matching, but keep it conservative.
 	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "field is immutable") {
-		return true
+	if !strings.Contains(msg, "immutable") {
+		return false
 	}
-	if strings.Contains(msg, "immutable") && strings.Contains(msg, "spec") {
-		return true
-	}
-	return false
+	return looksLikeImmutableCause(kind, "", "", msg)
 }
 
 func planObjectKey(group, version, kind, namespace, name string) string {
 	return fmt.Sprintf("%s/%s/%s/%s/%s", strings.ToLower(strings.TrimSpace(group)), strings.ToLower(strings.TrimSpace(version)), strings.ToLower(strings.TrimSpace(kind)), strings.TrimSpace(namespace), strings.TrimSpace(name))
+}
+
+func looksLikeImmutableCause(kind, field, reason, message string) bool {
+	kind = strings.TrimSpace(kind)
+	field = strings.TrimSpace(field)
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	messageLower := strings.ToLower(strings.TrimSpace(message))
+
+	// If the apiserver provides a field, only treat known-immutable fields as replace.
+	if field != "" {
+		switch kind {
+		case "Service":
+			return field == "spec.clusterIP"
+		case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet":
+			return strings.HasPrefix(field, "spec.selector")
+		case "PersistentVolumeClaim":
+			return field == "spec.storageClassName" || field == "spec.volumeName"
+		case "Ingress":
+			return field == "spec.ingressClassName"
+		}
+		return false
+	}
+
+	// Otherwise, accept immutable hints only when the message looks like a spec immutability error.
+	if reason == "fieldvalueinvalid" || reason == "fieldvalueforbidden" || reason == "invalid" {
+		// fall through to message checks
+	}
+	if !strings.Contains(messageLower, "immutable") {
+		return false
+	}
+	if strings.Contains(messageLower, "field is immutable") {
+		return true
+	}
+	// Heuristic: immutable + spec.<known>
+	switch kind {
+	case "Service":
+		return strings.Contains(messageLower, "spec.clusterip")
+	case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet":
+		return strings.Contains(messageLower, "spec.selector")
+	case "PersistentVolumeClaim":
+		return strings.Contains(messageLower, "spec.storageclassname") || strings.Contains(messageLower, "spec.volumename")
+	case "Ingress":
+		return strings.Contains(messageLower, "spec.ingressclassname")
+	}
+	return false
 }

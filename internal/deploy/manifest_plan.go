@@ -399,6 +399,8 @@ func immutableFieldChanged(prev, next *unstructured.Unstructured) bool {
 		return !equalNested(prev.Object, next.Object, "spec", "selector")
 	case "PersistentVolumeClaim":
 		return !equalNested(prev.Object, next.Object, "spec", "storageClassName") || !equalNested(prev.Object, next.Object, "spec", "volumeName")
+	case "Ingress":
+		return !equalNested(prev.Object, next.Object, "spec", "ingressClassName")
 	case "CustomResourceDefinition":
 		// CRDs are notoriously sensitive; treat structural schema moves as replace.
 		if group == "apiextensions.k8s.io" {
