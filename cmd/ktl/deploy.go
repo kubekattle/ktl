@@ -274,7 +274,11 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						return fmt.Errorf("drift guard: render desired: %w", previewErr)
 					}
 					if preview != nil && preview.Release != nil && strings.TrimSpace(preview.Release.Manifest) != "" {
-						report, derr := deploy.CheckReleaseDrift(ctx, releaseName, preview.Release.Manifest, deploy.DriftLiveGetterFromKube(kubeClient))
+						report, derr := deploy.CheckReleaseDriftWithOptions(ctx, releaseName, preview.Release.Manifest, deploy.DriftLiveGetterFromKube(kubeClient), deploy.DriftOptions{
+							RequireHelmOwnership: true,
+							IgnoreMissing:        true,
+							MaxConcurrency:       8,
+						})
 						if derr != nil {
 							return fmt.Errorf("drift guard: %w", derr)
 						}

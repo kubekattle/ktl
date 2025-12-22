@@ -15,11 +15,29 @@ func FormatDriftReport(report DriftReport, maxItems int, maxDiffLines int) strin
 	if maxDiffLines <= 0 {
 		maxDiffLines = 80
 	}
+	changed := 0
+	missing := 0
+	errors := 0
+	for _, it := range report.Items {
+		switch strings.TrimSpace(it.Reason) {
+		case "changed":
+			changed++
+		case "missing":
+			missing++
+		default:
+			if strings.HasPrefix(strings.TrimSpace(it.Reason), "fetch_error:") {
+				errors++
+			} else {
+				changed++
+			}
+		}
+	}
 	items := report.Items
 	if len(items) > maxItems {
 		items = items[:maxItems]
 	}
 	var b strings.Builder
+	fmt.Fprintf(&b, "Summary: %d changed, %d missing, %d errors\n", changed, missing, errors)
 	for _, it := range items {
 		ns := strings.TrimSpace(it.Namespace)
 		if ns == "" {

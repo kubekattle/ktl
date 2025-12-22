@@ -16,6 +16,7 @@ import (
 
 type DriftOptions struct {
 	RequireHelmOwnership bool
+	IgnoreMissing        bool
 	MaxConcurrency       int
 	PerObjectTimeout     time.Duration
 }
@@ -39,6 +40,7 @@ type DriftLiveGetter func(ctx context.Context, target resourceTarget) (*unstruct
 func CheckReleaseDrift(ctx context.Context, releaseName string, manifest string, get DriftLiveGetter) (DriftReport, error) {
 	return CheckReleaseDriftWithOptions(ctx, releaseName, manifest, get, DriftOptions{
 		RequireHelmOwnership: true,
+		IgnoreMissing:        false,
 		MaxConcurrency:       8,
 		PerObjectTimeout:     6 * time.Second,
 	})
@@ -110,6 +112,9 @@ func CheckReleaseDriftWithOptions(ctx context.Context, releaseName string, manif
 				return
 			}
 			if live == nil {
+				if opts.IgnoreMissing {
+					return
+				}
 				mu.Lock()
 				out.Items = append(out.Items, DriftItem{
 					Kind:      j.target.Kind,
