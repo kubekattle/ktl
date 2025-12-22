@@ -74,6 +74,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var planServer bool
 	var capturePath string
 	var captureTags []string
+	var driftGuard bool
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -230,6 +231,22 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			}
 			if err := actionCfg.Init(settings.RESTClientGetter(), resolvedNamespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
 				return fmt.Errorf("init helm action config: %w", err)
+			}
+
+			if driftGuard {
+				getAction := action.NewGet(actionCfg)
+				current, err := getAction.Run(releaseName)
+				if err == nil && current != nil && strings.TrimSpace(current.Manifest) != "" {
+					report, derr := deploy.CheckReleaseDrift(ctx, releaseName, current.Manifest, deploy.DriftLiveGetterFromKube(kubeClient))
+					if derr != nil {
+						return fmt.Errorf("drift guard: %w", derr)
+					}
+					if !report.Empty() {
+						return fmt.Errorf("drift detected for release %s in ns/%s (%d objects)", releaseName, resolvedNamespace, len(report.Items))
+					}
+				} else if err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
+					return fmt.Errorf("drift guard: read current release manifest: %w", err)
+				}
 			}
 
 			// Terraform-like safety rail: show a concise plan summary and ask for confirmation
@@ -749,6 +766,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	}
 	cmd.Flags().StringVar(&wsListenAddr, "ws-listen", "", "Serve the raw deploy event stream over WebSocket at this address (e.g. :9086)")
 	cmd.Flags().StringVar(&reusePlanPath, "reuse-plan", "", "Path to a ktl plan artifact (HTML or JSON) to reuse chart inputs")
+	cmd.Flags().BoolVar(&driftGuard, "drift-guard", false, "Fail if live cluster resources drift from the last applied Helm release state")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
 	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture deploy events/logs/manifests to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
@@ -962,6 +980,9 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				if console != nil {
 					console.Done()
 				}
+				// Prevent late tracker/feed updates from repainting after teardown/report output.
+				console = nil
+				stream = nil
 				if stopSpinner != nil {
 					stopSpinner(false)
 				}
@@ -1138,10 +1159,18 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 
 			var statusUpdaters []deploy.StatusUpdateFunc
 			if console != nil {
-				statusUpdaters = append(statusUpdaters, console.UpdateResources)
+				statusUpdaters = append(statusUpdaters, func(rows []deploy.ResourceStatus) {
+					if console != nil {
+						console.UpdateResources(rows)
+					}
+				})
 			}
 			if stream != nil && stream.HasObservers() {
-				statusUpdaters = append(statusUpdaters, stream.UpdateResources)
+				statusUpdaters = append(statusUpdaters, func(rows []deploy.ResourceStatus) {
+					if stream != nil {
+						stream.UpdateResources(rows)
+					}
+				})
 				cancelFeed, feedErr := streamReleaseFeed(ctx, kubeClient, release, resolvedNamespace, currentLogLevel, stream)
 				if feedErr != nil {
 					return feedErr
