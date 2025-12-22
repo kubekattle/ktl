@@ -26,6 +26,8 @@ const (
 
 type PlanChange struct {
 	Action    PlanAction
+	Group     string
+	Version   string
 	Kind      string
 	Namespace string
 	Name      string
@@ -51,6 +53,9 @@ func ListManifestResources(manifest string) ([]PlanChange, error) {
 	sort.Slice(out, func(i, j int) bool {
 		a := out[i]
 		b := out[j]
+		if a.Group != b.Group {
+			return a.Group < b.Group
+		}
 		if a.Kind != b.Kind {
 			return a.Kind < b.Kind
 		}
@@ -124,7 +129,7 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 		for _, ch := range summary.Changes {
 			switch ch.Action {
 			case PlanAdd:
-				alt := fmt.Sprintf("%s/%s/%s", strings.ToLower(ch.Kind), ch.Namespace, ch.Name)
+				alt := fmt.Sprintf("%s/%s/%s/%s", strings.ToLower(ch.Group), strings.ToLower(ch.Kind), ch.Namespace, ch.Name)
 				prevObj, ok := prevByAltKey[alt]
 				if ok {
 					nextObj, ok2 := nextByAltKey[alt]
@@ -138,7 +143,7 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 					}
 				}
 			case PlanDestroy:
-				alt := fmt.Sprintf("%s/%s/%s", strings.ToLower(ch.Kind), ch.Namespace, ch.Name)
+				alt := fmt.Sprintf("%s/%s/%s/%s", strings.ToLower(ch.Group), strings.ToLower(ch.Kind), ch.Namespace, ch.Name)
 				nextObj, ok := nextByAltKey[alt]
 				if ok {
 					prevObj, ok2 := prevByAltKey[alt]
@@ -163,6 +168,9 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 		if a.Action != b.Action {
 			return a.Action < b.Action
 		}
+		if a.Group != b.Group {
+			return a.Group < b.Group
+		}
 		if a.Kind != b.Kind {
 			return a.Kind < b.Kind
 		}
@@ -177,7 +185,8 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 type manifestObject struct {
 	Key           string
 	AltKey        string
-	APIVersion    string
+	Group         string
+	Version       string
 	Kind          string
 	Namespace     string
 	Name          string
@@ -187,6 +196,8 @@ type manifestObject struct {
 func (m manifestObject) toPlanChange(action PlanAction) PlanChange {
 	return PlanChange{
 		Action:    action,
+		Group:     m.Group,
+		Version:   m.Version,
 		Kind:      m.Kind,
 		Namespace: m.Namespace,
 		Name:      m.Name,
@@ -216,6 +227,17 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 		}
 		obj := &unstructured.Unstructured{Object: raw}
 		apiVersion := strings.TrimSpace(obj.GetAPIVersion())
+		group := ""
+		version := ""
+		if apiVersion != "" {
+			parts := strings.Split(apiVersion, "/")
+			if len(parts) == 1 {
+				version = parts[0]
+			} else {
+				group = parts[0]
+				version = parts[len(parts)-1]
+			}
+		}
 		kind := strings.TrimSpace(obj.GetKind())
 		name := strings.TrimSpace(obj.GetName())
 		if kind == "" || name == "" {
@@ -223,7 +245,7 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 		}
 		ns := strings.TrimSpace(obj.GetNamespace())
 		key := fmt.Sprintf("%s/%s/%s/%s", strings.ToLower(apiVersion), strings.ToLower(kind), ns, name)
-		altKey := fmt.Sprintf("%s/%s/%s", strings.ToLower(kind), ns, name)
+		altKey := fmt.Sprintf("%s/%s/%s/%s", strings.ToLower(group), strings.ToLower(kind), ns, name)
 
 		normalized := normalizeObjectForPlan(obj)
 		encoded, err := json.Marshal(normalized.Object)
@@ -233,7 +255,8 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 		out = append(out, manifestObject{
 			Key:           key,
 			AltKey:        altKey,
-			APIVersion:    apiVersion,
+			Group:         group,
+			Version:       version,
 			Kind:          kind,
 			Namespace:     ns,
 			Name:          name,

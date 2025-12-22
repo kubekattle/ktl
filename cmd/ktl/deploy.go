@@ -32,6 +32,7 @@ import (
 	"golang.org/x/term"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
+	helmkube "helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	corev1 "k8s.io/api/core/v1"
@@ -949,7 +950,13 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 					fmt.Fprintf(errOut, "Plan: 0 to add, 0 to change, 0 to replace, 0 to destroy.\n")
 					fmt.Fprintf(errOut, "Destroy preview unavailable: %s\n", reason)
 				} else if shouldPreview {
-					resources, listErr := deploy.ListManifestResources(manifest)
+					var resources []deploy.PlanChange
+					var listErr error
+					if kc, ok := actionCfg.KubeClient.(*helmkube.Client); ok && kc != nil {
+						resources, listErr = deploy.ListManifestResourcesWithHelmKube(kc, manifest)
+					} else {
+						resources, listErr = deploy.ListManifestResources(manifest)
+					}
 					if listErr == nil {
 						fmt.Fprintf(errOut, "Plan: 0 to add, 0 to change, 0 to replace, %d to destroy.\n", len(resources))
 						limit := 12

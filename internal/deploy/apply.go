@@ -18,6 +18,7 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	cliValues "helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 )
@@ -177,7 +178,16 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 	result := &InstallResult{Release: release}
 	if opts.Diff {
 		result.ManifestDiff = diffManifests(previousManifest, release.Manifest)
-		if summary, err := SummarizeManifestPlan(previousManifest, release.Manifest); err == nil {
+		if kc, ok := actionCfg.KubeClient.(*kube.Client); ok && kc != nil {
+			if summary, err := SummarizeManifestPlanWithHelmKube(kc, previousManifest, release.Manifest); err == nil {
+				result.PlanSummary = summary
+			} else if fallback, ferr := SummarizeManifestPlan(previousManifest, release.Manifest); ferr == nil {
+				result.PlanSummary = fallback
+				result.PlanSummarizeError = err.Error()
+			} else {
+				result.PlanSummarizeError = err.Error()
+			}
+		} else if summary, err := SummarizeManifestPlan(previousManifest, release.Manifest); err == nil {
 			result.PlanSummary = summary
 		} else {
 			result.PlanSummarizeError = err.Error()
