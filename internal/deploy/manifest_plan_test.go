@@ -81,3 +81,39 @@ spec:
 		t.Fatalf("unexpected counts: %#v", summary)
 	}
 }
+
+func TestSummarizeManifestPlanServiceClusterIPEmptyDoesNotReplace(t *testing.T) {
+	prev := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ns
+spec:
+  clusterIP: ""
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+`
+	next := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ns
+spec:
+  clusterIP: 10.0.0.2
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+`
+	summary, err := SummarizeManifestPlan(prev, next)
+	if err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if summary.Replace != 0 {
+		t.Fatalf("expected no replace, got %#v", summary)
+	}
+}

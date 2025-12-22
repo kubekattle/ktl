@@ -392,8 +392,19 @@ func immutableFieldChanged(prev, next *unstructured.Unstructured) bool {
 	// Small, high-signal set of immutables that commonly cause server-side rejection and effectively imply a replace.
 	switch kind {
 	case "Service":
-		// spec.clusterIP is immutable for ClusterIP services.
-		return !equalNested(prev.Object, next.Object, "spec", "clusterIP")
+		// spec.clusterIP is immutable for ClusterIP services, but Helm often leaves it empty/auto.
+		// Treat as replace only when both sides are explicitly set and differ.
+		prevIP, prevFound, _ := unstructured.NestedString(prev.Object, "spec", "clusterIP")
+		nextIP, nextFound, _ := unstructured.NestedString(next.Object, "spec", "clusterIP")
+		prevIP = strings.TrimSpace(prevIP)
+		nextIP = strings.TrimSpace(nextIP)
+		if !prevFound || !nextFound {
+			return false
+		}
+		if prevIP == "" || nextIP == "" {
+			return false
+		}
+		return prevIP != nextIP
 	case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet":
 		// spec.selector is effectively immutable.
 		return !equalNested(prev.Object, next.Object, "spec", "selector")

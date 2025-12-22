@@ -97,14 +97,14 @@ func isImmutableFieldError(err error, kind string) bool {
 	// Prefer structured status details when available.
 	if statusErr, ok := err.(*apierrors.StatusError); ok && statusErr != nil {
 		status := statusErr.ErrStatus
-		if status.Details != nil {
-			for _, cause := range status.Details.Causes {
-				field := strings.TrimSpace(cause.Field)
-				message := strings.TrimSpace(cause.Message)
-				if looksLikeImmutableCause(kind, field, "", message) {
-					return true
-				}
-			}
+		if looksLikeImmutableStatus(kind, status) {
+			return true
+		}
+	}
+	// Some servers (or intermediaries) serialize a Status object into the error message.
+	if status, ok := parseStatusFromErrorString(err.Error()); ok {
+		if looksLikeImmutableStatus(kind, status) {
+			return true
 		}
 	}
 
@@ -118,6 +118,38 @@ func isImmutableFieldError(err error, kind string) bool {
 
 func planObjectKey(group, version, kind, namespace, name string) string {
 	return fmt.Sprintf("%s/%s/%s/%s/%s", strings.ToLower(strings.TrimSpace(group)), strings.ToLower(strings.TrimSpace(version)), strings.ToLower(strings.TrimSpace(kind)), strings.TrimSpace(namespace), strings.TrimSpace(name))
+}
+
+func looksLikeImmutableStatus(kind string, status metav1.Status) bool {
+	if status.Details == nil || len(status.Details.Causes) == 0 {
+		return false
+	}
+	for _, cause := range status.Details.Causes {
+		field := strings.TrimSpace(cause.Field)
+		message := strings.TrimSpace(cause.Message)
+		if looksLikeImmutableCause(kind, field, "", message) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseStatusFromErrorString(msg string) (metav1.Status, bool) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" || !strings.HasPrefix(msg, "{") {
+		return metav1.Status{}, false
+	}
+	var status metav1.Status
+	if err := json.Unmarshal([]byte(msg), &status); err != nil {
+		return metav1.Status{}, false
+	}
+	if status.Kind != "" && status.Kind != "Status" {
+		return metav1.Status{}, false
+	}
+	if status.Status == "" && status.Reason == "" && status.Message == "" && status.Details == nil {
+		return metav1.Status{}, false
+	}
+	return status, true
 }
 
 func looksLikeImmutableCause(kind, field, reason, message string) bool {
