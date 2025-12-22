@@ -24,18 +24,26 @@ func TestApprovalMode_Table(t *testing.T) {
 		approved       bool
 		nonInteractive bool
 		useTTY         bool
+		envYes         string
 		wantErr        bool
 		wantTTY        bool
+		wantApproved   bool
 	}
 	cases := []tc{
-		{name: "approved_noninteractive_notty", approved: true, nonInteractive: true, useTTY: false, wantErr: false, wantTTY: false},
+		{name: "approved_noninteractive_notty", approved: true, nonInteractive: true, useTTY: false, wantErr: false, wantTTY: false, wantApproved: true},
 		{name: "noninteractive_requires_yes", approved: false, nonInteractive: true, useTTY: false, wantErr: true},
-		{name: "notty_requires_prompt", approved: false, nonInteractive: false, useTTY: false, wantErr: false, wantTTY: false},
-		{name: "tty_interactive", approved: false, nonInteractive: false, useTTY: true, wantErr: false, wantTTY: true},
+		{name: "env_yes_satisfies_noninteractive", approved: false, nonInteractive: true, useTTY: false, envYes: "1", wantErr: false, wantTTY: false, wantApproved: true},
+		{name: "notty_requires_prompt", approved: false, nonInteractive: false, useTTY: false, wantErr: false, wantTTY: false, wantApproved: false},
+		{name: "tty_interactive", approved: false, nonInteractive: false, useTTY: true, wantErr: false, wantTTY: true, wantApproved: false},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			if c.envYes != "" {
+				t.Setenv("KTL_YES", c.envYes)
+			} else {
+				t.Setenv("KTL_YES", "")
+			}
 			cmd := &cobra.Command{}
 			if c.useTTY {
 				tty := openTTY(t)
@@ -56,8 +64,8 @@ func TestApprovalMode_Table(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if dec.Approved != c.approved {
-				t.Fatalf("approved mismatch: got %v want %v", dec.Approved, c.approved)
+			if dec.Approved != c.wantApproved {
+				t.Fatalf("approved mismatch: got %v want %v", dec.Approved, c.wantApproved)
 			}
 			if dec.NonInteractive != c.nonInteractive {
 				t.Fatalf("nonInteractive mismatch: got %v want %v", dec.NonInteractive, c.nonInteractive)

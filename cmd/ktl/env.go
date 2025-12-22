@@ -39,6 +39,11 @@ func envVarCatalog() []envVarInfo {
 			Description: "Disable ANSI color output (any non-empty value).",
 		},
 		{
+			Category:    "CLI",
+			Name:        "KTL_YES",
+			Description: "Auto-approve confirmations (equivalent to passing --yes).",
+		},
+		{
 			Category:    "Logging",
 			Name:        "KTL_KUBE_LOG_LEVEL",
 			Description: "Kubernetes client-go verbosity (klog -v). At >=6 enables HTTP request/response tracing.",
