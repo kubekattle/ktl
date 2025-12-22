@@ -15,7 +15,7 @@ func rel(version int, status release.Status) *release.Release {
 }
 
 func TestSelectRevertTarget_ExplicitRevision(t *testing.T) {
-	from, to, err := selectRevertTarget([]*release.Release{
+	from, to, err := selectRevertTarget("r", []*release.Release{
 		rel(1, release.StatusSuperseded),
 		rel(2, release.StatusDeployed),
 	}, 1)
@@ -28,7 +28,7 @@ func TestSelectRevertTarget_ExplicitRevision(t *testing.T) {
 }
 
 func TestSelectRevertTarget_PicksLastKnownGoodSuperseded(t *testing.T) {
-	from, to, err := selectRevertTarget([]*release.Release{
+	from, to, err := selectRevertTarget("r", []*release.Release{
 		rel(1, release.StatusSuperseded),
 		rel(2, release.StatusSuperseded),
 		rel(3, release.StatusDeployed),
@@ -42,7 +42,7 @@ func TestSelectRevertTarget_PicksLastKnownGoodSuperseded(t *testing.T) {
 }
 
 func TestSelectRevertTarget_CurrentFailedUsesLastDeployed(t *testing.T) {
-	from, to, err := selectRevertTarget([]*release.Release{
+	from, to, err := selectRevertTarget("r", []*release.Release{
 		rel(1, release.StatusSuperseded),
 		rel(2, release.StatusDeployed),
 		rel(3, release.StatusFailed),
@@ -55,3 +55,11 @@ func TestSelectRevertTarget_CurrentFailedUsesLastDeployed(t *testing.T) {
 	}
 }
 
+func TestSelectRevertTarget_NoPreviousSuccess(t *testing.T) {
+	_, _, err := selectRevertTarget("r", []*release.Release{
+		rel(1, release.StatusDeployed),
+	}, 0)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+}

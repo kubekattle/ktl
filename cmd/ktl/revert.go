@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/example/ktl/internal/kube"
-	"github.com/example/ktl/internal/ui"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap/zapcore"
 	"helm.sh/helm/v3/pkg/action"
@@ -52,6 +51,18 @@ func newRevertCommand(kubeconfig *string, kubeContext *string, logLevel *string)
 			currentLogLevel := effectiveLogLevel(logLevel)
 			errOut := cmd.ErrOrStderr()
 			startedAt := time.Now()
+			report := reportLine{
+				Kind:    "revert",
+				Release: releaseName,
+			}
+			defer func() {
+				report.Result = "success"
+				if runErr != nil {
+					report.Result = "fail"
+				}
+				report.ElapsedMS = time.Since(startedAt).Milliseconds()
+				writeReportTable(errOut, report)
+			}()
 
 			dec, err := approvalMode(cmd, yes, nonInteractive)
 			if err != nil {
@@ -70,6 +81,7 @@ func newRevertCommand(kubeconfig *string, kubeContext *string, logLevel *string)
 			if resolvedNamespace == "" {
 				resolvedNamespace = "default"
 			}
+			report.Namespace = resolvedNamespace
 
 			settings := cli.New()
 			if kubeconfig != nil && *kubeconfig != "" {
@@ -100,7 +112,7 @@ func newRevertCommand(kubeconfig *string, kubeContext *string, logLevel *string)
 				return fmt.Errorf("helm history: %w", err)
 			}
 
-			fromRev, toRev, err := selectRevertTarget(revisions, revision)
+			fromRev, toRev, err := selectRevertTarget(releaseName, revisions, revision)
 			if err != nil {
 				return err
 			}
@@ -109,12 +121,7 @@ func newRevertCommand(kubeconfig *string, kubeContext *string, logLevel *string)
 				return err
 			}
 
-			if shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) && isTerminalWriter(errOut) {
-				width, _ := terminalWidth(errOut)
-				meta := ui.DeployMetadata{Release: releaseName, Namespace: resolvedNamespace}
-				console := ui.NewDeployConsole(errOut, meta, ui.DeployConsoleOptions{Enabled: true, Width: width})
-				defer console.Done()
-			}
+			_ = currentLogLevel
 
 			rollback := action.NewRollback(actionCfg)
 			rollback.Version = toRev
@@ -141,17 +148,10 @@ func newRevertCommand(kubeconfig *string, kubeContext *string, logLevel *string)
 					versionStr = rel.Chart.Metadata.Version
 				}
 			}
+			report.Chart = chart
+			report.Version = versionStr
+			report.Revision = newRev
 			fmt.Fprintf(cmd.OutOrStdout(), "Release %s %s (revision %d)\n", releaseName, status, newRev)
-			writeReportTable(errOut, reportLine{
-				Kind:      "revert",
-				Result:    "success",
-				Release:   releaseName,
-				Namespace: resolvedNamespace,
-				Chart:     chart,
-				Version:   versionStr,
-				Revision:  newRev,
-				ElapsedMS: time.Since(startedAt).Milliseconds(),
-			})
 			return nil
 		},
 	}
@@ -169,7 +169,7 @@ func newRevertCommand(kubeconfig *string, kubeContext *string, logLevel *string)
 	return cmd
 }
 
-func selectRevertTarget(revisions []*release.Release, requested int) (fromRev int, toRev int, err error) {
+func selectRevertTarget(releaseName string, revisions []*release.Release, requested int) (fromRev int, toRev int, err error) {
 	var current int
 	for _, rel := range revisions {
 		if rel == nil || rel.Info == nil {
@@ -212,7 +212,13 @@ func selectRevertTarget(revisions []*release.Release, requested int) (fromRev in
 		}
 	}
 	if candidate == 0 {
-		return current, 0, fmt.Errorf("no previous successful revision found for %s", revisions[0].Name)
+		if strings.TrimSpace(releaseName) == "" && len(revisions) > 0 && revisions[0] != nil {
+			releaseName = revisions[0].Name
+		}
+		if strings.TrimSpace(releaseName) == "" {
+			releaseName = "release"
+		}
+		return current, 0, fmt.Errorf("no previous successful revision found for %s", releaseName)
 	}
 	return current, candidate, nil
 }
