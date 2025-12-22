@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/example/ktl/internal/kube"
@@ -42,9 +44,16 @@ func newLintCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			argsProvided := len(args) > 0
 			paths := []string{"."}
-			if len(args) > 0 {
+			if argsProvided {
 				paths = append([]string(nil), args...)
+			} else {
+				defaultPaths, err := resolveDefaultLintPaths(cmd)
+				if err != nil {
+					return err
+				}
+				paths = defaultPaths
 			}
 
 			resolvedNamespace := strings.TrimSpace(namespace)
@@ -74,6 +83,10 @@ func newLintCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 					return fmt.Errorf("invalid kube version %q: %w", kubeVersion, err)
 				}
 				client.KubeVersion = parsedKubeVersion
+			}
+
+			if err := validateLintPaths(cmd, paths, argsProvided); err != nil {
+				return err
 			}
 
 			if client.WithSubcharts {
@@ -162,6 +175,148 @@ func newLintCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 
 	decorateCommandHelp(cmd, "Lint Flags")
 	return cmd
+}
+
+func resolveDefaultLintPaths(cmd *cobra.Command) ([]string, error) {
+	// Preserve the documented behavior: if the current directory looks like a chart, lint it.
+	ok, err := isChartDir(".")
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return []string{"."}, nil
+	}
+
+	// Common layout: repo root contains a ./chart directory.
+	ok, err = isChartDir("chart")
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return []string{"./chart"}, nil
+	}
+
+	// Otherwise, provide a helpful error with suggestions.
+	candidates, err := findChartDirs(".", 4)
+	if err != nil {
+		return nil, err
+	}
+	return nil, formatNoChartError(cmd, ".", candidates)
+}
+
+func validateLintPaths(cmd *cobra.Command, paths []string, argsProvided bool) error {
+	// When a user explicitly passes paths, fail fast with a clear error instead of
+	// delegating to Helm's "stat Chart.yaml" message.
+	if !argsProvided {
+		return nil
+	}
+
+	var invalid []string
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			invalid = append(invalid, p)
+			continue
+		}
+		if strings.HasSuffix(p, ".tgz") || strings.HasSuffix(p, ".tar.gz") {
+			if _, err := os.Stat(p); err != nil {
+				invalid = append(invalid, p)
+			}
+			continue
+		}
+		ok, err := isChartDir(p)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			invalid = append(invalid, p)
+		}
+	}
+
+	if len(invalid) == 0 {
+		return nil
+	}
+
+	candidates, _ := findChartDirs(".", 4)
+	return formatNoChartError(cmd, strings.Join(invalid, ", "), candidates)
+}
+
+func isChartDir(path string) (bool, error) {
+	stat, err := os.Stat(filepath.Join(path, "Chart.yaml"))
+	if err == nil {
+		return !stat.IsDir(), nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+func findChartDirs(root string, maxDepth int) ([]string, error) {
+	root = filepath.Clean(root)
+	var found []string
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d == nil {
+			return nil
+		}
+		if !d.IsDir() && d.Name() == "Chart.yaml" {
+			found = append(found, filepath.Dir(path))
+			return nil
+		}
+		if d.IsDir() {
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return nil
+			}
+			if rel == "." {
+				return nil
+			}
+			depth := strings.Count(rel, string(filepath.Separator)) + 1
+			if depth > maxDepth {
+				return filepath.SkipDir
+			}
+			switch filepath.Base(path) {
+			case ".git", "bin", "dist", "vendor":
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(found)
+	return found, nil
+}
+
+func formatNoChartError(cmd *cobra.Command, path string, candidates []string) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "unable to lint: %s does not look like a Helm chart (missing Chart.yaml)\n\n", path)
+	b.WriteString("Pass a chart directory or a packaged chart:\n")
+	b.WriteString("  ktl lint ./path/to/chart\n")
+	b.WriteString("  ktl lint ./path/to/chart.tgz\n")
+
+	if len(candidates) > 0 {
+		limit := 5
+		if len(candidates) < limit {
+			limit = len(candidates)
+		}
+		b.WriteString("\nCharts found under the current directory:\n")
+		for _, c := range candidates[:limit] {
+			fmt.Fprintf(&b, "  - %s\n", c)
+		}
+		if len(candidates) > limit {
+			fmt.Fprintf(&b, "  (and %d more)\n", len(candidates)-limit)
+		}
+	}
+
+	_ = cmd // reserved for future contextual hints without forcing Cobra usage output.
+	return errors.New(strings.TrimRight(b.String(), "\n"))
 }
 
 func resolveNamespaceFallback(ctx context.Context, kubeconfig *string, kubeContext *string) (string, error) {

@@ -43,8 +43,10 @@ type InstallOptions struct {
 }
 
 type InstallResult struct {
-	Release      *release.Release
-	ManifestDiff string
+	Release            *release.Release
+	ManifestDiff       string
+	PlanSummary        *PlanSummary
+	PlanSummarizeError string
 }
 
 // InstallOrUpgrade renders the chart and applies it using Helm's upgrade --install semantics.
@@ -175,6 +177,11 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 	result := &InstallResult{Release: release}
 	if opts.Diff {
 		result.ManifestDiff = diffManifests(previousManifest, release.Manifest)
+		if summary, err := SummarizeManifestPlan(previousManifest, release.Manifest); err == nil {
+			result.PlanSummary = summary
+		} else {
+			result.PlanSummarizeError = err.Error()
+		}
 		notifyEmitDiff(observers, result.ManifestDiff)
 		msg := "No manifest changes"
 		if result.ManifestDiff != "" {

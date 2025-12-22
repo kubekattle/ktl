@@ -68,6 +68,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var consoleWide bool
 	var consoleDetails bool
 	var verbose bool
+	var autoApprove bool
 	var capturePath string
 	var captureTags []string
 	timeout := 5 * time.Minute
@@ -168,6 +169,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
 			settings.Debug = helmDebug
 
+			interactive := isTerminalWriter(errOut) && isTerminalReader(cmd.InOrStdin())
+
 			if strings.TrimSpace(reusePlanPath) != "" {
 				planResult, err := loadPlanResultFromFile(reusePlanPath)
 				if err != nil {
@@ -211,6 +214,76 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 
 			if createNamespace {
 				if err := ensureNamespace(ctx, kubeClient.Clientset, resolvedNamespace); err != nil {
+					return err
+				}
+			}
+
+			actionCfg := new(action.Configuration)
+			logFunc := func(format string, v ...interface{}) {
+				if !helmDebug {
+					return
+				}
+				fmt.Fprintf(errOut, "[helm] "+format+"\n", v...)
+			}
+			if err := actionCfg.Init(settings.RESTClientGetter(), resolvedNamespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
+				return fmt.Errorf("init helm action config: %w", err)
+			}
+
+			// Terraform-like safety rail: show a concise plan summary and ask for confirmation
+			// before making any cluster changes (unless --auto-approve or in dry-run/diff mode).
+			if !dryRun && !diff && !autoApprove {
+				preview, previewErr := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
+					Chart:           chart,
+					Version:         version,
+					ReleaseName:     releaseName,
+					Namespace:       resolvedNamespace,
+					ValuesFiles:     valuesFiles,
+					SetValues:       setValues,
+					SetStringValues: setStringValues,
+					SetFileValues:   setFileValues,
+					Timeout:         timeout,
+					Wait:            false,
+					Atomic:          false,
+					CreateNamespace: createNamespace,
+					DryRun:          true,
+					Diff:            true,
+					UpgradeOnly:     upgrade,
+				})
+				if previewErr != nil {
+					return previewErr
+				}
+				if preview != nil && preview.PlanSummary != nil {
+					fmt.Fprintf(errOut, "Plan: %d to add, %d to change, %d to destroy.\n", preview.PlanSummary.Add, preview.PlanSummary.Change, preview.PlanSummary.Destroy)
+					if preview.PlanSummarizeError != "" && shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
+						fmt.Fprintf(errOut, "Warning: unable to fully summarize plan: %s\n", preview.PlanSummarizeError)
+					}
+					limit := 12
+					if len(preview.PlanSummary.Changes) > 0 {
+						if len(preview.PlanSummary.Changes) < limit {
+							limit = len(preview.PlanSummary.Changes)
+						}
+						for _, ch := range preview.PlanSummary.Changes[:limit] {
+							prefix := "~"
+							switch ch.Action {
+							case deploy.PlanAdd:
+								prefix = "+"
+							case deploy.PlanDestroy:
+								prefix = "-"
+							case deploy.PlanUpdate:
+								prefix = "~"
+							}
+							nsLabel := ch.Namespace
+							if nsLabel == "" {
+								nsLabel = "-"
+							}
+							fmt.Fprintf(errOut, "  %s %s/%s (ns: %s)\n", prefix, ch.Kind, ch.Name, nsLabel)
+						}
+						if len(preview.PlanSummary.Changes) > limit {
+							fmt.Fprintf(errOut, "  (and %d more)\n", len(preview.PlanSummary.Changes)-limit)
+						}
+					}
+				}
+				if err := confirmAction(cmd.InOrStdin(), errOut, interactive, "Do you want to perform these actions? Only 'yes' will be accepted:", confirmModeYes, ""); err != nil {
 					return err
 				}
 			}
@@ -309,17 +382,6 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					stream.EmitSummary(summary)
 				}
 			}()
-
-			actionCfg := new(action.Configuration)
-			logFunc := func(format string, v ...interface{}) {
-				if !helmDebug {
-					return
-				}
-				fmt.Fprintf(errOut, "[helm] "+format+"\n", v...)
-			}
-			if err := actionCfg.Init(settings.RESTClientGetter(), resolvedNamespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
-				return fmt.Errorf("init helm action config: %w", err)
-			}
 
 			var historyErr error
 			historyBreadcrumbs, lastSuccessful, historyErr = releaseHistoryBreadcrumbs(actionCfg, releaseName, historyBreadcrumbLimit)
@@ -594,6 +656,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().BoolVar(&createNamespace, "create-namespace", false, "Create the release namespace if it does not exist")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render the chart without applying it")
 	cmd.Flags().BoolVar(&diff, "diff", false, "Show a manifest diff (implies --dry-run)")
+	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
 	cmd.Flags().DurationVar(&watchDuration, "watch", 0, "After a successful deploy, stream logs/events for this long (e.g. 2m)")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "Time to wait for any Kubernetes operation")
 	cmd.Flags().BoolVar(&consoleWide, "console-wide", false, "Force wide console layout even on narrow terminals")
@@ -643,6 +706,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	var wait bool
 	var keepHistory bool
 	var dryRun bool
+	var autoApprove bool
 	var uiAddr string
 	var wsListenAddr string
 	var force bool
@@ -733,6 +797,8 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			}
 			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
 			settings.Debug = helmDebug
+
+			interactive := isTerminalWriter(errOut) && isTerminalReader(cmd.InOrStdin())
 
 			exists, err := namespaceExists(ctx, kubeClient.Clientset, resolvedNamespace)
 			if err != nil {
@@ -862,6 +928,33 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			}
 			if err := actionCfg.Init(settings.RESTClientGetter(), resolvedNamespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
 				return fmt.Errorf("init helm action config: %w", err)
+			}
+
+			if !dryRun && !autoApprove {
+				getAction := action.NewGet(actionCfg)
+				if rel, getErr := getAction.Run(release); getErr == nil && rel != nil {
+					resources, listErr := deploy.ListManifestResources(rel.Manifest)
+					if listErr == nil {
+						fmt.Fprintf(errOut, "Plan: 0 to add, 0 to change, %d to destroy.\n", len(resources))
+						limit := 12
+						if len(resources) < limit {
+							limit = len(resources)
+						}
+						for _, r := range resources[:limit] {
+							nsLabel := r.Namespace
+							if nsLabel == "" {
+								nsLabel = "-"
+							}
+							fmt.Fprintf(errOut, "  - %s/%s (ns: %s)\n", r.Kind, r.Name, nsLabel)
+						}
+						if len(resources) > limit {
+							fmt.Fprintf(errOut, "  (and %d more)\n", len(resources)-limit)
+						}
+					}
+				}
+				if err := confirmAction(cmd.InOrStdin(), errOut, interactive, fmt.Sprintf("Type %q to confirm destroy:", release), confirmModeExact, release); err != nil {
+					return err
+				}
 			}
 
 			historyBreadcrumbs, lastSuccessful, err = releaseHistoryBreadcrumbs(actionCfg, release, historyBreadcrumbLimit)
@@ -1029,6 +1122,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for resources to be deleted")
 	cmd.Flags().BoolVar(&keepHistory, "keep-history", false, "Retain release history (equivalent to helm uninstall --keep-history)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate destroy without removing resources")
+	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "How long to wait for resource deletions")
 	cmd.Flags().StringVar(&uiAddr, "ui", "", "Serve the destroy viewer at this address (e.g. :8080)")
 	if flag := cmd.Flags().Lookup("ui"); flag != nil {

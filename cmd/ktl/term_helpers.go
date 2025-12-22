@@ -12,6 +12,19 @@ import (
 	"golang.org/x/term"
 )
 
+func isTerminalReader(r io.Reader) bool {
+	type fdProvider interface {
+		Fd() uintptr
+	}
+	if v, ok := r.(fdProvider); ok {
+		return term.IsTerminal(int(v.Fd()))
+	}
+	if f, ok := r.(*os.File); ok {
+		return term.IsTerminal(int(f.Fd()))
+	}
+	return false
+}
+
 func isTerminalWriter(w io.Writer) bool {
 	type fdProvider interface {
 		Fd() uintptr
