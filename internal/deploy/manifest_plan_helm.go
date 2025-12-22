@@ -49,21 +49,51 @@ func SummarizeManifestPlanWithHelmKube(client *kube.Client, previousManifest, pr
 	for key, obj := range nextByKey {
 		prevObj, ok := prevByKey[key]
 		if !ok {
-			summary.Add++
-			summary.Changes = append(summary.Changes, obj.toPlanChange(PlanAdd))
+			ch := obj.toPlanChange(PlanAdd)
+			if ch.IsHook {
+				summary.Hooks.Add++
+				summary.Hooks.Changes = append(summary.Hooks.Changes, ch)
+			} else {
+				summary.Add++
+				summary.Changes = append(summary.Changes, ch)
+			}
 			continue
 		}
 		if !bytes.Equal(prevObj.CanonicalJSON, obj.CanonicalJSON) {
-			summary.Change++
-			summary.Changes = append(summary.Changes, obj.toPlanChange(PlanUpdate))
+			action := PlanUpdate
+			if immutableFieldChanged(prevObj.Normalized, obj.Normalized) {
+				action = PlanReplace
+			}
+			ch := obj.toPlanChange(action)
+			if ch.IsHook {
+				if action == PlanReplace {
+					summary.Hooks.Replace++
+				} else {
+					summary.Hooks.Change++
+				}
+				summary.Hooks.Changes = append(summary.Hooks.Changes, ch)
+			} else {
+				if action == PlanReplace {
+					summary.Replace++
+				} else {
+					summary.Change++
+				}
+				summary.Changes = append(summary.Changes, ch)
+			}
 		}
 	}
 	for key, obj := range prevByKey {
 		if _, ok := nextByKey[key]; ok {
 			continue
 		}
-		summary.Destroy++
-		summary.Changes = append(summary.Changes, obj.toPlanChange(PlanDestroy))
+		ch := obj.toPlanChange(PlanDestroy)
+		if ch.IsHook {
+			summary.Hooks.Destroy++
+			summary.Hooks.Changes = append(summary.Hooks.Changes, ch)
+		} else {
+			summary.Destroy++
+			summary.Changes = append(summary.Changes, ch)
+		}
 	}
 
 	// Replace detection: correlate by group/kind/name/namespace, then check if the mapped GVK differs.
@@ -123,6 +153,23 @@ func SummarizeManifestPlanWithHelmKube(client *kube.Client, previousManifest, pr
 		}
 		return a.Name < b.Name
 	})
+	sort.Slice(summary.Hooks.Changes, func(i, j int) bool {
+		a := summary.Hooks.Changes[i]
+		b := summary.Hooks.Changes[j]
+		if a.Action != b.Action {
+			return a.Action < b.Action
+		}
+		if a.Group != b.Group {
+			return a.Group < b.Group
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Name < b.Name
+	})
 	return &summary, nil
 }
 
@@ -164,6 +211,9 @@ type planObject struct {
 	Namespace     string
 	Name          string
 	CanonicalJSON []byte
+	IsHook        bool
+	Hook          string
+	Normalized    *unstructured.Unstructured
 }
 
 func (p planObject) toPlanChange(action PlanAction) PlanChange {
@@ -174,6 +224,8 @@ func (p planObject) toPlanChange(action PlanAction) PlanChange {
 		Kind:      p.Kind,
 		Namespace: p.Namespace,
 		Name:      p.Name,
+		IsHook:    p.IsHook,
+		Hook:      p.Hook,
 	}
 }
 
@@ -212,6 +264,7 @@ func buildPlanObjects(client *kube.Client, manifest string) ([]planObject, error
 			return nil
 		}
 
+		isHook, hook := detectHelmHook(normalized)
 		key := fmt.Sprintf("%s/%s/%s/%s/%s", strings.ToLower(group), strings.ToLower(version), strings.ToLower(kind), ns, name)
 		altKey := fmt.Sprintf("%s/%s/%s/%s", strings.ToLower(group), strings.ToLower(kind), ns, name)
 		out = append(out, planObject{
@@ -223,6 +276,9 @@ func buildPlanObjects(client *kube.Client, manifest string) ([]planObject, error
 			Namespace:     ns,
 			Name:          name,
 			CanonicalJSON: encoded,
+			IsHook:        isHook,
+			Hook:          hook,
+			Normalized:    normalized,
 		})
 		return nil
 	})

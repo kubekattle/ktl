@@ -259,6 +259,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				}
 				if preview != nil && preview.PlanSummary != nil {
 					fmt.Fprintf(errOut, "Plan: %d to add, %d to change, %d to replace, %d to destroy.\n", preview.PlanSummary.Add, preview.PlanSummary.Change, preview.PlanSummary.Replace, preview.PlanSummary.Destroy)
+					if preview.PlanSummary.Hooks.Add > 0 || preview.PlanSummary.Hooks.Change > 0 || preview.PlanSummary.Hooks.Replace > 0 || preview.PlanSummary.Hooks.Destroy > 0 {
+						fmt.Fprintf(errOut, "Hooks: %d to add, %d to change, %d to replace, %d to destroy.\n", preview.PlanSummary.Hooks.Add, preview.PlanSummary.Hooks.Change, preview.PlanSummary.Hooks.Replace, preview.PlanSummary.Hooks.Destroy)
+					}
 					if preview.PlanSummarizeError != "" && shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
 						fmt.Fprintf(errOut, "Warning: unable to fully summarize plan: %s\n", preview.PlanSummarizeError)
 					}
@@ -287,6 +290,36 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						}
 						if len(preview.PlanSummary.Changes) > limit {
 							fmt.Fprintf(errOut, "  (and %d more)\n", len(preview.PlanSummary.Changes)-limit)
+						}
+					}
+					if len(preview.PlanSummary.Hooks.Changes) > 0 {
+						fmt.Fprintln(errOut, "Hook changes:")
+						limitHooks := 8
+						if len(preview.PlanSummary.Hooks.Changes) < limitHooks {
+							limitHooks = len(preview.PlanSummary.Hooks.Changes)
+						}
+						for _, ch := range preview.PlanSummary.Hooks.Changes[:limitHooks] {
+							prefix := "~"
+							switch ch.Action {
+							case deploy.PlanAdd:
+								prefix = "+"
+							case deploy.PlanDestroy:
+								prefix = "-"
+							case deploy.PlanReplace:
+								prefix = "±"
+							}
+							nsLabel := ch.Namespace
+							if nsLabel == "" {
+								nsLabel = "-"
+							}
+							hookLabel := strings.TrimSpace(ch.Hook)
+							if hookLabel == "" {
+								hookLabel = "hook"
+							}
+							fmt.Fprintf(errOut, "  %s %s/%s (ns: %s, %s)\n", prefix, ch.Kind, ch.Name, nsLabel, hookLabel)
+						}
+						if len(preview.PlanSummary.Hooks.Changes) > limitHooks {
+							fmt.Fprintf(errOut, "  (and %d more)\n", len(preview.PlanSummary.Hooks.Changes)-limitHooks)
 						}
 					}
 				}
@@ -968,7 +1001,15 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 							if nsLabel == "" {
 								nsLabel = "-"
 							}
-							fmt.Fprintf(errOut, "  - %s/%s (ns: %s)\n", r.Kind, r.Name, nsLabel)
+							if r.IsHook {
+								hookLabel := strings.TrimSpace(r.Hook)
+								if hookLabel == "" {
+									hookLabel = "hook"
+								}
+								fmt.Fprintf(errOut, "  - %s/%s (ns: %s, %s)\n", r.Kind, r.Name, nsLabel, hookLabel)
+							} else {
+								fmt.Fprintf(errOut, "  - %s/%s (ns: %s)\n", r.Kind, r.Name, nsLabel)
+							}
 						}
 						if len(resources) > limit {
 							fmt.Fprintf(errOut, "  (and %d more)\n", len(resources)-limit)

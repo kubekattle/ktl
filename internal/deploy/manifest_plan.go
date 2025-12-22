@@ -31,9 +31,20 @@ type PlanChange struct {
 	Kind      string
 	Namespace string
 	Name      string
+	IsHook    bool
+	Hook      string
 }
 
 type PlanSummary struct {
+	Add     int
+	Change  int
+	Replace int
+	Destroy int
+	Hooks   PlanHooksSummary
+	Changes []PlanChange
+}
+
+type PlanHooksSummary struct {
 	Add     int
 	Change  int
 	Replace int
@@ -102,21 +113,51 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 	for key, obj := range nextByKey {
 		prevObj, ok := prevByKey[key]
 		if !ok {
-			summary.Add++
-			summary.Changes = append(summary.Changes, obj.toPlanChange(PlanAdd))
+			ch := obj.toPlanChange(PlanAdd)
+			if ch.IsHook {
+				summary.Hooks.Add++
+				summary.Hooks.Changes = append(summary.Hooks.Changes, ch)
+			} else {
+				summary.Add++
+				summary.Changes = append(summary.Changes, ch)
+			}
 			continue
 		}
 		if !bytes.Equal(prevObj.CanonicalJSON, obj.CanonicalJSON) {
-			summary.Change++
-			summary.Changes = append(summary.Changes, obj.toPlanChange(PlanUpdate))
+			action := PlanUpdate
+			if immutableFieldChanged(prevObj.Normalized, obj.Normalized) {
+				action = PlanReplace
+			}
+			ch := obj.toPlanChange(action)
+			if ch.IsHook {
+				if action == PlanReplace {
+					summary.Hooks.Replace++
+				} else {
+					summary.Hooks.Change++
+				}
+				summary.Hooks.Changes = append(summary.Hooks.Changes, ch)
+			} else {
+				if action == PlanReplace {
+					summary.Replace++
+				} else {
+					summary.Change++
+				}
+				summary.Changes = append(summary.Changes, ch)
+			}
 		}
 	}
 	for key, obj := range prevByKey {
 		if _, ok := nextByKey[key]; ok {
 			continue
 		}
-		summary.Destroy++
-		summary.Changes = append(summary.Changes, obj.toPlanChange(PlanDestroy))
+		ch := obj.toPlanChange(PlanDestroy)
+		if ch.IsHook {
+			summary.Hooks.Destroy++
+			summary.Hooks.Changes = append(summary.Hooks.Changes, ch)
+		} else {
+			summary.Destroy++
+			summary.Changes = append(summary.Changes, ch)
+		}
 	}
 
 	// Treat "identity changes" as replace (delete+add) when we can correlate objects by kind/namespace/name.
@@ -179,6 +220,23 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 		}
 		return a.Name < b.Name
 	})
+	sort.Slice(summary.Hooks.Changes, func(i, j int) bool {
+		a := summary.Hooks.Changes[i]
+		b := summary.Hooks.Changes[j]
+		if a.Action != b.Action {
+			return a.Action < b.Action
+		}
+		if a.Group != b.Group {
+			return a.Group < b.Group
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Name < b.Name
+	})
 	return &summary, nil
 }
 
@@ -191,6 +249,9 @@ type manifestObject struct {
 	Namespace     string
 	Name          string
 	CanonicalJSON []byte
+	IsHook        bool
+	Hook          string
+	Normalized    *unstructured.Unstructured
 }
 
 func (m manifestObject) toPlanChange(action PlanAction) PlanChange {
@@ -201,6 +262,8 @@ func (m manifestObject) toPlanChange(action PlanAction) PlanChange {
 		Kind:      m.Kind,
 		Namespace: m.Namespace,
 		Name:      m.Name,
+		IsHook:    m.IsHook,
+		Hook:      m.Hook,
 	}
 }
 
@@ -252,6 +315,7 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 		if err != nil {
 			return nil, fmt.Errorf("encode manifest object: %w", err)
 		}
+		isHook, hook := detectHelmHook(normalized)
 		out = append(out, manifestObject{
 			Key:           key,
 			AltKey:        altKey,
@@ -261,6 +325,9 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 			Namespace:     ns,
 			Name:          name,
 			CanonicalJSON: encoded,
+			IsHook:        isHook,
+			Hook:          hook,
+			Normalized:    normalized,
 		})
 	}
 
@@ -283,8 +350,102 @@ func normalizeObjectForPlan(obj *unstructured.Unstructured) *unstructured.Unstru
 		delete(meta, "uid")
 		delete(meta, "selfLink")
 		delete(meta, "finalizers")
+		if ann, ok := meta["annotations"].(map[string]interface{}); ok {
+			delete(ann, "helm.sh/chart")
+			for k := range ann {
+				if strings.HasPrefix(k, "checksum/") {
+					delete(ann, k)
+				}
+			}
+			if len(ann) == 0 {
+				delete(meta, "annotations")
+			} else {
+				meta["annotations"] = ann
+			}
+		}
 		clone.Object["metadata"] = meta
 	}
 
+	normalizeListOrder(clone.Object)
 	return clone
+}
+
+func detectHelmHook(obj *unstructured.Unstructured) (bool, string) {
+	if obj == nil {
+		return false, ""
+	}
+	ann := obj.GetAnnotations()
+	if ann == nil {
+		return false, ""
+	}
+	hook := strings.TrimSpace(ann["helm.sh/hook"])
+	if hook == "" {
+		return false, ""
+	}
+	return true, hook
+}
+
+func normalizeListOrder(v interface{}) {
+	switch typed := v.(type) {
+	case map[string]interface{}:
+		for k, child := range typed {
+			normalizeListOrder(child)
+			typed[k] = child
+		}
+	case []interface{}:
+		for i := range typed {
+			normalizeListOrder(typed[i])
+		}
+		sort.SliceStable(typed, func(i, j int) bool {
+			mi, ok1 := typed[i].(map[string]interface{})
+			mj, ok2 := typed[j].(map[string]interface{})
+			if !ok1 || !ok2 {
+				return false
+			}
+			ni, _ := mi["name"].(string)
+			nj, _ := mj["name"].(string)
+			if ni == "" || nj == "" {
+				return false
+			}
+			return ni < nj
+		})
+	}
+}
+
+func immutableFieldChanged(prev, next *unstructured.Unstructured) bool {
+	if prev == nil || next == nil {
+		return false
+	}
+	kind := strings.TrimSpace(next.GetKind())
+	group := ""
+	if apiVersion := strings.TrimSpace(next.GetAPIVersion()); apiVersion != "" {
+		parts := strings.Split(apiVersion, "/")
+		if len(parts) > 1 {
+			group = parts[0]
+		}
+	}
+
+	// Small, high-signal set of immutables that commonly cause server-side rejection and effectively imply a replace.
+	switch kind {
+	case "Service":
+		// spec.clusterIP is immutable for ClusterIP services.
+		return !equalNested(prev.Object, next.Object, "spec", "clusterIP")
+	case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet":
+		// spec.selector is effectively immutable.
+		return !equalNested(prev.Object, next.Object, "spec", "selector")
+	case "PersistentVolumeClaim":
+		return !equalNested(prev.Object, next.Object, "spec", "storageClassName") || !equalNested(prev.Object, next.Object, "spec", "volumeName")
+	case "CustomResourceDefinition":
+		// CRDs are notoriously sensitive; treat structural schema moves as replace.
+		if group == "apiextensions.k8s.io" {
+			return !equalNested(prev.Object, next.Object, "spec", "names") || !equalNested(prev.Object, next.Object, "spec", "group")
+		}
+	}
+	return false
+}
+
+func equalNested(a, b map[string]interface{}, fields ...string) bool {
+	av, _, _ := unstructured.NestedFieldNoCopy(a, fields...)
+	bv, _, _ := unstructured.NestedFieldNoCopy(b, fields...)
+	return fmt.Sprintf("%v", av) == fmt.Sprintf("%v", bv)
 }

@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ns
+  annotations:
+    checksum/config: "abc"
+    helm.sh/chart: "demo-0.1.0"
+spec:
+  clusterIP: 10.0.0.1
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: ns
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: example/migrate:v1
