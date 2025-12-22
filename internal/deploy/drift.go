@@ -5,12 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/pmezard/go-difflib/difflib"
 	"helm.sh/helm/v3/pkg/releaseutil"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/yaml"
 )
+
+type DriftOptions struct {
+	RequireHelmOwnership bool
+	MaxConcurrency       int
+	PerObjectTimeout     time.Duration
+}
 
 type DriftItem struct {
 	Kind      string
@@ -29,56 +37,122 @@ func (r DriftReport) Empty() bool { return len(r.Items) == 0 }
 type DriftLiveGetter func(ctx context.Context, target resourceTarget) (*unstructured.Unstructured, error)
 
 func CheckReleaseDrift(ctx context.Context, releaseName string, manifest string, get DriftLiveGetter) (DriftReport, error) {
+	return CheckReleaseDriftWithOptions(ctx, releaseName, manifest, get, DriftOptions{
+		RequireHelmOwnership: true,
+		MaxConcurrency:       8,
+		PerObjectTimeout:     6 * time.Second,
+	})
+}
+
+func CheckReleaseDriftWithOptions(ctx context.Context, releaseName string, manifest string, get DriftLiveGetter, opts DriftOptions) (DriftReport, error) {
 	if strings.TrimSpace(manifest) == "" || get == nil {
 		return DriftReport{}, nil
 	}
+	if opts.MaxConcurrency <= 0 {
+		opts.MaxConcurrency = 8
+	}
+	if opts.PerObjectTimeout <= 0 {
+		opts.PerObjectTimeout = 6 * time.Second
+	}
 	files := splitManifestDocs(manifest)
-	out := DriftReport{}
+	type job struct {
+		base   *unstructured.Unstructured
+		target resourceTarget
+	}
+	jobs := make([]job, 0, len(files))
 	for _, doc := range files {
 		base, target, ok := parseManifestDoc(doc)
 		if !ok {
 			continue
 		}
-		// Skip hook resources; they are often ephemeral and not reliably comparable.
 		if isHookResource(base) {
 			continue
 		}
-		live, err := get(ctx, target)
-		if err != nil {
-			out.Items = append(out.Items, DriftItem{
-				Kind:      target.Kind,
-				Namespace: target.Namespace,
-				Name:      target.Name,
-				Reason:    fmt.Sprintf("unable to fetch live object: %v", err),
-			})
+		if opts.RequireHelmOwnership && !hasHelmOwnership(releaseName, base) {
 			continue
 		}
-		if live == nil {
-			out.Items = append(out.Items, DriftItem{
-				Kind:      target.Kind,
-				Namespace: target.Namespace,
-				Name:      target.Name,
-				Reason:    "object missing from cluster",
-			})
-			continue
-		}
+		jobs = append(jobs, job{base: base, target: target})
+	}
+	if len(jobs) == 0 {
+		return DriftReport{}, nil
+	}
 
-		baseNorm := normalizeForDrift(base)
-		liveNorm := normalizeForDrift(live)
+	var (
+		mu       sync.Mutex
+		out      DriftReport
+		firstErr error
+	)
+	sem := make(chan struct{}, opts.MaxConcurrency)
+	var wg sync.WaitGroup
+	for _, j := range jobs {
+		if firstErr != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(j job) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		eq, diff, err := diffUnstructured(baseNorm, liveNorm)
-		if err != nil {
-			return DriftReport{}, err
-		}
-		if !eq {
-			out.Items = append(out.Items, DriftItem{
-				Kind:      target.Kind,
-				Namespace: pickNamespace(target.Namespace, live.GetNamespace()),
-				Name:      target.Name,
-				Reason:    "object differs from last applied manifest",
-				Diff:      diff,
-			})
-		}
+			itemCtx, cancel := context.WithTimeout(ctx, opts.PerObjectTimeout)
+			defer cancel()
+
+			live, err := get(itemCtx, j.target)
+			if err != nil {
+				mu.Lock()
+				out.Items = append(out.Items, DriftItem{
+					Kind:      j.target.Kind,
+					Namespace: j.target.Namespace,
+					Name:      j.target.Name,
+					Reason:    fmt.Sprintf("fetch_error: %v", err),
+				})
+				mu.Unlock()
+				return
+			}
+			if live == nil {
+				mu.Lock()
+				out.Items = append(out.Items, DriftItem{
+					Kind:      j.target.Kind,
+					Namespace: j.target.Namespace,
+					Name:      j.target.Name,
+					Reason:    "missing",
+				})
+				mu.Unlock()
+				return
+			}
+			if opts.RequireHelmOwnership && !hasHelmOwnership(releaseName, live) {
+				// Skip unmanaged/shared resources to avoid false positives.
+				return
+			}
+
+			baseNorm := normalizeForDrift(j.base)
+			liveNorm := normalizeForDrift(live)
+
+			eq, diff, derr := diffUnstructured(baseNorm, liveNorm)
+			if derr != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = derr
+				}
+				mu.Unlock()
+				return
+			}
+			if !eq {
+				mu.Lock()
+				out.Items = append(out.Items, DriftItem{
+					Kind:      j.target.Kind,
+					Namespace: pickNamespace(j.target.Namespace, live.GetNamespace()),
+					Name:      j.target.Name,
+					Reason:    "changed",
+					Diff:      diff,
+				})
+				mu.Unlock()
+			}
+		}(j)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return DriftReport{}, firstErr
 	}
 	return out, nil
 }
@@ -141,6 +215,24 @@ func isHookResource(u *unstructured.Unstructured) bool {
 	return false
 }
 
+func hasHelmOwnership(releaseName string, u *unstructured.Unstructured) bool {
+	if u == nil {
+		return false
+	}
+	labels := u.GetLabels()
+	if strings.TrimSpace(labels["app.kubernetes.io/managed-by"]) != "Helm" {
+		return false
+	}
+	ann := u.GetAnnotations()
+	if strings.TrimSpace(ann["meta.helm.sh/release-name"]) == "" {
+		return false
+	}
+	if strings.TrimSpace(releaseName) != "" && strings.TrimSpace(ann["meta.helm.sh/release-name"]) != strings.TrimSpace(releaseName) {
+		return false
+	}
+	return true
+}
+
 func normalizeForDrift(u *unstructured.Unstructured) *unstructured.Unstructured {
 	if u == nil {
 		return nil
@@ -155,6 +247,8 @@ func normalizeForDrift(u *unstructured.Unstructured) *unstructured.Unstructured 
 	unstructured.RemoveNestedField(c.Object, "metadata", "generation")
 	unstructured.RemoveNestedField(c.Object, "metadata", "creationTimestamp")
 	unstructured.RemoveNestedField(c.Object, "metadata", "managedFields")
+	unstructured.RemoveNestedField(c.Object, "metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration")
+	cleanEmptyMetadataMaps(c)
 
 	// Service allocated fields.
 	if strings.EqualFold(c.GetKind(), "Service") {
@@ -163,8 +257,50 @@ func normalizeForDrift(u *unstructured.Unstructured) *unstructured.Unstructured 
 		unstructured.RemoveNestedField(c.Object, "spec", "ipFamilies")
 		unstructured.RemoveNestedField(c.Object, "spec", "ipFamilyPolicy")
 		unstructured.RemoveNestedField(c.Object, "spec", "healthCheckNodePort")
+		removeServiceNodePorts(c)
+	}
+	if strings.EqualFold(c.GetKind(), "Deployment") || strings.EqualFold(c.GetKind(), "StatefulSet") || strings.EqualFold(c.GetKind(), "DaemonSet") {
+		unstructured.RemoveNestedField(c.Object, "spec", "revisionHistoryLimit")
 	}
 	return c
+}
+
+func cleanEmptyMetadataMaps(u *unstructured.Unstructured) {
+	if u == nil {
+		return
+	}
+	ann, found, _ := unstructured.NestedStringMap(u.Object, "metadata", "annotations")
+	if found && len(ann) == 0 {
+		unstructured.RemoveNestedField(u.Object, "metadata", "annotations")
+	}
+	lbl, found, _ := unstructured.NestedStringMap(u.Object, "metadata", "labels")
+	if found && len(lbl) == 0 {
+		unstructured.RemoveNestedField(u.Object, "metadata", "labels")
+	}
+}
+
+func removeServiceNodePorts(svc *unstructured.Unstructured) {
+	if svc == nil {
+		return
+	}
+	ports, found, _ := unstructured.NestedSlice(svc.Object, "spec", "ports")
+	if !found || len(ports) == 0 {
+		return
+	}
+	changed := false
+	for i := range ports {
+		m, ok := ports[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if _, ok := m["nodePort"]; ok {
+			delete(m, "nodePort")
+			changed = true
+		}
+	}
+	if changed {
+		_ = unstructured.SetNestedSlice(svc.Object, ports, "spec", "ports")
+	}
 }
 
 func diffUnstructured(expected *unstructured.Unstructured, actual *unstructured.Unstructured) (bool, string, error) {

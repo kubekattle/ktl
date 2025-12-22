@@ -17,4 +17,12 @@ func TestApplyHasDriftGuardFlagDisabledByDefault(t *testing.T) {
 	if f.DefValue != "false" {
 		t.Fatalf("expected --drift-guard default to be false, got %q", f.DefValue)
 	}
+
+	mode := cmd.Flags().Lookup("drift-guard-mode")
+	if mode == nil {
+		t.Fatalf("expected --drift-guard-mode flag to exist")
+	}
+	if mode.DefValue != "last-applied" {
+		t.Fatalf("expected --drift-guard-mode default to be last-applied, got %q", mode.DefValue)
+	}
 }

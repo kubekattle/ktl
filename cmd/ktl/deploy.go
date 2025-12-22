@@ -75,6 +75,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var capturePath string
 	var captureTags []string
 	var driftGuard bool
+	var driftGuardMode string
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -236,16 +237,53 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if driftGuard {
 				getAction := action.NewGet(actionCfg)
 				current, err := getAction.Run(releaseName)
-				if err == nil && current != nil && strings.TrimSpace(current.Manifest) != "" {
-					report, derr := deploy.CheckReleaseDrift(ctx, releaseName, current.Manifest, deploy.DriftLiveGetterFromKube(kubeClient))
-					if derr != nil {
-						return fmt.Errorf("drift guard: %w", derr)
-					}
-					if !report.Empty() {
-						return fmt.Errorf("drift detected for release %s in ns/%s (%d objects)\n%s", releaseName, resolvedNamespace, len(report.Items), deploy.FormatDriftReport(report, 6, 80))
-					}
-				} else if err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
+				if err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
 					return fmt.Errorf("drift guard: read current release manifest: %w", err)
+				}
+				mode := strings.ToLower(strings.TrimSpace(driftGuardMode))
+				switch mode {
+				case "", "last-applied":
+					if current != nil && strings.TrimSpace(current.Manifest) != "" {
+						report, derr := deploy.CheckReleaseDrift(ctx, releaseName, current.Manifest, deploy.DriftLiveGetterFromKube(kubeClient))
+						if derr != nil {
+							return fmt.Errorf("drift guard: %w", derr)
+						}
+						if !report.Empty() {
+							return fmt.Errorf("drift detected for release %s in ns/%s (%d objects)\n%s", releaseName, resolvedNamespace, len(report.Items), deploy.FormatDriftReport(report, 6, 80))
+						}
+					}
+				case "desired":
+					preview, previewErr := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
+						Chart:           chart,
+						Version:         version,
+						ReleaseName:     releaseName,
+						Namespace:       resolvedNamespace,
+						ValuesFiles:     valuesFiles,
+						SetValues:       setValues,
+						SetStringValues: setStringValues,
+						SetFileValues:   setFileValues,
+						Timeout:         timeout,
+						Wait:            false,
+						Atomic:          false,
+						CreateNamespace: createNamespace,
+						DryRun:          true,
+						Diff:            false,
+						UpgradeOnly:     upgrade,
+					})
+					if previewErr != nil {
+						return fmt.Errorf("drift guard: render desired: %w", previewErr)
+					}
+					if preview != nil && preview.Release != nil && strings.TrimSpace(preview.Release.Manifest) != "" {
+						report, derr := deploy.CheckReleaseDrift(ctx, releaseName, preview.Release.Manifest, deploy.DriftLiveGetterFromKube(kubeClient))
+						if derr != nil {
+							return fmt.Errorf("drift guard: %w", derr)
+						}
+						if !report.Empty() {
+							return fmt.Errorf("drift detected against desired state for release %s in ns/%s (%d objects)\n%s", releaseName, resolvedNamespace, len(report.Items), deploy.FormatDriftReport(report, 6, 80))
+						}
+					}
+				default:
+					return fmt.Errorf("invalid --drift-guard-mode %q (expected last-applied or desired)", driftGuardMode)
 				}
 			}
 
@@ -767,6 +805,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().StringVar(&wsListenAddr, "ws-listen", "", "Serve the raw deploy event stream over WebSocket at this address (e.g. :9086)")
 	cmd.Flags().StringVar(&reusePlanPath, "reuse-plan", "", "Path to a ktl plan artifact (HTML or JSON) to reuse chart inputs")
 	cmd.Flags().BoolVar(&driftGuard, "drift-guard", false, "Fail if live cluster resources drift from the last applied Helm release state")
+	cmd.Flags().StringVar(&driftGuardMode, "drift-guard-mode", "last-applied", "Drift guard mode: last-applied (compare to current Helm release) or desired (compare to newly rendered manifest)")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging (equivalent to --log-level=debug)")
 	cmd.Flags().StringVar(&capturePath, "capture", "", "Capture deploy events/logs/manifests to a SQLite database at this path")
 	if flag := cmd.Flags().Lookup("capture"); flag != nil {
