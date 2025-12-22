@@ -130,4 +130,3 @@ spec:
 		t.Fatalf("expected no drift, got %+v", report.Items)
 	}
 }
-

@@ -46,4 +46,3 @@ func FormatDriftReport(report DriftReport, maxItems int, maxDiffLines int) strin
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
-
