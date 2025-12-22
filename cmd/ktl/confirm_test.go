@@ -15,7 +15,7 @@ import (
 func TestConfirmActionYesAcceptsYes(t *testing.T) {
 	in := strings.NewReader("yes\n")
 	out := &bytes.Buffer{}
-	if err := confirmAction(context.Background(), in, out, true, "Confirm?", confirmModeYes, ""); err != nil {
+	if err := confirmAction(context.Background(), in, out, approvalDecision{InteractiveTTY: true}, "Confirm?", confirmModeYes, ""); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 }
@@ -23,7 +23,7 @@ func TestConfirmActionYesAcceptsYes(t *testing.T) {
 func TestConfirmActionYesRejectsOtherInput(t *testing.T) {
 	in := strings.NewReader("no\n")
 	out := &bytes.Buffer{}
-	if err := confirmAction(context.Background(), in, out, true, "Confirm?", confirmModeYes, ""); err == nil {
+	if err := confirmAction(context.Background(), in, out, approvalDecision{InteractiveTTY: true}, "Confirm?", confirmModeYes, ""); err == nil {
 		t.Fatalf("expected error")
 	}
 }
@@ -31,7 +31,7 @@ func TestConfirmActionYesRejectsOtherInput(t *testing.T) {
 func TestConfirmActionYesAcceptsCaseInsensitiveYes(t *testing.T) {
 	in := strings.NewReader("YES\n")
 	out := &bytes.Buffer{}
-	if err := confirmAction(context.Background(), in, out, true, "Confirm?", confirmModeYes, ""); err != nil {
+	if err := confirmAction(context.Background(), in, out, approvalDecision{InteractiveTTY: true}, "Confirm?", confirmModeYes, ""); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 }
@@ -39,7 +39,7 @@ func TestConfirmActionYesAcceptsCaseInsensitiveYes(t *testing.T) {
 func TestConfirmActionExactRequiresMatch(t *testing.T) {
 	in := strings.NewReader("monitoring\n")
 	out := &bytes.Buffer{}
-	if err := confirmAction(context.Background(), in, out, true, "Type release:", confirmModeExact, "monitoring"); err != nil {
+	if err := confirmAction(context.Background(), in, out, approvalDecision{InteractiveTTY: true}, "Type release:", confirmModeExact, "monitoring"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 }
@@ -47,8 +47,16 @@ func TestConfirmActionExactRequiresMatch(t *testing.T) {
 func TestConfirmActionNonInteractiveFails(t *testing.T) {
 	in := strings.NewReader("yes\n")
 	out := &bytes.Buffer{}
-	if err := confirmAction(context.Background(), in, out, false, "Confirm?", confirmModeYes, ""); err == nil {
+	if err := confirmAction(context.Background(), in, out, approvalDecision{InteractiveTTY: false}, "Confirm?", confirmModeYes, ""); err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestConfirmActionApprovedNeverPrompts(t *testing.T) {
+	in := strings.NewReader("no\n")
+	out := &bytes.Buffer{}
+	if err := confirmAction(context.Background(), in, out, approvalDecision{Approved: true, InteractiveTTY: false, NonInteractive: true}, "Confirm?", confirmModeYes, ""); err != nil {
+		t.Fatalf("expected success, got %v", err)
 	}
 }
 
@@ -62,7 +70,7 @@ func TestConfirmActionCanceledReturnsContextCanceled(t *testing.T) {
 	out := &bytes.Buffer{}
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- confirmAction(ctx, pr, out, true, "Confirm?", confirmModeYes, "")
+		errCh <- confirmAction(ctx, pr, out, approvalDecision{InteractiveTTY: true}, "Confirm?", confirmModeYes, "")
 	}()
 
 	time.Sleep(20 * time.Millisecond)

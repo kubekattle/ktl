@@ -23,15 +23,12 @@ func validateVerboseLogLevel(cmd *cobra.Command, verbose bool, logLevel *string)
 	return nil
 }
 
-func validateNonInteractive(cmd *cobra.Command, nonInteractive bool, autoApprove bool, allowWithoutApproval bool) error {
+func validateNonInteractive(cmd *cobra.Command, nonInteractive bool, approved bool) error {
 	if !nonInteractive {
 		return nil
 	}
-	if allowWithoutApproval {
+	if approved {
 		return nil
 	}
-	if autoApprove {
-		return nil
-	}
-	return fmt.Errorf("--non-interactive requires --auto-approve")
+	return fmt.Errorf("--non-interactive requires --yes")
 }

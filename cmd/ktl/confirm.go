@@ -20,9 +20,16 @@ const (
 	confirmModeExact confirmMode = "exact"
 )
 
-func confirmAction(ctx context.Context, in io.Reader, out io.Writer, interactive bool, prompt string, mode confirmMode, expected string) error {
-	if !interactive {
-		return errors.New("refusing to proceed without a TTY; rerun with --auto-approve")
+func confirmAction(ctx context.Context, in io.Reader, out io.Writer, dec approvalDecision, prompt string, mode confirmMode, expected string) error {
+	if out == nil {
+		return errors.New("confirmation output is nil")
+	}
+	// Never prompt if already approved.
+	if dec.Approved {
+		return nil
+	}
+	if dec.NonInteractive || !dec.InteractiveTTY {
+		return errors.New("refusing to proceed without confirmation; rerun with --yes")
 	}
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {

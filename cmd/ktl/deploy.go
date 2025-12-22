@@ -93,7 +93,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if watchDuration > 0 && dryRun {
 				return fmt.Errorf("--watch cannot be combined with --dry-run")
 			}
-			if err := validateNonInteractive(cmd, nonInteractive, autoApprove, dryRun); err != nil {
+			if err := validateNonInteractive(cmd, nonInteractive, autoApprove); err != nil {
 				return fmt.Errorf("%w (or use --dry-run)", err)
 			}
 			if timeout <= 0 {
@@ -164,7 +164,10 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
 			settings.Debug = helmDebug
 
-			interactive := isTerminalWriter(errOut) && isTerminalReader(cmd.InOrStdin())
+			dec, err := approvalMode(cmd, autoApprove, nonInteractive)
+			if err != nil {
+				return err
+			}
 
 			exists, err := namespaceExists(ctx, kubeClient.Clientset, resolvedNamespace)
 			if err != nil {
@@ -357,7 +360,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						}
 					}
 				}
-				if err := confirmAction(cmd.Context(), cmd.InOrStdin(), errOut, interactive, "Do you want to perform these actions? Only 'yes' will be accepted:", confirmModeYes, ""); err != nil {
+				if err := confirmAction(cmd.Context(), cmd.InOrStdin(), errOut, dec, "Do you want to perform these actions? Only 'yes' will be accepted:", confirmModeYes, ""); err != nil {
 					return err
 				}
 			}
@@ -737,8 +740,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().BoolVar(&createNamespace, "create-namespace", false, "Create the release namespace if it does not exist")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render the chart without applying it")
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
+	_ = cmd.Flags().MarkHidden("auto-approve")
 	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")
-	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --auto-approve)")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --yes)")
 	cmd.Flags().BoolVar(&planServer, "plan-server", false, "Use server-side dry-run to classify replacements (slower; requires RBAC)")
 	cmd.Flags().DurationVar(&watchDuration, "watch", 0, "After a successful deploy, stream logs/events for this long (e.g. 2m)")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "Time to wait for any Kubernetes operation")
@@ -813,7 +817,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 					return fmt.Errorf("--ui/--ws-listen are not supported with --remote-agent")
 				}
 			}
-			if err := validateNonInteractive(cmd, nonInteractive, autoApprove, dryRun); err != nil {
+			if err := validateNonInteractive(cmd, nonInteractive, autoApprove); err != nil {
 				return fmt.Errorf("%w (or use --dry-run)", err)
 			}
 			if timeout <= 0 {
@@ -892,8 +896,6 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			}
 			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
 			settings.Debug = helmDebug
-
-			interactive := isTerminalWriter(errOut) && isTerminalReader(cmd.InOrStdin())
 
 			exists, err := namespaceExists(ctx, kubeClient.Clientset, resolvedNamespace)
 			if err != nil {
@@ -1067,8 +1069,12 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 					}
 				}
 			}
-			if !dryRun && !autoApprove {
-				if err := confirmAction(cmd.Context(), cmd.InOrStdin(), errOut, interactive, fmt.Sprintf("Type %q to confirm destroy:", release), confirmModeExact, release); err != nil {
+			dec, err := approvalMode(cmd, autoApprove, nonInteractive)
+			if err != nil {
+				return err
+			}
+			if !dryRun {
+				if err := confirmAction(cmd.Context(), cmd.InOrStdin(), errOut, dec, fmt.Sprintf("Type %q to confirm destroy:", release), confirmModeExact, release); err != nil {
 					return err
 				}
 			}
@@ -1247,8 +1253,9 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	cmd.Flags().BoolVar(&keepHistory, "keep-history", false, "Retain release history (equivalent to helm uninstall --keep-history)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate destroy without removing resources")
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
+	_ = cmd.Flags().MarkHidden("auto-approve")
 	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")
-	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --auto-approve)")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --yes)")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "How long to wait for resource deletions")
 	cmd.Flags().StringVar(&uiAddr, "ui", "", "Serve the destroy viewer at this address (e.g. :8080)")
 	if flag := cmd.Flags().Lookup("ui"); flag != nil {
