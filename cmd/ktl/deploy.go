@@ -81,14 +81,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 		Short: "Render and apply a Helm chart using upgrade --install",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			if verbose && logLevel != nil {
-				if flag := cmd.Flags().Lookup("log-level"); flag != nil && flag.Changed {
-					return fmt.Errorf("--verbose cannot be combined with --log-level")
-				}
-				if flag := cmd.InheritedFlags().Lookup("log-level"); flag != nil && flag.Changed {
-					return fmt.Errorf("--verbose cannot be combined with --log-level")
-				}
-				*logLevel = "debug"
+			if err := validateVerboseLogLevel(cmd, verbose, logLevel); err != nil {
+				return err
 			}
 			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
 				if watchDuration > 0 {
@@ -104,8 +98,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if watchDuration > 0 && (dryRun || diff) {
 				return fmt.Errorf("--watch cannot be combined with --dry-run or --diff")
 			}
-			if nonInteractive && !autoApprove && !dryRun && !diff {
-				return fmt.Errorf("--non-interactive requires --auto-approve (or use --diff/--dry-run)")
+			if err := validateNonInteractive(cmd, nonInteractive, autoApprove, dryRun || diff); err != nil {
+				return fmt.Errorf("%w (or use --diff/--dry-run)", err)
 			}
 			if timeout <= 0 {
 				return fmt.Errorf("--timeout must be > 0")
@@ -789,25 +783,19 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 		Hidden: cfg.Hidden,
 		Args:   cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			if verbose && logLevel != nil {
-				if flag := cmd.Flags().Lookup("log-level"); flag != nil && flag.Changed {
-					return fmt.Errorf("--verbose cannot be combined with --log-level")
-				}
-				if flag := cmd.InheritedFlags().Lookup("log-level"); flag != nil && flag.Changed {
-					return fmt.Errorf("--verbose cannot be combined with --log-level")
-				}
-				*logLevel = "debug"
+			if err := validateVerboseLogLevel(cmd, verbose, logLevel); err != nil {
+				return err
 			}
 			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
 				if strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "" {
 					return fmt.Errorf("--ui/--ws-listen are not supported with --remote-agent")
 				}
 			}
+			if err := validateNonInteractive(cmd, nonInteractive, autoApprove, dryRun); err != nil {
+				return fmt.Errorf("%w (or use --dry-run)", err)
+			}
 			if timeout <= 0 {
 				return fmt.Errorf("--timeout must be > 0")
-			}
-			if nonInteractive && !autoApprove && !dryRun {
-				return fmt.Errorf("--non-interactive requires --auto-approve (or use --dry-run)")
 			}
 			return nil
 		},
