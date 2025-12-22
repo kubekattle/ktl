@@ -193,16 +193,16 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	cmd.AddCommand(
-		logsCmd,
 		buildCmd,
 		planCmd,
-		listCmd,
-		lintCmd,
-		packageCmd,
-		envCmd,
 		revertCmd,
 		applyCmd,
 		deleteCmd,
+		listCmd,
+		lintCmd,
+		logsCmd,
+		packageCmd,
+		envCmd,
 	)
 	cmd.Example = `  # Tail checkout pods in prod-payments and highlight errors
 	  ktl logs 'checkout-.*' --namespace prod-payments --highlight ERROR
@@ -220,7 +220,61 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 
 	_ = cmd.RegisterFlagCompletionFunc("profile", cobra.FixedCompletions([]string{"dev", "ci", "secure", "remote"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions([]string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp))
+
+	// Keep the root help output stable and grouped for scanability.
+	cmd.SetHelpTemplate(rootHelpTemplate())
 	return cmd
+}
+
+func rootHelpTemplate() string {
+	// Note: Cobra uses templates for help output; this template is only applied to the root command.
+	// We explicitly control subcommand ordering and insert blank lines between groups.
+	return `{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}
+{{end}}
+Usage:
+  {{.UseLine}}
+
+Subcommands:
+{{ range $i, $n := (list "build" "plan")}}
+{{ with (indexCommand $.Commands $n) }}
+  {{rpad .Name .NamePadding }} {{.Short}}
+{{ end}}
+{{ end}}
+
+{{ with (indexCommand $.Commands "apply") }}
+  {{rpad .Name .NamePadding }} {{.Short}}
+{{ end}}
+
+{{ range $i, $n := (list "delete" "revert" "list" "lint" "logs" "package" "env")}}
+{{ with (indexCommand $.Commands $n) }}
+  {{rpad .Name .NamePadding }} {{.Short}}
+{{ end}}
+{{ end}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}
+
+{{ if .HasAvailableInheritedFlags}}
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}
+{{ end}}
+`
+}
+
+func init() {
+	// Register helper funcs for Cobra templates.
+	cobra.AddTemplateFunc("list", func(items ...string) []string { return items })
+	cobra.AddTemplateFunc("indexCommand", func(cmds []*cobra.Command, name string) *cobra.Command {
+		for _, c := range cmds {
+			if c == nil {
+				continue
+			}
+			if c.Name() == name {
+				return c
+			}
+		}
+		return nil
+	})
 }
 
 func looksLikeSubcommandToken(arg string) bool {

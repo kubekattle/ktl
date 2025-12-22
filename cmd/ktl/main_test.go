@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -148,6 +149,53 @@ func TestRootHasRevertCommand(t *testing.T) {
 	}
 	if f := revertCmd.Flags().Lookup("release"); f == nil {
 		t.Fatalf("expected revert to have --release flag")
+	}
+}
+
+func TestRootHelpSubcommandOrder(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	root.SetArgs([]string{"--help"})
+
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	help := out.String()
+	wantOrder := []string{
+		"\nSubcommands:\n",
+		"  build",
+		"  plan",
+		"\n\n  apply",
+		"\n\n  delete",
+		"  revert",
+		"  list",
+		"  lint",
+		"  logs",
+		"  package",
+		"  env",
+	}
+	last := -1
+	for _, needle := range wantOrder {
+		idx := strings.Index(help, needle)
+		if idx == -1 {
+			t.Fatalf("expected help to contain %q, got:\n%s", needle, help)
+		}
+		if idx < last {
+			t.Fatalf("expected %q to appear after previous entries, got help:\n%s", needle, help)
+		}
+		last = idx
+	}
+	if strings.Contains(errOut.String(), "Error:") {
+		t.Fatalf("unexpected stderr: %q", errOut.String())
 	}
 }
 
