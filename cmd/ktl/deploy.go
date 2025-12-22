@@ -242,7 +242,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						return fmt.Errorf("drift guard: %w", derr)
 					}
 					if !report.Empty() {
-						return fmt.Errorf("drift detected for release %s in ns/%s (%d objects)", releaseName, resolvedNamespace, len(report.Items))
+						return fmt.Errorf("drift detected for release %s in ns/%s (%d objects)\n%s", releaseName, resolvedNamespace, len(report.Items), deploy.FormatDriftReport(report, 6, 80))
 					}
 				} else if err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
 					return fmt.Errorf("drift guard: read current release manifest: %w", err)
