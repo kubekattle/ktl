@@ -35,7 +35,7 @@ func newLintCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lint [CHART]...",
 		Short: "Examine a chart for possible issues",
-		Args:  cobra.ArbitraryArgs,
+		Args:  validateLintArgs,
 		Example: `  # Lint the current chart directory
   ktl lint
 
@@ -175,6 +175,29 @@ func newLintCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 
 	decorateCommandHelp(cmd, "Lint Flags")
 	return cmd
+}
+
+func validateLintArgs(_ *cobra.Command, args []string) error {
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			return fmt.Errorf("chart path cannot be empty")
+		}
+		// Guard against accidentally passing flags as positionals.
+		if strings.HasPrefix(arg, "-") {
+			return fmt.Errorf("unexpected argument %q (did you mean to pass a flag?)", arg)
+		}
+		// If it looks like a local path, validate it exists for a clearer error.
+		// Keep non-path chart references permissive (e.g., repo/chart).
+		looksLikePath := strings.Contains(arg, "/") || strings.Contains(arg, string(filepath.Separator)) || strings.HasPrefix(arg, ".")
+		isArchive := strings.HasSuffix(arg, ".tgz") || strings.HasSuffix(arg, ".tar.gz")
+		if looksLikePath || isArchive {
+			if _, err := os.Stat(arg); err != nil {
+				return fmt.Errorf("chart %q not found: %w", arg, err)
+			}
+		}
+	}
+	return nil
 }
 
 func resolveDefaultLintPaths(cmd *cobra.Command) ([]string, error) {
