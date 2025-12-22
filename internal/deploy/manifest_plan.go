@@ -20,6 +20,7 @@ type PlanAction string
 const (
 	PlanAdd     PlanAction = "add"
 	PlanUpdate  PlanAction = "change"
+	PlanReplace PlanAction = "replace"
 	PlanDestroy PlanAction = "destroy"
 )
 
@@ -33,6 +34,7 @@ type PlanChange struct {
 type PlanSummary struct {
 	Add     int
 	Change  int
+	Replace int
 	Destroy int
 	Changes []PlanChange
 }
@@ -78,6 +80,18 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 	for _, obj := range next {
 		nextByKey[obj.Key] = obj
 	}
+	prevByAltKey := make(map[string]manifestObject, len(prev))
+	for _, obj := range prev {
+		if obj.AltKey != "" {
+			prevByAltKey[obj.AltKey] = obj
+		}
+	}
+	nextByAltKey := make(map[string]manifestObject, len(next))
+	for _, obj := range next {
+		if obj.AltKey != "" {
+			nextByAltKey[obj.AltKey] = obj
+		}
+	}
 
 	var summary PlanSummary
 	for key, obj := range nextByKey {
@@ -100,6 +114,49 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 		summary.Changes = append(summary.Changes, obj.toPlanChange(PlanDestroy))
 	}
 
+	// Treat "identity changes" as replace (delete+add) when we can correlate objects by kind/namespace/name.
+	// Example: apiVersion changes for a resource with the same kind+name.
+	if summary.Add > 0 && summary.Destroy > 0 {
+		var kept []PlanChange
+		kept = kept[:0]
+		seenReplace := make(map[string]bool)
+
+		for _, ch := range summary.Changes {
+			switch ch.Action {
+			case PlanAdd:
+				alt := fmt.Sprintf("%s/%s/%s", strings.ToLower(ch.Kind), ch.Namespace, ch.Name)
+				prevObj, ok := prevByAltKey[alt]
+				if ok {
+					nextObj, ok2 := nextByAltKey[alt]
+					if ok2 && prevObj.Key != nextObj.Key {
+						if !seenReplace[alt] {
+							summary.Replace++
+							seenReplace[alt] = true
+						}
+						summary.Add--
+						continue
+					}
+				}
+			case PlanDestroy:
+				alt := fmt.Sprintf("%s/%s/%s", strings.ToLower(ch.Kind), ch.Namespace, ch.Name)
+				nextObj, ok := nextByAltKey[alt]
+				if ok {
+					prevObj, ok2 := prevByAltKey[alt]
+					if ok2 && prevObj.Key != nextObj.Key {
+						summary.Destroy--
+						continue
+					}
+				}
+			}
+			kept = append(kept, ch)
+		}
+		summary.Changes = kept
+		for alt := range seenReplace {
+			obj := nextByAltKey[alt]
+			summary.Changes = append(summary.Changes, obj.toPlanChange(PlanReplace))
+		}
+	}
+
 	sort.Slice(summary.Changes, func(i, j int) bool {
 		a := summary.Changes[i]
 		b := summary.Changes[j]
@@ -119,6 +176,8 @@ func SummarizeManifestPlan(previousManifest, proposedManifest string) (*PlanSumm
 
 type manifestObject struct {
 	Key           string
+	AltKey        string
+	APIVersion    string
 	Kind          string
 	Namespace     string
 	Name          string
@@ -156,13 +215,15 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 			continue
 		}
 		obj := &unstructured.Unstructured{Object: raw}
+		apiVersion := strings.TrimSpace(obj.GetAPIVersion())
 		kind := strings.TrimSpace(obj.GetKind())
 		name := strings.TrimSpace(obj.GetName())
 		if kind == "" || name == "" {
 			continue
 		}
 		ns := strings.TrimSpace(obj.GetNamespace())
-		key := fmt.Sprintf("%s/%s/%s", strings.ToLower(kind), ns, name)
+		key := fmt.Sprintf("%s/%s/%s/%s", strings.ToLower(apiVersion), strings.ToLower(kind), ns, name)
+		altKey := fmt.Sprintf("%s/%s/%s", strings.ToLower(kind), ns, name)
 
 		normalized := normalizeObjectForPlan(obj)
 		encoded, err := json.Marshal(normalized.Object)
@@ -171,6 +232,8 @@ func parseManifestObjects(manifest string) ([]manifestObject, error) {
 		}
 		out = append(out, manifestObject{
 			Key:           key,
+			AltKey:        altKey,
+			APIVersion:    apiVersion,
 			Kind:          kind,
 			Namespace:     ns,
 			Name:          name,

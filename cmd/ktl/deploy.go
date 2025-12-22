@@ -69,6 +69,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var consoleDetails bool
 	var verbose bool
 	var autoApprove bool
+	var nonInteractive bool
 	var capturePath string
 	var captureTags []string
 	timeout := 5 * time.Minute
@@ -100,6 +101,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			}
 			if watchDuration > 0 && (dryRun || diff) {
 				return fmt.Errorf("--watch cannot be combined with --dry-run or --diff")
+			}
+			if nonInteractive && !autoApprove && !dryRun && !diff {
+				return fmt.Errorf("--non-interactive requires --auto-approve (or use --diff/--dry-run)")
 			}
 			if timeout <= 0 {
 				return fmt.Errorf("--timeout must be > 0")
@@ -253,7 +257,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					return previewErr
 				}
 				if preview != nil && preview.PlanSummary != nil {
-					fmt.Fprintf(errOut, "Plan: %d to add, %d to change, %d to destroy.\n", preview.PlanSummary.Add, preview.PlanSummary.Change, preview.PlanSummary.Destroy)
+					fmt.Fprintf(errOut, "Plan: %d to add, %d to change, %d to replace, %d to destroy.\n", preview.PlanSummary.Add, preview.PlanSummary.Change, preview.PlanSummary.Replace, preview.PlanSummary.Destroy)
 					if preview.PlanSummarizeError != "" && shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
 						fmt.Fprintf(errOut, "Warning: unable to fully summarize plan: %s\n", preview.PlanSummarizeError)
 					}
@@ -271,6 +275,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 								prefix = "-"
 							case deploy.PlanUpdate:
 								prefix = "~"
+							case deploy.PlanReplace:
+								prefix = "±"
 							}
 							nsLabel := ch.Namespace
 							if nsLabel == "" {
@@ -657,6 +663,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render the chart without applying it")
 	cmd.Flags().BoolVar(&diff, "diff", false, "Show a manifest diff (implies --dry-run)")
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
+	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --auto-approve)")
 	cmd.Flags().DurationVar(&watchDuration, "watch", 0, "After a successful deploy, stream logs/events for this long (e.g. 2m)")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "Time to wait for any Kubernetes operation")
 	cmd.Flags().BoolVar(&consoleWide, "console-wide", false, "Force wide console layout even on narrow terminals")
@@ -707,6 +715,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	var keepHistory bool
 	var dryRun bool
 	var autoApprove bool
+	var nonInteractive bool
 	var uiAddr string
 	var wsListenAddr string
 	var force bool
@@ -740,6 +749,9 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			}
 			if timeout <= 0 {
 				return fmt.Errorf("--timeout must be > 0")
+			}
+			if nonInteractive && !autoApprove && !dryRun {
+				return fmt.Errorf("--non-interactive requires --auto-approve (or use --dry-run)")
 			}
 			return nil
 		},
@@ -930,12 +942,16 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				return fmt.Errorf("init helm action config: %w", err)
 			}
 
-			if !dryRun && !autoApprove {
-				getAction := action.NewGet(actionCfg)
-				if rel, getErr := getAction.Run(release); getErr == nil && rel != nil {
-					resources, listErr := deploy.ListManifestResources(rel.Manifest)
+			shouldPreview := dryRun || (!autoApprove && !keepHistory)
+			if dryRun || !autoApprove {
+				manifest, reason := fetchLatestReleaseManifest(actionCfg, release)
+				if strings.TrimSpace(manifest) == "" {
+					fmt.Fprintf(errOut, "Plan: 0 to add, 0 to change, 0 to replace, 0 to destroy.\n")
+					fmt.Fprintf(errOut, "Destroy preview unavailable: %s\n", reason)
+				} else if shouldPreview {
+					resources, listErr := deploy.ListManifestResources(manifest)
 					if listErr == nil {
-						fmt.Fprintf(errOut, "Plan: 0 to add, 0 to change, %d to destroy.\n", len(resources))
+						fmt.Fprintf(errOut, "Plan: 0 to add, 0 to change, 0 to replace, %d to destroy.\n", len(resources))
 						limit := 12
 						if len(resources) < limit {
 							limit = len(resources)
@@ -952,6 +968,8 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 						}
 					}
 				}
+			}
+			if !dryRun && !autoApprove {
 				if err := confirmAction(cmd.InOrStdin(), errOut, interactive, fmt.Sprintf("Type %q to confirm destroy:", release), confirmModeExact, release); err != nil {
 					return err
 				}
@@ -1123,6 +1141,8 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	cmd.Flags().BoolVar(&keepHistory, "keep-history", false, "Retain release history (equivalent to helm uninstall --keep-history)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Simulate destroy without removing resources")
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
+	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Fail instead of prompting (requires --auto-approve)")
 	cmd.Flags().DurationVar(&timeout, "timeout", timeout, "How long to wait for resource deletions")
 	cmd.Flags().StringVar(&uiAddr, "ui", "", "Serve the destroy viewer at this address (e.g. :8080)")
 	if flag := cmd.Flags().Lookup("ui"); flag != nil {
@@ -1190,6 +1210,31 @@ func describeDeployAction(desc actionDescriptor) string {
 		verb = "Deploying"
 	}
 	return fmt.Sprintf("%s %s into ns/%s", verb, target, ns)
+}
+
+func fetchLatestReleaseManifest(actionCfg *action.Configuration, releaseName string) (string, string) {
+	if actionCfg == nil || strings.TrimSpace(releaseName) == "" {
+		return "", "release name missing"
+	}
+	getAction := action.NewGet(actionCfg)
+	if rel, err := getAction.Run(releaseName); err == nil && rel != nil && strings.TrimSpace(rel.Manifest) != "" {
+		return rel.Manifest, "from helm get"
+	}
+	historyAction := action.NewHistory(actionCfg)
+	historyAction.Max = 20
+	revisions, err := historyAction.Run(releaseName)
+	if err != nil {
+		if errors.Is(err, driver.ErrReleaseNotFound) {
+			return "", "release not found (no deployed release or history)"
+		}
+		return "", fmt.Sprintf("unable to read release history: %v", err)
+	}
+	for i := len(revisions) - 1; i >= 0; i-- {
+		if revisions[i] != nil && strings.TrimSpace(revisions[i].Manifest) != "" {
+			return revisions[i].Manifest, "from latest release history"
+		}
+	}
+	return "", "release history has no manifest"
 }
 
 type captureFileHash struct {

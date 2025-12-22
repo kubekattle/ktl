@@ -51,3 +51,33 @@ data:
 		t.Fatalf("unexpected counts: %#v", summary)
 	}
 }
+
+func TestSummarizeManifestPlanDetectsReplaceOnAPIVersionChange(t *testing.T) {
+	prev := `
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app
+  namespace: ns
+spec:
+  maxReplicas: 3
+  minReplicas: 1
+`
+	next := `
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: app
+  namespace: ns
+spec:
+  maxReplicas: 3
+  minReplicas: 1
+`
+	summary, err := SummarizeManifestPlan(prev, next)
+	if err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if summary.Replace != 1 || summary.Add != 0 || summary.Destroy != 0 {
+		t.Fatalf("unexpected counts: %#v", summary)
+	}
+}

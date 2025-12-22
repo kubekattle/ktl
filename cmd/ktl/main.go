@@ -70,6 +70,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	var kubeconfigPath string
 	var kubeContext string
 	logLevel := "info"
+	var noColor bool
 	var featureFlagValues []string
 	var remoteAgentAddr string
 	var mirrorBusAddr string
@@ -84,6 +85,10 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if commandNamespaceHelpRequested(cmd) {
 				return pflag.ErrHelp
+			}
+			if noColor || os.Getenv("NO_COLOR") != "" {
+				color.NoColor = true
+				_ = os.Setenv("NO_COLOR", "1")
 			}
 			flags, err := featureflags.Resolve(featureFlagValues, featureflags.EnabledFromEnv(nil))
 			if err != nil {
@@ -113,6 +118,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	cmd.PersistentFlags().StringVarP(&kubeconfigPath, "kubeconfig", "k", "", "Path to the kubeconfig file to use for CLI requests")
 	cmd.PersistentFlags().StringVarP(&kubeContext, "context", "K", "", "Name of the kubeconfig context to use")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", logLevel, "Log level for ktl output (debug, info, warn, error)")
+	cmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	cmd.PersistentFlags().Var(newEnumStringValue(&globalProfile, "dev", "ci", "secure", "remote"), "profile", "Execution profile: dev, ci, secure, or remote (sets sensible defaults for supported commands)")
 	cmd.PersistentFlags().StringSliceVar(&featureFlagValues, "feature", nil, "Enable experimental ktl features (repeat or pass comma-separated names)")
 	if err := cmd.PersistentFlags().MarkHidden("feature"); err != nil {
