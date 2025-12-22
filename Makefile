@@ -6,7 +6,14 @@ GO ?= go
 GOTEST ?= $(GO) test
 GOVET ?= $(GO) vet
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS ?= -s -w
+GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+GIT_TREE_STATE ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo clean || echo dirty)
+BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LDFLAGS ?= -s -w \
+	-X github.com/example/ktl/internal/version.Version=$(VERSION) \
+	-X github.com/example/ktl/internal/version.GitCommit=$(GIT_COMMIT) \
+	-X github.com/example/ktl/internal/version.GitTreeState=$(GIT_TREE_STATE) \
+	-X github.com/example/ktl/internal/version.BuildDate=$(BUILD_DATE)
 RELEASE_PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 RELEASE_ARTIFACTS := $(foreach platform,$(RELEASE_PLATFORMS),$(DIST_DIR)/$(BINARY)-$(subst /,-,$(platform)))
 GH ?= gh

@@ -181,6 +181,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
 	packageCmd := newPackageCommand()
 	envCmd := newEnvCommand()
+	versionCmd := newVersionCommand()
 	revertCmd := newRevertCommand(&kubeconfigPath, &kubeContext, &logLevel)
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
@@ -195,6 +196,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		logsCmd,
 		packageCmd,
 		envCmd,
+		versionCmd,
 	)
 	cmd.Example = `  # Tail checkout pods in prod-payments and highlight errors
 	  ktl logs 'checkout-.*' --namespace prod-payments --highlight ERROR
@@ -228,7 +230,7 @@ Usage:
   {{.UseLine}}
 
 Subcommands:
-{{- range $i, $n := (list "build" "plan" "apply" "delete" "revert" "list" "lint" "logs" "package" "env") }}
+{{- range $i, $n := (list "build" "plan" "apply" "delete" "revert" "list" "lint" "logs" "package" "env" "version") }}
 {{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
 {{- end }}
