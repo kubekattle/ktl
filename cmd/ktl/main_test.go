@@ -33,7 +33,8 @@ func TestRootShowsHelpOnUnknownPlainWord(t *testing.T) {
 	root.SetErr(&errOut)
 	root.SetArgs([]string{"desfs"})
 
-	if err := root.ExecuteContext(context.Background()); err != nil {
+	err := root.ExecuteContext(context.Background())
+	if err != nil && !errors.Is(err, pflag.ErrHelp) {
 		t.Fatalf("execute: %v", err)
 	}
 	if got := errOut.String(); !bytes.Contains([]byte(got), []byte(`unknown command "desfs"`)) {
@@ -174,8 +175,8 @@ func TestRootHelpSubcommandOrder(t *testing.T) {
 		"\nSubcommands:\n",
 		"  build",
 		"  plan",
-		"\n\n  apply",
-		"\n\n  delete",
+		"  apply",
+		"  delete",
 		"  revert",
 		"  list",
 		"  lint",

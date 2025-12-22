@@ -96,10 +96,10 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	var mirrorBusAddr string
 	globalProfile := "dev"
 	cmd := &cobra.Command{
-		Use:           "ktl [POD_QUERY]",
+		Use:           "ktl <command>",
 		Short:         "High-performance multi-pod Kubernetes log tailer",
 		Long:          "ktl is the Kubernetes Swiss Army Knife with blazing fast startup and advanced filtering.",
-		Args:          cobra.MaximumNArgs(1),
+		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -143,19 +143,11 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(opts.WSListenAddr) != "" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Note: use `ktl logs --ws-listen` (or `ktl logs ... --ws-listen`) instead of running the legacy `ktl [POD_QUERY]` entrypoint with streaming flags.")
-				return pflag.ErrHelp
+			if len(args) > 0 && looksLikeSubcommandToken(args[0]) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "unknown command %q for %q\n\n", args[0], cmd.Name())
 			}
-			// Guard against a common footgun: `ktl <typo>` currently falls back to log tailing
-			// (legacy `ktl [POD_QUERY]` behavior) and can block on cluster access instead of
-			// showing help. If the user provided a single "plain word" argument without any
-			// log-tailer flags, treat it as an attempted subcommand and show help immediately.
-			if len(args) == 1 && !hasNonGlobalFlag(cmd.Flags()) && looksLikeSubcommandToken(args[0]) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error: unknown command %q for %q\n\n", args[0], cmd.Name())
-				return pflag.ErrHelp
-			}
-			return runLogs(cmd, args, opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr, "", nil, "", "", 0, 0)
+			_ = cmd.Help()
+			return pflag.ErrHelp
 		},
 	}
 	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
@@ -228,35 +220,26 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 
 func rootHelpTemplate() string {
 	// Note: Cobra uses templates for help output; this template is only applied to the root command.
-	// We explicitly control subcommand ordering and insert blank lines between groups.
+	// We explicitly control subcommand ordering and avoid blank lines between entries so the
+	// output stays dense and script-friendly.
 	return `{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}
 {{end}}
 Usage:
   {{.UseLine}}
 
 Subcommands:
-{{ range $i, $n := (list "build" "plan")}}
-{{ with (indexCommand $.Commands $n) }}
+{{- range $i, $n := (list "build" "plan" "apply" "delete" "revert" "list" "lint" "logs" "package" "env") }}
+{{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
-{{ end}}
-{{ end}}
-
-{{ with (indexCommand $.Commands "apply") }}
-  {{rpad .Name .NamePadding }} {{.Short}}
-{{ end}}
-
-{{ range $i, $n := (list "delete" "revert" "list" "lint" "logs" "package" "env")}}
-{{ with (indexCommand $.Commands $n) }}
-  {{rpad .Name .NamePadding }} {{.Short}}
-{{ end}}
-{{ end}}
+{{- end }}
+{{- end }}
 
 Flags:
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}
+{{flagUsages .LocalFlags}}
 
 {{ if .HasAvailableInheritedFlags}}
 Global Flags:
-{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}
+{{flagUsages .InheritedFlags}}
 {{ end}}
 `
 }
@@ -274,6 +257,12 @@ func init() {
 			}
 		}
 		return nil
+	})
+	cobra.AddTemplateFunc("flagUsages", func(fs *pflag.FlagSet) string {
+		if fs == nil {
+			return ""
+		}
+		return strings.TrimRight(fs.FlagUsagesWrapped(100), "\n")
 	})
 }
 
