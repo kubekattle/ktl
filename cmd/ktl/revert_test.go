@@ -15,20 +15,20 @@ func rel(version int, status release.Status) *release.Release {
 }
 
 func TestSelectRevertTarget_ExplicitRevision(t *testing.T) {
-	from, to, err := selectRevertTarget("r", []*release.Release{
+	sel, err := selectRevertTarget("r", []*release.Release{
 		rel(1, release.StatusSuperseded),
 		rel(2, release.StatusDeployed),
 	}, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if from != 2 || to != 1 {
-		t.Fatalf("got from=%d to=%d", from, to)
+	if sel.FromRevision != 2 || sel.ToRevision != 1 {
+		t.Fatalf("got from=%d to=%d", sel.FromRevision, sel.ToRevision)
 	}
 }
 
 func TestSelectRevertTarget_PicksLastKnownGoodSuperseded(t *testing.T) {
-	from, to, err := selectRevertTarget("r", []*release.Release{
+	sel, err := selectRevertTarget("r", []*release.Release{
 		rel(1, release.StatusSuperseded),
 		rel(2, release.StatusSuperseded),
 		rel(3, release.StatusDeployed),
@@ -36,13 +36,13 @@ func TestSelectRevertTarget_PicksLastKnownGoodSuperseded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if from != 3 || to != 2 {
-		t.Fatalf("got from=%d to=%d", from, to)
+	if sel.FromRevision != 3 || sel.ToRevision != 2 {
+		t.Fatalf("got from=%d to=%d", sel.FromRevision, sel.ToRevision)
 	}
 }
 
 func TestSelectRevertTarget_CurrentFailedUsesLastDeployed(t *testing.T) {
-	from, to, err := selectRevertTarget("r", []*release.Release{
+	sel, err := selectRevertTarget("r", []*release.Release{
 		rel(1, release.StatusSuperseded),
 		rel(2, release.StatusDeployed),
 		rel(3, release.StatusFailed),
@@ -50,13 +50,13 @@ func TestSelectRevertTarget_CurrentFailedUsesLastDeployed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if from != 2 || to != 1 {
-		t.Fatalf("got from=%d to=%d", from, to)
+	if sel.FromRevision != 2 || sel.ToRevision != 1 {
+		t.Fatalf("got from=%d to=%d", sel.FromRevision, sel.ToRevision)
 	}
 }
 
 func TestSelectRevertTarget_NoPreviousSuccess(t *testing.T) {
-	_, _, err := selectRevertTarget("r", []*release.Release{
+	_, err := selectRevertTarget("r", []*release.Release{
 		rel(1, release.StatusDeployed),
 	}, 0)
 	if err == nil {
