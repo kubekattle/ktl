@@ -14,6 +14,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -124,6 +125,29 @@ func TestDeleteCommandHasDestroyAlias(t *testing.T) {
 	}
 	if !slices.Contains(deleteCmdAliases, "destroy") {
 		t.Fatalf("expected delete aliases to include destroy, got: %v", deleteCmdAliases)
+	}
+}
+
+func TestRootHasRevertCommand(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var revertCmd *cobra.Command
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "revert" {
+			revertCmd = cmd
+			break
+		}
+	}
+	if revertCmd == nil {
+		t.Fatalf("expected root to include revert command")
+	}
+	if f := revertCmd.Flags().Lookup("release"); f == nil {
+		t.Fatalf("expected revert to have --release flag")
 	}
 }
 
