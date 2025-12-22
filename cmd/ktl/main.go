@@ -156,6 +156,9 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
   ktl apply --chart ./chart --release foo --namespace prod`
 	decorateCommandHelp(cmd, "Global Flags")
 	bindViper(cmd, logsCmd, buildCmd, planCmd, listCmd, lintCmd, packageCmd, applyCmd, deleteCmd)
+
+	_ = cmd.RegisterFlagCompletionFunc("profile", cobra.FixedCompletions([]string{"dev", "ci", "secure", "remote"}, cobra.ShellCompDirectiveNoFileComp))
+	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions([]string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp))
 	return cmd
 }
 
