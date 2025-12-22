@@ -210,6 +210,9 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
   # Preview a Helm upgrade
   ktl plan --chart ./chart --release foo
 
+  # Revert a release to the last known-good revision
+  ktl revert --release foo --namespace prod
+
   # Apply chart changes
   ktl apply --chart ./chart --release foo --namespace prod`
 	decorateCommandHelp(cmd, "Global Flags")
