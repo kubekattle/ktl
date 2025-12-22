@@ -15,7 +15,7 @@ import (
 	"github.com/example/ktl/internal/api/convert"
 	"github.com/example/ktl/internal/tailer"
 	"github.com/example/ktl/internal/workflows/buildsvc"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

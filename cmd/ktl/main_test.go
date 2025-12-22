@@ -8,10 +8,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/spf13/pflag"
 )
 
 func TestRootShowsHelpOnUnknownPlainWord(t *testing.T) {
@@ -33,6 +36,68 @@ func TestRootShowsHelpOnUnknownPlainWord(t *testing.T) {
 	}
 	if got := errOut.String(); !bytes.Contains([]byte(got), []byte(`unknown command "desfs"`)) {
 		t.Fatalf("expected unknown command message in stderr, got: %q", got)
+	}
+	if got := out.String(); !bytes.Contains([]byte(got), []byte("Usage:")) {
+		t.Fatalf("expected help output in stdout, got: %q", got)
+	}
+}
+
+func TestApplyShowsHelpWhenLogLevelValueLooksLikeHelpFlag(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	root.SetArgs([]string{
+		"apply",
+		"--chart", "testdata/charts/tempo",
+		"--release", "monitoring",
+		"--log-level", "-h",
+	})
+
+	err := root.ExecuteContext(context.Background())
+	if err != nil && !errors.Is(err, pflag.ErrHelp) {
+		t.Fatalf("expected help response, got %v", err)
+	}
+	if got := out.String(); !bytes.Contains([]byte(got), []byte("Usage:")) {
+		t.Fatalf("expected help output in stdout, got: %q", got)
+	}
+	if got := errOut.String(); bytes.Contains([]byte(got), []byte("Only 'yes' will be accepted")) {
+		t.Fatalf("expected no confirmation prompt, got stderr: %q", got)
+	}
+}
+
+func TestApplyShowsHelpOnMissingLogLevelValue(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	root.SetArgs([]string{
+		"apply",
+		"--chart", "testdata/charts/tempo",
+		"--release", "monitoring",
+		"--log-level",
+	})
+
+	err := root.ExecuteContext(context.Background())
+	if err != nil && !errors.Is(err, pflag.ErrHelp) {
+		t.Fatalf("expected help response, got %v", err)
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("flag needs an argument: --log-level")) {
+		t.Fatalf("expected missing-arg error in stderr, got: %q", got)
 	}
 	if got := out.String(); !bytes.Contains([]byte(got), []byte("Usage:")) {
 		t.Fatalf("expected help output in stdout, got: %q", got)

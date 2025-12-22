@@ -13,7 +13,7 @@ import (
 	"github.com/example/ktl/internal/api/convert"
 	"github.com/example/ktl/internal/kube"
 	"github.com/example/ktl/internal/tailer"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

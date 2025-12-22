@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -30,9 +32,22 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/term"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/klog/v2"
 )
+
+var klogInitOnce sync.Once
+
+func initKlogFlags() {
+	klogInitOnce.Do(func() {
+		// Initialize klog's flags so we can control client-go verbosity from Cobra/pflag.
+		klog.InitFlags(nil)
+		_ = flag.CommandLine.Set("logtostderr", "true")
+		_ = flag.CommandLine.Set("alsologtostderr", "true")
+	})
+}
 
 func main() {
 	normalizedArgs := normalizeOptionalValueArgs(os.Args)
@@ -45,6 +60,8 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	initKlogFlags()
 
 	stopProfile := setupProfiling()
 	defer stopProfile()
@@ -66,10 +83,13 @@ func newRootCommand() *cobra.Command {
 }
 
 func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Command {
+	initKlogFlags()
+
 	opts := config.NewOptions()
 	var kubeconfigPath string
 	var kubeContext string
 	logLevel := "info"
+	var kubeLogLevel int
 	var noColor bool
 	var featureFlagValues []string
 	var remoteAgentAddr string
@@ -84,6 +104,30 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if commandNamespaceHelpRequested(cmd) {
+				return pflag.ErrHelp
+			}
+			if kubeLogLevel == 0 {
+				if val := strings.TrimSpace(os.Getenv("KTL_KUBE_LOG_LEVEL")); val != "" {
+					if n, err := strconv.Atoi(val); err == nil {
+						kubeLogLevel = n
+					} else {
+						return fmt.Errorf("invalid KTL_KUBE_LOG_LEVEL %q: %w", val, err)
+					}
+				} else if shouldLogAtLevel(logLevel, zapcore.DebugLevel) {
+					// Enable HTTP request/response tracing in client-go (DebugWrappers) when ktl runs in debug mode.
+					kubeLogLevel = 6
+				}
+			}
+			if kubeLogLevel > 0 {
+				_ = flag.CommandLine.Set("v", strconv.Itoa(kubeLogLevel))
+				// klog writes to stderr by default when logtostderr is set; ensure it doesn't try to log to files.
+				_ = flag.CommandLine.Set("logtostderr", "true")
+				_ = flag.CommandLine.Set("alsologtostderr", "true")
+			}
+			// Treat accidental `--log-level -h/--help` as a help request rather than trying to run.
+			// This commonly happens when the user intends to read flag docs but forgets the value.
+			switch strings.TrimSpace(logLevel) {
+			case "-h", "--help":
 				return pflag.ErrHelp
 			}
 			if noColor || os.Getenv("NO_COLOR") != "" {
@@ -114,10 +158,20 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 			return runLogs(cmd, args, opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr, "", nil, "", "", 0, 0)
 		},
 	}
+	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		// pflag errors (missing values, unknown flags, etc.) should show help to avoid dead-end UX,
+		// while still returning a non-zero exit code from main.
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Error: %v\n\n", err)
+		}
+		_ = cmd.Help()
+		return pflag.ErrHelp
+	})
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.PersistentFlags().StringVarP(&kubeconfigPath, "kubeconfig", "k", "", "Path to the kubeconfig file to use for CLI requests")
 	cmd.PersistentFlags().StringVarP(&kubeContext, "context", "K", "", "Name of the kubeconfig context to use")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", logLevel, "Log level for ktl output (debug, info, warn, error)")
+	cmd.PersistentFlags().IntVar(&kubeLogLevel, "kube-log-level", 0, "Kubernetes client-go verbosity (klog -v); at >=6 enables HTTP request/response tracing; can also set KTL_KUBE_LOG_LEVEL")
 	cmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	cmd.PersistentFlags().Var(newEnumStringValue(&globalProfile, "dev", "ci", "secure", "remote"), "profile", "Execution profile: dev, ci, secure, or remote (sets sensible defaults for supported commands)")
 	cmd.PersistentFlags().StringSliceVar(&featureFlagValues, "feature", nil, "Enable experimental ktl features (repeat or pass comma-separated names)")
@@ -134,6 +188,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	listCmd := newListCommand(&kubeconfigPath, &kubeContext)
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
 	packageCmd := newPackageCommand()
+	envCmd := newEnvCommand()
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	cmd.AddCommand(
@@ -143,6 +198,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		listCmd,
 		lintCmd,
 		packageCmd,
+		envCmd,
 		applyCmd,
 		deleteCmd,
 	)

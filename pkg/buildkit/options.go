@@ -39,6 +39,7 @@ type Secret struct {
 type DockerfileBuildOptions struct {
 	BuilderAddr          string
 	AllowBuilderFallback bool
+	DockerContext        string
 	ContextDir           string
 	DockerfilePath       string
 	Platforms            []string

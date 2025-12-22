@@ -162,6 +162,9 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 			if diffEnabled {
 				notifyPhaseCompleted(observers, PhaseDiff, "failed", "Upgrade failed before diff")
 			}
+			if opts.UpgradeOnly && isNoDeployedReleaseErr(err) {
+				return nil, wrapUpgradeOnlyNoDeployedReleaseErr(opts.ReleaseName, namespace, err)
+			}
 			return nil, fmt.Errorf("helm upgrade: %w", err)
 		}
 	} else {
@@ -256,6 +259,24 @@ func isNoDeployedReleaseErr(err error) bool {
 		return true
 	}
 	return strings.Contains(err.Error(), "has no deployed releases")
+}
+
+func wrapUpgradeOnlyNoDeployedReleaseErr(releaseName, namespace string, err error) error {
+	releaseName = strings.TrimSpace(releaseName)
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		namespace = "default"
+	}
+	if releaseName == "" {
+		return fmt.Errorf("helm upgrade: %w", err)
+	}
+	return fmt.Errorf(
+		"helm upgrade: %w; release %q is not deployed in namespace %q (omit --upgrade to allow install fallback, or pick an existing release name from `ktl list --namespace %s`)",
+		err,
+		releaseName,
+		namespace,
+		namespace,
+	)
 }
 
 func notifyPhaseStarted(observers []ProgressObserver, name string) {

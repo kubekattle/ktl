@@ -14,7 +14,7 @@ import (
 	"github.com/example/ktl/internal/api/convert"
 	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/grpcutil"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

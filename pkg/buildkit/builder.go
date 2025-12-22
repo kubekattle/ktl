@@ -88,6 +88,7 @@ func BuildDockerfile(ctx context.Context, opts DockerfileBuildOptions) (*BuildRe
 	cf := buildkitClientFactory{
 		allowFallback: opts.AllowBuilderFallback,
 		logWriter:     opts.ProgressOutput,
+		dockerContext: opts.DockerContext,
 	}
 	c, _, err := cf.new(clientCtx, builderAddr)
 	if err != nil {

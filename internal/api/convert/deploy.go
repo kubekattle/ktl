@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/example/ktl/internal/deploy"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 )
 
 // DeployApplyConfig mirrors the CLI flags needed to run a deploy apply.

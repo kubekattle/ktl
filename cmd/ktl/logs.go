@@ -20,7 +20,7 @@ import (
 	"github.com/example/ktl/internal/kube"
 	"github.com/example/ktl/internal/mirrorbus"
 	"github.com/example/ktl/internal/tailer"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"

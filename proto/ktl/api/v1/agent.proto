@@ -67,6 +67,7 @@ message BuildOptions {
   string log_file = 27;
   bool remove_intermediate = 28;
   bool quiet = 29;
+  string docker_context = 30;
 }
 
 message RunBuildRequest {

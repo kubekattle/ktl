@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/example/ktl/internal/workflows/buildsvc"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 )
 
 // BuildOptionsToProto converts build options into a protobuf payload.
@@ -45,6 +45,7 @@ func BuildOptionsToProto(opts buildsvc.Options) *apiv1.BuildOptions {
 		LogFile:            opts.LogFile,
 		RemoveIntermediate: opts.RemoveIntermediate,
 		Quiet:              opts.Quiet,
+		DockerContext:      opts.DockerContext,
 	}
 }
 
@@ -83,6 +84,7 @@ func BuildOptionsFromProto(pb *apiv1.BuildOptions) buildsvc.Options {
 		LogFile:            pb.GetLogFile(),
 		RemoveIntermediate: pb.GetRemoveIntermediate(),
 		Quiet:              pb.GetQuiet(),
+		DockerContext:      pb.GetDockerContext(),
 		Streams: buildsvc.Streams{
 			In:  strings.NewReader(""),
 			Out: io.Discard,

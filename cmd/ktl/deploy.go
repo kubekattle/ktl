@@ -111,6 +111,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			currentLogLevel := effectiveLogLevel(logLevel)
 			errOut := cmd.ErrOrStderr()
+			startedAt := time.Now()
+			var report reportLine
+			var reportReady bool
 			var (
 				historyBreadcrumbs []deploy.HistoryBreadcrumb
 				lastSuccessful     *deploy.HistoryBreadcrumb
@@ -338,7 +341,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						}
 					}
 				}
-				if err := confirmAction(cmd.InOrStdin(), errOut, interactive, "Do you want to perform these actions? Only 'yes' will be accepted:", confirmModeYes, ""); err != nil {
+				if err := confirmAction(cmd.Context(), cmd.InOrStdin(), errOut, interactive, "Do you want to perform these actions? Only 'yes' will be accepted:", confirmModeYes, ""); err != nil {
 					return err
 				}
 			}
@@ -603,6 +606,15 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				if stopSpinner != nil {
 					stopSpinner(false)
 				}
+				// Emit the CI-friendly report line after the terminal UI is torn down so it
+				// doesn't get overwritten by final console repaints.
+				if reportReady {
+					report.Result = "success"
+					if runErr != nil {
+						report.Result = "fail"
+					}
+					writeReportTable(errOut, report)
+				}
 			}()
 
 			var progressObservers []deploy.ProgressObserver
@@ -694,6 +706,18 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if line := renderPhaseDurationsLine(formatPhaseDurations(timerObserver.snapshot())); line != "" {
 				fmt.Fprintf(errOut, "Phase durations: %s\n", line)
 			}
+			report = reportLine{
+				Kind:      "apply",
+				Release:   rel.Name,
+				Namespace: resolvedNamespace,
+				Chart:     chart,
+				Version:   version,
+				Revision:  rel.Version,
+				DryRun:    dryRun,
+				Diff:      diff,
+				ElapsedMS: time.Since(startedAt).Milliseconds(),
+			}
+			reportReady = true
 			return nil
 		},
 	}
@@ -805,7 +829,23 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			currentLogLevel := effectiveLogLevel(logLevel)
 			errOut := cmd.ErrOrStderr()
 			out := cmd.OutOrStdout()
+			startedAt := time.Now()
 			ctx := cmd.Context()
+			report := reportLine{
+				Kind:        "delete",
+				Release:     release,
+				DryRun:      dryRun,
+				KeepHistory: keepHistory,
+				Wait:        wait,
+			}
+			defer func() {
+				report.Result = "success"
+				if runErr != nil {
+					report.Result = "fail"
+				}
+				report.ElapsedMS = time.Since(startedAt).Milliseconds()
+				writeReportTable(errOut, report)
+			}()
 			if remoteAgent != nil && strings.TrimSpace(*remoteAgent) != "" {
 				return runRemoteDeployDestroy(cmd, remoteDeployDestroyArgs{
 					Release:      release,
@@ -841,6 +881,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			if resolvedNamespace == "" {
 				resolvedNamespace = "default"
 			}
+			report.Namespace = resolvedNamespace
 			settings := cli.New()
 			if kubeconfig != nil && *kubeconfig != "" {
 				settings.KubeConfig = *kubeconfig
@@ -1028,7 +1069,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				}
 			}
 			if !dryRun && !autoApprove {
-				if err := confirmAction(cmd.InOrStdin(), errOut, interactive, fmt.Sprintf("Type %q to confirm destroy:", release), confirmModeExact, release); err != nil {
+				if err := confirmAction(cmd.Context(), cmd.InOrStdin(), errOut, interactive, fmt.Sprintf("Type %q to confirm destroy:", release), confirmModeExact, release); err != nil {
 					return err
 				}
 			}

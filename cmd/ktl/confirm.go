@@ -5,9 +5,11 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -18,7 +20,7 @@ const (
 	confirmModeExact confirmMode = "exact"
 )
 
-func confirmAction(in io.Reader, out io.Writer, interactive bool, prompt string, mode confirmMode, expected string) error {
+func confirmAction(ctx context.Context, in io.Reader, out io.Writer, interactive bool, prompt string, mode confirmMode, expected string) error {
 	if !interactive {
 		return errors.New("refusing to proceed without a TTY; rerun with --auto-approve")
 	}
@@ -28,15 +30,48 @@ func confirmAction(in io.Reader, out io.Writer, interactive bool, prompt string,
 	}
 	fmt.Fprint(out, prompt+" ")
 
+	closeInputOnCancel := func() {
+		rc, ok := in.(io.ReadCloser)
+		if !ok {
+			return
+		}
+		// Never close the real process stdin; it can break subsequent prompts and shell sessions.
+		if f, ok := in.(*os.File); ok && os.Stdin != nil && f.Fd() == os.Stdin.Fd() {
+			return
+		}
+		_ = rc.Close()
+	}
+
 	reader := bufio.NewReader(in)
-	line, err := reader.ReadString('\n')
+	readResult := make(chan struct {
+		line string
+		err  error
+	}, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		readResult <- struct {
+			line string
+			err  error
+		}{line: line, err: err}
+	}()
+
+	var line string
+	var err error
+	select {
+	case <-ctx.Done():
+		closeInputOnCancel()
+		fmt.Fprintln(out)
+		return ctx.Err()
+	case res := <-readResult:
+		line, err = res.line, res.err
+	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	reply := strings.TrimSpace(line)
 	switch mode {
 	case confirmModeYes:
-		if reply != "yes" {
+		if !strings.EqualFold(reply, "yes") {
 			return errors.New("aborted")
 		}
 		return nil

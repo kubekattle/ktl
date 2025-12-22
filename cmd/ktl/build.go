@@ -27,7 +27,7 @@ import (
 	"github.com/example/ktl/internal/mirrorbus"
 	"github.com/example/ktl/internal/tailer"
 	"github.com/example/ktl/internal/workflows/buildsvc"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"github.com/example/ktl/pkg/buildkit"
 )
 
@@ -62,6 +62,7 @@ type buildCLIOptions struct {
 	load             bool
 	noCache          bool
 	builder          string
+	dockerContext    string
 	cacheDir         string
 	sign             bool
 	signKey          string
@@ -213,6 +214,7 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 	cmd.Flags().BoolVar(&opts.load, "load", false, "Load the resulting image into the local container runtime (docker build --load)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Disable BuildKit cache usage")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.builder, name: "--builder", validator: validateBuildkitAddr}, "builder", "BuildKit address (override with KTL_BUILDKIT_HOST)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.dockerContext, name: "--docker-context", allowEmpty: true, validator: nil}, "docker-context", "Docker context to use for buildx fallback (override with KTL_DOCKER_CONTEXT)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.cacheDir, name: "--cache-dir", allowEmpty: false, validator: nil}, "cache-dir", "Local cache directory for BuildKit metadata")
 	cmd.Flags().BoolVar(&opts.sign, "sign", false, "Sign pushed image tags with cosign after a successful build (requires --push)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.signKey, name: "--sign-key", allowEmpty: true, validator: nil}, "sign-key", "cosign key reference for signing (e.g. awskms://..., gcpkms://..., azurekms://...)")
@@ -451,6 +453,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		Load:               opts.load,
 		NoCache:            opts.noCache,
 		Builder:            opts.builder,
+		DockerContext:      opts.dockerContext,
 		CacheDir:           opts.cacheDir,
 		Sign:               opts.sign,
 		SignKey:            opts.signKey,

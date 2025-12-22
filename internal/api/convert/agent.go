@@ -10,7 +10,7 @@ import (
 
 	"github.com/example/ktl/internal/config"
 	"github.com/example/ktl/internal/tailer"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 )
 
 // ToProtoLogRecord converts a Tailer log record into a protobuf line.

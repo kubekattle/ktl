@@ -472,6 +472,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	buildOpts := buildkit.DockerfileBuildOptions{
 		BuilderAddr:          opts.Builder,
 		AllowBuilderFallback: opts.Builder == "",
+		DockerContext:        opts.DockerContext,
 		ContextDir:           contextDir,
 		DockerfilePath:       opts.Dockerfile,
 		Platforms:            platforms,

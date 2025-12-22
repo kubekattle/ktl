@@ -11,7 +11,7 @@ import (
 
 	"github.com/example/ktl/internal/logging"
 	"github.com/example/ktl/internal/workflows/buildsvc"
-	apiv1 "github.com/example/ktl/pkg/api/v1"
+	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"

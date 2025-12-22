@@ -117,6 +117,7 @@ type Options struct {
 	Load               bool
 	NoCache            bool
 	Builder            string
+	DockerContext      string
 	CacheDir           string
 	Sign               bool
 	SignKey            string
