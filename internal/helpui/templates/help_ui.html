@@ -397,6 +397,20 @@
         renderDetail(state.activeId ? state.results.find(e => e.id === state.activeId) : null);
       }
 
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "/" && document.activeElement !== elQ) {
+          e.preventDefault();
+          elQ.focus();
+          return;
+        }
+        if (e.key === "Escape" && document.activeElement === elQ) {
+          e.preventDefault();
+          elQ.value = "";
+          state.activeId = null;
+          onQueryChanged();
+        }
+      });
+
       document.querySelectorAll(".chip").forEach(chip => {
         chip.addEventListener("click", () => {
           document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
@@ -427,7 +441,7 @@
       async function boot() {
         const res = await fetch(includeAll ? "/api/index.json?all=1" : "/api/index.json");
         state.index = await res.json();
-        elMeta.textContent = "Index " + state.index.entries.length + " items";
+        elMeta.textContent = "Press / to search";
         onQueryChanged();
         elQ.focus();
       }

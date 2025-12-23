@@ -84,13 +84,22 @@ func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	if s != nil && s.root != nil {
 		title = strings.TrimSpace(s.root.Name()) + " help"
 	}
+	if s == nil || s.template == nil {
+		_, _ = fmt.Fprint(w, title)
+		return
+	}
+	all := s.all
 	var buf bytes.Buffer
-	_ = s.template.Execute(&buf, templateData{Title: template.HTMLEscapeString(title), All: s != nil && s.all})
+	_ = s.template.Execute(&buf, templateData{Title: template.HTMLEscapeString(title), All: all})
 	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *Server) handleIndexJSON(w http.ResponseWriter, r *http.Request) {
-	includeHidden := s != nil && s.all
+	if s == nil {
+		http.Error(w, "help ui unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	includeHidden := s.all
 	if !includeHidden {
 		includeHidden = strings.EqualFold(r.URL.Query().Get("all"), "1") || strings.EqualFold(r.URL.Query().Get("all"), "true")
 	}
