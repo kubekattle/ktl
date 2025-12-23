@@ -215,7 +215,6 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 
 	// Keep the root help output stable and grouped for scanability.
 	cmd.SetHelpTemplate(rootHelpTemplate())
-	setHelpCommand(cmd)
 	return cmd
 }
 
