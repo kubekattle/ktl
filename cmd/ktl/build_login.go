@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -45,7 +46,7 @@ func newBuildLoginCommand(parent *buildCLIOptions) *cobra.Command {
   ktl build login
 
   # Login to GHCR using stdin (recommended)
-  echo "$GITHUB_TOKEN" | ktl build login ghcr.io --username your-user --password-stdin`,
+  echo "$GITHUB_TOKEN" | ktl build login ghcr.io --username your-github-username --password-stdin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.Server = args[0]
@@ -214,11 +215,28 @@ func promptForPassword(cmd *cobra.Command, label string) (string, error) {
 }
 
 func readPasswordFromStdin(cmd *cobra.Command) (string, error) {
-	data, err := io.ReadAll(cmd.InOrStdin())
-	if err != nil {
-		return "", err
+	ctx := context.Background()
+	if cmd != nil && cmd.Context() != nil {
+		ctx = cmd.Context()
 	}
-	return strings.TrimRight(strings.TrimRight(string(data), "\n"), "\r"), nil
+	type result struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		data, err := io.ReadAll(cmd.InOrStdin())
+		ch <- result{data: data, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case res := <-ch:
+		if res.err != nil {
+			return "", res.err
+		}
+		return strings.TrimRight(strings.TrimRight(string(res.data), "\n"), "\r"), nil
+	}
 }
 
 func pingRegistry(server, username, password string) error {
