@@ -57,6 +57,7 @@
         margin-top: 6px;
         line-height: 1.35;
       }
+      #meta:empty { display: none; }
       .hero {
         display: grid;
         grid-template-columns: 1fr;
@@ -515,7 +516,7 @@
       async function boot() {
         const res = await fetch(includeAll ? "/api/index.json?all=1" : "/api/index.json");
         state.index = await res.json();
-        elMeta.textContent = "Press / to search";
+        elMeta.textContent = "";
         onQueryChanged();
         elQ.focus();
       }
