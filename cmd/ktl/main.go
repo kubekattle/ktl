@@ -196,6 +196,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		envCmd,
 		versionCmd,
 	)
+	cmd.SetHelpCommand(newHelpCommand(cmd))
 	cmd.Example = `  # Tail checkout pods in prod-payments and highlight errors
 	  ktl logs 'checkout-.*' --namespace prod-payments --highlight ERROR
 
