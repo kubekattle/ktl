@@ -24,6 +24,25 @@ RUN echo hi
 	}
 }
 
+func TestParseDockerfileRefs_DetectsBroadCopyAndMounts(t *testing.T) {
+	input := `
+FROM alpine
+COPY . /src
+RUN --mount=type=secret,id=foo echo hi
+RUN --mount=type=ssh echo hi
+`
+	_, broad, secrets, ssh := parseDockerfileRefs(input)
+	if !broad {
+		t.Fatalf("expected broad copy")
+	}
+	if secrets != 1 {
+		t.Fatalf("expected 1 secret mount, got %d", secrets)
+	}
+	if ssh != 1 {
+		t.Fatalf("expected 1 ssh mount, got %d", ssh)
+	}
+}
+
 func TestDiffCacheIntelInputs(t *testing.T) {
 	prev := &cacheIntelInputsSnapshot{
 		Version:         1,

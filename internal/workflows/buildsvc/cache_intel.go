@@ -46,16 +46,19 @@ type cacheIntelVertex struct {
 }
 
 type cacheIntelInputsSnapshot struct {
-	Version         int               `json:"version"`
-	TakenAtUTC      time.Time         `json:"takenAtUtc"`
-	ContextAbs      string            `json:"contextAbs"`
-	DockerfileRel   string            `json:"dockerfileRel"`
-	DockerfileSHA   string            `json:"dockerfileSha256"`
-	DockerignoreSHA string            `json:"dockerignoreSha256,omitempty"`
-	BuildArgSHA     map[string]string `json:"buildArgSha256,omitempty"`
-	SecretIDs       []string          `json:"secretIds,omitempty"`
-	FileSHA         map[string]string `json:"fileSha256,omitempty"`
-	FileBytes       map[string]int64  `json:"fileBytes,omitempty"`
+	Version          int               `json:"version"`
+	TakenAtUTC       time.Time         `json:"takenAtUtc"`
+	ContextAbs       string            `json:"contextAbs"`
+	DockerfileRel    string            `json:"dockerfileRel"`
+	DockerfileSHA    string            `json:"dockerfileSha256"`
+	DockerignoreSHA  string            `json:"dockerignoreSha256,omitempty"`
+	BuildArgSHA      map[string]string `json:"buildArgSha256,omitempty"`
+	SecretIDs        []string          `json:"secretIds,omitempty"`
+	FileSHA          map[string]string `json:"fileSha256,omitempty"`
+	FileBytes        map[string]int64  `json:"fileBytes,omitempty"`
+	BroadContextCopy bool              `json:"broadContextCopy,omitempty"`
+	SecretMounts     int               `json:"secretMounts,omitempty"`
+	SSHMounts        int               `json:"sshMounts,omitempty"`
 }
 
 type cacheIntelDiff struct {
@@ -64,6 +67,9 @@ type cacheIntelDiff struct {
 	DockerfileChanged   bool                     `json:"dockerfileChanged,omitempty"`
 	DockerignoreChanged bool                     `json:"dockerignoreChanged,omitempty"`
 	FilesChanged        []cacheIntelChangedValue `json:"filesChanged,omitempty"`
+	BroadContextCopy    bool                     `json:"broadContextCopy,omitempty"`
+	SecretMounts        int                      `json:"secretMounts,omitempty"`
+	SSHMounts           int                      `json:"sshMounts,omitempty"`
 }
 
 type cacheIntelChangedValue struct {
@@ -302,6 +308,12 @@ func (r cacheIntelReport) writeHuman(w io.Writer) {
 			}
 		}
 	}
+	if r.Diff.BroadContextCopy {
+		fmt.Fprintln(w, "  Note: Dockerfile contains COPY/ADD of '.' (broad context copy); file attribution is best-effort.")
+	}
+	if r.Diff.SecretMounts > 0 || r.Diff.SSHMounts > 0 {
+		fmt.Fprintf(w, "  Note: RUN mounts detected: secret=%d ssh=%d (may reduce cacheability).\n", r.Diff.SecretMounts, r.Diff.SSHMounts)
+	}
 
 	misses := r.cacheMissVertices()
 	if len(misses) > 0 {
@@ -465,6 +477,9 @@ func diffCacheIntelInputs(prev, cur *cacheIntelInputsSnapshot, topN int) cacheIn
 	if prev == nil || cur == nil {
 		return out
 	}
+	out.BroadContextCopy = cur.BroadContextCopy
+	out.SecretMounts = cur.SecretMounts
+	out.SSHMounts = cur.SSHMounts
 	if prev.DockerfileSHA != "" && cur.DockerfileSHA != "" && prev.DockerfileSHA != cur.DockerfileSHA {
 		out.DockerfileChanged = true
 	}
@@ -653,7 +668,10 @@ func buildCacheIntelInputsSnapshot(ctx context.Context, contextAbs, dockerfileAb
 	sort.Strings(secretIDs)
 	snap.SecretIDs = secretIDs
 
-	paths, _ := referencedBuildContextPaths(contextAbs, dockerfileAbs)
+	paths, broadCopy, secretMounts, sshMounts := referencedBuildContextPaths(contextAbs, dockerfileAbs)
+	snap.BroadContextCopy = broadCopy
+	snap.SecretMounts = secretMounts
+	snap.SSHMounts = sshMounts
 	for _, p := range paths {
 		abs := filepath.Join(contextAbs, p)
 		h, err := sha256Path(abs)
@@ -668,12 +686,12 @@ func buildCacheIntelInputsSnapshot(ctx context.Context, contextAbs, dockerfileAb
 	return snap, nil
 }
 
-func referencedBuildContextPaths(contextAbs, dockerfileAbs string) ([]string, error) {
+func referencedBuildContextPaths(contextAbs, dockerfileAbs string) ([]string, bool, int, int) {
 	raw, err := os.ReadFile(dockerfileAbs)
 	if err != nil {
-		return nil, err
+		return nil, false, 0, 0
 	}
-	refs := parseDockerfileCopyAddSources(string(raw))
+	refs, broadCopy, secretMounts, sshMounts := parseDockerfileRefs(string(raw))
 	expanded := make([]string, 0, len(refs))
 	seen := map[string]struct{}{}
 	for _, ref := range refs {
@@ -716,7 +734,7 @@ func referencedBuildContextPaths(contextAbs, dockerfileAbs string) ([]string, er
 		expanded = append(expanded, ref)
 	}
 	sort.Strings(expanded)
-	return expanded, nil
+	return expanded, broadCopy, secretMounts, sshMounts
 }
 
 func parseDockerfileCopyAddSources(dockerfile string) []string {
@@ -748,6 +766,55 @@ func parseDockerfileCopyAddSources(dockerfile string) []string {
 		}
 	}
 	return out
+}
+
+func parseDockerfileRefs(dockerfile string) ([]string, bool, int, int) {
+	refs := parseDockerfileCopyAddSources(dockerfile)
+
+	broadCopy := false
+	for _, r := range refs {
+		switch strings.TrimSpace(r) {
+		case ".", "./":
+			broadCopy = true
+		}
+	}
+
+	secretMounts := 0
+	sshMounts := 0
+	sc := bufio.NewScanner(strings.NewReader(dockerfile))
+	var logical string
+	for sc.Scan() {
+		line := sc.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if idx := strings.Index(trimmed, "#"); idx >= 0 {
+			trimmed = strings.TrimSpace(trimmed[:idx])
+		}
+		if strings.HasSuffix(trimmed, "\\") {
+			logical += strings.TrimSpace(strings.TrimSuffix(trimmed, "\\")) + " "
+			continue
+		}
+		logical += trimmed
+		instr, rest, ok := splitDockerfileInstruction(logical)
+		logical = ""
+		if !ok {
+			continue
+		}
+		if strings.ToUpper(strings.TrimSpace(instr)) != "RUN" {
+			continue
+		}
+		upper := strings.ToUpper(rest)
+		if strings.Contains(upper, "TYPE=SECRET") {
+			secretMounts++
+		}
+		if strings.Contains(upper, "TYPE=SSH") {
+			sshMounts++
+		}
+	}
+
+	return refs, broadCopy, secretMounts, sshMounts
 }
 
 func splitDockerfileInstruction(line string) (string, string, bool) {
