@@ -29,8 +29,9 @@ type cacheIntelCollector struct {
 	cacheDir       string
 	topN           int
 
-	previous *cacheIntelInputsSnapshot
-	current  *cacheIntelInputsSnapshot
+	previous  *cacheIntelInputsSnapshot
+	current   *cacheIntelInputsSnapshot
+	prevGraph *cacheIntelSolveGraph
 
 	mu       chan struct{}
 	vertices map[string]*cacheIntelVertex
@@ -45,6 +46,24 @@ type cacheIntelVertex struct {
 	completedAt *time.Time
 	err         string
 	bytesTotal  int64
+	inputs      []string
+}
+
+type cacheIntelSolveGraph struct {
+	Version    int                     `json:"version"`
+	TakenAtUTC time.Time               `json:"takenAtUtc"`
+	Vertices   []cacheIntelSolveVertex `json:"vertices"`
+}
+
+type cacheIntelSolveVertex struct {
+	Digest         string     `json:"digest"`
+	Name           string     `json:"name,omitempty"`
+	Inputs         []string   `json:"inputs,omitempty"`
+	Cached         bool       `json:"cached,omitempty"`
+	Error          string     `json:"error,omitempty"`
+	BytesTotal     int64      `json:"bytesTotal,omitempty"`
+	StartedAtUTC   *time.Time `json:"startedAtUtc,omitempty"`
+	CompletedAtUTC *time.Time `json:"completedAtUtc,omitempty"`
 }
 
 type cacheIntelInputsSnapshot struct {
@@ -104,6 +123,8 @@ func newCacheIntelCollector(ctx context.Context, contextAbs, dockerfileAbs, cach
 
 	prev, _ := c.loadPreviousSnapshot(ctx, relDockerfile)
 	c.previous = prev
+	prevGraph, _ := c.loadPreviousGraph(ctx, relDockerfile)
+	c.prevGraph = prevGraph
 
 	cur, _ := buildCacheIntelInputsSnapshot(ctx, contextAbs, dockerfileAbs, relDockerfile, buildArgs, secretIDs)
 	c.current = cur
@@ -144,6 +165,20 @@ func (c *cacheIntelCollector) HandleStatus(status *client.SolveStatus) {
 		}
 		if vertex.Error != "" {
 			st.err = vertex.Error
+		}
+		if len(vertex.Inputs) > 0 {
+			inputs := make([]string, 0, len(vertex.Inputs))
+			for _, in := range vertex.Inputs {
+				s := strings.TrimSpace(in.String())
+				if s == "" {
+					continue
+				}
+				inputs = append(inputs, s)
+			}
+			if len(inputs) > 0 {
+				sort.Strings(inputs)
+				st.inputs = inputs
+			}
 		}
 		if st.startedAt == nil && st.completedAt != nil {
 			st.startedAt = st.completedAt
@@ -215,6 +250,7 @@ func (c *cacheIntelCollector) report() cacheIntelReport {
 	cur := c.current
 	prev := c.previous
 	ociDir := c.ociDir
+	prevGraph := c.prevGraph
 	c.mu <- struct{}{}
 
 	out.InputsPrevious = prev
@@ -230,6 +266,11 @@ func (c *cacheIntelCollector) report() cacheIntelReport {
 	}
 
 	out.Vertices = vertices
+	curGraph := buildSolveGraph(vertices)
+	out.CacheKeyDiffs = diffSolveGraphs(prevGraph, &curGraph, out.TopN)
+	if cur != nil {
+		_ = c.writeCurrentGraph(context.Background(), cur.DockerfileRel, curGraph)
+	}
 	if ociDir != "" {
 		if layers, err := buildkit.TopOCILayers(ociDir, out.TopN); err == nil {
 			out.Layers = make([]cacheIntelLayer, 0, len(layers))
@@ -259,8 +300,9 @@ type cacheIntelReport struct {
 	InputsCurrent  *cacheIntelInputsSnapshot `json:"inputsCurrent,omitempty"`
 	Diff           cacheIntelDiff            `json:"diff"`
 
-	Vertices []cacheIntelVertex `json:"vertices,omitempty"`
-	Layers   []cacheIntelLayer  `json:"layers,omitempty"`
+	Vertices      []cacheIntelVertex       `json:"vertices,omitempty"`
+	Layers        []cacheIntelLayer        `json:"layers,omitempty"`
+	CacheKeyDiffs []cacheIntelCacheKeyDiff `json:"cacheKeyDiffs,omitempty"`
 }
 
 type cacheIntelLayer struct {
@@ -268,6 +310,14 @@ type cacheIntelLayer struct {
 	Digest      string `json:"digest"`
 	Size        int64  `json:"size"`
 	MediaType   string `json:"mediaType,omitempty"`
+}
+
+type cacheIntelCacheKeyDiff struct {
+	Name          string   `json:"name"`
+	PrevDigest    string   `json:"prevDigest,omitempty"`
+	CurDigest     string   `json:"curDigest,omitempty"`
+	Type          string   `json:"type"` // definition_changed | cache_evicted | new_step | removed_step
+	UpstreamNames []string `json:"upstreamNames,omitempty"`
 }
 
 func (r cacheIntelReport) writeJSON(w io.Writer) error {
@@ -337,12 +387,33 @@ func (r cacheIntelReport) writeHuman(w io.Writer) {
 
 	misses := r.cacheMissVertices()
 	if len(misses) > 0 {
+		diffByName := map[string]cacheIntelCacheKeyDiff{}
+		for _, d := range r.CacheKeyDiffs {
+			if strings.TrimSpace(d.Name) == "" {
+				continue
+			}
+			diffByName[strings.TrimSpace(d.Name)] = d
+		}
 		fmt.Fprintln(w, "  Cache-missed steps (best-effort reasons):")
 		for i, v := range misses {
 			if i >= r.TopN {
 				break
 			}
 			reason := classifyCacheMiss(v, r.Diff)
+			if d, ok := diffByName[strings.TrimSpace(v.name)]; ok {
+				switch d.Type {
+				case "definition_changed":
+					if len(d.UpstreamNames) > 0 {
+						reason = fmt.Sprintf("cache key changed vs last run (upstream: %s)", strings.Join(d.UpstreamNames, ", "))
+					} else {
+						reason = "cache key changed vs last run"
+					}
+				case "cache_evicted":
+					reason = "cache key stable but result missing (cache evicted/pruned or cache import missing)"
+				case "new_step":
+					reason = "new step (no previous cache key)"
+				}
+			}
 			dur := vertexDuration(v).Round(time.Millisecond)
 			if dur < 0 {
 				dur = 0
@@ -614,6 +685,15 @@ func (c *cacheIntelCollector) snapshotPath(relDockerfile string) string {
 	return filepath.Join(dir, hex.EncodeToString(key[:])+".json")
 }
 
+func (c *cacheIntelCollector) graphPath(relDockerfile string) string {
+	base := c.snapshotPath(relDockerfile)
+	ext := filepath.Ext(base)
+	if ext == "" {
+		return base + "-graph.json"
+	}
+	return strings.TrimSuffix(base, ext) + "-graph" + ext
+}
+
 func (c *cacheIntelCollector) loadPreviousSnapshot(ctx context.Context, relDockerfile string) (*cacheIntelInputsSnapshot, error) {
 	_ = ctx
 	if c.cacheDir == "" {
@@ -634,6 +714,26 @@ func (c *cacheIntelCollector) loadPreviousSnapshot(ctx context.Context, relDocke
 	return &snap, nil
 }
 
+func (c *cacheIntelCollector) loadPreviousGraph(ctx context.Context, relDockerfile string) (*cacheIntelSolveGraph, error) {
+	_ = ctx
+	if c.cacheDir == "" {
+		return nil, errors.New("cache dir empty")
+	}
+	path := c.graphPath(relDockerfile)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var g cacheIntelSolveGraph
+	if err := json.Unmarshal(raw, &g); err != nil {
+		return nil, err
+	}
+	if g.Version == 0 {
+		g.Version = 1
+	}
+	return &g, nil
+}
+
 func (c *cacheIntelCollector) writeCurrentSnapshot(ctx context.Context) error {
 	_ = ctx
 	if c.cacheDir == "" || c.current == nil {
@@ -645,6 +745,26 @@ func (c *cacheIntelCollector) writeCurrentSnapshot(ctx context.Context) error {
 	}
 	path := c.snapshotPath(c.current.DockerfileRel)
 	payload, err := json.MarshalIndent(c.current, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, payload, 0o644)
+}
+
+func (c *cacheIntelCollector) writeCurrentGraph(ctx context.Context, relDockerfile string, graph cacheIntelSolveGraph) error {
+	_ = ctx
+	if c.cacheDir == "" {
+		return nil
+	}
+	graph.Version = 1
+	if graph.TakenAtUTC.IsZero() {
+		graph.TakenAtUTC = time.Now().UTC()
+	}
+	path := c.graphPath(relDockerfile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	payload, err := json.MarshalIndent(graph, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -1139,4 +1259,183 @@ func snapshotBroadContext(contextAbs, dockerignorePath string, topFiles int) (st
 		out = append(out, contextFileSnapshot{Path: f.rel, Bytes: f.size, SHA: h})
 	}
 	return meta, out, nil
+}
+
+func buildSolveGraph(vertices []cacheIntelVertex) cacheIntelSolveGraph {
+	g := cacheIntelSolveGraph{
+		Version:    1,
+		TakenAtUTC: time.Now().UTC(),
+		Vertices:   make([]cacheIntelSolveVertex, 0, len(vertices)),
+	}
+	for _, v := range vertices {
+		name := strings.TrimSpace(v.name)
+		inputs := append([]string(nil), v.inputs...)
+		sort.Strings(inputs)
+		start := (*time.Time)(nil)
+		complete := (*time.Time)(nil)
+		if v.startedAt != nil {
+			t := v.startedAt.UTC()
+			start = &t
+		}
+		if v.completedAt != nil {
+			t := v.completedAt.UTC()
+			complete = &t
+		}
+		g.Vertices = append(g.Vertices, cacheIntelSolveVertex{
+			Digest:         strings.TrimSpace(v.id),
+			Name:           name,
+			Inputs:         inputs,
+			Cached:         v.cached,
+			Error:          strings.TrimSpace(v.err),
+			BytesTotal:     v.bytesTotal,
+			StartedAtUTC:   start,
+			CompletedAtUTC: complete,
+		})
+	}
+	sort.Slice(g.Vertices, func(i, j int) bool {
+		if g.Vertices[i].Name == g.Vertices[j].Name {
+			return g.Vertices[i].Digest < g.Vertices[j].Digest
+		}
+		return g.Vertices[i].Name < g.Vertices[j].Name
+	})
+	return g
+}
+
+func diffSolveGraphs(prev, cur *cacheIntelSolveGraph, topN int) []cacheIntelCacheKeyDiff {
+	if cur == nil {
+		return nil
+	}
+	prevByName := map[string]cacheIntelSolveVertex{}
+	prevByDigest := map[string]cacheIntelSolveVertex{}
+	if prev != nil {
+		for _, v := range prev.Vertices {
+			name := strings.TrimSpace(v.Name)
+			if name != "" {
+				prevByName[name] = v
+			}
+			if d := strings.TrimSpace(v.Digest); d != "" {
+				prevByDigest[d] = v
+			}
+		}
+	}
+	curByName := map[string]cacheIntelSolveVertex{}
+	curByDigest := map[string]cacheIntelSolveVertex{}
+	for _, v := range cur.Vertices {
+		name := strings.TrimSpace(v.Name)
+		if name != "" {
+			curByName[name] = v
+		}
+		if d := strings.TrimSpace(v.Digest); d != "" {
+			curByDigest[d] = v
+		}
+	}
+
+	names := make([]string, 0, len(curByName))
+	for name := range curByName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make([]cacheIntelCacheKeyDiff, 0)
+	for _, name := range names {
+		curV := curByName[name]
+		prevV, ok := prevByName[name]
+		if !ok {
+			if !curV.Cached {
+				out = append(out, cacheIntelCacheKeyDiff{
+					Name:      name,
+					CurDigest: curV.Digest,
+					Type:      "new_step",
+				})
+			}
+			continue
+		}
+		if strings.TrimSpace(prevV.Digest) != strings.TrimSpace(curV.Digest) {
+			upstreams := upstreamChanges(prevV, curV, prevByDigest, curByDigest)
+			out = append(out, cacheIntelCacheKeyDiff{
+				Name:          name,
+				PrevDigest:    prevV.Digest,
+				CurDigest:     curV.Digest,
+				Type:          "definition_changed",
+				UpstreamNames: upstreams,
+			})
+			continue
+		}
+		if prevV.Cached && !curV.Cached {
+			out = append(out, cacheIntelCacheKeyDiff{
+				Name:       name,
+				PrevDigest: prevV.Digest,
+				CurDigest:  curV.Digest,
+				Type:       "cache_evicted",
+			})
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Type == out[j].Type {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Type < out[j].Type
+	})
+	if topN > 0 && len(out) > topN {
+		return out[:topN]
+	}
+	return out
+}
+
+func upstreamChanges(prev, cur cacheIntelSolveVertex, prevByDigest, curByDigest map[string]cacheIntelSolveVertex) []string {
+	prevSet := map[string]struct{}{}
+	for _, in := range prev.Inputs {
+		in = strings.TrimSpace(in)
+		if in == "" {
+			continue
+		}
+		prevSet[in] = struct{}{}
+	}
+	curSet := map[string]struct{}{}
+	for _, in := range cur.Inputs {
+		in = strings.TrimSpace(in)
+		if in == "" {
+			continue
+		}
+		curSet[in] = struct{}{}
+	}
+
+	changedDigests := make([]string, 0)
+	for d := range curSet {
+		if _, ok := prevSet[d]; !ok {
+			changedDigests = append(changedDigests, d)
+		}
+	}
+	for d := range prevSet {
+		if _, ok := curSet[d]; !ok {
+			changedDigests = append(changedDigests, d)
+		}
+	}
+	sort.Strings(changedDigests)
+
+	names := make([]string, 0, len(changedDigests))
+	seen := map[string]struct{}{}
+	for _, d := range changedDigests {
+		if v, ok := curByDigest[d]; ok && strings.TrimSpace(v.Name) != "" {
+			n := strings.TrimSpace(v.Name)
+			if _, dup := seen[n]; !dup {
+				seen[n] = struct{}{}
+				names = append(names, n)
+			}
+			continue
+		}
+		if v, ok := prevByDigest[d]; ok && strings.TrimSpace(v.Name) != "" {
+			n := strings.TrimSpace(v.Name)
+			if _, dup := seen[n]; !dup {
+				seen[n] = struct{}{}
+				names = append(names, n)
+			}
+		}
+	}
+	sort.Strings(names)
+	if len(names) > 5 {
+		names = names[:5]
+	}
+	return names
 }

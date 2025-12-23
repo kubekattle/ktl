@@ -104,3 +104,41 @@ func TestDiffCacheIntelInputs(t *testing.T) {
 		t.Fatalf("expected bar to change, got %v", diff.FilesChanged)
 	}
 }
+
+func TestDiffSolveGraphs_DefinitionChangedWithUpstream(t *testing.T) {
+	prev := &cacheIntelSolveGraph{
+		Version: 1,
+		Vertices: []cacheIntelSolveVertex{
+			{Name: "COPY package.json", Digest: "sha256:aaa", Inputs: []string{"sha256:src"}},
+			{Name: "RUN npm ci", Digest: "sha256:bbb", Inputs: []string{"sha256:aaa"}},
+			{Name: "src", Digest: "sha256:src"},
+		},
+	}
+	cur := &cacheIntelSolveGraph{
+		Version: 1,
+		Vertices: []cacheIntelSolveVertex{
+			{Name: "COPY package.json", Digest: "sha256:ccc", Inputs: []string{"sha256:src2"}},
+			{Name: "RUN npm ci", Digest: "sha256:ddd", Inputs: []string{"sha256:ccc"}},
+			{Name: "src", Digest: "sha256:src2"},
+		},
+	}
+	diffs := diffSolveGraphs(prev, cur, 10)
+	if len(diffs) == 0 {
+		t.Fatalf("expected diffs")
+	}
+	found := false
+	for _, d := range diffs {
+		if d.Name == "RUN npm ci" {
+			found = true
+			if d.Type != "definition_changed" {
+				t.Fatalf("unexpected type: %#v", d)
+			}
+			if len(d.UpstreamNames) == 0 {
+				t.Fatalf("expected upstream names: %#v", d)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected diff for RUN npm ci, got %#v", diffs)
+	}
+}
