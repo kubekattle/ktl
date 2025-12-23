@@ -223,6 +223,15 @@ type cacheIntelReport struct {
 	Vertices []cacheIntelVertex `json:"vertices,omitempty"`
 }
 
+func (r cacheIntelReport) writeJSON(w io.Writer) error {
+	if w == nil {
+		return nil
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
+}
+
 func (r cacheIntelReport) writeHuman(w io.Writer) {
 	if w == nil {
 		return

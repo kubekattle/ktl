@@ -484,6 +484,46 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
+	writeCacheIntel := func() {
+		if cacheIntel == nil {
+			return
+		}
+		rep := cacheIntel.report()
+		format := strings.TrimSpace(opts.CacheIntelFormat)
+		if format == "" {
+			format = "human"
+		}
+		dest := strings.TrimSpace(opts.CacheIntelOutput)
+
+		var w io.Writer = errOut
+		var closer io.Closer
+		if dest != "" {
+			if dest == "-" {
+				w = streams.OutWriter()
+			} else {
+				if err := os.MkdirAll(filepath.Dir(dest), 0o755); err == nil {
+					f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+					if err == nil {
+						w = f
+						closer = f
+					}
+				}
+			}
+		}
+		defer func() {
+			if closer != nil {
+				_ = closer.Close()
+			}
+		}()
+
+		switch format {
+		case "json":
+			_ = rep.writeJSON(w)
+		default:
+			rep.writeHuman(w)
+		}
+	}
+
 	buildOpts := buildkit.DockerfileBuildOptions{
 		BuilderAddr:          opts.Builder,
 		AllowBuilderFallback: opts.Builder == "",
@@ -531,14 +571,10 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	result, err := s.buildRunner.BuildDockerfile(ctx, buildOpts)
 	if err != nil {
-		if cacheIntel != nil {
-			cacheIntel.report().writeHuman(errOut)
-		}
+		writeCacheIntel()
 		return nil, err
 	}
-	if cacheIntel != nil {
-		cacheIntel.report().writeHuman(errOut)
-	}
+	writeCacheIntel()
 	if captureRecorder != nil && result != nil {
 		_ = captureRecorder.RecordArtifact(ctx, "build.digest", strings.TrimSpace(result.Digest))
 		_ = captureRecorder.RecordArtifact(ctx, "build.oci_output_dir", strings.TrimSpace(result.OCIOutputPath))

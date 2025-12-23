@@ -121,6 +121,8 @@ type Options struct {
 	CacheDir           string
 	CacheIntel         bool
 	CacheIntelTop      int
+	CacheIntelFormat   string
+	CacheIntelOutput   string
 	Sign               bool
 	SignKey            string
 	RekorURL           string

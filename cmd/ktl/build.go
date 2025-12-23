@@ -66,6 +66,8 @@ type buildCLIOptions struct {
 	cacheDir         string
 	cacheIntel       bool
 	cacheIntelTop    int
+	cacheIntelFormat string
+	cacheIntelOutput string
 	sign             bool
 	signKey          string
 	rekorURL         string
@@ -110,16 +112,17 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 		globalProfile = &fallback
 	}
 	opts := buildCLIOptions{
-		contextDir:    ".",
-		dockerfile:    "Dockerfile",
-		builder:       buildkit.DefaultBuilderAddress(),
-		cacheDir:      buildkit.DefaultCacheDir(),
-		cacheIntel:    true,
-		cacheIntelTop: 10,
-		rm:            true,
-		policyMode:    "enforce",
-		secretsMode:   "warn",
-		profile:       *globalProfile,
+		contextDir:       ".",
+		dockerfile:       "Dockerfile",
+		builder:          buildkit.DefaultBuilderAddress(),
+		cacheDir:         buildkit.DefaultCacheDir(),
+		cacheIntel:       true,
+		cacheIntelTop:    10,
+		cacheIntelFormat: "human",
+		rm:               true,
+		policyMode:       "enforce",
+		secretsMode:      "warn",
+		profile:          *globalProfile,
 	}
 
 	cmd := &cobra.Command{
@@ -219,6 +222,8 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Disable BuildKit cache usage")
 	cmd.Flags().BoolVar(&opts.cacheIntel, "cache-intel", true, "Print a post-build cache summary (cache misses, slow steps, changed inputs)")
 	cmd.Flags().Var(&nonNegativeIntValue{dest: &opts.cacheIntelTop}, "cache-intel-top", "Max entries to show in the cache intelligence summary")
+	cmd.Flags().Var(newEnumStringValue(&opts.cacheIntelFormat, "human", "human", "json"), "cache-intel-format", "Cache intelligence output format: human or json")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.cacheIntelOutput, name: "--cache-intel-output", allowEmpty: true, validator: nil}, "cache-intel-output", "Write cache intelligence report to this path ('-' for stdout). Defaults to stderr in human mode.")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.builder, name: "--builder", validator: validateBuildkitAddr}, "builder", "BuildKit address (override with KTL_BUILDKIT_HOST)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.dockerContext, name: "--docker-context", allowEmpty: true, validator: nil}, "docker-context", "Docker context to use for buildx fallback (override with KTL_DOCKER_CONTEXT)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.cacheDir, name: "--cache-dir", allowEmpty: false, validator: nil}, "cache-dir", "Local cache directory for BuildKit metadata")
@@ -463,6 +468,8 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		CacheDir:           opts.cacheDir,
 		CacheIntel:         opts.cacheIntel,
 		CacheIntelTop:      opts.cacheIntelTop,
+		CacheIntelFormat:   opts.cacheIntelFormat,
+		CacheIntelOutput:   opts.cacheIntelOutput,
 		Sign:               opts.sign,
 		SignKey:            opts.signKey,
 		RekorURL:           opts.rekorURL,
