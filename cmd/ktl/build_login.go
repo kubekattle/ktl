@@ -8,10 +8,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -241,15 +243,8 @@ func readPasswordFromStdin(cmd *cobra.Command) (string, error) {
 
 func pingRegistry(server, username, password string) error {
 	endpoint := registryPingEndpoint(server)
-	req, err := http.NewRequest(http.MethodGet, endpoint+"/v2/", nil)
-	if err != nil {
-		return err
-	}
-	if username != "" || password != "" {
-		req.SetBasicAuth(username, password)
-	}
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := doRegistryPing(client, endpoint, username, password)
 	if err != nil {
 		return err
 	}
@@ -262,6 +257,171 @@ func pingRegistry(server, username, password string) error {
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
 	return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
+func doRegistryPing(client *http.Client, endpoint, username, password string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(endpoint, "/")+"/v2/", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		return resp, nil
+	}
+	chal := resp.Header.Get("WWW-Authenticate")
+	_ = resp.Body.Close()
+
+	scheme, params := parseWWWAuthenticate(chal)
+	switch strings.ToLower(scheme) {
+	case "basic":
+		req2, err := http.NewRequest(http.MethodGet, strings.TrimRight(endpoint, "/")+"/v2/", nil)
+		if err != nil {
+			return nil, err
+		}
+		if username != "" || password != "" {
+			req2.SetBasicAuth(username, password)
+		}
+		return client.Do(req2)
+	case "bearer":
+		realm := strings.TrimSpace(params["realm"])
+		if realm == "" {
+			req2, err := http.NewRequest(http.MethodGet, strings.TrimRight(endpoint, "/")+"/v2/", nil)
+			if err != nil {
+				return nil, err
+			}
+			if username != "" || password != "" {
+				req2.SetBasicAuth(username, password)
+			}
+			return client.Do(req2)
+		}
+		token, err := fetchBearerToken(client, realm, params["service"], params["scope"], username, password)
+		if err != nil {
+			return nil, err
+		}
+		req3, err := http.NewRequest(http.MethodGet, strings.TrimRight(endpoint, "/")+"/v2/", nil)
+		if err != nil {
+			return nil, err
+		}
+		if token != "" {
+			req3.Header.Set("Authorization", "Bearer "+token)
+		}
+		return client.Do(req3)
+	default:
+		req2, err := http.NewRequest(http.MethodGet, strings.TrimRight(endpoint, "/")+"/v2/", nil)
+		if err != nil {
+			return nil, err
+		}
+		if username != "" || password != "" {
+			req2.SetBasicAuth(username, password)
+		}
+		return client.Do(req2)
+	}
+}
+
+func fetchBearerToken(client *http.Client, realm, service, scope, username, password string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(realm))
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	if strings.TrimSpace(service) != "" {
+		q.Set("service", strings.TrimSpace(service))
+	}
+	if strings.TrimSpace(scope) != "" {
+		q.Set("scope", strings.TrimSpace(scope))
+	}
+	u.RawQuery = q.Encode()
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	if username != "" || password != "" {
+		req.SetBasicAuth(username, password)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return "", fmt.Errorf("token exchange failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var payload struct {
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	// best-effort JSON decode; if it fails, treat it as auth failure.
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", fmt.Errorf("token exchange failed: %w", err)
+	}
+	if payload.Token != "" {
+		return payload.Token, nil
+	}
+	return payload.AccessToken, nil
+}
+
+func parseWWWAuthenticate(header string) (scheme string, params map[string]string) {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return "", map[string]string{}
+	}
+	parts := strings.SplitN(header, " ", 2)
+	scheme = strings.TrimSpace(parts[0])
+	params = map[string]string{}
+	if len(parts) < 2 {
+		return scheme, params
+	}
+	rest := strings.TrimSpace(parts[1])
+	for _, part := range splitCommaKV(rest) {
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		k = strings.ToLower(strings.TrimSpace(k))
+		v = strings.Trim(strings.TrimSpace(v), `"`)
+		if k == "" {
+			continue
+		}
+		params[k] = v
+	}
+	return scheme, params
+}
+
+func splitCommaKV(s string) []string {
+	out := []string{}
+	var cur strings.Builder
+	inQuote := false
+	for _, r := range s {
+		switch r {
+		case '"':
+			inQuote = !inQuote
+			cur.WriteRune(r)
+		case ',':
+			if inQuote {
+				cur.WriteRune(r)
+				continue
+			}
+			part := strings.TrimSpace(cur.String())
+			cur.Reset()
+			if part != "" {
+				out = append(out, part)
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if tail := strings.TrimSpace(cur.String()); tail != "" {
+		out = append(out, tail)
+	}
+	return out
 }
 
 func registryPingEndpoint(server string) string {
