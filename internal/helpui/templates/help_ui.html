@@ -131,6 +131,9 @@
         gap: 18px;
         margin-top: 22px;
       }
+      .layout.detailHidden {
+        grid-template-columns: 1fr;
+      }
       @media (max-width: 1100px) {
         .chrome { padding: 28px 22px 52px; }
         .layout { grid-template-columns: 1fr; }
@@ -188,6 +191,7 @@
         max-height: calc(100vh - 80px);
         overflow: auto;
       }
+      .detail.hidden { display: none; }
       .detail h2 {
         font-size: 1.05rem;
         margin: 0 0 8px 0;
@@ -254,9 +258,7 @@
           <div>
             <ul class="results" id="results"></ul>
           </div>
-          <div class="detail" id="detail">
-            <div class="empty">Start typing to search. Tips: try “--ui”, “KTL_”, or “plan visualize”.</div>
-          </div>
+          <div class="detail hidden" id="detail"></div>
         </div>
       </div>
     </div>
@@ -276,6 +278,7 @@
       const elResults = document.getElementById("results");
       const elDetail = document.getElementById("detail");
       const elMeta = document.getElementById("meta");
+      const elLayout = document.querySelector(".layout");
 
       function norm(s) { return (s || "").toLowerCase(); }
 
@@ -345,9 +348,12 @@
       function renderDetail(entry) {
         elDetail.innerHTML = "";
         if (!entry) {
-          elDetail.innerHTML = '<div class="empty">Select a result to see details.</div>';
+          elDetail.classList.add("hidden");
+          elLayout.classList.add("detailHidden");
           return;
         }
+        elDetail.classList.remove("hidden");
+        elLayout.classList.remove("detailHidden");
         const h2 = document.createElement("h2");
         h2.textContent = entry.title;
         elDetail.appendChild(h2);
