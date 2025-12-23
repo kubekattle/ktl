@@ -146,7 +146,6 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 			if len(args) > 0 && looksLikeSubcommandToken(args[0]) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "unknown command %q for %q\n\n", args[0], cmd.Name())
 			}
-			_ = cmd.Help()
 			return pflag.ErrHelp
 		},
 	}
@@ -156,7 +155,6 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		if err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "Error: %v\n\n", err)
 		}
-		_ = cmd.Help()
 		return pflag.ErrHelp
 	})
 	cmd.CompletionOptions.DisableDefaultCmd = true
