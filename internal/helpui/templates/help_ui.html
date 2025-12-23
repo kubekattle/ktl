@@ -155,6 +155,37 @@
         border: 1px solid var(--border);
         overflow: hidden;
       }
+      .tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        margin-top: 0;
+      }
+      .tile {
+        border-radius: 24px;
+        background: rgba(255,255,255,0.72);
+        border: 1px solid rgba(15,23,42,0.12);
+        padding: 18px 18px;
+        cursor: pointer;
+        box-shadow: 0 18px 40px rgba(15,23,42,0.10);
+        transition: transform 220ms var(--ease), box-shadow 220ms var(--ease), border-color 220ms var(--ease);
+      }
+      .tile:hover {
+        transform: translateY(-1px);
+        border-color: rgba(37,99,235,0.35);
+        box-shadow: 0 22px 48px rgba(15,23,42,0.12);
+      }
+      .tileTitle {
+        font-weight: 720;
+        letter-spacing: -0.01em;
+        margin: 0;
+      }
+      .tileSub {
+        color: var(--muted);
+        font-size: 0.92rem;
+        margin-top: 8px;
+        line-height: 1.35;
+      }
       .resultItem {
         padding: 14px 16px;
         border-bottom: 1px solid rgba(15,23,42,0.06);
@@ -281,6 +312,15 @@
       const elResults = document.getElementById("results");
       const elMeta = document.getElementById("meta");
 
+      const curated = [
+        { id: "cmd:ktl apply", title: "ktl apply", sub: "Deploy a chart to a cluster" },
+        { id: "cmd:ktl logs", title: "ktl logs", sub: "Tail pods fast with filtering" },
+        { id: "cmd:ktl build", title: "ktl build", sub: "Build images with BuildKit workflows" },
+        { id: "cmd:ktl plan", title: "ktl plan", sub: "Preview a Helm upgrade safely" },
+        { id: "cmd:ktl delete", title: "ktl delete", sub: "Remove a release with a viewer" },
+        { id: "cmd:ktl env", title: "ktl env", sub: "Environment variables reference" },
+      ];
+
       function norm(s) { return (s || "").toLowerCase(); }
 
       function score(entry, q) {
@@ -314,6 +354,35 @@
 
       function renderResults() {
         elResults.innerHTML = "";
+        const q = state.q.trim();
+        if (!q) {
+          const wrap = document.createElement("div");
+          wrap.className = "tiles";
+          for (const tile of curated) {
+            const el = document.createElement("div");
+            el.className = "tile";
+            const t = document.createElement("div");
+            t.className = "tileTitle";
+            t.textContent = tile.title;
+            const s = document.createElement("div");
+            s.className = "tileSub";
+            s.textContent = tile.sub;
+            el.appendChild(t);
+            el.appendChild(s);
+            el.addEventListener("click", () => {
+              state.activeId = tile.id;
+              state.results = filterAndRank();
+              renderResults();
+            });
+            wrap.appendChild(el);
+          }
+          const li = document.createElement("li");
+          li.className = "resultItem";
+          li.style.padding = "16px";
+          li.appendChild(wrap);
+          elResults.appendChild(li);
+          return;
+        }
         for (const entry of state.results) {
           const li = document.createElement("li");
           li.className = "resultItem" + (entry.id === state.activeId ? " active" : "");
@@ -392,9 +461,7 @@
       function onQueryChanged() {
         state.q = elQ.value || "";
         state.results = filterAndRank();
-        if (state.results.length && !state.activeId) {
-          state.activeId = state.results[0].id;
-        }
+        if (state.q.trim() && state.results.length && !state.activeId) state.activeId = state.results[0].id;
         if (state.activeId && !state.results.some(e => e.id === state.activeId)) {
           state.activeId = state.results.length ? state.results[0].id : null;
         }
