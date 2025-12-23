@@ -39,12 +39,22 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 			path = cmd.Name()
 		}
 		desc := firstNonEmpty(strings.TrimSpace(cmd.Long), strings.TrimSpace(cmd.Short))
+		var contentParts []string
+		if desc != "" {
+			contentParts = append(contentParts, desc)
+		}
+		if useLine := strings.TrimSpace(cmd.UseLine()); useLine != "" {
+			contentParts = append(contentParts, "Usage:\n  "+useLine)
+		}
+		if flags := flagUsages(cmd.LocalFlags()); flags != "" {
+			contentParts = append(contentParts, "Flags:\n"+flags)
+		}
 		entries = append(entries, Entry{
 			ID:       "cmd:" + path,
 			Kind:     "command",
 			Title:    path,
 			Subtitle: strings.TrimSpace(cmd.Short),
-			Content:  desc,
+			Content:  strings.Join(contentParts, "\n\n"),
 			Examples: splitExamples(cmd.Example),
 			Tags:     []string{"command"},
 		})
@@ -178,4 +188,14 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func flagUsages(fs *pflag.FlagSet) string {
+	if fs == nil || !fs.HasAvailableFlags() {
+		return ""
+	}
+	out := fs.FlagUsagesWrapped(92)
+	out = strings.ReplaceAll(out, "\t", "  ")
+	out = strings.TrimRight(out, "\n")
+	return out
 }
