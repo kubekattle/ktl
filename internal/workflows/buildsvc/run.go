@@ -280,7 +280,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	var consoleObserver tailer.LogObserver
 	if !opts.Quiet && streams.IsTerminal(errOut) {
-		consoleObserver = NewConsoleObserver(errOut)
+		consoleObserver = NewConsoleObserverWithLevel(errOut, opts.LogLevel)
 		if consoleObserver != nil {
 			stream.addObserver(consoleObserver)
 		}

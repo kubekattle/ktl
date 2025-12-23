@@ -23,9 +23,14 @@ type buildConsoleObserver struct {
 	podPalette       []*color.Color
 	containerPalette []*color.Color
 	timestampColor   *color.Color
+	level            int
 }
 
 func NewConsoleObserver(w io.Writer) tailer.LogObserver {
+	return NewConsoleObserverWithLevel(w, "info")
+}
+
+func NewConsoleObserverWithLevel(w io.Writer, level string) tailer.LogObserver {
 	if w == nil {
 		return nil
 	}
@@ -34,6 +39,7 @@ func NewConsoleObserver(w io.Writer) tailer.LogObserver {
 		podPalette:       tailer.DefaultColorPalette(),
 		containerPalette: tailer.DefaultColorPalette(),
 		timestampColor:   color.New(color.FgHiBlack),
+		level:            parseLogLevel(level),
 	}
 }
 
@@ -52,12 +58,21 @@ func (o *buildConsoleObserver) ObserveLog(rec tailer.LogRecord) {
 
 func (o *buildConsoleObserver) render(rec tailer.LogRecord) string {
 	if strings.EqualFold(rec.Namespace, "sandbox") || strings.EqualFold(rec.Namespace, "nsjail") {
-		return ""
+		if o.level < logLevelDebug {
+			return ""
+		}
 	}
 	if strings.EqualFold(rec.Source, "heatmap") {
-		return ""
+		if o.level < logLevelDebug {
+			return ""
+		}
 	}
 	if strings.EqualFold(rec.Source, "graph") {
+		if o.level < logLevelDebug {
+			return ""
+		}
+	}
+	if !o.shouldPrint(rec) {
 		return ""
 	}
 	payload := strings.TrimSpace(rec.Rendered)
@@ -99,6 +114,61 @@ func (o *buildConsoleObserver) render(rec tailer.LogRecord) string {
 	}
 	parts = append(parts, payload)
 	return strings.Join(filterEmpty(parts), " ")
+}
+
+const (
+	logLevelError = 1
+	logLevelWarn  = 2
+	logLevelInfo  = 3
+	logLevelDebug = 4
+)
+
+func parseLogLevel(level string) int {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return logLevelDebug
+	case "info", "":
+		return logLevelInfo
+	case "warn", "warning":
+		return logLevelWarn
+	case "error":
+		return logLevelError
+	default:
+		return logLevelInfo
+	}
+}
+
+func (o *buildConsoleObserver) shouldPrint(rec tailer.LogRecord) bool {
+	if o == nil {
+		return true
+	}
+	if o.level >= logLevelInfo {
+		return true
+	}
+	// Use glyph severity when available.
+	switch strings.TrimSpace(rec.SourceGlyph) {
+	case "✖":
+		return true
+	case "⚠":
+		return o.level >= logLevelWarn
+	}
+	container := strings.ToLower(strings.TrimSpace(rec.Container))
+	// BuildKit log streams: keep stderr on warn/error.
+	if container == "stderr" {
+		return o.level >= logLevelWarn || o.level >= logLevelError
+	}
+	// Drop status/info spam at warn/error.
+	if container == "status" || container == "info" {
+		return false
+	}
+	// Diagnostics: show cache misses on warn, drop hits.
+	if container == "diagnostic" {
+		if o.level >= logLevelWarn && strings.Contains(strings.ToLower(rec.Rendered), "cache miss") {
+			return true
+		}
+		return o.level >= logLevelDebug
+	}
+	return o.level >= logLevelWarn
 }
 
 func (o *buildConsoleObserver) colorizeBySeed(token, seed string, palette []*color.Color) string {

@@ -68,6 +68,7 @@ type buildCLIOptions struct {
 	cacheIntelTop    int
 	cacheIntelFormat string
 	cacheIntelOutput string
+	logLevel         string
 	sign             bool
 	signKey          string
 	rekorURL         string
@@ -100,16 +101,21 @@ var defaultBuildService buildsvc.Service = buildsvc.New(buildsvc.Dependencies{})
 
 func newBuildCommand() *cobra.Command {
 	profile := "dev"
-	return newBuildCommandWithService(defaultBuildService, &profile)
+	logLevel := "info"
+	return newBuildCommandWithService(defaultBuildService, &profile, &logLevel)
 }
 
-func newBuildCommandWithService(service buildsvc.Service, globalProfile *string) *cobra.Command {
+func newBuildCommandWithService(service buildsvc.Service, globalProfile *string, globalLogLevel *string) *cobra.Command {
 	if service == nil {
 		service = defaultBuildService
 	}
 	if globalProfile == nil {
 		fallback := "dev"
 		globalProfile = &fallback
+	}
+	if globalLogLevel == nil {
+		fallback := "info"
+		globalLogLevel = &fallback
 	}
 	opts := buildCLIOptions{
 		contextDir:       ".",
@@ -119,6 +125,7 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 		cacheIntel:       true,
 		cacheIntelTop:    10,
 		cacheIntelFormat: "human",
+		logLevel:         *globalLogLevel,
 		rm:               true,
 		policyMode:       "enforce",
 		secretsMode:      "warn",
@@ -160,6 +167,7 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 				runOpts.contextDir = args[0]
 			}
 			runOpts.profile = *globalProfile
+			runOpts.logLevel = *globalLogLevel
 			if !cmd.Flags().Changed("builder") {
 				runOpts.builder = ""
 			}
@@ -378,14 +386,14 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 	}
 	defer conn.Close()
 
-	logger, err := logging.New("info")
+	logger, err := logging.New(opts.logLevel)
 	if err != nil {
 		return err
 	}
 	errOut := cmd.ErrOrStderr()
 	var observers []tailer.LogObserver
 	if !opts.quiet {
-		if obs := buildsvc.NewConsoleObserver(errOut); obs != nil {
+		if obs := buildsvc.NewConsoleObserverWithLevel(errOut, opts.logLevel); obs != nil {
 			observers = append(observers, obs)
 		}
 	}
@@ -470,6 +478,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		CacheIntelTop:      opts.cacheIntelTop,
 		CacheIntelFormat:   opts.cacheIntelFormat,
 		CacheIntelOutput:   opts.cacheIntelOutput,
+		LogLevel:           opts.logLevel,
 		Sign:               opts.sign,
 		SignKey:            opts.signKey,
 		RekorURL:           opts.rekorURL,

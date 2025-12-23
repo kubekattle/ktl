@@ -123,6 +123,7 @@ type Options struct {
 	CacheIntelTop      int
 	CacheIntelFormat   string
 	CacheIntelOutput   string
+	LogLevel           string
 	Sign               bool
 	SignKey            string
 	RekorURL           string

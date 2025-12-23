@@ -175,7 +175,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	logFlagNames := opts.BindFlags(cmd.Flags())
 	hideFlags(cmd.Flags(), logFlagNames)
 	logsCmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)
-	buildCmd := newBuildCommandWithService(buildService, &globalProfile)
+	buildCmd := newBuildCommandWithService(buildService, &globalProfile, &logLevel)
 	planCmd := newPlanCommand(&kubeconfigPath, &kubeContext)
 	listCmd := newListCommand(&kubeconfigPath, &kubeContext)
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
