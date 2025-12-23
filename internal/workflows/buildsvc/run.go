@@ -497,6 +497,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 
 		var w io.Writer = errOut
 		var closer io.Closer
+		wrotePath := ""
 		if dest != "" {
 			if dest == "-" {
 				w = streams.OutWriter()
@@ -506,6 +507,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 					if err == nil {
 						w = f
 						closer = f
+						wrotePath = dest
 					}
 				}
 			}
@@ -519,6 +521,9 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		switch format {
 		case "json":
 			_ = rep.writeJSON(w)
+			if wrotePath != "" && closer != nil {
+				fmt.Fprintf(errOut, "Wrote cache intelligence report to %s\n", wrotePath)
+			}
 		default:
 			rep.writeHuman(w)
 		}
