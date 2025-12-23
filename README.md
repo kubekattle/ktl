@@ -14,6 +14,7 @@ Any command that supports `--ui` lets you omit the host/port. Unless noted, the 
 | Command | Default `--ui` bind |
 | --- | --- |
 | `ktl logs` mirrors | `:8080` |
+| `ktl help` | `:8080` |
 | `ktl apply` | `:8080` |
 | `ktl delete` | `:8080` |
 
