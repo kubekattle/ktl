@@ -119,6 +119,8 @@ type Options struct {
 	Builder            string
 	DockerContext      string
 	CacheDir           string
+	CacheIntel         bool
+	CacheIntelTop      int
 	Sign               bool
 	SignKey            string
 	RekorURL           string

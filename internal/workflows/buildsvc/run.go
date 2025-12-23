@@ -469,6 +469,21 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 	progressOut := resolveConsoleFile(errOut)
 
+	var cacheIntel *cacheIntelCollector
+	if opts.CacheIntel && !opts.Quiet {
+		dfPath := opts.Dockerfile
+		if dfPath == "" {
+			dfPath = "Dockerfile"
+		}
+		if !filepath.IsAbs(dfPath) {
+			dfPath = filepath.Join(contextAbs, dfPath)
+		}
+		cacheIntel, _ = newCacheIntelCollector(ctx, contextAbs, dfPath, cacheDir, opts.CacheIntelTop, buildArgs, opts.Secrets)
+		if cacheIntel != nil {
+			progressObservers = append(progressObservers, cacheIntel)
+		}
+	}
+
 	buildOpts := buildkit.DockerfileBuildOptions{
 		BuilderAddr:          opts.Builder,
 		AllowBuilderFallback: opts.Builder == "",
@@ -516,7 +531,13 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	result, err := s.buildRunner.BuildDockerfile(ctx, buildOpts)
 	if err != nil {
+		if cacheIntel != nil {
+			cacheIntel.report().writeHuman(errOut)
+		}
 		return nil, err
+	}
+	if cacheIntel != nil {
+		cacheIntel.report().writeHuman(errOut)
 	}
 	if captureRecorder != nil && result != nil {
 		_ = captureRecorder.RecordArtifact(ctx, "build.digest", strings.TrimSpace(result.Digest))

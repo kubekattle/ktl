@@ -64,6 +64,8 @@ type buildCLIOptions struct {
 	builder          string
 	dockerContext    string
 	cacheDir         string
+	cacheIntel       bool
+	cacheIntelTop    int
 	sign             bool
 	signKey          string
 	rekorURL         string
@@ -108,14 +110,16 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 		globalProfile = &fallback
 	}
 	opts := buildCLIOptions{
-		contextDir:  ".",
-		dockerfile:  "Dockerfile",
-		builder:     buildkit.DefaultBuilderAddress(),
-		cacheDir:    buildkit.DefaultCacheDir(),
-		rm:          true,
-		policyMode:  "enforce",
-		secretsMode: "warn",
-		profile:     *globalProfile,
+		contextDir:    ".",
+		dockerfile:    "Dockerfile",
+		builder:       buildkit.DefaultBuilderAddress(),
+		cacheDir:      buildkit.DefaultCacheDir(),
+		cacheIntel:    true,
+		cacheIntelTop: 10,
+		rm:            true,
+		policyMode:    "enforce",
+		secretsMode:   "warn",
+		profile:       *globalProfile,
 	}
 
 	cmd := &cobra.Command{
@@ -213,6 +217,8 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string)
 	cmd.Flags().BoolVar(&opts.push, "push", false, "Push all tags to their registries after a successful build")
 	cmd.Flags().BoolVar(&opts.load, "load", false, "Load the resulting image into the local container runtime (docker build --load)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "Disable BuildKit cache usage")
+	cmd.Flags().BoolVar(&opts.cacheIntel, "cache-intel", true, "Print a post-build cache summary (cache misses, slow steps, changed inputs)")
+	cmd.Flags().Var(&nonNegativeIntValue{dest: &opts.cacheIntelTop}, "cache-intel-top", "Max entries to show in the cache intelligence summary")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.builder, name: "--builder", validator: validateBuildkitAddr}, "builder", "BuildKit address (override with KTL_BUILDKIT_HOST)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.dockerContext, name: "--docker-context", allowEmpty: true, validator: nil}, "docker-context", "Docker context to use for buildx fallback (override with KTL_DOCKER_CONTEXT)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.cacheDir, name: "--cache-dir", allowEmpty: false, validator: nil}, "cache-dir", "Local cache directory for BuildKit metadata")
@@ -455,6 +461,8 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		Builder:            opts.builder,
 		DockerContext:      opts.dockerContext,
 		CacheDir:           opts.cacheDir,
+		CacheIntel:         opts.cacheIntel,
+		CacheIntelTop:      opts.cacheIntelTop,
 		Sign:               opts.sign,
 		SignKey:            opts.signKey,
 		RekorURL:           opts.rekorURL,
