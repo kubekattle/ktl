@@ -91,7 +91,9 @@ Terraform exposes most of its provider/plugin functionality over gRPC so the CLI
 4. Harden remote auth/mTLS, add CI runner story, and publish official API docs/examples.
 5. Optional: expose beta TypeScript/Python SDKs that speak the same gRPC endpoints for automation without shelling out to the CLI.
 
-## `ktl deploy`: Build → Lock → Apply (Release Units)
+## `ktl deploy` (future): Build → Lock → Apply (Release Units)
+
+Note: `ktl deploy` is not part of the current CLI (it was removed in favor of `ktl plan`/`ktl apply`/`ktl delete`). This section describes a possible future “release unit” workflow.
 
 Argo CD and Helmfile are strong at GitOps-style, continuously-reconciled Helm orchestration. `ktl deploy` should win on a different axis: a single, developer-to-prod workflow that produces a reproducible “release unit” (build outputs + chart inputs + manifests + verification) that can be reviewed, applied, captured, and promoted across environments.
 

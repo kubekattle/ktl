@@ -63,7 +63,10 @@ ktl delete \
 
 ## Build (BuildKit)
 ```bash
-ktl build . --tag ghcr.io/example/checkout:latest --ui :8080 --ws-listen :9085
+ktl build . --tag ghcr.io/example/checkout:latest --ws-listen :9085
 ktl build login ghcr.io -u "$GITHUB_USER" --password-stdin
 ktl build logout ghcr.io
+
+# Cache intelligence as JSON (for CI tooling)
+ktl build . --cache-intel-format json --cache-intel-output dist/cache-intel.json
 ```
