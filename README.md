@@ -14,7 +14,6 @@ Any command that supports `--ui` lets you omit the host/port. Unless noted, the 
 | Command | Default `--ui` bind |
 | --- | --- |
 | `ktl logs` mirrors | `:8080` |
-| `ktl build` | `:8080` |
 | `ktl apply` | `:8080` |
 | `ktl delete` | `:8080` |
 
@@ -57,6 +56,15 @@ CLI flags always win over profile/config defaults.
 - `--secrets-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-secrets-report.json` when `--attest-dir` is set).
 
 Try the demo at `examples/secrets/demo`.
+
+## Cache intelligence (ktl build)
+`ktl build` prints a post-build cache summary by default:
+
+- `--cache-intel` / `--cache-intel-top N` toggle and size the report.
+- `--cache-intel-format human|json` controls output format.
+- `--cache-intel-output <path|->` writes the report to a file (or stdout with `-`).
+
+The report includes slowest steps, cache-hit/miss counts, largest final layers (when an OCI layout is produced), and best-effort attribution for cache misses (input changes vs cache eviction/prune).
 
 ## Development
 ```bash

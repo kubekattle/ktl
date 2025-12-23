@@ -108,6 +108,7 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 - Purpose: BuildKit-based image build workflow orchestration (including sandbox support and progress observers).
 - Key types: `service.Run(ctx, opts) (*Result, error)`, `Result`, `Dependencies`, `Streams`, `BuildMode`.
 - Invariants: build is streaming + cancellable; sandbox policy is selected/configured centrally (don’t fork policy logic in commands).
+- Notes: progress observers emit cache diagnostics and a post-build “cache intelligence” report (input diffs, cache key/graph diffs, slow steps, and OCI layer size rollups when an OCI layout is produced).
 
 ### `internal/agent`
 

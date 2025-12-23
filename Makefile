@@ -5,6 +5,8 @@ DIST_DIR ?= dist
 GO ?= go
 GOTEST ?= $(GO) test
 GOVET ?= $(GO) vet
+HOST_GOOS := $(shell $(GO) env GOOS)
+HOST_GOARCH := $(shell $(GO) env GOARCH)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_TREE_STATE ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo clean || echo dirty)
@@ -52,14 +54,14 @@ help: ## Show this help menu
 		awk 'BEGIN {FS=":.*## "} {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build ktl for the current platform into ./bin/ktl
-	@echo ">> building $(BINARY) for $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)"
+	@echo ">> building $(BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
 	@mkdir -p $(BIN_DIR)
-	$(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY) $(PKG)
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY) $(PKG)
 
 build-capture: ## Build capture for the current platform into ./bin/capture
-	@echo ">> building $(CAPTURE_BINARY) for $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)"
+	@echo ">> building $(CAPTURE_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
 	@mkdir -p $(BIN_DIR)
-	$(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(CAPTURE_BINARY) $(CAPTURE_PKG)
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(CAPTURE_BINARY) $(CAPTURE_PKG)
 
 build-%: ## Build ktl for <os>-<arch> into ./bin/ktl-<os>-<arch>[.exe]
 	@mkdir -p $(BIN_DIR)
