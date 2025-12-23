@@ -574,6 +574,9 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		writeCacheIntel()
 		return nil, err
 	}
+	if cacheIntel != nil && result != nil && strings.TrimSpace(result.OCIOutputPath) != "" {
+		cacheIntel.attachOCILayoutDir(result.OCIOutputPath)
+	}
 	writeCacheIntel()
 	if captureRecorder != nil && result != nil {
 		_ = captureRecorder.RecordArtifact(ctx, "build.digest", strings.TrimSpace(result.Digest))

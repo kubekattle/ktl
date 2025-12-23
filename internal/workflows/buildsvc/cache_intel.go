@@ -32,6 +32,7 @@ type cacheIntelCollector struct {
 
 	mu       chan struct{}
 	vertices map[string]*cacheIntelVertex
+	ociDir   string
 }
 
 type cacheIntelVertex struct {
@@ -155,6 +156,19 @@ func (c *cacheIntelCollector) HandleStatus(status *client.SolveStatus) {
 	}
 }
 
+func (c *cacheIntelCollector) attachOCILayoutDir(ociDir string) {
+	if c == nil {
+		return
+	}
+	ociDir = strings.TrimSpace(ociDir)
+	if ociDir == "" {
+		return
+	}
+	<-c.mu
+	c.ociDir = ociDir
+	c.mu <- struct{}{}
+}
+
 func (c *cacheIntelCollector) vertexForLocked(key string) *cacheIntelVertex {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -189,6 +203,7 @@ func (c *cacheIntelCollector) report() cacheIntelReport {
 	}
 	cur := c.current
 	prev := c.previous
+	ociDir := c.ociDir
 	c.mu <- struct{}{}
 
 	out.InputsPrevious = prev
@@ -204,6 +219,19 @@ func (c *cacheIntelCollector) report() cacheIntelReport {
 	}
 
 	out.Vertices = vertices
+	if ociDir != "" {
+		if layers, err := buildkit.TopOCILayers(ociDir, out.TopN); err == nil {
+			out.Layers = make([]cacheIntelLayer, 0, len(layers))
+			for _, layer := range layers {
+				out.Layers = append(out.Layers, cacheIntelLayer{
+					ImageDigest: layer.ImageDigest,
+					Digest:      layer.Digest,
+					Size:        layer.Size,
+					MediaType:   layer.MediaType,
+				})
+			}
+		}
+	}
 	return out
 }
 
@@ -221,6 +249,14 @@ type cacheIntelReport struct {
 	Diff           cacheIntelDiff            `json:"diff"`
 
 	Vertices []cacheIntelVertex `json:"vertices,omitempty"`
+	Layers   []cacheIntelLayer  `json:"layers,omitempty"`
+}
+
+type cacheIntelLayer struct {
+	ImageDigest string `json:"imageDigest,omitempty"`
+	Digest      string `json:"digest"`
+	Size        int64  `json:"size"`
+	MediaType   string `json:"mediaType,omitempty"`
 }
 
 func (r cacheIntelReport) writeJSON(w io.Writer) error {
@@ -314,6 +350,20 @@ func (r cacheIntelReport) writeHuman(w io.Writer) {
 				cacheTag = "hit"
 			}
 			fmt.Fprintf(w, "    - %s (%s, cache %s)\n", strings.TrimSpace(v.name), formatBytes(v.bytesTotal), cacheTag)
+		}
+	}
+
+	if len(r.Layers) > 0 {
+		fmt.Fprintln(w, "  Largest final layers (from OCI layout):")
+		for i, layer := range r.Layers {
+			if i >= min(r.TopN, 5) {
+				break
+			}
+			if layer.ImageDigest != "" {
+				fmt.Fprintf(w, "    - %s (%s) image %s\n", layer.Digest, formatBytes(layer.Size), shortHash(layer.ImageDigest))
+			} else {
+				fmt.Fprintf(w, "    - %s (%s)\n", layer.Digest, formatBytes(layer.Size))
+			}
 		}
 	}
 }
