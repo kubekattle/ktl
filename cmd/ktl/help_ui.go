@@ -13,6 +13,7 @@ import (
 
 func newHelpCommand(root *cobra.Command) *cobra.Command {
 	var uiAddr string
+	var showAll bool
 	cmd := &cobra.Command{
 		Use:   "help [command]",
 		Short: "Help about any command",
@@ -28,7 +29,11 @@ func newHelpCommand(root *cobra.Command) *cobra.Command {
 					return err
 				}
 				fmt.Fprintf(cmd.ErrOrStderr(), "Serving help UI at %s\n", formatHelpURL(uiAddr))
-				return helpui.New(uiAddr, root, logger.WithName("help-ui")).Run(cmd.Context())
+				var opts []helpui.Option
+				if showAll {
+					opts = append(opts, helpui.WithAll())
+				}
+				return helpui.New(uiAddr, root, logger.WithName("help-ui"), opts...).Run(cmd.Context())
 			}
 			target, _, err := cmd.Root().Find(args)
 			if err != nil || target == nil {
@@ -42,6 +47,7 @@ func newHelpCommand(root *cobra.Command) *cobra.Command {
 	if flag := cmd.Flags().Lookup("ui"); flag != nil {
 		flag.NoOptDefVal = ":8080"
 	}
+	cmd.Flags().BoolVar(&showAll, "all", false, "Include hidden/internal flags and env vars")
 	return cmd
 }
 

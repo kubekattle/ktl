@@ -22,16 +22,33 @@ type Server struct {
 	root     *cobra.Command
 	logger   logr.Logger
 	template *template.Template
+	all      bool
 }
 
-func New(addr string, root *cobra.Command, logger logr.Logger) *Server {
+type Option func(*Server)
+
+func WithAll() Option {
+	return func(s *Server) {
+		if s != nil {
+			s.all = true
+		}
+	}
+}
+
+func New(addr string, root *cobra.Command, logger logr.Logger, opts ...Option) *Server {
 	addr = strings.TrimSpace(addr)
-	return &Server{
+	server := &Server{
 		addr:     addr,
 		root:     root,
 		logger:   logger,
 		template: template.Must(template.New("help_ui").Parse(helpUIHTML)),
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(server)
+		}
+	}
+	return server
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -58,6 +75,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 type templateData struct {
 	Title string
+	All   bool
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
@@ -67,12 +85,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 		title = strings.TrimSpace(s.root.Name()) + " help"
 	}
 	var buf bytes.Buffer
-	_ = s.template.Execute(&buf, templateData{Title: template.HTMLEscapeString(title)})
+	_ = s.template.Execute(&buf, templateData{Title: template.HTMLEscapeString(title), All: s != nil && s.all})
 	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *Server) handleIndexJSON(w http.ResponseWriter, r *http.Request) {
-	includeHidden := strings.EqualFold(r.URL.Query().Get("all"), "1") || strings.EqualFold(r.URL.Query().Get("all"), "true")
+	includeHidden := s != nil && s.all
+	if !includeHidden {
+		includeHidden = strings.EqualFold(r.URL.Query().Get("all"), "1") || strings.EqualFold(r.URL.Query().Get("all"), "true")
+	}
 	index := BuildIndex(s.root, includeHidden)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	enc := json.NewEncoder(w)

@@ -270,6 +270,8 @@
         activeId: null,
       };
 
+      const includeAll = {{if .All}}true{{else}}false{{end}};
+
       const elQ = document.getElementById("q");
       const elResults = document.getElementById("results");
       const elDetail = document.getElementById("detail");
@@ -416,7 +418,7 @@
       });
 
       async function boot() {
-        const res = await fetch("/api/index.json");
+        const res = await fetch(includeAll ? "/api/index.json?all=1" : "/api/index.json");
         state.index = await res.json();
         elMeta.textContent = "Index " + state.index.entries.length + " items";
         onQueryChanged();
@@ -429,4 +431,3 @@
     </script>
   </body>
 </html>
-
