@@ -138,12 +138,9 @@
 
       .layout {
         display: grid;
-        grid-template-columns: 1fr 420px;
+        grid-template-columns: 1fr;
         gap: 18px;
         margin-top: 22px;
-      }
-      .layout.detailHidden {
-        grid-template-columns: 1fr;
       }
       @media (max-width: 1100px) {
         .chrome { padding: 28px 22px 52px; }
@@ -193,16 +190,12 @@
         line-height: 1.35;
       }
       .detail {
-        border-radius: 24px;
-        background: var(--surface-soft);
-        border: 1px solid var(--border);
-        padding: 18px 18px;
-        position: sticky;
-        top: 18px;
-        max-height: calc(100vh - 80px);
-        overflow: auto;
+        margin-top: 12px;
+        border-radius: 20px;
+        background: rgba(255,255,255,0.65);
+        border: 1px solid rgba(15,23,42,0.1);
+        padding: 14px 14px;
       }
-      .detail.hidden { display: none; }
       .detail h2 {
         font-size: 1.05rem;
         margin: 0 0 8px 0;
@@ -269,7 +262,6 @@
           <div>
             <ul class="results" id="results"></ul>
           </div>
-          <div class="detail hidden" id="detail"></div>
         </div>
       </div>
     </div>
@@ -287,9 +279,7 @@
 
       const elQ = document.getElementById("q");
       const elResults = document.getElementById("results");
-      const elDetail = document.getElementById("detail");
       const elMeta = document.getElementById("meta");
-      const elLayout = document.querySelector(".layout");
 
       function norm(s) { return (s || "").toLowerCase(); }
 
@@ -345,6 +335,10 @@
             sub.textContent = entry.subtitle;
             li.appendChild(sub);
           }
+          if (entry.id === state.activeId) {
+            const detail = renderDetailInline(entry);
+            if (detail) li.appendChild(detail);
+          }
           li.addEventListener("click", () => select(entry.id));
           elResults.appendChild(li);
         }
@@ -356,49 +350,43 @@
         }
       }
 
-      function renderDetail(entry) {
-        elDetail.innerHTML = "";
-        if (!entry) {
-          elDetail.classList.add("hidden");
-          elLayout.classList.add("detailHidden");
-          return;
-        }
-        elDetail.classList.remove("hidden");
-        elLayout.classList.remove("detailHidden");
+      function renderDetailInline(entry) {
+        if (!entry) return null;
+        const wrap = document.createElement("div");
+        wrap.className = "detail";
         const h2 = document.createElement("h2");
         h2.textContent = entry.title;
-        elDetail.appendChild(h2);
+        wrap.appendChild(h2);
         if (entry.subtitle) {
           const meta = document.createElement("div");
           meta.className = "meta";
           meta.textContent = entry.subtitle;
-          elDetail.appendChild(meta);
+          wrap.appendChild(meta);
         }
         if (entry.content) {
           const hasNewlines = entry.content.indexOf("\n") >= 0;
           if (hasNewlines) {
             const pre = document.createElement("pre");
             pre.textContent = entry.content;
-            elDetail.appendChild(pre);
+            wrap.appendChild(pre);
           } else {
             const p = document.createElement("div");
             p.className = "s";
             p.textContent = entry.content;
-            elDetail.appendChild(p);
+            wrap.appendChild(p);
           }
         }
         if (entry.examples && entry.examples.length) {
           const pre = document.createElement("pre");
           pre.textContent = entry.examples.join("\n\n");
-          elDetail.appendChild(pre);
+          wrap.appendChild(pre);
         }
+        return wrap;
       }
 
       function select(id) {
         state.activeId = id;
-        const entry = state.results.find(e => e.id === id) || (state.index && state.index.entries.find(e => e.id === id));
         renderResults();
-        renderDetail(entry);
       }
 
       function onQueryChanged() {
@@ -411,7 +399,6 @@
           state.activeId = state.results.length ? state.results[0].id : null;
         }
         renderResults();
-        renderDetail(state.activeId ? state.results.find(e => e.id === state.activeId) : null);
       }
 
       document.addEventListener("keydown", (e) => {
@@ -464,7 +451,10 @@
       }
 
       boot().catch(err => {
-        elDetail.innerHTML = '<div class="empty">Failed to load help index: ' + (err && err.message ? err.message : err) + '</div>';
+        const li = document.createElement("li");
+        li.className = "resultItem";
+        li.innerHTML = '<div class="s">Failed to load help index: ' + (err && err.message ? err.message : err) + '</div>';
+        elResults.appendChild(li);
       });
     </script>
   </body>
