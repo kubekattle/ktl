@@ -18,6 +18,8 @@ import (
 
 	"github.com/example/ktl/pkg/buildkit"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/patternmatcher"
+	"github.com/moby/patternmatcher/ignorefile"
 	digest "github.com/opencontainers/go-digest"
 )
 
@@ -46,19 +48,22 @@ type cacheIntelVertex struct {
 }
 
 type cacheIntelInputsSnapshot struct {
-	Version          int               `json:"version"`
-	TakenAtUTC       time.Time         `json:"takenAtUtc"`
-	ContextAbs       string            `json:"contextAbs"`
-	DockerfileRel    string            `json:"dockerfileRel"`
-	DockerfileSHA    string            `json:"dockerfileSha256"`
-	DockerignoreSHA  string            `json:"dockerignoreSha256,omitempty"`
-	BuildArgSHA      map[string]string `json:"buildArgSha256,omitempty"`
-	SecretIDs        []string          `json:"secretIds,omitempty"`
-	FileSHA          map[string]string `json:"fileSha256,omitempty"`
-	FileBytes        map[string]int64  `json:"fileBytes,omitempty"`
-	BroadContextCopy bool              `json:"broadContextCopy,omitempty"`
-	SecretMounts     int               `json:"secretMounts,omitempty"`
-	SSHMounts        int               `json:"sshMounts,omitempty"`
+	Version             int               `json:"version"`
+	TakenAtUTC          time.Time         `json:"takenAtUtc"`
+	ContextAbs          string            `json:"contextAbs"`
+	DockerfileRel       string            `json:"dockerfileRel"`
+	DockerfileSHA       string            `json:"dockerfileSha256"`
+	DockerignoreSHA     string            `json:"dockerignoreSha256,omitempty"`
+	BuildArgSHA         map[string]string `json:"buildArgSha256,omitempty"`
+	SecretIDs           []string          `json:"secretIds,omitempty"`
+	FileSHA             map[string]string `json:"fileSha256,omitempty"`
+	FileBytes           map[string]int64  `json:"fileBytes,omitempty"`
+	BroadContextCopy    bool              `json:"broadContextCopy,omitempty"`
+	SecretMounts        int               `json:"secretMounts,omitempty"`
+	SSHMounts           int               `json:"sshMounts,omitempty"`
+	ContextMetaSHA      string            `json:"contextMetaSha256,omitempty"`
+	ContextTopFileSHA   map[string]string `json:"contextTopFileSha256,omitempty"`
+	ContextTopFileBytes map[string]int64  `json:"contextTopFileBytes,omitempty"`
 }
 
 type cacheIntelDiff struct {
@@ -314,6 +319,21 @@ func (r cacheIntelReport) writeHuman(w io.Writer) {
 	if r.Diff.SecretMounts > 0 || r.Diff.SSHMounts > 0 {
 		fmt.Fprintf(w, "  Note: RUN mounts detected: secret=%d ssh=%d (may reduce cacheability).\n", r.Diff.SecretMounts, r.Diff.SSHMounts)
 	}
+	if r.InputsPrevious != nil && r.InputsCurrent != nil && r.InputsCurrent.BroadContextCopy && r.InputsPrevious.ContextMetaSHA != "" && r.InputsCurrent.ContextMetaSHA != "" && r.InputsPrevious.ContextMetaSHA != r.InputsCurrent.ContextMetaSHA {
+		fmt.Fprintln(w, "  Broad context fingerprint changed (COPY .):")
+		changes := diffStringMap(r.InputsPrevious.ContextTopFileSHA, r.InputsCurrent.ContextTopFileSHA, min(r.TopN, 10))
+		for _, c := range changes {
+			size := int64(0)
+			if r.InputsCurrent != nil {
+				size = r.InputsCurrent.ContextTopFileBytes[c.Key]
+			}
+			if size > 0 {
+				fmt.Fprintf(w, "    %s (%s) %s → %s\n", c.Key, formatBytes(size), shortHash(c.Before), shortHash(c.After))
+			} else {
+				fmt.Fprintf(w, "    %s %s → %s\n", c.Key, shortHash(c.Before), shortHash(c.After))
+			}
+		}
+	}
 
 	misses := r.cacheMissVertices()
 	if len(misses) > 0 {
@@ -480,6 +500,9 @@ func diffCacheIntelInputs(prev, cur *cacheIntelInputsSnapshot, topN int) cacheIn
 	out.BroadContextCopy = cur.BroadContextCopy
 	out.SecretMounts = cur.SecretMounts
 	out.SSHMounts = cur.SSHMounts
+	if cur.BroadContextCopy && prev.ContextMetaSHA != "" && cur.ContextMetaSHA != "" && prev.ContextMetaSHA != cur.ContextMetaSHA {
+		out.DockerignoreChanged = out.DockerignoreChanged || (prev.DockerignoreSHA != "" && cur.DockerignoreSHA != "" && prev.DockerignoreSHA != cur.DockerignoreSHA)
+	}
 	if prev.DockerfileSHA != "" && cur.DockerfileSHA != "" && prev.DockerfileSHA != cur.DockerfileSHA {
 		out.DockerfileChanged = true
 	}
@@ -634,13 +657,15 @@ func buildCacheIntelInputsSnapshot(ctx context.Context, contextAbs, dockerfileAb
 		return nil, errors.New("missing paths")
 	}
 	snap := &cacheIntelInputsSnapshot{
-		Version:       1,
-		TakenAtUTC:    time.Now().UTC(),
-		ContextAbs:    contextAbs,
-		DockerfileRel: dockerfileRel,
-		BuildArgSHA:   map[string]string{},
-		FileSHA:       map[string]string{},
-		FileBytes:     map[string]int64{},
+		Version:             1,
+		TakenAtUTC:          time.Now().UTC(),
+		ContextAbs:          contextAbs,
+		DockerfileRel:       dockerfileRel,
+		BuildArgSHA:         map[string]string{},
+		FileSHA:             map[string]string{},
+		FileBytes:           map[string]int64{},
+		ContextTopFileSHA:   map[string]string{},
+		ContextTopFileBytes: map[string]int64{},
 	}
 	dfHash, err := sha256File(dockerfileAbs)
 	if err == nil {
@@ -681,6 +706,16 @@ func buildCacheIntelInputsSnapshot(ctx context.Context, contextAbs, dockerfileAb
 		snap.FileSHA[p] = h
 		if size, err := pathSize(abs); err == nil {
 			snap.FileBytes[p] = size
+		}
+	}
+	if broadCopy {
+		meta, top, err := snapshotBroadContext(contextAbs, filepath.Join(contextAbs, ".dockerignore"), 50)
+		if err == nil {
+			snap.ContextMetaSHA = meta
+			for _, entry := range top {
+				snap.ContextTopFileSHA[entry.Path] = entry.SHA
+				snap.ContextTopFileBytes[entry.Path] = entry.Bytes
+			}
 		}
 	}
 	return snap, nil
@@ -1004,3 +1039,104 @@ func min(a, b int) int {
 }
 
 var _ buildkit.ProgressObserver = (*cacheIntelCollector)(nil)
+
+type contextFileSnapshot struct {
+	Path  string
+	Bytes int64
+	SHA   string
+}
+
+func snapshotBroadContext(contextAbs, dockerignorePath string, topFiles int) (string, []contextFileSnapshot, error) {
+	if topFiles <= 0 {
+		topFiles = 50
+	}
+
+	patterns := []string{}
+	if raw, err := os.ReadFile(dockerignorePath); err == nil {
+		if p, err := ignorefile.ReadAll(strings.NewReader(string(raw))); err == nil {
+			patterns = p
+		}
+	}
+	matcher, err := patternmatcher.New(patterns)
+	if err != nil {
+		return "", nil, err
+	}
+
+	type fileEntry struct {
+		rel   string
+		size  int64
+		mtime int64
+	}
+	files := make([]fileEntry, 0, 2048)
+	err = filepath.WalkDir(contextAbs, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == ".git" || name == "dist" || name == "bin" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(contextAbs, p)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "" || strings.HasPrefix(rel, "..") {
+			return nil
+		}
+		ignored, err := matcher.MatchesOrParentMatches(rel)
+		if err == nil && ignored {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		files = append(files, fileEntry{rel: rel, size: info.Size(), mtime: info.ModTime().UnixNano()})
+		return nil
+	})
+	if err != nil {
+		return "", nil, err
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].rel == files[j].rel {
+			return files[i].size > files[j].size
+		}
+		return files[i].rel < files[j].rel
+	})
+	metaHasher := sha256.New()
+	for _, f := range files {
+		_, _ = metaHasher.Write([]byte(f.rel))
+		_, _ = metaHasher.Write([]byte{0})
+		_, _ = metaHasher.Write([]byte(fmt.Sprintf("%d", f.size)))
+		_, _ = metaHasher.Write([]byte{0})
+		_, _ = metaHasher.Write([]byte(fmt.Sprintf("%d", f.mtime)))
+		_, _ = metaHasher.Write([]byte{0})
+	}
+	meta := hex.EncodeToString(metaHasher.Sum(nil))
+
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].size == files[j].size {
+			return files[i].rel < files[j].rel
+		}
+		return files[i].size > files[j].size
+	})
+	if len(files) > topFiles {
+		files = files[:topFiles]
+	}
+
+	out := make([]contextFileSnapshot, 0, len(files))
+	for _, f := range files {
+		abs := filepath.Join(contextAbs, filepath.FromSlash(f.rel))
+		h, err := sha256File(abs)
+		if err != nil {
+			continue
+		}
+		out = append(out, contextFileSnapshot{Path: f.rel, Bytes: f.size, SHA: h})
+	}
+	return meta, out, nil
+}

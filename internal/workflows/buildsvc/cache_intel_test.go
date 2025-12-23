@@ -1,6 +1,10 @@
 package buildsvc
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseDockerfileCopyAddSources(t *testing.T) {
 	input := `
@@ -40,6 +44,28 @@ RUN --mount=type=ssh echo hi
 	}
 	if ssh != 1 {
 		t.Fatalf("expected 1 ssh mount, got %d", ssh)
+	}
+}
+
+func TestSnapshotBroadContext_RespectsDockerignore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".dockerignore"), []byte("b.txt\n"), 0o644); err != nil {
+		t.Fatalf("write dockerignore: %v", err)
+	}
+	_, top, err := snapshotBroadContext(dir, filepath.Join(dir, ".dockerignore"), 10)
+	if err != nil {
+		t.Fatalf("snapshotBroadContext: %v", err)
+	}
+	for _, entry := range top {
+		if entry.Path == "b.txt" {
+			t.Fatalf("expected b.txt to be ignored, got %v", top)
+		}
 	}
 }
 
