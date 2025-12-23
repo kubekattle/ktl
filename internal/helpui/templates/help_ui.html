@@ -358,10 +358,17 @@
           elDetail.appendChild(meta);
         }
         if (entry.content) {
-          const p = document.createElement("div");
-          p.className = "s";
-          p.textContent = entry.content;
-          elDetail.appendChild(p);
+          const hasNewlines = entry.content.indexOf("\n") >= 0;
+          if (hasNewlines) {
+            const pre = document.createElement("pre");
+            pre.textContent = entry.content;
+            elDetail.appendChild(pre);
+          } else {
+            const p = document.createElement("div");
+            p.className = "s";
+            p.textContent = entry.content;
+            elDetail.appendChild(p);
+          }
         }
         if (entry.examples && entry.examples.length) {
           const pre = document.createElement("pre");
