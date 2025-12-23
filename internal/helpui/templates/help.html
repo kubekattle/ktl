@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ktl help</title>
+    <style>
+      :root {
+        --surface: rgba(255, 255, 255, 0.9);
+        --border: rgba(15, 23, 42, 0.12);
+        --text: #0f172a;
+        --muted: rgba(15, 23, 42, 0.65);
+        --accent: #2563eb;
+        --ease: cubic-bezier(.16,1,.3,1);
+        font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: var(--text);
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at top, #ffffff 0%, #dce3f1 80%);
+      }
+      .chrome {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 48px 56px 72px;
+      }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        padding: 32px;
+        box-shadow: 0 40px 80px rgba(16, 23, 36, 0.12);
+        backdrop-filter: blur(18px);
+      }
+      h1 {
+        font-size: 2.2rem;
+        letter-spacing: -0.04em;
+        margin: 0 0 8px 0;
+      }
+      .subtitle {
+        color: var(--muted);
+        margin: 0 0 22px 0;
+      }
+      .row {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      input {
+        width: min(640px, 100%);
+        padding: 0.75rem 1rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.7);
+        outline: none;
+      }
+      input:focus {
+        border-color: rgba(37,99,235,0.6);
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+      }
+      .list {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 12px;
+      }
+      .item {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 20px;
+        padding: 14px 16px;
+        background: rgba(255,255,255,0.72);
+        transition: transform 180ms var(--ease), border-color 180ms var(--ease);
+      }
+      .item:hover {
+        transform: translateY(-2px);
+        border-color: rgba(37,99,235,0.35);
+      }
+      .cmd {
+        font-weight: 650;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-size: 0.82rem;
+      }
+      .desc {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.98rem;
+        line-height: 1.35;
+      }
+      .meta {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="chrome">
+      <div class="panel">
+        <h1>ktl help</h1>
+        <p class="subtitle">Browse commands and flags. Search is local; no network required.</p>
+        <div class="row">
+          <input id="q" type="search" placeholder="Search commands (e.g. build, --cache, log-level)" aria-label="Search ktl help" />
+          <div class="meta"><a href="/model.json" target="_blank" rel="noreferrer">model.json</a></div>
+        </div>
+        <div id="list" class="list" aria-live="polite"></div>
+      </div>
+    </div>
+    <script>
+      const listEl = document.getElementById("list");
+      const qEl = document.getElementById("q");
+      let model = null;
+
+      function render(items) {
+        listEl.innerHTML = "";
+        for (const it of items) {
+          const el = document.createElement("div");
+          el.className = "item";
+          el.innerHTML = `
+            <div class="cmd">${escapeHtml(it.path || it.use || "")}</div>
+            <div class="desc">${escapeHtml(it.short || "")}</div>
+            <div class="meta">${escapeHtml(it.flagsSummary || "")}</div>
+          `;
+          listEl.appendChild(el);
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function matches(item, q) {
+        if (!q) return true;
+        q = q.toLowerCase();
+        return (item.path || "").toLowerCase().includes(q) ||
+          (item.short || "").toLowerCase().includes(q) ||
+          (item.flagsText || "").toLowerCase().includes(q);
+      }
+
+      async function init() {
+        const res = await fetch("/model.json");
+        model = await res.json();
+        render(model.commands || []);
+      }
+
+      qEl.addEventListener("input", () => {
+        if (!model) return;
+        const q = qEl.value.trim();
+        render((model.commands || []).filter(c => matches(c, q)));
+      });
+
+      init().catch(err => {
+        listEl.innerHTML = `<div class="item"><div class="cmd">error</div><div class="desc">${escapeHtml(err && err.message ? err.message : String(err))}</div></div>`;
+      });
+    </script>
+  </body>
+</html>
+
