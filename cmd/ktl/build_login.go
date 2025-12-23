@@ -195,23 +195,60 @@ func runBuildLogout(cmd *cobra.Command, server string, authFile string) error {
 
 func promptForInput(cmd *cobra.Command, label string) (string, error) {
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", label)
-	reader := bufio.NewReader(cmd.InOrStdin())
-	value, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
+	ctx := context.Background()
+	if cmd != nil && cmd.Context() != nil {
+		ctx = cmd.Context()
 	}
-	return strings.TrimSpace(value), nil
+	type result struct {
+		value string
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		reader := bufio.NewReader(cmd.InOrStdin())
+		value, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			ch <- result{err: err}
+			return
+		}
+		ch <- result{value: strings.TrimSpace(value)}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case res := <-ch:
+		return res.value, res.err
+	}
 }
 
 func promptForPassword(cmd *cobra.Command, label string) (string, error) {
+	ctx := context.Background()
+	if cmd != nil && cmd.Context() != nil {
+		ctx = cmd.Context()
+	}
 	if file, ok := cmd.InOrStdin().(*os.File); ok && term.IsTerminal(int(file.Fd())) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", label)
-		bytes, err := term.ReadPassword(int(file.Fd()))
-		fmt.Fprintln(cmd.ErrOrStderr())
-		if err != nil {
-			return "", err
+		type result struct {
+			bytes []byte
+			err   error
 		}
-		return strings.TrimSpace(string(bytes)), nil
+		ch := make(chan result, 1)
+		go func() {
+			bytes, err := term.ReadPassword(int(file.Fd()))
+			ch <- result{bytes: bytes, err: err}
+		}()
+		select {
+		case <-ctx.Done():
+			// Best-effort: ensure we end the prompt line.
+			fmt.Fprintln(cmd.ErrOrStderr())
+			return "", ctx.Err()
+		case res := <-ch:
+			fmt.Fprintln(cmd.ErrOrStderr())
+			if res.err != nil {
+				return "", res.err
+			}
+			return strings.TrimSpace(string(res.bytes)), nil
+		}
 	}
 	return promptForInput(cmd, label)
 }
