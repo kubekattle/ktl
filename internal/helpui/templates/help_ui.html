@@ -101,16 +101,15 @@
       #q::placeholder { color: rgba(15,23,42,0.48); }
       .chips {
         display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
+        gap: 0;
         justify-content: center;
       }
       .chip {
-        border-radius: 999px;
-        padding: 9px 12px;
-        background: var(--chip-bg);
-        color: var(--chip-text);
-        border: 1px solid rgba(37,99,235,0.18);
+        border-radius: 0;
+        padding: 10px 14px;
+        background: rgba(255,255,255,0.6);
+        color: rgba(15,23,42,0.78);
+        border: 1px solid rgba(15,23,42,0.12);
         font-size: 0.78rem;
         font-weight: 650;
         letter-spacing: 0.18em;
@@ -119,10 +118,22 @@
         user-select: none;
         transition: transform 200ms var(--ease), background 200ms var(--ease), border-color 200ms var(--ease);
       }
+      .chip:first-child {
+        border-top-left-radius: 999px;
+        border-bottom-left-radius: 999px;
+      }
+      .chip:last-child {
+        border-top-right-radius: 999px;
+        border-bottom-right-radius: 999px;
+      }
+      .chip + .chip {
+        margin-left: -1px;
+      }
       .chip.active {
-        background: rgba(37,99,235,0.12);
-        border-color: rgba(37,99,235,0.55);
-        transform: translateY(-1px);
+        background: var(--chip-bg);
+        color: var(--chip-text);
+        border-color: rgba(37,99,235,0.45);
+        z-index: 1;
       }
 
       .layout {
