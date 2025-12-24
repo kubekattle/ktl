@@ -46,6 +46,7 @@ type BuildConsole struct {
 	finished   bool
 	success    bool
 	events     []string
+	lastGraphEventAt time.Time
 	sections   []consoleSection
 	totalLines int
 	startedAt  time.Time
@@ -97,7 +98,11 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 		var snap buildGraphSnapshot
 		if err := json.Unmarshal([]byte(rec.Raw), &snap); err == nil {
 			c.graph = &snap
-			c.pushEventLocked("Build graph updated")
+			// Graph updates can arrive very frequently; avoid swamping the event tail.
+			if c.lastGraphEventAt.IsZero() || time.Since(c.lastGraphEventAt) > 2*time.Second {
+				c.pushEventLocked("Build graph updated")
+				c.lastGraphEventAt = time.Now()
+			}
 		}
 	case "diagnostic":
 		c.consumeDiagnosticLocked(rec)
@@ -125,7 +130,9 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 		c.warning = nil
 	}
 	if msg := strings.TrimSpace(rec.Rendered); msg != "" && source != "graph" && source != "phase" {
-		c.pushEventLocked(clipConsoleLine(msg, 240))
+		if shouldIncludeBuildEvent(rec, msg) {
+			c.pushEventLocked(clipConsoleLine(msg, 240))
+		}
 	}
 }
 
@@ -137,6 +144,25 @@ func (c *BuildConsole) consumeDiagnosticLocked(rec tailer.LogRecord) {
 		c.cacheMiss++
 		// Cache misses are normal; keep them out of the warning banner.
 	}
+}
+
+func shouldIncludeBuildEvent(rec tailer.LogRecord, msg string) bool {
+	if strings.EqualFold(strings.TrimSpace(rec.Source), "diagnostic") {
+		return false
+	}
+	container := strings.ToLower(strings.TrimSpace(rec.Container))
+	lower := strings.ToLower(msg)
+	if container == "status" && (strings.Contains(lower, "cache miss") || strings.Contains(lower, "cache hit")) {
+		return false
+	}
+	if container == "diagnostic" && (strings.Contains(lower, "cache miss") || strings.Contains(lower, "cache hit")) {
+		return false
+	}
+	if strings.Contains(lower, "cache miss") || strings.Contains(lower, "cache hit") {
+		// Heuristic: avoid spamming the tail with cache intel.
+		return false
+	}
+	return true
 }
 
 func (c *BuildConsole) consumePhaseLocked(rec tailer.LogRecord) {
@@ -190,6 +216,9 @@ func buildSeverity(rec tailer.LogRecord) string {
 	switch strings.TrimSpace(rec.SourceGlyph) {
 	case "✖":
 		return "error"
+	}
+	if strings.EqualFold(strings.TrimSpace(rec.Source), "build") && strings.EqualFold(strings.TrimSpace(rec.Container), "stderr") {
+		return "warn"
 	}
 	return ""
 }
