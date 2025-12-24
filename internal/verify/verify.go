@@ -38,6 +38,7 @@ func VerifyObjects(ctx context.Context, objects []map[string]any, opts Options) 
 	if err != nil {
 		return nil, err
 	}
+	rulesetHash, _ := RulesetDigest(opts.RulesDir)
 	commonDir := strings.TrimSpace(opts.RulesDir)
 	commonDir = strings.TrimSuffix(commonDir, "/")
 	commonDir = strings.TrimSuffix(commonDir, "\\")
@@ -51,7 +52,7 @@ func VerifyObjects(ctx context.Context, objects []map[string]any, opts Options) 
 	findings = filterNamespacedFindings(findings)
 	rep := &Report{
 		Tool:        "ktl-verify",
-		Engine:      EngineMeta{Name: "builtin", Ruleset: "pinned"},
+		Engine:      EngineMeta{Name: "builtin", Ruleset: nonEmpty("builtin@"+rulesetHash, "builtin")},
 		Mode:        opts.Mode,
 		EvaluatedAt: time.Now().UTC(),
 		Findings:    findings,
@@ -169,4 +170,14 @@ func filterNamespacedFindings(findings []Finding) []Finding {
 		out = append(out, f)
 	}
 	return out
+}
+
+func nonEmpty(values ...string) string {
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
