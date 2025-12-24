@@ -101,16 +101,37 @@ func patchSuggestion(sub Subject, ruleID string) string {
 	if ns != "" {
 		header += "  namespace: " + ns + "\n"
 	}
+
+	podSpecPrefix := podSpecPathPrefix(kind)
+	if podSpecPrefix == "" {
+		// Best effort: default to workload template path.
+		podSpecPrefix = "spec:\n  template:\n    spec:\n"
+	}
 	switch ruleID {
 	case "k8s/service_account_token_automount_not_disabled":
-		return header + "spec:\n  template:\n    spec:\n      automountServiceAccountToken: false\n"
+		return header + podSpecPrefix + "  automountServiceAccountToken: false\n"
 	case "k8s/net_raw_capabilities_not_being_dropped":
-		return header + "spec:\n  template:\n    spec:\n      containers:\n        - name: <container>\n          securityContext:\n            capabilities:\n              drop: [\"ALL\"]\n"
+		return header + podSpecPrefix + "  containers:\n    - name: <container>\n      securityContext:\n        capabilities:\n          drop: [\"ALL\"]\n"
 	case "k8s/pod_or_container_without_security_context":
-		return header + "spec:\n  template:\n    spec:\n      securityContext:\n        runAsNonRoot: true\n      containers:\n        - name: <container>\n          securityContext:\n            allowPrivilegeEscalation: false\n            readOnlyRootFilesystem: true\n            capabilities:\n              drop: [\"ALL\"]\n"
+		return header + podSpecPrefix + "  securityContext:\n    runAsNonRoot: true\n  containers:\n    - name: <container>\n      securityContext:\n        allowPrivilegeEscalation: false\n        readOnlyRootFilesystem: true\n        capabilities:\n          drop: [\"ALL\"]\n"
 	case "k8s/memory_limits_not_defined":
-		return header + "spec:\n  template:\n    spec:\n      containers:\n        - name: <container>\n          resources:\n            requests:\n              memory: 128Mi\n            limits:\n              memory: 256Mi\n"
+		return header + podSpecPrefix + "  containers:\n    - name: <container>\n      resources:\n        requests:\n          memory: 128Mi\n        limits:\n          memory: 256Mi\n"
 	default:
 		return ""
+	}
+}
+
+func podSpecPathPrefix(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "Pod":
+		return "spec:\n"
+	case "CronJob":
+		return "spec:\n  jobTemplate:\n    spec:\n      template:\n        spec:\n"
+	case "Job":
+		return "spec:\n  template:\n    spec:\n"
+	case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet":
+		return "spec:\n  template:\n    spec:\n"
+	default:
+		return "spec:\n  template:\n    spec:\n"
 	}
 }

@@ -34,13 +34,28 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 		return nil, nil
 	}
 	inputDocs := make([]map[string]any, 0, len(objects))
+	docIndex := map[string]Subject{}
 	for i, obj := range objects {
+		docID := fmt.Sprintf("doc-%d", i+1)
 		doc := map[string]any{
-			"id":       fmt.Sprintf("doc-%d", i+1),
+			"id":       docID,
 			"kind":     obj["kind"],
 			"metadata": obj["metadata"],
 			"spec":     obj["spec"],
 		}
+		sub := Subject{}
+		if v, ok := obj["kind"]; ok && v != nil {
+			sub.Kind = strings.TrimSpace(fmt.Sprintf("%v", v))
+		}
+		if meta, ok := obj["metadata"].(map[string]any); ok && meta != nil {
+			if v, ok := meta["name"]; ok && v != nil {
+				sub.Name = strings.TrimSpace(fmt.Sprintf("%v", v))
+			}
+			if v, ok := meta["namespace"]; ok && v != nil {
+				sub.Namespace = strings.TrimSpace(fmt.Sprintf("%v", v))
+			}
+		}
+		docIndex[docID] = sub
 		// Some queries expect arbitrary keys under the document; keep the full object too.
 		for k, v := range obj {
 			if _, ok := doc[k]; ok {
@@ -103,6 +118,16 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 				msg = rule.Description
 			}
 			subj := Subject{}
+			docID := ""
+			if v, ok := m["documentId"]; ok && v != nil {
+				docID = strings.TrimSpace(fmt.Sprintf("%v", v))
+			}
+			if docID != "" {
+				if base, ok := docIndex[docID]; ok {
+					subj = base
+				}
+			}
+			// Prefer explicit fields from the query result when present.
 			if v, ok := m["resourceType"]; ok && v != nil {
 				subj.Kind = strings.TrimSpace(fmt.Sprintf("%v", v))
 			}
