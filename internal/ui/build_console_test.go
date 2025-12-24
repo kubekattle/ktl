@@ -90,4 +90,3 @@ func TestBuildConsoleParsesPhases(t *testing.T) {
 		t.Fatalf("expected solve phase state=running, got %q", got)
 	}
 }
-
