@@ -107,10 +107,13 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 			c.consumeSummaryLocked(strings.TrimSpace(strings.TrimPrefix(raw, "Summary:")))
 			c.pushEventLocked("Summary updated")
 		}
-		if strings.TrimSpace(rec.SourceGlyph) == "✔" || strings.TrimSpace(rec.SourceGlyph) == "✖" {
-			c.finished = true
-			c.success = strings.TrimSpace(rec.SourceGlyph) == "✔"
-			c.updatePhaseLocked("done", map[bool]string{true: "completed", false: "failed"}[c.success], "")
+		if strings.EqualFold(strings.TrimSpace(rec.Container), "info") {
+			rendered := strings.TrimSpace(rec.Rendered)
+			if strings.HasPrefix(rendered, "Build finished") || strings.HasPrefix(rendered, "Build failed") {
+				c.finished = true
+				c.success = strings.TrimSpace(rec.SourceGlyph) == "✔"
+				c.updatePhaseLocked("done", map[bool]string{true: "completed", false: "failed"}[c.success], "")
+			}
 		}
 	case "phase":
 		c.consumePhaseLocked(rec)
