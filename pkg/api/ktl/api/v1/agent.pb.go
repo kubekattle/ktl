@@ -1465,6 +1465,408 @@ func (x *MirrorSubscribeRequest) GetReplay() bool {
 	return false
 }
 
+type VerifyChartOptions struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Chart           string                 `protobuf:"bytes,1,opt,name=chart,proto3" json:"chart,omitempty"`
+	Release         string                 `protobuf:"bytes,2,opt,name=release,proto3" json:"release,omitempty"`
+	Namespace       string                 `protobuf:"bytes,3,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Version         string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	ValuesFiles     []string               `protobuf:"bytes,5,rep,name=values_files,json=valuesFiles,proto3" json:"values_files,omitempty"`
+	SetValues       []string               `protobuf:"bytes,6,rep,name=set_values,json=setValues,proto3" json:"set_values,omitempty"`
+	SetStringValues []string               `protobuf:"bytes,7,rep,name=set_string_values,json=setStringValues,proto3" json:"set_string_values,omitempty"`
+	SetFileValues   []string               `protobuf:"bytes,8,rep,name=set_file_values,json=setFileValues,proto3" json:"set_file_values,omitempty"`
+	KubeContext     string                 `protobuf:"bytes,9,opt,name=kube_context,json=kubeContext,proto3" json:"kube_context,omitempty"`
+	KubeconfigPath  string                 `protobuf:"bytes,10,opt,name=kubeconfig_path,json=kubeconfigPath,proto3" json:"kubeconfig_path,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *VerifyChartOptions) Reset() {
+	*x = VerifyChartOptions{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyChartOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyChartOptions) ProtoMessage() {}
+
+func (x *VerifyChartOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyChartOptions.ProtoReflect.Descriptor instead.
+func (*VerifyChartOptions) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *VerifyChartOptions) GetChart() string {
+	if x != nil {
+		return x.Chart
+	}
+	return ""
+}
+
+func (x *VerifyChartOptions) GetRelease() string {
+	if x != nil {
+		return x.Release
+	}
+	return ""
+}
+
+func (x *VerifyChartOptions) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *VerifyChartOptions) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *VerifyChartOptions) GetValuesFiles() []string {
+	if x != nil {
+		return x.ValuesFiles
+	}
+	return nil
+}
+
+func (x *VerifyChartOptions) GetSetValues() []string {
+	if x != nil {
+		return x.SetValues
+	}
+	return nil
+}
+
+func (x *VerifyChartOptions) GetSetStringValues() []string {
+	if x != nil {
+		return x.SetStringValues
+	}
+	return nil
+}
+
+func (x *VerifyChartOptions) GetSetFileValues() []string {
+	if x != nil {
+		return x.SetFileValues
+	}
+	return nil
+}
+
+func (x *VerifyChartOptions) GetKubeContext() string {
+	if x != nil {
+		return x.KubeContext
+	}
+	return ""
+}
+
+func (x *VerifyChartOptions) GetKubeconfigPath() string {
+	if x != nil {
+		return x.KubeconfigPath
+	}
+	return ""
+}
+
+type VerifyNamespaceOptions struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Namespace      string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	KubeContext    string                 `protobuf:"bytes,2,opt,name=kube_context,json=kubeContext,proto3" json:"kube_context,omitempty"`
+	KubeconfigPath string                 `protobuf:"bytes,3,opt,name=kubeconfig_path,json=kubeconfigPath,proto3" json:"kubeconfig_path,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *VerifyNamespaceOptions) Reset() {
+	*x = VerifyNamespaceOptions{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyNamespaceOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyNamespaceOptions) ProtoMessage() {}
+
+func (x *VerifyNamespaceOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyNamespaceOptions.ProtoReflect.Descriptor instead.
+func (*VerifyNamespaceOptions) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *VerifyNamespaceOptions) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *VerifyNamespaceOptions) GetKubeContext() string {
+	if x != nil {
+		return x.KubeContext
+	}
+	return ""
+}
+
+func (x *VerifyNamespaceOptions) GetKubeconfigPath() string {
+	if x != nil {
+		return x.KubeconfigPath
+	}
+	return ""
+}
+
+type VerifyOptions struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Mode          string                 `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`                               // warn|block|off
+	FailOn        string                 `protobuf:"bytes,2,opt,name=fail_on,json=failOn,proto3" json:"fail_on,omitempty"`             // info|low|medium|high|critical
+	Format        string                 `protobuf:"bytes,3,opt,name=format,proto3" json:"format,omitempty"`                           // table|json|sarif
+	RulesDir      string                 `protobuf:"bytes,4,opt,name=rules_dir,json=rulesDir,proto3" json:"rules_dir,omitempty"`       // optional
+	Policy        string                 `protobuf:"bytes,5,opt,name=policy,proto3" json:"policy,omitempty"`                           // optional policy bundle ref
+	PolicyMode    string                 `protobuf:"bytes,6,opt,name=policy_mode,json=policyMode,proto3" json:"policy_mode,omitempty"` // warn|enforce
+	Baseline      string                 `protobuf:"bytes,7,opt,name=baseline,proto3" json:"baseline,omitempty"`                       // optional baseline report path
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyOptions) Reset() {
+	*x = VerifyOptions{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyOptions) ProtoMessage() {}
+
+func (x *VerifyOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyOptions.ProtoReflect.Descriptor instead.
+func (*VerifyOptions) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *VerifyOptions) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *VerifyOptions) GetFailOn() string {
+	if x != nil {
+		return x.FailOn
+	}
+	return ""
+}
+
+func (x *VerifyOptions) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *VerifyOptions) GetRulesDir() string {
+	if x != nil {
+		return x.RulesDir
+	}
+	return ""
+}
+
+func (x *VerifyOptions) GetPolicy() string {
+	if x != nil {
+		return x.Policy
+	}
+	return ""
+}
+
+func (x *VerifyOptions) GetPolicyMode() string {
+	if x != nil {
+		return x.PolicyMode
+	}
+	return ""
+}
+
+func (x *VerifyOptions) GetBaseline() string {
+	if x != nil {
+		return x.Baseline
+	}
+	return ""
+}
+
+type VerifyRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Options *VerifyOptions         `protobuf:"bytes,1,opt,name=options,proto3" json:"options,omitempty"`
+	// Types that are valid to be assigned to Target:
+	//
+	//	*VerifyRequest_Chart
+	//	*VerifyRequest_Namespace
+	Target        isVerifyRequest_Target `protobuf_oneof:"target"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyRequest) Reset() {
+	*x = VerifyRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyRequest) ProtoMessage() {}
+
+func (x *VerifyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyRequest.ProtoReflect.Descriptor instead.
+func (*VerifyRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *VerifyRequest) GetOptions() *VerifyOptions {
+	if x != nil {
+		return x.Options
+	}
+	return nil
+}
+
+func (x *VerifyRequest) GetTarget() isVerifyRequest_Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *VerifyRequest) GetChart() *VerifyChartOptions {
+	if x != nil {
+		if x, ok := x.Target.(*VerifyRequest_Chart); ok {
+			return x.Chart
+		}
+	}
+	return nil
+}
+
+func (x *VerifyRequest) GetNamespace() *VerifyNamespaceOptions {
+	if x != nil {
+		if x, ok := x.Target.(*VerifyRequest_Namespace); ok {
+			return x.Namespace
+		}
+	}
+	return nil
+}
+
+type isVerifyRequest_Target interface {
+	isVerifyRequest_Target()
+}
+
+type VerifyRequest_Chart struct {
+	Chart *VerifyChartOptions `protobuf:"bytes,2,opt,name=chart,proto3,oneof"`
+}
+
+type VerifyRequest_Namespace struct {
+	Namespace *VerifyNamespaceOptions `protobuf:"bytes,3,opt,name=namespace,proto3,oneof"`
+}
+
+func (*VerifyRequest_Chart) isVerifyRequest_Target() {}
+
+func (*VerifyRequest_Namespace) isVerifyRequest_Target() {}
+
+type VerifyEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Json          string                 `protobuf:"bytes,1,opt,name=json,proto3" json:"json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyEvent) Reset() {
+	*x = VerifyEvent{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyEvent) ProtoMessage() {}
+
+func (x *VerifyEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyEvent.ProtoReflect.Descriptor instead.
+func (*VerifyEvent) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *VerifyEvent) GetJson() string {
+	if x != nil {
+		return x.Json
+	}
+	return ""
+}
+
 var File_ktl_api_v1_agent_proto protoreflect.FileDescriptor
 
 const file_ktl_api_v1_agent_proto_rawDesc = "" +
@@ -1622,7 +2024,40 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\x16MirrorSubscribeRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
-	"\x06replay\x18\x02 \x01(\bR\x06replay2I\n" +
+	"\x06replay\x18\x02 \x01(\bR\x06replay\"\xde\x02\n" +
+	"\x12VerifyChartOptions\x12\x14\n" +
+	"\x05chart\x18\x01 \x01(\tR\x05chart\x12\x18\n" +
+	"\arelease\x18\x02 \x01(\tR\arelease\x12\x1c\n" +
+	"\tnamespace\x18\x03 \x01(\tR\tnamespace\x12\x18\n" +
+	"\aversion\x18\x04 \x01(\tR\aversion\x12!\n" +
+	"\fvalues_files\x18\x05 \x03(\tR\vvaluesFiles\x12\x1d\n" +
+	"\n" +
+	"set_values\x18\x06 \x03(\tR\tsetValues\x12*\n" +
+	"\x11set_string_values\x18\a \x03(\tR\x0fsetStringValues\x12&\n" +
+	"\x0fset_file_values\x18\b \x03(\tR\rsetFileValues\x12!\n" +
+	"\fkube_context\x18\t \x01(\tR\vkubeContext\x12'\n" +
+	"\x0fkubeconfig_path\x18\n" +
+	" \x01(\tR\x0ekubeconfigPath\"\x82\x01\n" +
+	"\x16VerifyNamespaceOptions\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12!\n" +
+	"\fkube_context\x18\x02 \x01(\tR\vkubeContext\x12'\n" +
+	"\x0fkubeconfig_path\x18\x03 \x01(\tR\x0ekubeconfigPath\"\xc6\x01\n" +
+	"\rVerifyOptions\x12\x12\n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x17\n" +
+	"\afail_on\x18\x02 \x01(\tR\x06failOn\x12\x16\n" +
+	"\x06format\x18\x03 \x01(\tR\x06format\x12\x1b\n" +
+	"\trules_dir\x18\x04 \x01(\tR\brulesDir\x12\x16\n" +
+	"\x06policy\x18\x05 \x01(\tR\x06policy\x12\x1f\n" +
+	"\vpolicy_mode\x18\x06 \x01(\tR\n" +
+	"policyMode\x12\x1a\n" +
+	"\bbaseline\x18\a \x01(\tR\bbaseline\"\xca\x01\n" +
+	"\rVerifyRequest\x123\n" +
+	"\aoptions\x18\x01 \x01(\v2\x19.ktl.api.v1.VerifyOptionsR\aoptions\x126\n" +
+	"\x05chart\x18\x02 \x01(\v2\x1e.ktl.api.v1.VerifyChartOptionsH\x00R\x05chart\x12B\n" +
+	"\tnamespace\x18\x03 \x01(\v2\".ktl.api.v1.VerifyNamespaceOptionsH\x00R\tnamespaceB\b\n" +
+	"\x06target\"!\n" +
+	"\vVerifyEvent\x12\x12\n" +
+	"\x04json\x18\x01 \x01(\tR\x04json2I\n" +
 	"\n" +
 	"LogService\x12;\n" +
 	"\n" +
@@ -1634,7 +2069,9 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\aDestroy\x12 .ktl.api.v1.DeployDestroyRequest\x1a\x17.ktl.api.v1.DeployEvent0\x012\x9a\x01\n" +
 	"\rMirrorService\x12=\n" +
 	"\aPublish\x12\x17.ktl.api.v1.MirrorFrame\x1a\x15.ktl.api.v1.MirrorAck(\x010\x01\x12J\n" +
-	"\tSubscribe\x12\".ktl.api.v1.MirrorSubscribeRequest\x1a\x17.ktl.api.v1.MirrorFrame0\x01B)Z'github.com/example/ktl/pkg/api/v1;apiv1b\x06proto3"
+	"\tSubscribe\x12\".ktl.api.v1.MirrorSubscribeRequest\x1a\x17.ktl.api.v1.MirrorFrame0\x012O\n" +
+	"\rVerifyService\x12>\n" +
+	"\x06Verify\x12\x19.ktl.api.v1.VerifyRequest\x1a\x17.ktl.api.v1.VerifyEvent0\x01B)Z'github.com/example/ktl/pkg/api/v1;apiv1b\x06proto3"
 
 var (
 	file_ktl_api_v1_agent_proto_rawDescOnce sync.Once
@@ -1648,7 +2085,7 @@ func file_ktl_api_v1_agent_proto_rawDescGZIP() []byte {
 	return file_ktl_api_v1_agent_proto_rawDescData
 }
 
-var file_ktl_api_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_ktl_api_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_ktl_api_v1_agent_proto_goTypes = []any{
 	(*LogRequest)(nil),             // 0: ktl.api.v1.LogRequest
 	(*LogLine)(nil),                // 1: ktl.api.v1.LogLine
@@ -1664,6 +2101,11 @@ var file_ktl_api_v1_agent_proto_goTypes = []any{
 	(*MirrorFrame)(nil),            // 11: ktl.api.v1.MirrorFrame
 	(*MirrorAck)(nil),              // 12: ktl.api.v1.MirrorAck
 	(*MirrorSubscribeRequest)(nil), // 13: ktl.api.v1.MirrorSubscribeRequest
+	(*VerifyChartOptions)(nil),     // 14: ktl.api.v1.VerifyChartOptions
+	(*VerifyNamespaceOptions)(nil), // 15: ktl.api.v1.VerifyNamespaceOptions
+	(*VerifyOptions)(nil),          // 16: ktl.api.v1.VerifyOptions
+	(*VerifyRequest)(nil),          // 17: ktl.api.v1.VerifyRequest
+	(*VerifyEvent)(nil),            // 18: ktl.api.v1.VerifyEvent
 }
 var file_ktl_api_v1_agent_proto_depIdxs = []int32{
 	2,  // 0: ktl.api.v1.RunBuildRequest.options:type_name -> ktl.api.v1.BuildOptions
@@ -1674,23 +2116,28 @@ var file_ktl_api_v1_agent_proto_depIdxs = []int32{
 	1,  // 5: ktl.api.v1.MirrorFrame.log:type_name -> ktl.api.v1.LogLine
 	5,  // 6: ktl.api.v1.MirrorFrame.build:type_name -> ktl.api.v1.BuildEvent
 	6,  // 7: ktl.api.v1.MirrorFrame.deploy:type_name -> ktl.api.v1.DeployEvent
-	0,  // 8: ktl.api.v1.LogService.StreamLogs:input_type -> ktl.api.v1.LogRequest
-	3,  // 9: ktl.api.v1.BuildService.RunBuild:input_type -> ktl.api.v1.RunBuildRequest
-	8,  // 10: ktl.api.v1.DeployService.Apply:input_type -> ktl.api.v1.DeployApplyRequest
-	10, // 11: ktl.api.v1.DeployService.Destroy:input_type -> ktl.api.v1.DeployDestroyRequest
-	11, // 12: ktl.api.v1.MirrorService.Publish:input_type -> ktl.api.v1.MirrorFrame
-	13, // 13: ktl.api.v1.MirrorService.Subscribe:input_type -> ktl.api.v1.MirrorSubscribeRequest
-	1,  // 14: ktl.api.v1.LogService.StreamLogs:output_type -> ktl.api.v1.LogLine
-	5,  // 15: ktl.api.v1.BuildService.RunBuild:output_type -> ktl.api.v1.BuildEvent
-	6,  // 16: ktl.api.v1.DeployService.Apply:output_type -> ktl.api.v1.DeployEvent
-	6,  // 17: ktl.api.v1.DeployService.Destroy:output_type -> ktl.api.v1.DeployEvent
-	12, // 18: ktl.api.v1.MirrorService.Publish:output_type -> ktl.api.v1.MirrorAck
-	11, // 19: ktl.api.v1.MirrorService.Subscribe:output_type -> ktl.api.v1.MirrorFrame
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	16, // 8: ktl.api.v1.VerifyRequest.options:type_name -> ktl.api.v1.VerifyOptions
+	14, // 9: ktl.api.v1.VerifyRequest.chart:type_name -> ktl.api.v1.VerifyChartOptions
+	15, // 10: ktl.api.v1.VerifyRequest.namespace:type_name -> ktl.api.v1.VerifyNamespaceOptions
+	0,  // 11: ktl.api.v1.LogService.StreamLogs:input_type -> ktl.api.v1.LogRequest
+	3,  // 12: ktl.api.v1.BuildService.RunBuild:input_type -> ktl.api.v1.RunBuildRequest
+	8,  // 13: ktl.api.v1.DeployService.Apply:input_type -> ktl.api.v1.DeployApplyRequest
+	10, // 14: ktl.api.v1.DeployService.Destroy:input_type -> ktl.api.v1.DeployDestroyRequest
+	11, // 15: ktl.api.v1.MirrorService.Publish:input_type -> ktl.api.v1.MirrorFrame
+	13, // 16: ktl.api.v1.MirrorService.Subscribe:input_type -> ktl.api.v1.MirrorSubscribeRequest
+	17, // 17: ktl.api.v1.VerifyService.Verify:input_type -> ktl.api.v1.VerifyRequest
+	1,  // 18: ktl.api.v1.LogService.StreamLogs:output_type -> ktl.api.v1.LogLine
+	5,  // 19: ktl.api.v1.BuildService.RunBuild:output_type -> ktl.api.v1.BuildEvent
+	6,  // 20: ktl.api.v1.DeployService.Apply:output_type -> ktl.api.v1.DeployEvent
+	6,  // 21: ktl.api.v1.DeployService.Destroy:output_type -> ktl.api.v1.DeployEvent
+	12, // 22: ktl.api.v1.MirrorService.Publish:output_type -> ktl.api.v1.MirrorAck
+	11, // 23: ktl.api.v1.MirrorService.Subscribe:output_type -> ktl.api.v1.MirrorFrame
+	18, // 24: ktl.api.v1.VerifyService.Verify:output_type -> ktl.api.v1.VerifyEvent
+	18, // [18:25] is the sub-list for method output_type
+	11, // [11:18] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_ktl_api_v1_agent_proto_init() }
@@ -1708,15 +2155,19 @@ func file_ktl_api_v1_agent_proto_init() {
 		(*MirrorFrame_Deploy)(nil),
 		(*MirrorFrame_Raw)(nil),
 	}
+	file_ktl_api_v1_agent_proto_msgTypes[17].OneofWrappers = []any{
+		(*VerifyRequest_Chart)(nil),
+		(*VerifyRequest_Namespace)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ktl_api_v1_agent_proto_rawDesc), len(file_ktl_api_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   19,
 			NumExtensions: 0,
-			NumServices:   4,
+			NumServices:   5,
 		},
 		GoTypes:           file_ktl_api_v1_agent_proto_goTypes,
 		DependencyIndexes: file_ktl_api_v1_agent_proto_depIdxs,

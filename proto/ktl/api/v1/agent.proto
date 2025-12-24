@@ -158,6 +158,47 @@ message MirrorSubscribeRequest {
   bool replay = 2;
 }
 
+message VerifyChartOptions {
+  string chart = 1;
+  string release = 2;
+  string namespace = 3;
+  string version = 4;
+  repeated string values_files = 5;
+  repeated string set_values = 6;
+  repeated string set_string_values = 7;
+  repeated string set_file_values = 8;
+  string kube_context = 9;
+  string kubeconfig_path = 10;
+}
+
+message VerifyNamespaceOptions {
+  string namespace = 1;
+  string kube_context = 2;
+  string kubeconfig_path = 3;
+}
+
+message VerifyOptions {
+  string mode = 1;        // warn|block|off
+  string fail_on = 2;     // info|low|medium|high|critical
+  string format = 3;      // table|json|sarif
+  string rules_dir = 4;   // optional
+  string policy = 5;      // optional policy bundle ref
+  string policy_mode = 6; // warn|enforce
+  string baseline = 7;    // optional baseline report path
+}
+
+message VerifyRequest {
+  VerifyOptions options = 1;
+  oneof target {
+    VerifyChartOptions chart = 2;
+    VerifyNamespaceOptions namespace = 3;
+  }
+}
+
+message VerifyEvent {
+  string json = 1;
+}
+
 service LogService {
   rpc StreamLogs(LogRequest) returns (stream LogLine);
 }
@@ -174,4 +215,8 @@ service DeployService {
 service MirrorService {
   rpc Publish(stream MirrorFrame) returns (stream MirrorAck);
   rpc Subscribe(MirrorSubscribeRequest) returns (stream MirrorFrame);
+}
+
+service VerifyService {
+  rpc Verify(VerifyRequest) returns (stream VerifyEvent);
 }

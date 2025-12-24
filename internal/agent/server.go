@@ -51,6 +51,7 @@ func New(cfg Config, svc buildsvc.Service) (*Server, error) {
 	apiv1.RegisterBuildServiceServer(grpcSrv, buildSrv)
 	apiv1.RegisterDeployServiceServer(grpcSrv, deploySrv)
 	apiv1.RegisterMirrorServiceServer(grpcSrv, mirror)
+	apiv1.RegisterVerifyServiceServer(grpcSrv, newVerifyService(cfg))
 	return &Server{cfg: cfg, build: svc, mirror: mirror, logs: logSrv, grpcSrv: grpcSrv}, nil
 }
 

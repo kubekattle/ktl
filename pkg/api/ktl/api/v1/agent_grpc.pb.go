@@ -510,3 +510,108 @@ var MirrorService_ServiceDesc = grpc.ServiceDesc{
 	},
 	Metadata: "ktl/api/v1/agent.proto",
 }
+
+const (
+	VerifyService_Verify_FullMethodName = "/ktl.api.v1.VerifyService/Verify"
+)
+
+// VerifyServiceClient is the client API for VerifyService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type VerifyServiceClient interface {
+	Verify(ctx context.Context, in *VerifyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[VerifyEvent], error)
+}
+
+type verifyServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewVerifyServiceClient(cc grpc.ClientConnInterface) VerifyServiceClient {
+	return &verifyServiceClient{cc}
+}
+
+func (c *verifyServiceClient) Verify(ctx context.Context, in *VerifyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[VerifyEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &VerifyService_ServiceDesc.Streams[0], VerifyService_Verify_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[VerifyRequest, VerifyEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VerifyService_VerifyClient = grpc.ServerStreamingClient[VerifyEvent]
+
+// VerifyServiceServer is the server API for VerifyService service.
+// All implementations must embed UnimplementedVerifyServiceServer
+// for forward compatibility.
+type VerifyServiceServer interface {
+	Verify(*VerifyRequest, grpc.ServerStreamingServer[VerifyEvent]) error
+	mustEmbedUnimplementedVerifyServiceServer()
+}
+
+// UnimplementedVerifyServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedVerifyServiceServer struct{}
+
+func (UnimplementedVerifyServiceServer) Verify(*VerifyRequest, grpc.ServerStreamingServer[VerifyEvent]) error {
+	return status.Error(codes.Unimplemented, "method Verify not implemented")
+}
+func (UnimplementedVerifyServiceServer) mustEmbedUnimplementedVerifyServiceServer() {}
+func (UnimplementedVerifyServiceServer) testEmbeddedByValue()                       {}
+
+// UnsafeVerifyServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to VerifyServiceServer will
+// result in compilation errors.
+type UnsafeVerifyServiceServer interface {
+	mustEmbedUnimplementedVerifyServiceServer()
+}
+
+func RegisterVerifyServiceServer(s grpc.ServiceRegistrar, srv VerifyServiceServer) {
+	// If the following call panics, it indicates UnimplementedVerifyServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&VerifyService_ServiceDesc, srv)
+}
+
+func _VerifyService_Verify_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(VerifyRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(VerifyServiceServer).Verify(m, &grpc.GenericServerStream[VerifyRequest, VerifyEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type VerifyService_VerifyServer = grpc.ServerStreamingServer[VerifyEvent]
+
+// VerifyService_ServiceDesc is the grpc.ServiceDesc for VerifyService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var VerifyService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "ktl.api.v1.VerifyService",
+	HandlerType: (*VerifyServiceServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Verify",
+			Handler:       _VerifyService_Verify_Handler,
+			ServerStreams: true,
+		},
+	},
+	Metadata: "ktl/api/v1/agent.proto",
+}
