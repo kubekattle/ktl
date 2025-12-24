@@ -128,7 +128,7 @@ func New(deps Dependencies) Service {
 }
 
 // Run executes the build workflow with the provided options.
-func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
+func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr error) {
 	if err := opts.Streams.validate(); err != nil {
 		return nil, err
 	}
@@ -378,7 +378,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 				Push:      opts.Push,
 				Load:      opts.Load,
 			})
-			stream.emitResult(nil, time.Since(start))
+			stream.emitResult(runErr, time.Since(start))
 		}
 		if captureRecorder != nil {
 			if opts.ContextDir != "" {
@@ -396,16 +396,31 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	if mode == modeCompose {
+		if stream != nil {
+			stream.emitPhase("solve", "running", "Building compose project")
+		}
 		if gate != nil {
+			if stream != nil {
+				stream.emitPhase("policy-pre", "running", "Evaluating pre-build policy")
+			}
 			pre := buildPolicyInput(time.Now(), contextDir, "", append([]string(nil), opts.Tags...), dockerfileMeta{}, opts.AttestationDir)
 			if rep, err := gate.eval(ctx, pre); err != nil {
+				runErr = err
 				return nil, err
 			} else if err := gate.enforceOrWarn(errOut, rep, "pre", 10); err != nil {
+				runErr = err
 				return nil, err
+			}
+			if stream != nil {
+				stream.emitPhase("policy-pre", "completed", "Pre-build policy passed")
 			}
 		}
 		if err := s.runComposeBuild(ctx, composeFiles, opts, progressObservers, diagnosticObservers, quietProgress, stream, streams); err != nil {
+			runErr = err
 			return nil, err
+		}
+		if stream != nil {
+			stream.emitPhase("solve", "completed", "Compose build finished")
 		}
 		if fetches != nil {
 			if dir := strings.TrimSpace(opts.AttestationDir); dir != "" {
@@ -415,14 +430,23 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 			}
 		}
 		if gate != nil {
+			if stream != nil {
+				stream.emitPhase("policy-post", "running", "Evaluating post-build policy")
+			}
 			post := buildPolicyInput(time.Now(), contextDir, "", append([]string(nil), opts.Tags...), dockerfileMeta{}, opts.AttestationDir)
 			if rep, err := gate.eval(ctx, post); err != nil {
+				runErr = err
 				return nil, err
 			} else if err := gate.enforceOrWarn(errOut, rep, "post", 10); err != nil {
+				runErr = err
 				return nil, err
 			}
+			if stream != nil {
+				stream.emitPhase("policy-post", "completed", "Post-build policy passed")
+			}
 		}
-		return &Result{}, nil
+		res = &Result{}
+		return res, nil
 	}
 
 	if opts.Hermetic {
@@ -453,10 +477,18 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 		dfMeta = meta
 		pre := buildPolicyInput(time.Now(), contextDir, "", append([]string(nil), opts.Tags...), dfMeta, opts.AttestationDir)
+		if stream != nil {
+			stream.emitPhase("policy-pre", "running", "Evaluating pre-build policy")
+		}
 		if rep, err := gate.eval(ctx, pre); err != nil {
+			runErr = err
 			return nil, err
 		} else if err := gate.enforceOrWarn(errOut, rep, "pre", 10); err != nil {
+			runErr = err
 			return nil, err
+		}
+		if stream != nil {
+			stream.emitPhase("policy-pre", "completed", "Pre-build policy passed")
 		}
 	}
 
@@ -490,6 +522,13 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 	if stream != nil {
 		stream.emitInfo(fmt.Sprintf("Target tags: %s", strings.Join(tags, ", ")))
+		stream.emitPhase("solve", "running", "Building Dockerfile")
+		if opts.Push {
+			stream.emitPhase("push", "running", "Will push tags after build")
+		}
+		if opts.Load {
+			stream.emitPhase("load", "running", "Will load image after build")
+		}
 	}
 
 	secrets := make([]buildkit.Secret, 0, len(opts.Secrets))
@@ -618,7 +657,11 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	result, err := s.buildRunner.BuildDockerfile(ctx, buildOpts)
 	if err != nil {
 		writeCacheIntel()
+		runErr = err
 		return nil, err
+	}
+	if stream != nil {
+		stream.emitPhase("solve", "completed", "Dockerfile build finished")
 	}
 	if cacheIntel != nil && result != nil && strings.TrimSpace(result.OCIOutputPath) != "" {
 		cacheIntel.attachOCILayoutDir(result.OCIOutputPath)
@@ -645,11 +688,16 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	if strings.TrimSpace(opts.AttestationDir) != "" {
+		if stream != nil {
+			stream.emitPhase("attest", "running", "Writing attestations")
+		}
 		if result.OCIOutputPath == "" {
+			runErr = errors.New("--attest-dir requires an OCI layout export but no OCI output path is available")
 			return nil, errors.New("--attest-dir requires an OCI layout export but no OCI output path is available")
 		}
 		wrote, attErr := buildkit.WriteAttestationsFromOCI(result.OCIOutputPath, opts.AttestationDir)
 		if attErr != nil {
+			runErr = attErr
 			return nil, attErr
 		}
 		if captureRecorder != nil {
@@ -668,19 +716,31 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 				_ = os.WriteFile(filepath.Join(opts.AttestationDir, "ktl-external-fetches.json"), []byte(fetches.snapshotJSON()), 0o644)
 			}
 		}
+		if stream != nil {
+			stream.emitPhase("attest", "completed", "Attestations written")
+		}
 	}
 
 	if gate != nil && result != nil {
+		if stream != nil {
+			stream.emitPhase("policy-post", "running", "Evaluating post-build policy")
+		}
 		post := buildPolicyInput(time.Now(), contextDir, strings.TrimSpace(result.Digest), append([]string(nil), tags...), dfMeta, opts.AttestationDir)
 		if rep, err := gate.eval(ctx, post); err != nil {
+			runErr = err
 			return nil, err
 		} else if err := gate.enforceOrWarn(errOut, rep, "post", 10); err != nil {
+			runErr = err
 			return nil, err
+		}
+		if stream != nil {
+			stream.emitPhase("policy-post", "completed", "Post-build policy passed")
 		}
 	}
 
 	if opts.Sign {
 		if !opts.Push {
+			runErr = errors.New("--sign requires --push")
 			return nil, errors.New("--sign requires --push")
 		}
 		tlogUpload, err := parseOptionalBool(opts.TLogUpload)
@@ -706,6 +766,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 				stream.emitInfo(fmt.Sprintf("Signing %s", ref))
 			}
 			if err := registry.CosignSign(ctx, ref, signOpts); err != nil {
+				runErr = err
 				return nil, err
 			}
 		}
@@ -724,15 +785,17 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		fmt.Fprintf(streams.OutWriter(), "OCI layout saved at %s\n", rel)
 		if stream != nil {
 			stream.emitInfo(fmt.Sprintf("OCI layout saved at %s", rel))
+			stream.emitPhase("export", "completed", fmt.Sprintf("OCI layout saved at %s", rel))
 		}
 	}
 	if stream != nil && result != nil && result.Digest != "" {
 		stream.emitInfo(fmt.Sprintf("Image digest: %s", result.Digest))
 	}
 
-	return &Result{
+	res = &Result{
 		Tags:         append([]string(nil), tags...),
 		Digest:       result.Digest,
 		OCIOutputDir: result.OCIOutputPath,
-	}, nil
+	}
+	return res, nil
 }

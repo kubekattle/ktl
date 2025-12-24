@@ -142,6 +142,28 @@ func (b *buildProgressBroadcaster) emitCustom(message, glyph string) {
 	b.dispatch(observers, []tailer.LogRecord{rec})
 }
 
+func (b *buildProgressBroadcaster) emitPhase(name, state, message string) {
+	if b == nil {
+		return
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return
+	}
+	state = strings.ToLower(strings.TrimSpace(state))
+	if state == "" {
+		state = "running"
+	}
+	msg := strings.TrimSpace(message)
+	if msg == "" {
+		msg = fmt.Sprintf("%s %s", name, state)
+	}
+	rec := b.newRecord(time.Now(), "▶", "phase", name, state, msg)
+	rec.Source = "phase"
+	observers := b.snapshotObservers()
+	b.dispatch(observers, []tailer.LogRecord{rec})
+}
+
 func (b *buildProgressBroadcaster) emitDiagnostic(diag buildkit.BuildDiagnostic, message string) {
 	if b == nil || message == "" {
 		return
