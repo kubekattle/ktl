@@ -546,16 +546,16 @@ type buildGraphSnapshot struct {
 }
 
 type buildGraphNode struct {
-	ID             string `json:"id"`
-	Label          string `json:"label"`
-	Status         string `json:"status"`
-	Cached         bool   `json:"cached"`
-	FirstSeenUnix  int64  `json:"firstSeenUnix,omitempty"`
-	StartedUnix    int64  `json:"startedUnix,omitempty"`
-	CompletedUnix  int64  `json:"completedUnix,omitempty"`
-	Current        int64  `json:"current,omitempty"`
-	Total          int64  `json:"total,omitempty"`
-	Error          string `json:"error,omitempty"`
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	Status        string `json:"status"`
+	Cached        bool   `json:"cached"`
+	FirstSeenUnix int64  `json:"firstSeenUnix,omitempty"`
+	StartedUnix   int64  `json:"startedUnix,omitempty"`
+	CompletedUnix int64  `json:"completedUnix,omitempty"`
+	Current       int64  `json:"current,omitempty"`
+	Total         int64  `json:"total,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 type buildGraphEdge struct {
