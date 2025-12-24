@@ -28,4 +28,3 @@ func TestResolveBuildOutputMode(t *testing.T) {
 		})
 	}
 }
-

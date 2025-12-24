@@ -50,4 +50,3 @@ func terminalWidth(w io.Writer) (int, bool) {
 	}
 	return 0, false
 }
-
