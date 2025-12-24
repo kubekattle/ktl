@@ -118,28 +118,29 @@
         overflow: visible;
       }
       .tiles {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 12px;
-        margin-top: 0;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding: 2px 2px;
       }
       .tile {
-        border-radius: 24px;
+        border-radius: 999px;
         background: rgba(255,255,255,0.72);
-        border: 1px solid rgba(15,23,42,0.12);
-        padding: 18px 18px;
+        border: 0;
+        padding: 10px 14px;
         cursor: pointer;
+        white-space: nowrap;
       }
       .tileTitle {
         font-weight: 650;
         letter-spacing: -0.01em;
         margin: 0;
       }
-      .tileSub {
-        color: var(--muted);
-        font-size: 0.92rem;
-        margin-top: 8px;
-        line-height: 1.35;
+      .tile:focus-visible {
+        outline: 2px solid rgba(37,99,235,0.65);
+        outline-offset: 2px;
       }
       .resultItem {
         padding: 11px 13px;
@@ -155,6 +156,10 @@
         border-top: 2px solid rgba(37,99,235,0.55);
         border-color: rgba(15,23,42,0.12);
         background: rgba(255,255,255,0.72);
+      }
+      .resultItem:focus-visible {
+        outline: 2px solid rgba(37,99,235,0.65);
+        outline-offset: 2px;
       }
       .k {
         display: inline-flex;
@@ -246,6 +251,7 @@
 
         <div class="layout" role="main">
           <div>
+            <div id="quickstart"></div>
             <ul class="results" id="results"></ul>
           </div>
         </div>
@@ -265,6 +271,7 @@
 
       const elQ = document.getElementById("q");
       const elResults = document.getElementById("results");
+      const elQuickstart = document.getElementById("quickstart");
 
       const curated = [
         { id: "cmd:ktl apply", title: "ktl apply", sub: "Deploy a chart to a cluster" },
@@ -308,35 +315,41 @@
 
       function renderResults() {
         elResults.innerHTML = "";
+        elQuickstart.innerHTML = "";
         const q = state.q.trim();
         if (!q) {
+          // Empty state: show quick start only; no results container.
+          elResults.style.display = "none";
           const wrap = document.createElement("div");
           wrap.className = "tiles";
           for (const tile of curated) {
             const el = document.createElement("div");
             el.className = "tile";
+            el.tabIndex = 0;
+            el.setAttribute("role", "button");
+            el.setAttribute("title", tile.sub);
+            el.setAttribute("aria-label", tile.title + " — " + tile.sub);
             const t = document.createElement("div");
             t.className = "tileTitle";
             t.textContent = tile.title;
-            const s = document.createElement("div");
-            s.className = "tileSub";
-            s.textContent = tile.sub;
             el.appendChild(t);
-            el.appendChild(s);
             el.addEventListener("click", () => {
               state.activeId = tile.id;
               state.results = filterAndRank();
               renderResults();
             });
+            el.addEventListener("keydown", (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                el.click();
+              }
+            });
             wrap.appendChild(el);
           }
-          const li = document.createElement("li");
-          li.className = "resultItem";
-          li.style.padding = "16px";
-          li.appendChild(wrap);
-          elResults.appendChild(li);
+          elQuickstart.appendChild(wrap);
           return;
         }
+        elResults.style.display = "";
         for (const entry of state.results) {
           const li = document.createElement("li");
           li.className = "resultItem" + (entry.id === state.activeId ? " active" : "");
