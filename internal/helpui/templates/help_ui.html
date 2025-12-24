@@ -148,13 +148,13 @@
         .layout { grid-template-columns: 1fr; }
       }
       .results {
-        padding: 0;
+        padding: 10px;
         margin: 0;
         list-style: none;
         border-radius: 24px;
         background: var(--surface-soft);
         border: 1px solid var(--border);
-        overflow: hidden;
+        overflow: visible;
       }
       .tiles {
         display: grid;
@@ -189,13 +189,16 @@
       }
       .resultItem {
         padding: 14px 16px;
-        border-bottom: 1px solid rgba(15,23,42,0.06);
+        margin: 8px 0;
+        border-radius: 20px;
+        background: rgba(255,255,255,0.66);
+        border: 1px solid rgba(15,23,42,0.10);
         cursor: pointer;
         position: relative;
       }
-      .resultItem:last-child { border-bottom: 0; }
-      .resultItem:hover { background: rgba(255,255,255,0.6); }
-      .resultItem.active { background: rgba(37,99,235,0.08); }
+      .resultItem:last-child { margin-bottom: 0; }
+      .resultItem:hover { background: rgba(255,255,255,0.76); }
+      .resultItem.active { background: rgba(37,99,235,0.06); border-color: rgba(37,99,235,0.28); }
       .resultItem::before {
         content: "";
         position: absolute;
