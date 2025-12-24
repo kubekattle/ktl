@@ -42,7 +42,7 @@ func VerifyObjects(ctx context.Context, objects []map[string]any, opts Options) 
 	commonDir = strings.TrimSuffix(commonDir, "/")
 	commonDir = strings.TrimSuffix(commonDir, "\\")
 	commonDir = strings.TrimSpace(commonDir)
-	commonDir = commonDir + "/common"
+	commonDir = commonDir + "/lib"
 
 	findings, err := EvaluateRules(ctx, rules, objects, commonDir)
 	if err != nil {
