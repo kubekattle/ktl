@@ -25,6 +25,9 @@
         font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         background: radial-gradient(1200px circle at 20% 10%, rgba(255,255,255,0.95), rgba(220,227,241,1));
       }
+      body.zen header { display: none; }
+      body.zen .chips { display: none; }
+      body.zen .panel { padding-top: 22px; }
       .chrome {
         max-width: 1200px;
         margin: 0 auto;
@@ -317,6 +320,8 @@
       };
 
       const includeAll = {{if .All}}true{{else}}false{{end}};
+      const zen = new URLSearchParams(window.location.search).get("zen") === "1";
+      if (zen) document.body.classList.add("zen");
 
       const elQ = document.getElementById("q");
       const elResults = document.getElementById("results");
