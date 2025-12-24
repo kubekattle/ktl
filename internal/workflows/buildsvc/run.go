@@ -530,14 +530,6 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 	}
 	if stream != nil {
 		stream.emitInfo(fmt.Sprintf("Target tags: %s", strings.Join(tags, ", ")))
-		stream.emitPhase("solve", "running", "Building Dockerfile")
-		stream.emitPhase("export", "running", "Exporting build result")
-		if opts.Push {
-			stream.emitPhase("push", "running", "Will push tags after build")
-		}
-		if opts.Load {
-			stream.emitPhase("load", "running", "Will load image after build")
-		}
 	}
 
 	secrets := make([]buildkit.Secret, 0, len(opts.Secrets))
@@ -640,6 +632,12 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 		DockerConfig:         dockerCfg,
 		ProgressObservers:    progressObservers,
 		DiagnosticObservers:  diagnosticObservers,
+		PhaseEmitter: buildkit.PhaseEmitterFunc(func(name, state, message string) {
+			if stream == nil {
+				return
+			}
+			stream.emitPhase(name, state, message)
+		}),
 	}
 	if quietProgress {
 		buildOpts.ProgressMode = "quiet"
@@ -665,17 +663,11 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 
 	result, err := s.buildRunner.BuildDockerfile(ctx, buildOpts)
 	if err != nil {
-		if stream != nil {
-			stream.emitPhase("solve", "failed", err.Error())
-			stream.emitPhase("export", "failed", err.Error())
-		}
 		writeCacheIntel()
 		runErr = err
 		return nil, err
 	}
-	if stream != nil {
-		stream.emitPhase("solve", "completed", "Dockerfile build finished")
-	}
+	// buildkit runner emits solve/export/push/load phases.
 	if cacheIntel != nil && result != nil && strings.TrimSpace(result.OCIOutputPath) != "" {
 		cacheIntel.attachOCILayoutDir(result.OCIOutputPath)
 	}
@@ -791,9 +783,6 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 				stream.emitInfo(fmt.Sprintf("Signing %s", ref))
 			}
 			if err := registry.CosignSign(ctx, ref, signOpts); err != nil {
-				if stream != nil {
-					stream.emitPhase("push", "failed", err.Error())
-				}
 				runErr = err
 				return nil, err
 			}
@@ -813,22 +802,12 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 		fmt.Fprintf(streams.OutWriter(), "OCI layout saved at %s\n", rel)
 		if stream != nil {
 			stream.emitInfo(fmt.Sprintf("OCI layout saved at %s", rel))
-			stream.emitPhase("export", "completed", fmt.Sprintf("OCI layout saved at %s", rel))
 		}
-	} else if stream != nil {
-		stream.emitPhase("export", "completed", "Export complete")
 	}
 	if stream != nil && result != nil && result.Digest != "" {
 		stream.emitInfo(fmt.Sprintf("Image digest: %s", result.Digest))
 	}
-	if stream != nil {
-		if opts.Push {
-			stream.emitPhase("push", "completed", "Push complete")
-		}
-		if opts.Load {
-			stream.emitPhase("load", "completed", "Load complete")
-		}
-	}
+	// buildkit runner emits push/load completions.
 
 	res = &Result{
 		Tags:         append([]string(nil), tags...),
