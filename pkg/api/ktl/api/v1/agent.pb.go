@@ -1824,8 +1824,17 @@ func (*VerifyRequest_Chart) isVerifyRequest_Target() {}
 func (*VerifyRequest_Namespace) isVerifyRequest_Target() {}
 
 type VerifyEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Json          string                 `protobuf:"bytes,1,opt,name=json,proto3" json:"json,omitempty"`
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	TimestampUnixNano int64                  `protobuf:"varint,1,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
+	// Types that are valid to be assigned to Body:
+	//
+	//	*VerifyEvent_Started
+	//	*VerifyEvent_Progress
+	//	*VerifyEvent_Finding
+	//	*VerifyEvent_Summary
+	//	*VerifyEvent_Done
+	//	*VerifyEvent_Json
+	Body          isVerifyEvent_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1860,11 +1869,496 @@ func (*VerifyEvent) Descriptor() ([]byte, []int) {
 	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
+func (x *VerifyEvent) GetTimestampUnixNano() int64 {
+	if x != nil {
+		return x.TimestampUnixNano
+	}
+	return 0
+}
+
+func (x *VerifyEvent) GetBody() isVerifyEvent_Body {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *VerifyEvent) GetStarted() *VerifyStarted {
+	if x != nil {
+		if x, ok := x.Body.(*VerifyEvent_Started); ok {
+			return x.Started
+		}
+	}
+	return nil
+}
+
+func (x *VerifyEvent) GetProgress() *VerifyProgress {
+	if x != nil {
+		if x, ok := x.Body.(*VerifyEvent_Progress); ok {
+			return x.Progress
+		}
+	}
+	return nil
+}
+
+func (x *VerifyEvent) GetFinding() *VerifyFinding {
+	if x != nil {
+		if x, ok := x.Body.(*VerifyEvent_Finding); ok {
+			return x.Finding
+		}
+	}
+	return nil
+}
+
+func (x *VerifyEvent) GetSummary() *VerifySummary {
+	if x != nil {
+		if x, ok := x.Body.(*VerifyEvent_Summary); ok {
+			return x.Summary
+		}
+	}
+	return nil
+}
+
+func (x *VerifyEvent) GetDone() *VerifyDone {
+	if x != nil {
+		if x, ok := x.Body.(*VerifyEvent_Done); ok {
+			return x.Done
+		}
+	}
+	return nil
+}
+
 func (x *VerifyEvent) GetJson() string {
 	if x != nil {
-		return x.Json
+		if x, ok := x.Body.(*VerifyEvent_Json); ok {
+			return x.Json
+		}
 	}
 	return ""
+}
+
+type isVerifyEvent_Body interface {
+	isVerifyEvent_Body()
+}
+
+type VerifyEvent_Started struct {
+	Started *VerifyStarted `protobuf:"bytes,10,opt,name=started,proto3,oneof"`
+}
+
+type VerifyEvent_Progress struct {
+	Progress *VerifyProgress `protobuf:"bytes,11,opt,name=progress,proto3,oneof"`
+}
+
+type VerifyEvent_Finding struct {
+	Finding *VerifyFinding `protobuf:"bytes,12,opt,name=finding,proto3,oneof"`
+}
+
+type VerifyEvent_Summary struct {
+	Summary *VerifySummary `protobuf:"bytes,13,opt,name=summary,proto3,oneof"`
+}
+
+type VerifyEvent_Done struct {
+	Done *VerifyDone `protobuf:"bytes,14,opt,name=done,proto3,oneof"`
+}
+
+type VerifyEvent_Json struct {
+	Json string `protobuf:"bytes,15,opt,name=json,proto3,oneof"` // backward-compatible full report (optional)
+}
+
+func (*VerifyEvent_Started) isVerifyEvent_Body() {}
+
+func (*VerifyEvent_Progress) isVerifyEvent_Body() {}
+
+func (*VerifyEvent_Finding) isVerifyEvent_Body() {}
+
+func (*VerifyEvent_Summary) isVerifyEvent_Body() {}
+
+func (*VerifyEvent_Done) isVerifyEvent_Body() {}
+
+func (*VerifyEvent_Json) isVerifyEvent_Body() {}
+
+type VerifyStarted struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Target        string                 `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`                           // "chart" or "namespace"
+	Ruleset       string                 `protobuf:"bytes,2,opt,name=ruleset,proto3" json:"ruleset,omitempty"`                         // builtin@<sha256>
+	PolicyRef     string                 `protobuf:"bytes,3,opt,name=policy_ref,json=policyRef,proto3" json:"policy_ref,omitempty"`    // optional
+	PolicyMode    string                 `protobuf:"bytes,4,opt,name=policy_mode,json=policyMode,proto3" json:"policy_mode,omitempty"` // warn|enforce
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyStarted) Reset() {
+	*x = VerifyStarted{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyStarted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyStarted) ProtoMessage() {}
+
+func (x *VerifyStarted) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyStarted.ProtoReflect.Descriptor instead.
+func (*VerifyStarted) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *VerifyStarted) GetTarget() string {
+	if x != nil {
+		return x.Target
+	}
+	return ""
+}
+
+func (x *VerifyStarted) GetRuleset() string {
+	if x != nil {
+		return x.Ruleset
+	}
+	return ""
+}
+
+func (x *VerifyStarted) GetPolicyRef() string {
+	if x != nil {
+		return x.PolicyRef
+	}
+	return ""
+}
+
+func (x *VerifyStarted) GetPolicyMode() string {
+	if x != nil {
+		return x.PolicyMode
+	}
+	return ""
+}
+
+type VerifyProgress struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Phase         string                 `protobuf:"bytes,1,opt,name=phase,proto3" json:"phase,omitempty"` // collect|evaluate|done
+	CountsByKind  map[string]int32       `protobuf:"bytes,2,rep,name=counts_by_kind,json=countsByKind,proto3" json:"counts_by_kind,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyProgress) Reset() {
+	*x = VerifyProgress{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyProgress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyProgress) ProtoMessage() {}
+
+func (x *VerifyProgress) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyProgress.ProtoReflect.Descriptor instead.
+func (*VerifyProgress) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *VerifyProgress) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *VerifyProgress) GetCountsByKind() map[string]int32 {
+	if x != nil {
+		return x.CountsByKind
+	}
+	return nil
+}
+
+type VerifySubject struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifySubject) Reset() {
+	*x = VerifySubject{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifySubject) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifySubject) ProtoMessage() {}
+
+func (x *VerifySubject) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifySubject.ProtoReflect.Descriptor instead.
+func (*VerifySubject) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *VerifySubject) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *VerifySubject) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *VerifySubject) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type VerifyFinding struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RuleId        string                 `protobuf:"bytes,1,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	Severity      string                 `protobuf:"bytes,2,opt,name=severity,proto3" json:"severity,omitempty"`
+	Category      string                 `protobuf:"bytes,3,opt,name=category,proto3" json:"category,omitempty"`
+	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Location      string                 `protobuf:"bytes,5,opt,name=location,proto3" json:"location,omitempty"`
+	Subject       *VerifySubject         `protobuf:"bytes,6,opt,name=subject,proto3" json:"subject,omitempty"`
+	HelpUrl       string                 `protobuf:"bytes,7,opt,name=help_url,json=helpUrl,proto3" json:"help_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyFinding) Reset() {
+	*x = VerifyFinding{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyFinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyFinding) ProtoMessage() {}
+
+func (x *VerifyFinding) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyFinding.ProtoReflect.Descriptor instead.
+func (*VerifyFinding) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *VerifyFinding) GetRuleId() string {
+	if x != nil {
+		return x.RuleId
+	}
+	return ""
+}
+
+func (x *VerifyFinding) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *VerifyFinding) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *VerifyFinding) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *VerifyFinding) GetLocation() string {
+	if x != nil {
+		return x.Location
+	}
+	return ""
+}
+
+func (x *VerifyFinding) GetSubject() *VerifySubject {
+	if x != nil {
+		return x.Subject
+	}
+	return nil
+}
+
+func (x *VerifyFinding) GetHelpUrl() string {
+	if x != nil {
+		return x.HelpUrl
+	}
+	return ""
+}
+
+type VerifySummary struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Total         int32                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
+	BySeverity    map[string]int32       `protobuf:"bytes,2,rep,name=by_severity,json=bySeverity,proto3" json:"by_severity,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Blocked       bool                   `protobuf:"varint,3,opt,name=blocked,proto3" json:"blocked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifySummary) Reset() {
+	*x = VerifySummary{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifySummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifySummary) ProtoMessage() {}
+
+func (x *VerifySummary) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifySummary.ProtoReflect.Descriptor instead.
+func (*VerifySummary) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *VerifySummary) GetTotal() int32 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *VerifySummary) GetBySeverity() map[string]int32 {
+	if x != nil {
+		return x.BySeverity
+	}
+	return nil
+}
+
+func (x *VerifySummary) GetBlocked() bool {
+	if x != nil {
+		return x.Blocked
+	}
+	return false
+}
+
+type VerifyDone struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Passed        bool                   `protobuf:"varint,1,opt,name=passed,proto3" json:"passed,omitempty"`
+	Blocked       bool                   `protobuf:"varint,2,opt,name=blocked,proto3" json:"blocked,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyDone) Reset() {
+	*x = VerifyDone{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyDone) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyDone) ProtoMessage() {}
+
+func (x *VerifyDone) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyDone.ProtoReflect.Descriptor instead.
+func (*VerifyDone) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *VerifyDone) GetPassed() bool {
+	if x != nil {
+		return x.Passed
+	}
+	return false
+}
+
+func (x *VerifyDone) GetBlocked() bool {
+	if x != nil {
+		return x.Blocked
+	}
+	return false
 }
 
 var File_ktl_api_v1_agent_proto protoreflect.FileDescriptor
@@ -2055,9 +2549,54 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\aoptions\x18\x01 \x01(\v2\x19.ktl.api.v1.VerifyOptionsR\aoptions\x126\n" +
 	"\x05chart\x18\x02 \x01(\v2\x1e.ktl.api.v1.VerifyChartOptionsH\x00R\x05chart\x12B\n" +
 	"\tnamespace\x18\x03 \x01(\v2\".ktl.api.v1.VerifyNamespaceOptionsH\x00R\tnamespaceB\b\n" +
-	"\x06target\"!\n" +
-	"\vVerifyEvent\x12\x12\n" +
-	"\x04json\x18\x01 \x01(\tR\x04json2I\n" +
+	"\x06target\"\xe8\x02\n" +
+	"\vVerifyEvent\x12.\n" +
+	"\x13timestamp_unix_nano\x18\x01 \x01(\x03R\x11timestampUnixNano\x125\n" +
+	"\astarted\x18\n" +
+	" \x01(\v2\x19.ktl.api.v1.VerifyStartedH\x00R\astarted\x128\n" +
+	"\bprogress\x18\v \x01(\v2\x1a.ktl.api.v1.VerifyProgressH\x00R\bprogress\x125\n" +
+	"\afinding\x18\f \x01(\v2\x19.ktl.api.v1.VerifyFindingH\x00R\afinding\x125\n" +
+	"\asummary\x18\r \x01(\v2\x19.ktl.api.v1.VerifySummaryH\x00R\asummary\x12,\n" +
+	"\x04done\x18\x0e \x01(\v2\x16.ktl.api.v1.VerifyDoneH\x00R\x04done\x12\x14\n" +
+	"\x04json\x18\x0f \x01(\tH\x00R\x04jsonB\x06\n" +
+	"\x04body\"\x81\x01\n" +
+	"\rVerifyStarted\x12\x16\n" +
+	"\x06target\x18\x01 \x01(\tR\x06target\x12\x18\n" +
+	"\aruleset\x18\x02 \x01(\tR\aruleset\x12\x1d\n" +
+	"\n" +
+	"policy_ref\x18\x03 \x01(\tR\tpolicyRef\x12\x1f\n" +
+	"\vpolicy_mode\x18\x04 \x01(\tR\n" +
+	"policyMode\"\xbb\x01\n" +
+	"\x0eVerifyProgress\x12\x14\n" +
+	"\x05phase\x18\x01 \x01(\tR\x05phase\x12R\n" +
+	"\x0ecounts_by_kind\x18\x02 \x03(\v2,.ktl.api.v1.VerifyProgress.CountsByKindEntryR\fcountsByKind\x1a?\n" +
+	"\x11CountsByKindEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"U\n" +
+	"\rVerifySubject\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1c\n" +
+	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\"\xe6\x01\n" +
+	"\rVerifyFinding\x12\x17\n" +
+	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12\x1a\n" +
+	"\bseverity\x18\x02 \x01(\tR\bseverity\x12\x1a\n" +
+	"\bcategory\x18\x03 \x01(\tR\bcategory\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12\x1a\n" +
+	"\blocation\x18\x05 \x01(\tR\blocation\x123\n" +
+	"\asubject\x18\x06 \x01(\v2\x19.ktl.api.v1.VerifySubjectR\asubject\x12\x19\n" +
+	"\bhelp_url\x18\a \x01(\tR\ahelpUrl\"\xca\x01\n" +
+	"\rVerifySummary\x12\x14\n" +
+	"\x05total\x18\x01 \x01(\x05R\x05total\x12J\n" +
+	"\vby_severity\x18\x02 \x03(\v2).ktl.api.v1.VerifySummary.BySeverityEntryR\n" +
+	"bySeverity\x12\x18\n" +
+	"\ablocked\x18\x03 \x01(\bR\ablocked\x1a=\n" +
+	"\x0fBySeverityEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\">\n" +
+	"\n" +
+	"VerifyDone\x12\x16\n" +
+	"\x06passed\x18\x01 \x01(\bR\x06passed\x12\x18\n" +
+	"\ablocked\x18\x02 \x01(\bR\ablocked2I\n" +
 	"\n" +
 	"LogService\x12;\n" +
 	"\n" +
@@ -2085,7 +2624,7 @@ func file_ktl_api_v1_agent_proto_rawDescGZIP() []byte {
 	return file_ktl_api_v1_agent_proto_rawDescData
 }
 
-var file_ktl_api_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_ktl_api_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_ktl_api_v1_agent_proto_goTypes = []any{
 	(*LogRequest)(nil),             // 0: ktl.api.v1.LogRequest
 	(*LogLine)(nil),                // 1: ktl.api.v1.LogLine
@@ -2106,6 +2645,14 @@ var file_ktl_api_v1_agent_proto_goTypes = []any{
 	(*VerifyOptions)(nil),          // 16: ktl.api.v1.VerifyOptions
 	(*VerifyRequest)(nil),          // 17: ktl.api.v1.VerifyRequest
 	(*VerifyEvent)(nil),            // 18: ktl.api.v1.VerifyEvent
+	(*VerifyStarted)(nil),          // 19: ktl.api.v1.VerifyStarted
+	(*VerifyProgress)(nil),         // 20: ktl.api.v1.VerifyProgress
+	(*VerifySubject)(nil),          // 21: ktl.api.v1.VerifySubject
+	(*VerifyFinding)(nil),          // 22: ktl.api.v1.VerifyFinding
+	(*VerifySummary)(nil),          // 23: ktl.api.v1.VerifySummary
+	(*VerifyDone)(nil),             // 24: ktl.api.v1.VerifyDone
+	nil,                            // 25: ktl.api.v1.VerifyProgress.CountsByKindEntry
+	nil,                            // 26: ktl.api.v1.VerifySummary.BySeverityEntry
 }
 var file_ktl_api_v1_agent_proto_depIdxs = []int32{
 	2,  // 0: ktl.api.v1.RunBuildRequest.options:type_name -> ktl.api.v1.BuildOptions
@@ -2119,25 +2666,33 @@ var file_ktl_api_v1_agent_proto_depIdxs = []int32{
 	16, // 8: ktl.api.v1.VerifyRequest.options:type_name -> ktl.api.v1.VerifyOptions
 	14, // 9: ktl.api.v1.VerifyRequest.chart:type_name -> ktl.api.v1.VerifyChartOptions
 	15, // 10: ktl.api.v1.VerifyRequest.namespace:type_name -> ktl.api.v1.VerifyNamespaceOptions
-	0,  // 11: ktl.api.v1.LogService.StreamLogs:input_type -> ktl.api.v1.LogRequest
-	3,  // 12: ktl.api.v1.BuildService.RunBuild:input_type -> ktl.api.v1.RunBuildRequest
-	8,  // 13: ktl.api.v1.DeployService.Apply:input_type -> ktl.api.v1.DeployApplyRequest
-	10, // 14: ktl.api.v1.DeployService.Destroy:input_type -> ktl.api.v1.DeployDestroyRequest
-	11, // 15: ktl.api.v1.MirrorService.Publish:input_type -> ktl.api.v1.MirrorFrame
-	13, // 16: ktl.api.v1.MirrorService.Subscribe:input_type -> ktl.api.v1.MirrorSubscribeRequest
-	17, // 17: ktl.api.v1.VerifyService.Verify:input_type -> ktl.api.v1.VerifyRequest
-	1,  // 18: ktl.api.v1.LogService.StreamLogs:output_type -> ktl.api.v1.LogLine
-	5,  // 19: ktl.api.v1.BuildService.RunBuild:output_type -> ktl.api.v1.BuildEvent
-	6,  // 20: ktl.api.v1.DeployService.Apply:output_type -> ktl.api.v1.DeployEvent
-	6,  // 21: ktl.api.v1.DeployService.Destroy:output_type -> ktl.api.v1.DeployEvent
-	12, // 22: ktl.api.v1.MirrorService.Publish:output_type -> ktl.api.v1.MirrorAck
-	11, // 23: ktl.api.v1.MirrorService.Subscribe:output_type -> ktl.api.v1.MirrorFrame
-	18, // 24: ktl.api.v1.VerifyService.Verify:output_type -> ktl.api.v1.VerifyEvent
-	18, // [18:25] is the sub-list for method output_type
-	11, // [11:18] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	19, // 11: ktl.api.v1.VerifyEvent.started:type_name -> ktl.api.v1.VerifyStarted
+	20, // 12: ktl.api.v1.VerifyEvent.progress:type_name -> ktl.api.v1.VerifyProgress
+	22, // 13: ktl.api.v1.VerifyEvent.finding:type_name -> ktl.api.v1.VerifyFinding
+	23, // 14: ktl.api.v1.VerifyEvent.summary:type_name -> ktl.api.v1.VerifySummary
+	24, // 15: ktl.api.v1.VerifyEvent.done:type_name -> ktl.api.v1.VerifyDone
+	25, // 16: ktl.api.v1.VerifyProgress.counts_by_kind:type_name -> ktl.api.v1.VerifyProgress.CountsByKindEntry
+	21, // 17: ktl.api.v1.VerifyFinding.subject:type_name -> ktl.api.v1.VerifySubject
+	26, // 18: ktl.api.v1.VerifySummary.by_severity:type_name -> ktl.api.v1.VerifySummary.BySeverityEntry
+	0,  // 19: ktl.api.v1.LogService.StreamLogs:input_type -> ktl.api.v1.LogRequest
+	3,  // 20: ktl.api.v1.BuildService.RunBuild:input_type -> ktl.api.v1.RunBuildRequest
+	8,  // 21: ktl.api.v1.DeployService.Apply:input_type -> ktl.api.v1.DeployApplyRequest
+	10, // 22: ktl.api.v1.DeployService.Destroy:input_type -> ktl.api.v1.DeployDestroyRequest
+	11, // 23: ktl.api.v1.MirrorService.Publish:input_type -> ktl.api.v1.MirrorFrame
+	13, // 24: ktl.api.v1.MirrorService.Subscribe:input_type -> ktl.api.v1.MirrorSubscribeRequest
+	17, // 25: ktl.api.v1.VerifyService.Verify:input_type -> ktl.api.v1.VerifyRequest
+	1,  // 26: ktl.api.v1.LogService.StreamLogs:output_type -> ktl.api.v1.LogLine
+	5,  // 27: ktl.api.v1.BuildService.RunBuild:output_type -> ktl.api.v1.BuildEvent
+	6,  // 28: ktl.api.v1.DeployService.Apply:output_type -> ktl.api.v1.DeployEvent
+	6,  // 29: ktl.api.v1.DeployService.Destroy:output_type -> ktl.api.v1.DeployEvent
+	12, // 30: ktl.api.v1.MirrorService.Publish:output_type -> ktl.api.v1.MirrorAck
+	11, // 31: ktl.api.v1.MirrorService.Subscribe:output_type -> ktl.api.v1.MirrorFrame
+	18, // 32: ktl.api.v1.VerifyService.Verify:output_type -> ktl.api.v1.VerifyEvent
+	26, // [26:33] is the sub-list for method output_type
+	19, // [19:26] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_ktl_api_v1_agent_proto_init() }
@@ -2159,13 +2714,21 @@ func file_ktl_api_v1_agent_proto_init() {
 		(*VerifyRequest_Chart)(nil),
 		(*VerifyRequest_Namespace)(nil),
 	}
+	file_ktl_api_v1_agent_proto_msgTypes[18].OneofWrappers = []any{
+		(*VerifyEvent_Started)(nil),
+		(*VerifyEvent_Progress)(nil),
+		(*VerifyEvent_Finding)(nil),
+		(*VerifyEvent_Summary)(nil),
+		(*VerifyEvent_Done)(nil),
+		(*VerifyEvent_Json)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ktl_api_v1_agent_proto_rawDesc), len(file_ktl_api_v1_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   5,
 		},

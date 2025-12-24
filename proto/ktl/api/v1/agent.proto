@@ -196,7 +196,54 @@ message VerifyRequest {
 }
 
 message VerifyEvent {
-  string json = 1;
+  int64 timestamp_unix_nano = 1;
+  oneof body {
+    VerifyStarted started = 10;
+    VerifyProgress progress = 11;
+    VerifyFinding finding = 12;
+    VerifySummary summary = 13;
+    VerifyDone done = 14;
+    string json = 15; // backward-compatible full report (optional)
+  }
+}
+
+message VerifyStarted {
+  string target = 1;       // "chart" or "namespace"
+  string ruleset = 2;      // builtin@<sha256>
+  string policy_ref = 3;   // optional
+  string policy_mode = 4;  // warn|enforce
+}
+
+message VerifyProgress {
+  string phase = 1; // collect|evaluate|done
+  map<string,int32> counts_by_kind = 2;
+}
+
+message VerifySubject {
+  string kind = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message VerifyFinding {
+  string rule_id = 1;
+  string severity = 2;
+  string category = 3;
+  string message = 4;
+  string location = 5;
+  VerifySubject subject = 6;
+  string help_url = 7;
+}
+
+message VerifySummary {
+  int32 total = 1;
+  map<string,int32> by_severity = 2;
+  bool blocked = 3;
+}
+
+message VerifyDone {
+  bool passed = 1;
+  bool blocked = 2;
 }
 
 service LogService {
