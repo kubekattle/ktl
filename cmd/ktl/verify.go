@@ -111,8 +111,10 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 				Namespace:   namespace,
 				ValuesFiles: valuesFiles,
 				SetValues:   setValues,
-				UseCluster:  false,
-				IncludeCRDs: false,
+				// Match ktl apply: cluster-aware rendering and CRDs included so
+				// verify-before-apply continuity can compare digests reliably.
+				UseCluster:  true,
+				IncludeCRDs: true,
 			})
 			if err != nil {
 				return err
