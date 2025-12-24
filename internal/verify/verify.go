@@ -103,8 +103,15 @@ func WriteReport(w io.Writer, rep *Report, format OutputFormat) error {
 		_, _ = w.Write(append(raw, '\n'))
 		return nil
 	case OutputSARIF:
-		// placeholder: wire SARIF once the finding schema is stable
-		return fmt.Errorf("sarif output not implemented yet")
+		if err := validateSARIF(rep); err != nil {
+			return err
+		}
+		raw, err := ToSARIF(rep)
+		if err != nil {
+			return err
+		}
+		_, _ = w.Write(append(raw, '\n'))
+		return nil
 	default:
 		return fmt.Errorf("unknown format %q", format)
 	}

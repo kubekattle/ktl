@@ -53,6 +53,15 @@ type EngineMeta struct {
 	Ruleset string `json:"ruleset,omitempty"`
 }
 
+type Input struct {
+	Kind            string `json:"kind,omitempty"` // chart|namespace
+	Chart           string `json:"chart,omitempty"`
+	Release         string `json:"release,omitempty"`
+	Namespace       string `json:"namespace,omitempty"`
+	RenderedSHA256  string `json:"renderedSha256,omitempty"`
+	CollectedAtHint string `json:"collectedAtHint,omitempty"`
+}
+
 type Report struct {
 	Tool        string     `json:"tool"`
 	Engine      EngineMeta `json:"engine"`
@@ -60,6 +69,7 @@ type Report struct {
 	Passed      bool       `json:"passed"`
 	Blocked     bool       `json:"blocked"`
 	EvaluatedAt time.Time  `json:"evaluatedAt"`
+	Inputs      []Input    `json:"inputs,omitempty"`
 	Summary     Summary    `json:"summary"`
 	Findings    []Finding  `json:"findings,omitempty"`
 }
