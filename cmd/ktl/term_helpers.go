@@ -7,33 +7,14 @@ package main
 
 import (
 	"io"
-	"os"
 
-	"golang.org/x/term"
+	"github.com/example/ktl/internal/ui"
 )
 
 func isTerminalReader(r io.Reader) bool {
-	type fdProvider interface {
-		Fd() uintptr
-	}
-	if v, ok := r.(fdProvider); ok {
-		return term.IsTerminal(int(v.Fd()))
-	}
-	if f, ok := r.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
-	}
-	return false
+	return ui.IsTerminalReader(r)
 }
 
 func isTerminalWriter(w io.Writer) bool {
-	type fdProvider interface {
-		Fd() uintptr
-	}
-	if v, ok := w.(fdProvider); ok {
-		return term.IsTerminal(int(v.Fd()))
-	}
-	if f, ok := w.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
-	}
-	return false
+	return ui.IsTerminalWriter(w)
 }
