@@ -177,15 +177,6 @@
         line-height: 1.35;
         font-weight: 450;
       }
-      .sRow {
-        display: none;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent);
-        mask-image: linear-gradient(90deg, #000 82%, transparent);
-      }
-      .resultItem.active .sRow { display: block; }
       .detail {
         margin-top: 12px;
         border-radius: 20px;
@@ -321,12 +312,6 @@
           title.textContent = entry.title;
           row.appendChild(title);
           li.appendChild(row);
-          if (entry.subtitle) {
-            const sub = document.createElement("div");
-            sub.className = "s sRow";
-            sub.textContent = entry.subtitle;
-            li.appendChild(sub);
-          }
           if (entry.id === state.activeId) {
             const detail = renderDetailInline(entry);
             if (detail) li.appendChild(detail);
