@@ -160,6 +160,43 @@ func (c *BuildConsole) renderLocked() {
 	c.applyDiffLocked(newSections)
 }
 
+func (c *BuildConsole) applyDiffLocked(newSections []consoleSection) {
+	newTotal := countLines(newSections)
+	if len(c.sections) == 0 {
+		c.writeSections(newSections)
+		c.sections = cloneSections(newSections)
+		c.totalLines = newTotal
+		return
+	}
+	idx := diffIndex(c.sections, newSections)
+	if idx == -1 && newTotal == c.totalLines {
+		return
+	}
+	if idx == -1 {
+		idx = len(newSections)
+	}
+	startLine := sumLines(c.sections[:idx])
+	linesBelow := c.totalLines - startLine
+	if linesBelow > 0 {
+		fmt.Fprintf(c.out, "\x1b[%dF", linesBelow)
+	}
+	fmt.Fprint(c.out, "\x1b[J")
+	c.writeSections(newSections[idx:])
+	c.sections = cloneSections(newSections)
+	c.totalLines = newTotal
+}
+
+func (c *BuildConsole) writeSections(sections []consoleSection) {
+	for _, section := range sections {
+		for _, line := range section.lines {
+			fmt.Fprintf(c.out, "%s\x1b[K\n", line)
+		}
+	}
+	if len(sections) == 0 {
+		fmt.Fprint(c.out, "\x1b[K\n")
+	}
+}
+
 func (c *BuildConsole) buildSectionsLocked() []consoleSection {
 	sections := []consoleSection{
 		{name: "metadata", lines: c.renderMetadataLinesLocked()},
