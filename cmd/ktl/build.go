@@ -26,6 +26,7 @@ import (
 	"github.com/example/ktl/internal/logging"
 	"github.com/example/ktl/internal/mirrorbus"
 	"github.com/example/ktl/internal/tailer"
+	"github.com/example/ktl/internal/ui"
 	"github.com/example/ktl/internal/workflows/buildsvc"
 	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"github.com/example/ktl/pkg/buildkit"
@@ -396,8 +397,25 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 	errOut := cmd.ErrOrStderr()
 	var observers []tailer.LogObserver
 	if !opts.quiet {
-		if obs := buildsvc.NewConsoleObserverWithLevel(errOut, opts.logLevel); obs != nil {
-			observers = append(observers, obs)
+		switch resolveBuildOutputMode(opts.output, isTerminalWriter(errOut)) {
+		case buildOutputModeTTY:
+			width, _ := terminalWidth(errOut)
+			observers = append(observers, ui.NewBuildConsole(errOut, ui.BuildMetadata{
+				ContextDir: opts.contextDir,
+				Dockerfile: opts.dockerfile,
+				Tags:       append([]string(nil), opts.tags...),
+				Platforms:  append([]string(nil), opts.platforms...),
+				Mode:       opts.buildMode,
+				Push:       opts.push,
+				Load:       opts.load,
+			}, ui.BuildConsoleOptions{
+				Enabled: isTerminalWriter(errOut),
+				Width:   width,
+			}))
+		case buildOutputModeLogs:
+			if obs := buildsvc.NewConsoleObserverWithLevel(errOut, opts.logLevel); obs != nil {
+				observers = append(observers, obs)
+			}
 		}
 	}
 	mirrorAddr := ""
@@ -425,9 +443,19 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 	for {
 		event, err := stream.Recv()
 		if err == io.EOF {
+			for _, obs := range observers {
+				if done, ok := obs.(interface{ Done() }); ok {
+					done.Done()
+				}
+			}
 			return nil
 		}
 		if err != nil {
+			for _, obs := range observers {
+				if done, ok := obs.(interface{ Done() }); ok {
+					done.Done()
+				}
+			}
 			return err
 		}
 		if log := event.GetLog(); log != nil {
@@ -435,6 +463,11 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 			notifyBuildObservers(observers, rec)
 		}
 		if res := event.GetResult(); res != nil {
+			for _, obs := range observers {
+				if done, ok := obs.(interface{ Done() }); ok {
+					done.Done()
+				}
+			}
 			if res.GetError() != "" {
 				return fmt.Errorf("remote build failed: %s", res.GetError())
 			}
@@ -444,6 +477,35 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 			}
 			return nil
 		}
+	}
+}
+
+type buildOutputMode string
+
+const (
+	buildOutputModeTTY  buildOutputMode = "tty"
+	buildOutputModeLogs buildOutputMode = "logs"
+)
+
+func resolveBuildOutputMode(raw string, terminal bool) buildOutputMode {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "auto":
+		if terminal {
+			return buildOutputModeTTY
+		}
+		return buildOutputModeLogs
+	case "tty":
+		if terminal {
+			return buildOutputModeTTY
+		}
+		return buildOutputModeLogs
+	case "logs":
+		return buildOutputModeLogs
+	default:
+		if terminal {
+			return buildOutputModeTTY
+		}
+		return buildOutputModeLogs
 	}
 }
 
