@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,17 +18,44 @@ import (
 )
 
 func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *string) *cobra.Command {
+	var explain string
+	var rulesDir string
+
 	cmd := &cobra.Command{
 		Use:           "verify",
 		Short:         "Verify Kubernetes configuration for security and policy issues",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			_ = args
+			if strings.TrimSpace(rulesDir) == "" {
+				rulesDir = filepath.Join(appconfig.FindRepoRoot("."), "internal", "verify", "rules", "builtin")
+			}
+			if strings.TrimSpace(explain) == "" {
+				return nil
+			}
+			rs, err := verify.LoadRuleset(rulesDir)
+			if err != nil {
+				return err
+			}
+			want := strings.TrimSpace(explain)
+			for _, r := range rs.Rules {
+				if r.ID == want {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\nSeverity: %s\nCategory: %s\nHelp: %s\n\n%s\n", r.ID, r.Severity, r.Category, r.HelpURL, r.Description)
+					return nil
+				}
+			}
+			return fmt.Errorf("unknown rule %q", want)
+		},
 	}
 
 	cmd.AddCommand(
 		newVerifyChartCommand(kubeconfigPath, kubeContext, logLevel),
 		newVerifyNamespaceCommand(kubeconfigPath, kubeContext, logLevel),
 	)
+
+	cmd.PersistentFlags().StringVar(&explain, "explain", "", "Explain a rule ID (example: k8s/container_is_privileged)")
+	cmd.PersistentFlags().StringVar(&rulesDir, "rules-dir", "", "Rules directory (defaults to the pinned builtin rules)")
 
 	return cmd
 }
@@ -42,6 +70,8 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	var mode string
 	var rulesDir string
 	var failOn string
+	var outputPath string
+	var baselinePath string
 
 	cmd := &cobra.Command{
 		Use:           "chart --chart <path> --release <name>",
@@ -103,7 +133,38 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			if err != nil {
 				return err
 			}
-			if err := verify.WriteReport(cmd.OutOrStdout(), rep, repModeFormat(format)); err != nil {
+
+			rep.Inputs = append(rep.Inputs, verify.Input{
+				Kind:           "chart",
+				Chart:          strings.TrimSpace(chartRef),
+				Release:        strings.TrimSpace(release),
+				Namespace:      strings.TrimSpace(namespace),
+				RenderedSHA256: verify.ManifestDigestSHA256(result.Manifest),
+			})
+
+			if strings.TrimSpace(baselinePath) != "" {
+				base, err := verify.LoadReport(baselinePath)
+				if err != nil {
+					return err
+				}
+				delta := verify.ComputeDelta(rep, base)
+				rep.Findings = delta.NewOrChanged
+				rep.Summary = verify.Summary{Total: len(rep.Findings), BySev: map[verify.Severity]int{}}
+				for _, f := range rep.Findings {
+					rep.Summary.BySev[f.Severity]++
+				}
+			}
+
+			out, closer, err := openOutput(cmd.OutOrStdout(), outputPath)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if closer != nil {
+					_ = closer.Close()
+				}
+			}()
+			if err := verify.WriteReport(out, rep, repModeFormat(format)); err != nil {
 				return err
 			}
 			if rep.Blocked {
@@ -122,6 +183,8 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	cmd.Flags().StringVar(&mode, "mode", "warn", "Mode: warn, block, off")
 	cmd.Flags().StringVar(&failOn, "fail-on", "high", "Block threshold when --mode=block: info, low, medium, high, critical")
 	cmd.Flags().StringVar(&rulesDir, "rules-dir", "", "Rules directory (defaults to the pinned builtin rules)")
+	cmd.Flags().StringVar(&outputPath, "output", "", "Write the report to this path (use '-' for stdout)")
+	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Only report new/changed findings vs this baseline report JSON")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
 	return cmd
@@ -132,6 +195,8 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	var mode string
 	var rulesDir string
 	var failOn string
+	var outputPath string
+	var baselinePath string
 
 	cmd := &cobra.Command{
 		Use:           "namespace <name>",
@@ -169,7 +234,35 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			if err != nil {
 				return err
 			}
-			if err := verify.WriteReport(cmd.OutOrStdout(), rep, repModeFormat(format)); err != nil {
+			rep.Inputs = append(rep.Inputs, verify.Input{
+				Kind:            "namespace",
+				Namespace:       namespace,
+				CollectedAtHint: "live",
+			})
+
+			if strings.TrimSpace(baselinePath) != "" {
+				base, err := verify.LoadReport(baselinePath)
+				if err != nil {
+					return err
+				}
+				delta := verify.ComputeDelta(rep, base)
+				rep.Findings = delta.NewOrChanged
+				rep.Summary = verify.Summary{Total: len(rep.Findings), BySev: map[verify.Severity]int{}}
+				for _, f := range rep.Findings {
+					rep.Summary.BySev[f.Severity]++
+				}
+			}
+
+			out, closer, err := openOutput(cmd.OutOrStdout(), outputPath)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				if closer != nil {
+					_ = closer.Close()
+				}
+			}()
+			if err := verify.WriteReport(out, rep, repModeFormat(format)); err != nil {
 				return err
 			}
 			if rep.Blocked {
@@ -183,6 +276,8 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	cmd.Flags().StringVar(&mode, "mode", "warn", "Mode: warn, block, off")
 	cmd.Flags().StringVar(&failOn, "fail-on", "high", "Block threshold when --mode=block: info, low, medium, high, critical")
 	cmd.Flags().StringVar(&rulesDir, "rules-dir", "", "Rules directory (defaults to the pinned builtin rules)")
+	cmd.Flags().StringVar(&outputPath, "output", "", "Write the report to this path (use '-' for stdout)")
+	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Only report new/changed findings vs this baseline report JSON")
 	_ = logLevel
 	return cmd
 }
@@ -206,4 +301,19 @@ func deref(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func openOutput(defaultWriter io.Writer, path string) (io.Writer, io.Closer, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || path == "-" {
+		return defaultWriter, nil, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, nil, err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, f, nil
 }
