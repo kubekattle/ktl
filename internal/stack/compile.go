@@ -129,19 +129,15 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if !ok {
 			continue
 		}
-		mergeDefaults(n, sf.Defaults)
+		mergeDefaults(n, dir, sf.Defaults)
 		if profile != "" {
 			if sp, ok := sf.Profiles[profile]; ok {
-				mergeDefaults(n, sp.Defaults)
+				mergeDefaults(n, dir, sp.Defaults)
 			}
 		}
 	}
-	mergeReleaseOverride(n, leaf)
+	mergeReleaseOverride(n, dr.Dir, leaf)
 
-	n.Chart = resolvePath(dr.Dir, n.Chart)
-	for i := range n.Values {
-		n.Values[i] = resolvePath(dr.Dir, n.Values[i])
-	}
 	if n.Namespace == "" {
 		n.Namespace = "default"
 	}

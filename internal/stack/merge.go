@@ -7,7 +7,7 @@ import (
 	"maps"
 )
 
-func mergeDefaults(dst *ResolvedRelease, d ReleaseDefaults) {
+func mergeDefaults(dst *ResolvedRelease, baseDir string, d ReleaseDefaults) {
 	if d.Cluster.Name != "" {
 		dst.Cluster.Name = d.Cluster.Name
 	}
@@ -21,7 +21,7 @@ func mergeDefaults(dst *ResolvedRelease, d ReleaseDefaults) {
 		dst.Namespace = d.Namespace
 	}
 	if len(d.Values) > 0 {
-		dst.Values = append(dst.Values, d.Values...)
+		dst.Values = append(dst.Values, resolvePaths(baseDir, d.Values)...)
 	}
 	if len(d.Tags) > 0 {
 		dst.Tags = append(dst.Tags, d.Tags...)
@@ -55,12 +55,12 @@ func mergeDelete(dst *DeleteOptions, src DeleteOptions) {
 	}
 }
 
-func mergeReleaseOverride(dst *ResolvedRelease, r ReleaseSpec) {
+func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 	if r.Name != "" {
 		dst.Name = r.Name
 	}
 	if r.Chart != "" {
-		dst.Chart = r.Chart
+		dst.Chart = resolvePath(baseDir, r.Chart)
 	}
 	if r.Cluster.Name != "" {
 		dst.Cluster.Name = r.Cluster.Name
@@ -75,7 +75,7 @@ func mergeReleaseOverride(dst *ResolvedRelease, r ReleaseSpec) {
 		dst.Namespace = r.Namespace
 	}
 	if len(r.Values) > 0 {
-		dst.Values = append(dst.Values, r.Values...)
+		dst.Values = append(dst.Values, resolvePaths(baseDir, r.Values)...)
 	}
 	if r.Set != nil {
 		if dst.Set == nil {
@@ -93,4 +93,15 @@ func mergeReleaseOverride(dst *ResolvedRelease, r ReleaseSpec) {
 	}
 	mergeApply(&dst.Apply, r.Apply)
 	mergeDelete(&dst.Delete, r.Delete)
+}
+
+func resolvePaths(baseDir string, vals []string) []string {
+	if len(vals) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, resolvePath(baseDir, v))
+	}
+	return out
 }
