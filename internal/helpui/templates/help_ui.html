@@ -289,6 +289,7 @@
         line-height: 1.35;
         margin: 12px 0 0 0;
         letter-spacing: -0.01em;
+        user-select: text;
       }
       .meta {
         color: var(--muted);
@@ -303,6 +304,7 @@
         line-height: 1.45;
         font-weight: 450;
         margin-top: 8px;
+        user-select: text;
       }
       .empty {
         color: var(--muted);
@@ -495,22 +497,28 @@
         const wrap = document.createElement("div");
         wrap.className = "detail";
         if ((entry.kind || "") === "flag") wrap.classList.add("detailFlag");
+        // Allow selecting/copying text inside the detail panel without triggering the parent
+        // list item's click handler (which would re-render and drop the selection).
+        wrap.addEventListener("click", (e) => e.stopPropagation());
         if (entry.content) {
           const hasNewlines = entry.content.indexOf("\n") >= 0;
           if (hasNewlines) {
             const pre = document.createElement("pre");
             pre.textContent = entry.content;
+            pre.addEventListener("click", (e) => e.stopPropagation());
             wrap.appendChild(pre);
           } else {
             const p = document.createElement("div");
             p.className = "detailText";
             p.textContent = entry.content;
+            p.addEventListener("click", (e) => e.stopPropagation());
             wrap.appendChild(p);
           }
         }
         if (entry.examples && entry.examples.length) {
           const pre = document.createElement("pre");
           pre.textContent = entry.examples.join("\n\n");
+          pre.addEventListener("click", (e) => e.stopPropagation());
           wrap.appendChild(pre);
         }
         return wrap;
