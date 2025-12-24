@@ -103,7 +103,7 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 		}
 	}
 	if sev := buildSeverity(rec); sev != "" {
-		c.warning = &consoleWarning{Severity: sev, Message: strings.TrimSpace(rec.Rendered), IssuedAt: time.Now()}
+		c.warning = &consoleWarning{Severity: sev, Message: clipConsoleLine(strings.TrimSpace(rec.Rendered), 240), IssuedAt: time.Now()}
 	} else if strings.TrimSpace(rec.SourceGlyph) == "ℹ" || strings.TrimSpace(rec.SourceGlyph) == "ⓘ" {
 		// Clear the banner on explicit "info" events so older errors don't stick forever.
 		c.warning = nil
