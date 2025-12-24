@@ -197,7 +197,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := secretGuard.preflightBuildArgs(errOut, opts.BuildArgs); err != nil {
+	if _, err := secretGuard.preflight(errOut, opts); err != nil {
 		return nil, err
 	}
 

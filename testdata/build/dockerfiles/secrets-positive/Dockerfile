@@ -1,0 +1,7 @@
+FROM busybox:1.36
+
+ARG GITHUB_TOKEN=ghp_0123456789abcdefghij0123456789abcd
+ENV PRIVATE_KEY=-----BEGIN PRIVATE KEY-----
+
+CMD ["/bin/true"]
+

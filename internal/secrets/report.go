@@ -26,8 +26,10 @@ const (
 type Source string
 
 const (
-	SourceBuildArg Source = "build-arg"
-	SourceOCI      Source = "oci-layer"
+	SourceBuildArg   Source = "build-arg"
+	SourceOCI        Source = "oci-layer"
+	SourceDockerfile Source = "dockerfile"
+	SourceCompose    Source = "compose"
 )
 
 type Finding struct {

@@ -2,12 +2,17 @@ package buildsvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/compose-spec/compose-go/v2/loader"
+	composetypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/example/ktl/internal/secrets"
 )
 
@@ -44,11 +49,21 @@ func newSecretsGuard(ctx context.Context, mode, reportPath, attestDir, configRef
 	return &secretsGuard{mode: m, reportPath: reportPath, rules: compiled}, nil
 }
 
-func (g *secretsGuard) preflightBuildArgs(errOut io.Writer, buildArgs []string) (*secrets.Report, error) {
+func (g *secretsGuard) preflight(errOut io.Writer, opts Options) (*secrets.Report, error) {
 	if g == nil || g.mode == secrets.ModeOff {
 		return nil, nil
 	}
-	findings := secrets.DetectBuildArgsWithRules(buildArgs, g.rules)
+	findings := secrets.DetectBuildArgsWithRules(opts.BuildArgs, g.rules)
+
+	switch strings.ToLower(strings.TrimSpace(opts.BuildMode)) {
+	case "", string(ModeAuto), string(ModeDockerfile):
+		dfFindings, _ := g.scanDockerfile(opts)
+		findings = append(findings, dfFindings...)
+	case string(ModeCompose):
+		composeFindings, _ := g.scanCompose(opts)
+		findings = append(findings, composeFindings...)
+	}
+
 	rep := &secrets.Report{
 		Mode:        g.mode,
 		Findings:    findings,
@@ -137,4 +152,118 @@ func (g *secretsGuard) printSummary(errOut io.Writer, rep *secrets.Report, phase
 		return fmt.Errorf("secrets guardrails blocked the build (%s)", phase)
 	}
 	return nil
+}
+
+func (g *secretsGuard) scanDockerfile(opts Options) ([]secrets.Finding, error) {
+	contextDir := strings.TrimSpace(opts.ContextDir)
+	if contextDir == "" {
+		contextDir = "."
+	}
+	dockerfile := strings.TrimSpace(opts.Dockerfile)
+	if dockerfile == "" {
+		dockerfile = filepath.Join(contextDir, "Dockerfile")
+	}
+	if _, err := os.Stat(dockerfile); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return secrets.ScanDockerfileForSecretsWithRules(dockerfile, g.rules)
+}
+
+func (g *secretsGuard) scanCompose(opts Options) ([]secrets.Finding, error) {
+	if len(opts.ComposeFiles) == 0 {
+		return nil, nil
+	}
+	project, err := loadComposeProjectForSecrets(opts)
+	if err != nil {
+		return nil, err
+	}
+	allowedServices := map[string]bool{}
+	if len(opts.ComposeServices) > 0 {
+		for _, name := range opts.ComposeServices {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				allowedServices[name] = true
+			}
+		}
+	}
+
+	var findings []secrets.Finding
+	for _, svc := range project.Services {
+		if len(allowedServices) > 0 && !allowedServices[svc.Name] {
+			continue
+		}
+		if svc.Build != nil {
+			for key, value := range svc.Build.Args {
+				loc := fmt.Sprintf("%s:service/%s:build.args", strings.Join(opts.ComposeFiles, ","), svc.Name)
+				v := ""
+				if value != nil {
+					v = *value
+				}
+				if strings.TrimSpace(v) == "" {
+					continue
+				}
+				findings = append(findings, secrets.MatchKeyValueWithRules(key, v, g.rules, secrets.SourceCompose, loc)...)
+			}
+		}
+		for key, value := range svc.Environment {
+			v := ""
+			if value != nil {
+				v = *value
+			}
+			if strings.TrimSpace(v) == "" {
+				continue
+			}
+			loc := fmt.Sprintf("%s:service/%s:environment", strings.Join(opts.ComposeFiles, ","), svc.Name)
+			findings = append(findings, secrets.MatchKeyValueWithRules(key, v, g.rules, secrets.SourceCompose, loc)...)
+		}
+	}
+	return findings, nil
+}
+
+func loadComposeProjectForSecrets(opts Options) (*composetypes.Project, error) {
+	env := make(composetypes.Mapping)
+	for _, kv := range os.Environ() {
+		key, value, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		env[key] = value
+	}
+
+	configFiles := make([]composetypes.ConfigFile, 0, len(opts.ComposeFiles))
+	for _, path := range opts.ComposeFiles {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return nil, errors.New("compose file path cannot be empty")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read compose file %s: %w", path, err)
+		}
+		configFiles = append(configFiles, composetypes.ConfigFile{Filename: path, Content: data})
+	}
+
+	workingDir := filepath.Dir(opts.ComposeFiles[0])
+	projectName := strings.TrimSpace(opts.ComposeProject)
+	if projectName == "" {
+		projectName = "ktl"
+	}
+	details := composetypes.ConfigDetails{
+		WorkingDir:  workingDir,
+		ConfigFiles: configFiles,
+		Environment: env,
+	}
+	project, err := loader.Load(details, func(o *loader.Options) {
+		o.SetProjectName(projectName, true)
+		if len(opts.ComposeProfiles) > 0 {
+			o.Profiles = append(o.Profiles, opts.ComposeProfiles...)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return project, nil
 }
