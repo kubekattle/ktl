@@ -75,6 +75,10 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	var policyRef string
 	var policyMode string
 	var fixPlan bool
+	var exposure bool
+	var exposureOutput string
+	var exitOnDelta bool
+	var baselineWrite string
 
 	cmd := &cobra.Command{
 		Use:           "chart --chart <path> --release <name>",
@@ -165,10 +169,39 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 					return err
 				}
 				delta := verify.ComputeDelta(rep, base)
+				if exitOnDelta && len(delta.NewOrChanged) > 0 {
+					// Enforce regression gate regardless of warn/block modes.
+					rep.Blocked = true
+					rep.Passed = false
+				}
 				rep.Findings = delta.NewOrChanged
 				rep.Summary = verify.Summary{Total: len(rep.Findings), BySev: map[verify.Severity]int{}}
 				for _, f := range rep.Findings {
 					rep.Summary.BySev[f.Severity]++
+				}
+			}
+
+			if exposure {
+				ex := verify.AnalyzeExposure(objs)
+				rep.Exposure = &ex
+				if strings.TrimSpace(exposureOutput) != "" {
+					if w, c, err := openOutput(cmd.ErrOrStderr(), exposureOutput); err == nil {
+						_ = verify.WriteExposureJSON(w, &ex)
+						if c != nil {
+							_ = c.Close()
+						}
+					}
+				}
+			}
+
+			if strings.TrimSpace(baselineWrite) != "" {
+				// Write the full report (pre-filtering) as a new baseline.
+				// Always JSON for stability.
+				if w, c, err := openOutput(cmd.ErrOrStderr(), baselineWrite); err == nil {
+					_ = verify.WriteReport(w, rep, verify.OutputJSON)
+					if c != nil {
+						_ = c.Close()
+					}
 				}
 			}
 
@@ -211,6 +244,10 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	cmd.Flags().StringVar(&policyRef, "policy", "", "Policy bundle ref (dir/tar/https) to evaluate against rendered objects")
 	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn or enforce")
 	cmd.Flags().BoolVar(&fixPlan, "fix-plan", false, "Print suggested patch snippets for known findings (table output only)")
+	cmd.Flags().BoolVar(&exposure, "exposure", false, "Include exposure analysis (Ingress/Service to pods/workloads) in the report")
+	cmd.Flags().StringVar(&exposureOutput, "exposure-output", "", "Write exposure graph JSON to this path (use '-' for stdout)")
+	cmd.Flags().BoolVar(&exitOnDelta, "exit-on-delta", false, "When using --baseline, fail if any new/changed findings exist")
+	cmd.Flags().StringVar(&baselineWrite, "baseline-write", "", "Write the current report JSON to this path for use as a future baseline")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
 	return cmd
@@ -226,6 +263,10 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	var policyRef string
 	var policyMode string
 	var fixPlan bool
+	var exposure bool
+	var exposureOutput string
+	var exitOnDelta bool
+	var baselineWrite string
 
 	cmd := &cobra.Command{
 		Use:           "namespace <name>",
@@ -287,10 +328,36 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 					return err
 				}
 				delta := verify.ComputeDelta(rep, base)
+				if exitOnDelta && len(delta.NewOrChanged) > 0 {
+					rep.Blocked = true
+					rep.Passed = false
+				}
 				rep.Findings = delta.NewOrChanged
 				rep.Summary = verify.Summary{Total: len(rep.Findings), BySev: map[verify.Severity]int{}}
 				for _, f := range rep.Findings {
 					rep.Summary.BySev[f.Severity]++
+				}
+			}
+
+			if exposure {
+				ex := verify.AnalyzeExposure(objs)
+				rep.Exposure = &ex
+				if strings.TrimSpace(exposureOutput) != "" {
+					if w, c, err := openOutput(cmd.ErrOrStderr(), exposureOutput); err == nil {
+						_ = verify.WriteExposureJSON(w, &ex)
+						if c != nil {
+							_ = c.Close()
+						}
+					}
+				}
+			}
+
+			if strings.TrimSpace(baselineWrite) != "" {
+				if w, c, err := openOutput(cmd.ErrOrStderr(), baselineWrite); err == nil {
+					_ = verify.WriteReport(w, rep, verify.OutputJSON)
+					if c != nil {
+						_ = c.Close()
+					}
 				}
 			}
 
@@ -328,6 +395,10 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	cmd.Flags().StringVar(&policyRef, "policy", "", "Policy bundle ref (dir/tar/https) to evaluate against live objects")
 	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn or enforce")
 	cmd.Flags().BoolVar(&fixPlan, "fix-plan", false, "Print suggested patch snippets for known findings (table output only)")
+	cmd.Flags().BoolVar(&exposure, "exposure", false, "Include exposure analysis (Ingress/Service to pods/workloads) in the report")
+	cmd.Flags().StringVar(&exposureOutput, "exposure-output", "", "Write exposure graph JSON to this path (use '-' for stdout)")
+	cmd.Flags().BoolVar(&exitOnDelta, "exit-on-delta", false, "When using --baseline, fail if any new/changed findings exist")
+	cmd.Flags().StringVar(&baselineWrite, "baseline-write", "", "Write the current report JSON to this path for use as a future baseline")
 	_ = logLevel
 	return cmd
 }
