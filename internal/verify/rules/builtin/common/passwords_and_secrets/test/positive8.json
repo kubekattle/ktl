@@ -1,0 +1,10 @@
+{
+  "Resources": {
+    "service-1": {
+      "password": "abcdefg"
+    },
+    "service-2": {
+      "password": "abcdefg"
+    }
+  }
+}
