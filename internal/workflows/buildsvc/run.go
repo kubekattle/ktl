@@ -23,6 +23,7 @@ import (
 	"github.com/example/ktl/internal/dockerconfig"
 	"github.com/example/ktl/internal/logging"
 	"github.com/example/ktl/internal/tailer"
+	"github.com/example/ktl/internal/ui"
 	"github.com/example/ktl/pkg/buildkit"
 	appcompose "github.com/example/ktl/pkg/compose"
 	"github.com/example/ktl/pkg/registry"
@@ -278,17 +279,41 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}()
 
-	var consoleObserver tailer.LogObserver
-	if !opts.Quiet && streams.IsTerminal(errOut) {
-		consoleObserver = NewConsoleObserverWithLevel(errOut, opts.LogLevel)
-		if consoleObserver != nil {
-			stream.addObserver(consoleObserver)
+	var (
+		consoleObserver tailer.LogObserver
+		buildConsole    *ui.BuildConsole
+	)
+	if !opts.Quiet {
+		switch resolveBuildOutputMode(opts.Output, streams.IsTerminal(errOut)) {
+		case buildOutputTTY:
+			width, _ := terminalWidth(errOut)
+			buildConsole = ui.NewBuildConsole(errOut, ui.BuildMetadata{
+				ContextDir: contextDir,
+				Dockerfile: opts.Dockerfile,
+				Tags:       append([]string(nil), opts.Tags...),
+				Platforms:  append([]string(nil), opts.Platforms...),
+				Mode:       opts.BuildMode,
+				Push:       opts.Push,
+				Load:       opts.Load,
+			}, ui.BuildConsoleOptions{
+				Enabled: streams.IsTerminal(errOut),
+				Width:   width,
+			})
+			stream.addObserver(buildConsole)
+		case buildOutputLogs:
+			if streams.IsTerminal(errOut) {
+				consoleObserver = NewConsoleObserverWithLevel(errOut, opts.LogLevel)
+				if consoleObserver != nil {
+					stream.addObserver(consoleObserver)
+				}
+			}
 		}
 	}
 	for _, obs := range opts.Observers {
 		stream.addObserver(obs)
 	}
-	quietProgress := opts.Quiet || (consoleObserver != nil && os.Getenv("BUILDKIT_PROGRESS") == "")
+	hasInteractiveConsole := consoleObserver != nil || buildConsole != nil
+	quietProgress := opts.Quiet || (hasInteractiveConsole && os.Getenv("BUILDKIT_PROGRESS") == "")
 
 	var stopSandboxLogs func()
 	if opts.SandboxLogs && sandboxActive() {
@@ -329,6 +354,9 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 	stream.emitInfo(fmt.Sprintf("Streaming ktl build from %s", contextDir))
 	defer func() {
+		if buildConsole != nil {
+			buildConsole.Done()
+		}
 		if stream != nil {
 			stream.emitSummary(buildSummary{
 				Tags:      append([]string(nil), opts.Tags...),
