@@ -72,6 +72,8 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	var failOn string
 	var outputPath string
 	var baselinePath string
+	var policyRef string
+	var policyMode string
 
 	cmd := &cobra.Command{
 		Use:           "chart --chart <path> --release <name>",
@@ -144,6 +146,18 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 				RenderedSHA256: verify.ManifestDigestSHA256(result.Manifest),
 			})
 
+			if strings.TrimSpace(policyRef) != "" {
+				pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: policyRef, Mode: policyMode}, objs)
+				if err != nil {
+					return err
+				}
+				rep.Findings = append(rep.Findings, verify.PolicyReportToFindings(pol)...)
+				if strings.EqualFold(strings.TrimSpace(policyMode), "enforce") && pol != nil && pol.DenyCount > 0 {
+					rep.Blocked = true
+					rep.Passed = false
+				}
+			}
+
 			if strings.TrimSpace(baselinePath) != "" {
 				base, err := verify.LoadReport(baselinePath)
 				if err != nil {
@@ -187,6 +201,8 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	cmd.Flags().StringVar(&rulesDir, "rules-dir", "", "Rules directory (defaults to the pinned builtin rules)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the report to this path (use '-' for stdout)")
 	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Only report new/changed findings vs this baseline report JSON")
+	cmd.Flags().StringVar(&policyRef, "policy", "", "Policy bundle ref (dir/tar/https) to evaluate against rendered objects")
+	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn or enforce")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
 	return cmd
@@ -199,6 +215,8 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	var failOn string
 	var outputPath string
 	var baselinePath string
+	var policyRef string
+	var policyMode string
 
 	cmd := &cobra.Command{
 		Use:           "namespace <name>",
@@ -242,6 +260,18 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 				CollectedAtHint: "live",
 			})
 
+			if strings.TrimSpace(policyRef) != "" {
+				pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: policyRef, Mode: policyMode}, objs)
+				if err != nil {
+					return err
+				}
+				rep.Findings = append(rep.Findings, verify.PolicyReportToFindings(pol)...)
+				if strings.EqualFold(strings.TrimSpace(policyMode), "enforce") && pol != nil && pol.DenyCount > 0 {
+					rep.Blocked = true
+					rep.Passed = false
+				}
+			}
+
 			if strings.TrimSpace(baselinePath) != "" {
 				base, err := verify.LoadReport(baselinePath)
 				if err != nil {
@@ -280,6 +310,8 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	cmd.Flags().StringVar(&rulesDir, "rules-dir", "", "Rules directory (defaults to the pinned builtin rules)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the report to this path (use '-' for stdout)")
 	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Only report new/changed findings vs this baseline report JSON")
+	cmd.Flags().StringVar(&policyRef, "policy", "", "Policy bundle ref (dir/tar/https) to evaluate against live objects")
+	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn or enforce")
 	_ = logLevel
 	return cmd
 }
