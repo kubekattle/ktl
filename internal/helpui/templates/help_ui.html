@@ -193,12 +193,6 @@
         border: 0;
         padding: 14px 14px;
       }
-      .detail h2 {
-        font-size: 1.05rem;
-        margin: 0 0 8px 0;
-        font-weight: 650;
-        letter-spacing: -0.01em;
-      }
       pre {
         background: rgba(15,23,42,0.06);
         border: 0;
@@ -352,15 +346,6 @@
         if (!entry) return null;
         const wrap = document.createElement("div");
         wrap.className = "detail";
-        const h2 = document.createElement("h2");
-        h2.textContent = entry.title;
-        wrap.appendChild(h2);
-        if (entry.subtitle) {
-          const meta = document.createElement("div");
-          meta.className = "meta";
-          meta.textContent = entry.subtitle;
-          wrap.appendChild(meta);
-        }
         if (entry.content) {
           const hasNewlines = entry.content.indexOf("\n") >= 0;
           if (hasNewlines) {
