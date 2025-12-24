@@ -196,6 +196,13 @@ func (r *runState) InitFiles() error {
 
 func (r *runState) WritePlan() error {
 	planPath := filepath.Join(r.RunRoot, "plan.json")
+	for _, n := range r.Plan.Nodes {
+		hash, err := ComputeEffectiveInputHash(n, true)
+		if err != nil {
+			return err
+		}
+		n.EffectiveInputHash = hash
+	}
 	payload := buildRunPlanPayload(r, r.Plan)
 	return writeJSONAtomic(planPath, payload)
 }

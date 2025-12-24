@@ -4,8 +4,6 @@
 package stack
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -78,9 +76,6 @@ func Compile(u *Universe, opts CompileOptions) (*Plan, error) {
 
 	if err := assignExecutionGroups(p); err != nil {
 		return nil, err
-	}
-	for _, n := range p.Nodes {
-		n.EffectiveInputHash = computeEffectiveInputHash(n)
 	}
 	return p, nil
 }
@@ -184,33 +179,4 @@ func resolvePath(baseDir, p string) string {
 		return filepath.Clean(pp)
 	}
 	return filepath.Clean(filepath.Join(baseDir, pp))
-}
-
-func computeEffectiveInputHash(n *ResolvedRelease) string {
-	h := sha256.New()
-	write := func(s string) {
-		_, _ = h.Write([]byte(s))
-		_, _ = h.Write([]byte{0})
-	}
-	write("ktl.stack.v1")
-	write(n.ID)
-	write(n.Chart)
-	for _, vf := range n.Values {
-		write(vf)
-	}
-	keys := make([]string, 0, len(n.Set))
-	for k := range n.Set {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		write(k)
-		write(n.Set[k])
-	}
-	write(n.Cluster.Name)
-	write(n.Cluster.Kubeconfig)
-	write(n.Cluster.Context)
-	write(n.Namespace)
-	sum := hex.EncodeToString(h.Sum(nil))
-	return "sha256:" + sum
 }
