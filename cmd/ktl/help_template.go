@@ -24,8 +24,8 @@ const commandHelpTemplate = `{{with or .Long .Short}}{{. | trimTrailingWhitespac
 Usage:
   {{.UseLine}}
 
-{{if .HasAvailableSubCommands}}Subcommands:
-{{range .Commands}}{{if (and .IsAvailableCommand (ne .Name "help"))}}  {{rpad .Name .NamePadding}} {{.Short}}
+{{if hasNonHelpSubcommands .}}Subcommands:
+{{range .Commands}}{{if (and (ne .Name "help") (not .Hidden))}}  {{rpad .Name .NamePadding}} {{.Short}}
 {{end}}{{end}}
 
 {{end}}

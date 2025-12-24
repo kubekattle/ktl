@@ -20,10 +20,21 @@ import (
 func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *string) *cobra.Command {
 	var explain string
 	var rulesDir string
+	var explained bool
 
 	cmd := &cobra.Command{
-		Use:           "verify",
-		Short:         "Verify Kubernetes configuration for security and policy issues",
+		Use:   "verify <chart|namespace>",
+		Short: "Verify Kubernetes configuration for security and policy issues",
+		Example: strings.TrimSpace(`
+  # Verify a chart render (warn-only by default)
+  ktl verify chart --chart ./chart --release myapp --namespace default
+
+  # Enforce regression gating vs a baseline
+  ktl verify chart --chart ./chart --release myapp --baseline verify-baseline.json --exit-on-delta --mode block
+
+  # Verify a live namespace
+  ktl verify namespace default --mode warn
+`),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -42,10 +53,23 @@ func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *str
 			for _, r := range rs.Rules {
 				if r.ID == want {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s\nSeverity: %s\nCategory: %s\nHelp: %s\n\n%s\n", r.ID, r.Severity, r.Category, r.HelpURL, r.Description)
+					explained = true
 					return nil
 				}
 			}
 			return fmt.Errorf("unknown rule %q", want)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if explained {
+				return nil
+			}
+			if len(args) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Choose one:")
+				fmt.Fprintln(cmd.ErrOrStderr(), "  ktl verify chart --chart <path> --release <name> [flags]")
+				fmt.Fprintln(cmd.ErrOrStderr(), "  ktl verify namespace <name> [flags]")
+				fmt.Fprintln(cmd.ErrOrStderr())
+			}
+			return cmd.Help()
 		},
 	}
 
@@ -56,6 +80,32 @@ func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *str
 
 	cmd.PersistentFlags().StringVar(&explain, "explain", "", "Explain a rule ID (example: k8s/container_is_privileged)")
 	cmd.PersistentFlags().StringVar(&rulesDir, "rules-dir", "", "Rules directory (defaults to the pinned builtin rules)")
+
+	decorateCommandHelp(cmd, "Verify Flags")
+
+	// Cobra always registers a `help` child command, which makes generic "Subcommands" rendering noisy.
+	// Keep `ktl verify --help` focused on the two operational modes users care about.
+	cmd.SetHelpTemplate(`{{with or .Long .Short}}{{. | trimTrailingWhitespaces}}{{end}}
+
+Usage:
+  {{.UseLine}}
+
+Modes:
+{{- with (indexCommand .Commands "chart") }}
+  {{rpad .Name .NamePadding}} {{.Short}}
+{{- end }}
+{{- with (indexCommand .Commands "namespace") }}
+  {{rpad .Name .NamePadding}} {{.Short}}
+{{- end }}
+
+Verify Flags:
+{{flagUsages .LocalFlags}}
+
+{{ if .HasAvailableInheritedFlags}}
+Global Flags:
+{{flagUsages .InheritedFlags}}
+{{ end}}
+`)
 
 	return cmd
 }
@@ -81,8 +131,16 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	var baselineWrite string
 
 	cmd := &cobra.Command{
-		Use:           "chart --chart <path> --release <name>",
-		Short:         "Verify a Helm chart by rendering and scanning namespaced resources",
+		Use:   "chart --chart <path> --release <name>",
+		Short: "Verify a Helm chart by rendering and scanning namespaced resources",
+		Long:  "Verify a Helm chart by rendering and scanning namespaced resources.\n\nRequired flags: --chart, --release.",
+		Example: strings.TrimSpace(`
+  # Verify a local chart render
+  ktl verify chart --chart ./chart --release myapp --namespace default
+
+  # Compare against a baseline and fail on regressions
+  ktl verify chart --chart ./chart --release myapp --baseline verify-baseline.json --exit-on-delta --mode block
+`),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -250,6 +308,7 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	cmd.Flags().StringVar(&baselineWrite, "baseline-write", "", "Write the current report JSON to this path for use as a future baseline")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
+	decorateCommandHelp(cmd, "Verify Chart Flags")
 	return cmd
 }
 
@@ -269,8 +328,15 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	var baselineWrite string
 
 	cmd := &cobra.Command{
-		Use:           "namespace <name>",
-		Short:         "Verify a live namespace by scanning namespaced resources only",
+		Use:   "namespace <name>",
+		Short: "Verify a live namespace by scanning namespaced resources only",
+		Example: strings.TrimSpace(`
+  # Verify a live namespace
+  ktl verify namespace default --mode warn
+
+  # Enforce policy and block at the chosen severity threshold
+  ktl verify namespace default --policy ./policy-bundle --policy-mode enforce --mode block --fail-on high
+`),
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -400,6 +466,7 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	cmd.Flags().BoolVar(&exitOnDelta, "exit-on-delta", false, "When using --baseline, fail if any new/changed findings exist")
 	cmd.Flags().StringVar(&baselineWrite, "baseline-write", "", "Write the current report JSON to this path for use as a future baseline")
 	_ = logLevel
+	decorateCommandHelp(cmd, "Verify Namespace Flags")
 	return cmd
 }
 

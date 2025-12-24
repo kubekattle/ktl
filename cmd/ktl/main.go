@@ -248,6 +248,18 @@ Global Flags:
 func init() {
 	// Register helper funcs for Cobra templates.
 	cobra.AddTemplateFunc("list", func(items ...string) []string { return items })
+	cobra.AddTemplateFunc("hasNonHelpSubcommands", func(cmd *cobra.Command) bool {
+		if cmd == nil {
+			return false
+		}
+		for _, sub := range cmd.Commands() {
+			if sub == nil || sub.Name() == "help" || sub.Hidden {
+				continue
+			}
+			return true
+		}
+		return false
+	})
 	cobra.AddTemplateFunc("indexCommand", func(cmds []*cobra.Command, name string) *cobra.Command {
 		for _, c := range cmds {
 			if c == nil {
