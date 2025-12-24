@@ -36,20 +36,20 @@ type BuildConsole struct {
 	out  io.Writer
 	opts BuildConsoleOptions
 
-	mu         sync.Mutex
-	meta       BuildMetadata
-	warning    *consoleWarning
-	phases     map[string]phaseBadge
-	graph      *buildGraphSnapshot
-	cacheHits  int
-	cacheMiss  int
-	finished   bool
-	success    bool
-	events     []string
+	mu               sync.Mutex
+	meta             BuildMetadata
+	warning          *consoleWarning
+	phases           map[string]phaseBadge
+	graph            *buildGraphSnapshot
+	cacheHits        int
+	cacheMiss        int
+	finished         bool
+	success          bool
+	events           []string
 	lastGraphEventAt time.Time
-	sections   []consoleSection
-	totalLines int
-	startedAt  time.Time
+	sections         []consoleSection
+	totalLines       int
+	startedAt        time.Time
 }
 
 var buildPhaseOrder = []string{"policy-pre", "solve", "export", "policy-post", "attest", "push", "load", "done"}
