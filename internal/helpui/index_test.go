@@ -44,3 +44,24 @@ func TestBuildIndex_IncludesCommandsFlagsAndEnv(t *testing.T) {
 		t.Fatalf("expected flag entry for -n/--namespace")
 	}
 }
+
+func TestBuildIndex_DeduplicatesGlobalFlags(t *testing.T) {
+	root := &cobra.Command{Use: "ktl"}
+	root.PersistentFlags().String("mirror-bus", "", "Publish mirror payloads to a shared gRPC bus")
+	a := &cobra.Command{Use: "a"}
+	a.Flags().String("foo", "", "Foo")
+	b := &cobra.Command{Use: "b"}
+	b.Flags().String("bar", "", "Bar")
+	root.AddCommand(a, b)
+
+	index := BuildIndex(root, false)
+	count := 0
+	for _, e := range index.Entries {
+		if e.Kind == "flag" && e.Title == "--mirror-bus" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 --mirror-bus entry, got %d", count)
+	}
+}

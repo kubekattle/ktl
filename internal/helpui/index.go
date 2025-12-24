@@ -28,7 +28,8 @@ type Entry struct {
 func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 	now := time.Now().UTC().Format(time.RFC3339)
 	entries := make([]Entry, 0, 256)
-	seenFlags := make(map[string]struct{})
+	globalFlagNames := collectFlagNames(rootPersistentFlags(root))
+	flagAggs := make(map[string]*flagAgg, 256)
 
 	visitCommands(root, includeHidden, func(cmd *cobra.Command) {
 		if cmd == nil {
@@ -49,17 +50,21 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		if flags := flagUsages(cmd.LocalFlags()); flags != "" {
 			contentParts = append(contentParts, "Flags:\n"+flags)
 		}
+		examples := splitExamples(cmd.Example)
+		if curated, ok := curatedExamples[path]; ok {
+			examples = append(examples, curated...)
+		}
 		entries = append(entries, Entry{
 			ID:       "cmd:" + path,
 			Kind:     "command",
 			Title:    path,
 			Subtitle: strings.TrimSpace(cmd.Short),
 			Content:  strings.Join(contentParts, "\n\n"),
-			Examples: splitExamples(cmd.Example),
+			Examples: examples,
 			Tags:     []string{"command"},
 		})
 
-		addFlagEntries := func(fs *pflag.FlagSet, scope string) {
+		addLocalFlags := func(fs *pflag.FlagSet) {
 			if fs == nil {
 				return
 			}
@@ -70,32 +75,67 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 				if f.Hidden && !includeHidden {
 					return
 				}
-				key := path + "\x00" + f.Name + "\x00" + scope
-				if _, ok := seenFlags[key]; ok {
+				// Global flags should be indexed once (at the root), not repeated per subcommand.
+				if _, ok := globalFlagNames[f.Name]; ok {
 					return
 				}
-				seenFlags[key] = struct{}{}
-				title := "--" + f.Name
-				if f.Shorthand != "" {
-					title = "-" + f.Shorthand + ", " + title
+				agg := flagAggs[f.Name]
+				if agg == nil {
+					agg = &flagAgg{name: f.Name, shorthand: f.Shorthand, usage: strings.TrimSpace(f.Usage), defValue: strings.TrimSpace(f.DefValue)}
+					flagAggs[f.Name] = agg
 				}
-				content := strings.TrimSpace(f.Usage)
-				if def := strings.TrimSpace(f.DefValue); def != "" && def != "false" && def != "0" {
-					content = strings.TrimSpace(content + "\n\nDefault: " + def)
-				}
-				entries = append(entries, Entry{
-					ID:       "flag:" + path + ":" + scope + ":" + f.Name,
-					Kind:     "flag",
-					Title:    title,
-					Subtitle: path + " (" + scope + ")",
-					Content:  content,
-					Tags:     []string{"flag", path},
-				})
+				agg.addCommand(path)
 			})
 		}
-		addFlagEntries(cmd.LocalFlags(), "command")
-		addFlagEntries(cmd.InheritedFlags(), "global")
+		addLocalFlags(cmd.LocalFlags())
 	})
+
+	// Index global flags exactly once.
+	rootFlags := rootPersistentFlags(root)
+	if rootFlags != nil {
+		rootFlags.VisitAll(func(f *pflag.Flag) {
+			if f == nil {
+				return
+			}
+			if f.Hidden && !includeHidden {
+				return
+			}
+			agg := flagAggs[f.Name]
+			if agg == nil {
+				agg = &flagAgg{name: f.Name, shorthand: f.Shorthand, usage: strings.TrimSpace(f.Usage), defValue: strings.TrimSpace(f.DefValue)}
+				flagAggs[f.Name] = agg
+			}
+			agg.global = true
+		})
+	}
+
+	for _, agg := range flagAggs {
+		if agg == nil {
+			continue
+		}
+		title := "--" + agg.name
+		if agg.shorthand != "" {
+			title = "-" + agg.shorthand + ", " + title
+		}
+		content := strings.TrimSpace(agg.usage)
+		if def := strings.TrimSpace(agg.defValue); def != "" && def != "false" && def != "0" {
+			content = strings.TrimSpace(content + "\n\nDefault: " + def)
+		}
+		available := agg.commandList()
+		if agg.global {
+			available = append([]string{"(global)"}, available...)
+		}
+		if len(available) > 0 {
+			content = strings.TrimSpace(content + "\n\nAvailable on:\n  " + strings.Join(available, "\n  "))
+		}
+		entries = append(entries, Entry{
+			ID:      "flag:" + agg.name,
+			Kind:    "flag",
+			Title:   title,
+			Content: content,
+			Tags:    []string{"flag"},
+		})
+	}
 
 	for _, env := range envcatalog.Catalog() {
 		if env.Internal && !includeHidden {
@@ -197,5 +237,58 @@ func flagUsages(fs *pflag.FlagSet) string {
 	out := fs.FlagUsagesWrapped(92)
 	out = strings.ReplaceAll(out, "\t", "  ")
 	out = strings.TrimRight(out, "\n")
+	return out
+}
+
+type flagAgg struct {
+	name      string
+	shorthand string
+	usage     string
+	defValue  string
+	global    bool
+	commands  map[string]struct{}
+}
+
+func (f *flagAgg) addCommand(path string) {
+	if f == nil || strings.TrimSpace(path) == "" {
+		return
+	}
+	if f.commands == nil {
+		f.commands = make(map[string]struct{}, 8)
+	}
+	f.commands[path] = struct{}{}
+}
+
+func (f *flagAgg) commandList() []string {
+	if f == nil || len(f.commands) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(f.commands))
+	for path := range f.commands {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func rootPersistentFlags(root *cobra.Command) *pflag.FlagSet {
+	if root == nil {
+		return nil
+	}
+	// Cobra treats PersistentFlags as inheritable "global" flags.
+	return root.PersistentFlags()
+}
+
+func collectFlagNames(fs *pflag.FlagSet) map[string]struct{} {
+	out := make(map[string]struct{})
+	if fs == nil {
+		return out
+	}
+	fs.VisitAll(func(f *pflag.Flag) {
+		if f == nil {
+			return
+		}
+		out[f.Name] = struct{}{}
+	})
 	return out
 }
