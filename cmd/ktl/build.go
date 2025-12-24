@@ -399,7 +399,7 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 	if !opts.quiet {
 		switch buildsvc.ResolveOutputMode(opts.output, isTerminalWriter(errOut)) {
 		case buildsvc.OutputModeTTY:
-			width, _ := terminalWidth(errOut)
+			width, _ := ui.TerminalWidth(errOut)
 			observers = append(observers, ui.NewBuildConsole(errOut, ui.BuildMetadata{
 				ContextDir: opts.contextDir,
 				Dockerfile: opts.dockerfile,

@@ -29,7 +29,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap/zapcore"
-	"golang.org/x/term"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	helmkube "helm.sh/helm/v3/pkg/kube"
@@ -547,7 +546,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			}
 
 			if console == nil && shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) && isTerminalWriter(errOut) {
-				width, _ := terminalWidth(errOut)
+				width, _ := ui.TerminalWidth(errOut)
 				meta := ui.DeployMetadata{
 					Release:         releaseName,
 					Namespace:       resolvedNamespace,
@@ -981,7 +980,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			}()
 
 			if shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) && isTerminalWriter(errOut) {
-				width, _ := terminalWidth(errOut)
+				width, _ := ui.TerminalWidth(errOut)
 				console = ui.NewDeployConsole(errOut, meta, ui.DeployConsoleOptions{
 					Enabled: true,
 					Width:   width,
@@ -1673,23 +1672,6 @@ func shouldLogAtLevel(level string, threshold zapcore.Level) bool {
 		parsed = zapcore.InfoLevel
 	}
 	return parsed <= threshold
-}
-
-func terminalWidth(w io.Writer) (int, bool) {
-	type fdProvider interface {
-		Fd() uintptr
-	}
-	if v, ok := w.(fdProvider); ok {
-		if cols, _, err := term.GetSize(int(v.Fd())); err == nil {
-			return cols, true
-		}
-	}
-	if f, ok := w.(*os.File); ok {
-		if cols, _, err := term.GetSize(int(f.Fd())); err == nil {
-			return cols, true
-		}
-	}
-	return 0, false
 }
 
 type phaseTimerObserver struct {
