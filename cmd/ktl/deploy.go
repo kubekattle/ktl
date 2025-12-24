@@ -72,6 +72,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var captureTags []string
 	var driftGuard bool
 	var driftGuardMode string
+	var requireVerified string
 	timeout := 5 * time.Minute
 
 	cmd := &cobra.Command{
@@ -88,6 +89,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				}
 				if strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "" {
 					return fmt.Errorf("--ui/--ws-listen are not supported with --remote-agent")
+				}
+				if strings.TrimSpace(requireVerified) != "" {
+					return fmt.Errorf("--require-verified is not supported with --remote-agent")
 				}
 			}
 			if watchDuration > 0 && dryRun {
@@ -478,6 +482,11 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if err != nil && shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) {
 				fmt.Fprintf(errOut, "Warning: failed to pre-render manifest for deploy tracker: %v\n", err)
 			}
+			if strings.TrimSpace(requireVerified) != "" && strings.TrimSpace(trackerManifest) != "" {
+				if verr := enforceVerifiedDigest(requireVerified, trackerManifest, releaseName, resolvedNamespace); verr != nil {
+					return verr
+				}
+			}
 			if captureRecorder != nil && strings.TrimSpace(trackerManifest) != "" {
 				_ = captureRecorder.RecordArtifact(ctx, "rendered_manifest", trackerManifest)
 			}
@@ -739,6 +748,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().BoolVar(&upgrade, "upgrade", upgrade, "Only perform the upgrade path (skip install fallback)")
 	cmd.Flags().BoolVar(&createNamespace, "create-namespace", false, "Create the release namespace if it does not exist")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render the chart without applying it")
+	cmd.Flags().StringVar(&requireVerified, "require-verified", "", "Require a matching ktl verify report (JSON) for this exact render before applying")
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
 	_ = cmd.Flags().MarkHidden("auto-approve")
 	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")

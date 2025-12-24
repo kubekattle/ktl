@@ -183,12 +183,14 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	revertCmd := newRevertCommand(&kubeconfigPath, &kubeContext, &logLevel)
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
+	verifyCmd := newVerifyCommand(&kubeconfigPath, &kubeContext, &logLevel)
 	cmd.AddCommand(
 		buildCmd,
 		planCmd,
 		revertCmd,
 		applyCmd,
 		deleteCmd,
+		verifyCmd,
 		listCmd,
 		lintCmd,
 		logsCmd,
@@ -229,7 +231,7 @@ Usage:
   {{.UseLine}}
 
 Subcommands:
-{{- range $i, $n := (list "build" "plan" "apply" "delete" "revert" "list" "lint" "logs" "package" "env" "version") }}
+{{- range $i, $n := (list "build" "plan" "apply" "delete" "verify" "revert" "list" "lint" "logs" "package" "env" "version") }}
 {{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
 {{- end }}

@@ -14,6 +14,19 @@
         --accent: #2563eb;
         --chip-bg: rgba(37, 99, 235, 0.08);
         --chip-text: #1d4ed8;
+        --metal-top: rgba(255, 255, 255, 0.9);
+        --metal-mid: rgba(226, 232, 240, 0.95);
+        --metal-bottom: rgba(203, 213, 225, 0.9);
+        --metal-border: rgba(15, 23, 42, 0.14);
+        --focus: rgba(15, 23, 42, 0.6);
+        --chip-neutral-border: rgba(15, 23, 42, 0.16);
+        --chip-neutral-border-active: rgba(15, 23, 42, 0.3);
+        --chip-neutral-text: rgba(15, 23, 42, 0.82);
+        --chip-neutral-text-active: rgba(15, 23, 42, 0.94);
+        --chip-neutral-bg: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(203,213,225,0.56));
+        --chip-neutral-bg-active: linear-gradient(180deg, rgba(226,232,240,0.98), rgba(148,163,184,0.46));
+        --code-bg: rgba(15, 23, 42, 0.06);
+        --ease: cubic-bezier(.16,1,.3,1);
       }
 
       * { box-sizing: border-box; }
@@ -54,6 +67,11 @@
         border-radius: 999px;
         background: rgba(255,255,255,0.75);
         border: 1px solid rgba(15,23,42,0.14);
+        transition: box-shadow 180ms var(--ease, cubic-bezier(.16,1,.3,1)), border-color 180ms var(--ease, cubic-bezier(.16,1,.3,1));
+      }
+      .search:focus-within {
+        border-color: rgba(15, 23, 42, 0.28);
+        box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.14);
       }
       #q {
         border: 0;
@@ -62,8 +80,90 @@
         font-size: 1.05rem;
         width: 100%;
         color: var(--text);
+        letter-spacing: -0.01em;
       }
       #q::placeholder { color: rgba(15,23,42,0.48); }
+      .helpMetaRow {
+        width: min(860px, 100%);
+        margin: 10px auto 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 12px;
+        padding: 0 10px;
+        position: relative;
+      }
+      .helpMetaRow::before {
+        content: "";
+        flex: 1;
+      }
+      .helpMeta {
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-weight: 450;
+        letter-spacing: -0.01em;
+        flex: 1;
+        text-align: right;
+      }
+      .filters {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: nowrap;
+        max-width: 100%;
+        overflow-x: auto;
+        justify-content: center;
+        padding: 9px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--metal-border);
+        background: linear-gradient(180deg, var(--metal-top), var(--metal-mid) 40%, var(--metal-bottom));
+        box-shadow:
+          0 10px 24px rgba(15, 23, 42, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.7),
+          inset 0 -1px 0 rgba(15, 23, 42, 0.08);
+        position: relative;
+      }
+      .filters::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background:
+          radial-gradient(120% 180% at 10% 0%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0) 55%),
+          repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.025) 0 1px, rgba(255, 255, 255, 0.02) 1px 3px);
+        opacity: 0.65;
+        pointer-events: none;
+        mix-blend-mode: overlay;
+      }
+      .filters > * { position: relative; z-index: 1; }
+      .chip {
+        appearance: none;
+        border: 1px solid var(--chip-neutral-border);
+        background: var(--chip-neutral-bg);
+        color: var(--chip-neutral-text);
+        padding: 7px 12px;
+        border-radius: 999px;
+        font-weight: 620;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: transform 160ms var(--ease, cubic-bezier(.16,1,.3,1)), background 160ms var(--ease, cubic-bezier(.16,1,.3,1)), border-color 160ms var(--ease, cubic-bezier(.16,1,.3,1)), color 160ms var(--ease, cubic-bezier(.16,1,.3,1)), box-shadow 160ms var(--ease, cubic-bezier(.16,1,.3,1));
+      }
+      .chip:hover { transform: translateY(-1px); }
+      .chip.active {
+        border-color: var(--chip-neutral-border-active);
+        background: var(--chip-neutral-bg-active);
+        color: var(--chip-neutral-text-active);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.55),
+          inset 0 -1px 0 rgba(15, 23, 42, 0.12);
+      }
+      .chip:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
       .layout {
         display: grid;
         grid-template-columns: 1fr;
@@ -73,6 +173,18 @@
       @media (max-width: 1100px) {
         .chrome { padding: 28px 22px 52px; }
         .layout { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 720px) {
+        .helpMetaRow {
+          flex-direction: column;
+          align-items: center;
+          padding: 0 6px;
+        }
+        .helpMetaRow::before { display: none; }
+        .helpMeta {
+          flex: none;
+          text-align: center;
+        }
       }
       .results {
         padding: 0;
@@ -104,7 +216,7 @@
         margin: 0;
       }
       .tile:focus-visible {
-        outline: 2px solid rgba(37,99,235,0.65);
+        outline: 2px solid var(--focus);
         outline-offset: 2px;
       }
       .resultItem {
@@ -118,12 +230,22 @@
       }
       .resultItem:last-child { margin-bottom: 0; }
       .resultItem.active {
-        border-top: 2px solid rgba(37,99,235,0.55);
         border-color: rgba(15,23,42,0.12);
         background: rgba(255,255,255,0.72);
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+      }
+      .resultItem.active::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 10px;
+        bottom: 10px;
+        width: 3px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.32), rgba(15, 23, 42, 0.12));
       }
       .resultItem:focus-visible {
-        outline: 2px solid rgba(37,99,235,0.65);
+        outline: 2px solid var(--focus);
         outline-offset: 2px;
       }
       .k {
@@ -141,6 +263,7 @@
         font-size: 0.92rem;
         line-height: 1.35;
         font-weight: 450;
+        letter-spacing: -0.01em;
       }
       .detail {
         margin-top: 12px;
@@ -149,8 +272,15 @@
         border: 0;
         padding: 14px 14px;
       }
+      .detail.detailFlag {
+        background: rgba(15, 23, 42, 0.06);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+      }
+      .detail.detailFlag pre {
+        background: var(--code-bg);
+      }
       pre {
-        background: rgba(15,23,42,0.06);
+        background: var(--code-bg);
         border: 0;
         border-radius: 16px;
         padding: 12px 12px;
@@ -158,6 +288,8 @@
         font-size: 0.92rem;
         line-height: 1.35;
         margin: 12px 0 0 0;
+        letter-spacing: -0.01em;
+        user-select: text;
       }
       .meta {
         color: var(--muted);
@@ -172,6 +304,7 @@
         line-height: 1.45;
         font-weight: 450;
         margin-top: 8px;
+        user-select: text;
       }
       .empty {
         color: var(--muted);
@@ -179,6 +312,45 @@
         border-radius: 16px;
         border: 1px dashed rgba(15,23,42,0.18);
         background: rgba(255,255,255,0.55);
+      }
+
+      @media print {
+        body { background: #fff; }
+        .chrome { max-width: none; padding: 0; }
+        .panel { border-radius: 0; box-shadow: none; border-color: #000; background: transparent; }
+        .filters {
+          box-shadow: none;
+          background: transparent;
+          border-color: #000;
+        }
+        .chip {
+          background: transparent;
+          box-shadow: none;
+          border-color: #000;
+          color: #000;
+        }
+        .chip.active {
+          background: transparent;
+          border-color: #000;
+        }
+        pre, .detail, .detail.detailFlag, .resultItem {
+          background: transparent;
+          border: 1px solid #000;
+        }
+        pre {
+          white-space: pre-wrap;
+          word-break: break-word;
+          font-size: 0.85rem;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .chip,
+        .search,
+        .resultItem {
+          transition: none !important;
+        }
+        .chip:hover { transform: none; }
       }
     </style>
   </head>
@@ -190,6 +362,15 @@
             <div class="search" role="search">
               <input id="q" autocomplete="off" spellcheck="false" placeholder="" />
             </div>
+          </div>
+          <div class="helpMetaRow" aria-label="Help filters">
+            <div class="filters" role="group" aria-label="Entry type filters">
+              <button class="chip active" data-kind="all" type="button">All</button>
+              <button class="chip" data-kind="command" type="button">Commands</button>
+              <button class="chip" data-kind="flag" type="button">Flags</button>
+              <button class="chip" data-kind="env" type="button">Env</button>
+            </div>
+            <div class="helpMeta">{{.Version}}</div>
           </div>
         </div>
 
@@ -214,6 +395,7 @@
 
       const elQ = document.getElementById("q");
       const elResults = document.getElementById("results");
+      const elChips = Array.from(document.querySelectorAll("[data-kind]"));
 
       const curated = [
         { id: "cmd:ktl apply", title: "ktl apply", sub: "Deploy a chart to a cluster" },
@@ -261,7 +443,7 @@
         if (!state.index) return [];
         const parsed = parseQuery(state.q);
         const q = parsed.q;
-        const kind = parsed.kind;
+        const kind = parsed.kind !== "all" ? parsed.kind : state.kind;
         const scored = [];
         for (const entry of state.index.entries) {
           if (kind !== "all" && entry.kind !== kind) continue;
@@ -314,22 +496,29 @@
         if (!entry) return null;
         const wrap = document.createElement("div");
         wrap.className = "detail";
+        if ((entry.kind || "") === "flag") wrap.classList.add("detailFlag");
+        // Allow selecting/copying text inside the detail panel without triggering the parent
+        // list item's click handler (which would re-render and drop the selection).
+        wrap.addEventListener("click", (e) => e.stopPropagation());
         if (entry.content) {
           const hasNewlines = entry.content.indexOf("\n") >= 0;
           if (hasNewlines) {
             const pre = document.createElement("pre");
             pre.textContent = entry.content;
+            pre.addEventListener("click", (e) => e.stopPropagation());
             wrap.appendChild(pre);
           } else {
             const p = document.createElement("div");
             p.className = "detailText";
             p.textContent = entry.content;
+            p.addEventListener("click", (e) => e.stopPropagation());
             wrap.appendChild(p);
           }
         }
         if (entry.examples && entry.examples.length) {
           const pre = document.createElement("pre");
           pre.textContent = entry.examples.join("\n\n");
+          pre.addEventListener("click", (e) => e.stopPropagation());
           wrap.appendChild(pre);
         }
         return wrap;
@@ -344,6 +533,22 @@
         state.q = elQ.value || "";
         state.results = filterAndRank();
         if (state.q.trim() && state.results.length && !state.activeId) state.activeId = state.results[0].id;
+        if (state.activeId && !state.results.some(e => e.id === state.activeId)) {
+          state.activeId = state.results.length ? state.results[0].id : null;
+        }
+        renderResults();
+      }
+
+      function renderChips() {
+        for (const chip of elChips) {
+          chip.classList.toggle("active", (chip.dataset.kind || "all") === state.kind);
+        }
+      }
+
+      function setKind(kind) {
+        state.kind = kind || "all";
+        renderChips();
+        state.results = filterAndRank();
         if (state.activeId && !state.results.some(e => e.id === state.activeId)) {
           state.activeId = state.results.length ? state.results[0].id : null;
         }
@@ -373,7 +578,6 @@
           const next = e.key === "ArrowDown" ? Math.min(state.results.length - 1, idx + 1) : Math.max(0, idx - 1);
           state.activeId = state.results[next].id;
           renderResults();
-          renderDetail(state.results[next]);
         }
         if (e.key === "Enter" && state.activeId) {
           select(state.activeId);
@@ -383,6 +587,10 @@
       async function boot() {
         const res = await fetch(includeAll ? "/api/index.json?all=1" : "/api/index.json");
         state.index = await res.json();
+        for (const chip of elChips) {
+          chip.addEventListener("click", () => setKind(chip.dataset.kind || "all"));
+        }
+        renderChips();
         onQueryChanged();
         elQ.focus();
       }

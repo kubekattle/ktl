@@ -158,6 +158,94 @@ message MirrorSubscribeRequest {
   bool replay = 2;
 }
 
+message VerifyChartOptions {
+  string chart = 1;
+  string release = 2;
+  string namespace = 3;
+  string version = 4;
+  repeated string values_files = 5;
+  repeated string set_values = 6;
+  repeated string set_string_values = 7;
+  repeated string set_file_values = 8;
+  string kube_context = 9;
+  string kubeconfig_path = 10;
+}
+
+message VerifyNamespaceOptions {
+  string namespace = 1;
+  string kube_context = 2;
+  string kubeconfig_path = 3;
+}
+
+message VerifyOptions {
+  string mode = 1;        // warn|block|off
+  string fail_on = 2;     // info|low|medium|high|critical
+  string format = 3;      // table|json|sarif
+  string rules_dir = 4;   // optional
+  string policy = 5;      // optional policy bundle ref
+  string policy_mode = 6; // warn|enforce
+  string baseline = 7;    // optional baseline report path
+}
+
+message VerifyRequest {
+  VerifyOptions options = 1;
+  oneof target {
+    VerifyChartOptions chart = 2;
+    VerifyNamespaceOptions namespace = 3;
+  }
+}
+
+message VerifyEvent {
+  int64 timestamp_unix_nano = 1;
+  oneof body {
+    VerifyStarted started = 10;
+    VerifyProgress progress = 11;
+    VerifyFinding finding = 12;
+    VerifySummary summary = 13;
+    VerifyDone done = 14;
+    string json = 15; // backward-compatible full report (optional)
+  }
+}
+
+message VerifyStarted {
+  string target = 1;       // "chart" or "namespace"
+  string ruleset = 2;      // builtin@<sha256>
+  string policy_ref = 3;   // optional
+  string policy_mode = 4;  // warn|enforce
+}
+
+message VerifyProgress {
+  string phase = 1; // collect|evaluate|done
+  map<string,int32> counts_by_kind = 2;
+}
+
+message VerifySubject {
+  string kind = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message VerifyFinding {
+  string rule_id = 1;
+  string severity = 2;
+  string category = 3;
+  string message = 4;
+  string location = 5;
+  VerifySubject subject = 6;
+  string help_url = 7;
+}
+
+message VerifySummary {
+  int32 total = 1;
+  map<string,int32> by_severity = 2;
+  bool blocked = 3;
+}
+
+message VerifyDone {
+  bool passed = 1;
+  bool blocked = 2;
+}
+
 service LogService {
   rpc StreamLogs(LogRequest) returns (stream LogLine);
 }
@@ -174,4 +262,8 @@ service DeployService {
 service MirrorService {
   rpc Publish(stream MirrorFrame) returns (stream MirrorAck);
   rpc Subscribe(MirrorSubscribeRequest) returns (stream MirrorFrame);
+}
+
+service VerifyService {
+  rpc Verify(VerifyRequest) returns (stream VerifyEvent);
 }

@@ -13,6 +13,7 @@ import (
 
 	_ "embed"
 
+	"github.com/example/ktl/internal/version"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
 )
@@ -74,8 +75,9 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 type templateData struct {
-	Title string
-	All   bool
+	Title   string
+	All     bool
+	Version string
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
@@ -89,8 +91,12 @@ func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	all := s.all
+	ver := strings.TrimSpace(version.Get().Version)
+	if ver != "" {
+		ver = "ktl " + ver
+	}
 	var buf bytes.Buffer
-	_ = s.template.Execute(&buf, templateData{Title: template.HTMLEscapeString(title), All: all})
+	_ = s.template.Execute(&buf, templateData{Title: template.HTMLEscapeString(title), All: all, Version: template.HTMLEscapeString(ver)})
 	_, _ = w.Write(buf.Bytes())
 }
 

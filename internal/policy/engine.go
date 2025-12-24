@@ -52,6 +52,10 @@ type Report struct {
 }
 
 func Evaluate(ctx context.Context, bundle *Bundle, input BuildInput) (*Report, error) {
+	return EvaluateWithQuery(ctx, bundle, input, "data.ktl.build")
+}
+
+func EvaluateWithQuery(ctx context.Context, bundle *Bundle, input BuildInput, query string) (*Report, error) {
 	if bundle == nil {
 		return nil, errors.New("policy bundle is required")
 	}
@@ -60,8 +64,12 @@ func Evaluate(ctx context.Context, bundle *Bundle, input BuildInput) (*Report, e
 	if err != nil {
 		return nil, err
 	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		query = "data.ktl.build"
+	}
 	opts := []func(*rego.Rego){
-		rego.Query("data.ktl.build"),
+		rego.Query(query),
 		rego.Input(input),
 	}
 	for name, src := range modules {
