@@ -80,6 +80,9 @@ type buildVertexState struct {
 	current         int64
 	total           int64
 	inputs          []string
+	firstSeen       time.Time
+	startedAt       time.Time
+	completedAt     time.Time
 	announcedStart  bool
 	announcedCached bool
 	announcedDone   bool
@@ -126,11 +129,35 @@ func (b *buildProgressBroadcaster) emitResult(resultErr error, duration time.Dur
 	if dur < 0 {
 		dur = 0
 	}
-	if resultErr != nil {
-		b.emitCustom(fmt.Sprintf("Build failed after %s: %v", dur, resultErr), "✖")
-		return
+	b.emitBuildResult(resultErr, dur)
+}
+
+func (b *buildProgressBroadcaster) emitBuildResult(resultErr error, duration time.Duration) {
+	type payload struct {
+		Success       bool   `json:"success"`
+		DurationMS    int64  `json:"durationMs"`
+		Error         string `json:"error,omitempty"`
+		ErrorKindHint string `json:"errorKindHint,omitempty"`
 	}
-	b.emitCustom(fmt.Sprintf("Build finished in %s", dur), "✔")
+	p := payload{
+		Success:    resultErr == nil,
+		DurationMS: duration.Milliseconds(),
+	}
+	glyph := "✔"
+	line := fmt.Sprintf("Build finished in %s", duration)
+	if resultErr != nil {
+		glyph = "✖"
+		p.Error = resultErr.Error()
+		line = fmt.Sprintf("Build failed after %s: %v", duration, resultErr)
+	}
+	raw, _ := json.Marshal(p)
+	rec := b.newRecord(time.Now(), glyph, "result", b.label, "result", line)
+	rec.Source = "result"
+	rec.Raw = string(raw)
+	rec.Rendered = line
+	rec.RenderedEqualsRaw = false
+	observers := b.snapshotObservers()
+	b.dispatch(observers, []tailer.LogRecord{rec})
 }
 
 func (b *buildProgressBroadcaster) emitCustom(message, glyph string) {
@@ -247,6 +274,9 @@ func (b *buildProgressBroadcaster) consumeStatusLocked(status *client.SolveStatu
 	touched := make(map[string]*buildVertexState)
 	for _, vertex := range status.Vertexes {
 		st := b.vertexFor(vertex.Digest.String())
+		if st.firstSeen.IsZero() {
+			st.firstSeen = now
+		}
 		if name := strings.TrimSpace(vertex.Name); name != "" {
 			st.name = name
 		}
@@ -255,13 +285,22 @@ func (b *buildProgressBroadcaster) consumeStatusLocked(status *client.SolveStatu
 		}
 		if vertex.Started != nil {
 			st.started = true
+			if st.startedAt.IsZero() {
+				st.startedAt = *vertex.Started
+			}
 		}
 		if vertex.Completed != nil {
 			st.completed = true
+			if st.completedAt.IsZero() {
+				st.completedAt = *vertex.Completed
+			}
 		}
 		if vertex.Error != "" {
 			st.errorMsg = vertex.Error
 			st.completed = true
+			if st.completedAt.IsZero() {
+				st.completedAt = now
+			}
 		}
 		if len(vertex.Inputs) > 0 {
 			st.setInputs(vertex.Inputs)
@@ -270,14 +309,23 @@ func (b *buildProgressBroadcaster) consumeStatusLocked(status *client.SolveStatu
 	}
 	for _, vs := range status.Statuses {
 		st := b.vertexFor(vs.Vertex.String())
+		if st.firstSeen.IsZero() {
+			st.firstSeen = now
+		}
 		if name := strings.TrimSpace(vs.Name); name != "" {
 			st.name = name
 		}
 		if vs.Started != nil {
 			st.started = true
+			if st.startedAt.IsZero() {
+				st.startedAt = *vs.Started
+			}
 		}
 		if vs.Completed != nil {
 			st.completed = true
+			if st.completedAt.IsZero() {
+				st.completedAt = *vs.Completed
+			}
 		}
 		if vs.Current > 0 {
 			st.current = vs.Current
@@ -445,14 +493,20 @@ func (b *buildProgressBroadcaster) buildGraphSnapshotLocked() buildGraphSnapshot
 	nodes := make([]buildGraphNode, 0, len(b.vertices))
 	edges := make([]buildGraphEdge, 0)
 	for _, st := range b.vertices {
+		firstSeen := st.firstSeen
+		startedAt := st.startedAt
+		completedAt := st.completedAt
 		nodes = append(nodes, buildGraphNode{
-			ID:      st.id,
-			Label:   st.displayName(b.label),
-			Status:  st.status(),
-			Cached:  st.cached,
-			Current: st.current,
-			Total:   st.total,
-			Error:   st.errorMsg,
+			ID:            st.id,
+			Label:         st.displayName(b.label),
+			Status:        st.status(),
+			Cached:        st.cached,
+			FirstSeenUnix: unixSeconds(firstSeen),
+			StartedUnix:   unixSeconds(startedAt),
+			CompletedUnix: unixSeconds(completedAt),
+			Current:       st.current,
+			Total:         st.total,
+			Error:         st.errorMsg,
 		})
 		for _, input := range st.inputs {
 			if input == "" {
@@ -479,19 +533,29 @@ func (b *buildProgressBroadcaster) buildGraphSnapshotLocked() buildGraphSnapshot
 	}
 }
 
+func unixSeconds(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
+}
+
 type buildGraphSnapshot struct {
 	Nodes []buildGraphNode `json:"nodes"`
 	Edges []buildGraphEdge `json:"edges"`
 }
 
 type buildGraphNode struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Status  string `json:"status"`
-	Cached  bool   `json:"cached"`
-	Current int64  `json:"current,omitempty"`
-	Total   int64  `json:"total,omitempty"`
-	Error   string `json:"error,omitempty"`
+	ID             string `json:"id"`
+	Label          string `json:"label"`
+	Status         string `json:"status"`
+	Cached         bool   `json:"cached"`
+	FirstSeenUnix  int64  `json:"firstSeenUnix,omitempty"`
+	StartedUnix    int64  `json:"startedUnix,omitempty"`
+	CompletedUnix  int64  `json:"completedUnix,omitempty"`
+	Current        int64  `json:"current,omitempty"`
+	Total          int64  `json:"total,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 type buildGraphEdge struct {
