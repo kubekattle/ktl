@@ -125,22 +125,6 @@
         overflow-x: auto;
         padding: 2px 2px;
       }
-      #quickstart { margin-top: 6px; }
-      .qsTooltip {
-        position: fixed;
-        left: 0;
-        top: 0;
-        transform: translate(-9999px, -9999px);
-        padding: 8px 10px;
-        border-radius: 12px;
-        background: rgba(255,255,255,0.92);
-        color: rgba(15,23,42,0.82);
-        font-size: 0.86rem;
-        line-height: 1.25;
-        font-weight: 450;
-        pointer-events: none;
-        border: 0;
-      }
       .tile {
         border-radius: 999px;
         background: rgba(255,255,255,0.72);
@@ -267,7 +251,6 @@
 
         <div class="layout" role="main">
           <div>
-            <div id="quickstart"></div>
             <ul class="results" id="results"></ul>
           </div>
         </div>
@@ -287,8 +270,6 @@
 
       const elQ = document.getElementById("q");
       const elResults = document.getElementById("results");
-      const elQuickstart = document.getElementById("quickstart");
-      const elQSTooltip = document.getElementById("qsTooltip");
 
       const curated = [
         { id: "cmd:ktl apply", title: "ktl apply", sub: "Deploy a chart to a cluster" },
@@ -323,53 +304,16 @@
           if (kind !== "all" && entry.kind !== kind) continue;
           const s = score(entry, q);
           if (q && s <= 0) continue;
-          if (!q && entry.kind !== "command") continue;
           scored.push({ entry, s });
         }
         scored.sort((a, b) => b.s - a.s || a.entry.title.localeCompare(b.entry.title));
+        if (!q) return scored.map(x => x.entry);
         return scored.slice(0, 80).map(x => x.entry);
       }
 
       function renderResults() {
         elResults.innerHTML = "";
-        elQuickstart.innerHTML = "";
         const q = state.q.trim();
-        if (!q) {
-          // Empty state: show quick start only; no results container.
-          elResults.style.display = "none";
-          const wrap = document.createElement("div");
-          wrap.className = "tiles";
-          for (const tile of curated) {
-            const el = document.createElement("div");
-            el.className = "tile";
-            el.tabIndex = 0;
-            el.setAttribute("role", "button");
-            el.setAttribute("title", tile.sub);
-            el.setAttribute("aria-label", tile.title + " — " + tile.sub);
-            const t = document.createElement("div");
-            t.className = "tileTitle";
-            t.textContent = tile.title;
-            el.appendChild(t);
-            el.addEventListener("click", () => {
-              state.activeId = tile.id;
-              state.results = filterAndRank();
-              renderResults();
-            });
-            el.addEventListener("keydown", (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                el.click();
-              }
-            });
-            el.addEventListener("focus", () => showQSTooltip(el, tile.sub));
-            el.addEventListener("blur", hideQSTooltip);
-            el.addEventListener("mouseenter", () => showQSTooltip(el, tile.sub));
-            el.addEventListener("mouseleave", hideQSTooltip);
-            wrap.appendChild(el);
-          }
-          elQuickstart.appendChild(wrap);
-          return;
-        }
         elResults.style.display = "";
         for (const entry of state.results) {
           const li = document.createElement("li");
@@ -507,22 +451,6 @@
         li.innerHTML = '<div class="s">Failed to load help index: ' + (err && err.message ? err.message : err) + '</div>';
         elResults.appendChild(li);
       });
-
-      function showQSTooltip(anchor, text) {
-        if (!elQSTooltip || !anchor || !text) return;
-        elQSTooltip.textContent = text;
-        const r = anchor.getBoundingClientRect();
-        const pad = 10;
-        const x = Math.max(pad, Math.min(window.innerWidth - pad, r.left + r.width / 2));
-        const y = Math.min(window.innerHeight - pad, r.bottom + 8);
-        elQSTooltip.style.transform = "translate(" + Math.round(x) + "px," + Math.round(y) + "px) translate(-50%,0)";
-      }
-
-      function hideQSTooltip() {
-        if (!elQSTooltip) return;
-        elQSTooltip.style.transform = "translate(-9999px,-9999px)";
-      }
     </script>
-    <div class="qsTooltip" id="qsTooltip" aria-hidden="true"></div>
   </body>
 </html>
