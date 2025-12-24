@@ -77,6 +77,7 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 		"--compose-service=api",
 		"--compose-project=example",
 		"--compose-parallelism=5",
+		"--output=logs",
 		"--authfile=" + authFile,
 		"--sandbox-config=testdata/sandbox/linux-ci.cfg",
 		"--sandbox-bin=/usr/local/bin/nsjail",
@@ -156,6 +157,9 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 	}
 	if opts.BuildMode != "compose" {
 		t.Fatalf("mode not propagated: %q", opts.BuildMode)
+	}
+	if opts.Output != "logs" {
+		t.Fatalf("output mode not propagated: %q", opts.Output)
 	}
 	if len(opts.ComposeFiles) != 1 || opts.ComposeFiles[0] != "docker-compose.yml" {
 		t.Fatalf("compose-file not propagated: %#v", opts.ComposeFiles)
