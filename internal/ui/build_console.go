@@ -47,6 +47,7 @@ type BuildConsole struct {
 	success          bool
 	events           []string
 	lastGraphEventAt time.Time
+	lastRenderAt     time.Time
 	sections         []consoleSection
 	totalLines       int
 	startedAt        time.Time
@@ -75,7 +76,18 @@ func (c *BuildConsole) ObserveLog(rec tailer.LogRecord) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.consumeLocked(rec)
+	now := time.Now()
+	// Debounce repaints to reduce flicker and CPU churn under high-frequency progress updates.
+	if strings.EqualFold(strings.TrimSpace(rec.Source), "result") || strings.TrimSpace(rec.SourceGlyph) == "✖" {
+		c.renderLocked()
+		c.lastRenderAt = now
+		return
+	}
+	if !c.lastRenderAt.IsZero() && now.Sub(c.lastRenderAt) < 100*time.Millisecond {
+		return
+	}
 	c.renderLocked()
+	c.lastRenderAt = now
 }
 
 func (c *BuildConsole) Done() {
@@ -112,16 +124,10 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 			c.consumeSummaryLocked(strings.TrimSpace(strings.TrimPrefix(raw, "Summary:")))
 			c.pushEventLocked("Summary updated")
 		}
-		if strings.EqualFold(strings.TrimSpace(rec.Container), "info") {
-			rendered := strings.TrimSpace(rec.Rendered)
-			if strings.HasPrefix(rendered, "Build finished") || strings.HasPrefix(rendered, "Build failed") {
-				c.finished = true
-				c.success = strings.TrimSpace(rec.SourceGlyph) == "✔"
-				c.updatePhaseLocked("done", map[bool]string{true: "completed", false: "failed"}[c.success], "")
-			}
-		}
 	case "phase":
 		c.consumePhaseLocked(rec)
+	case "result":
+		c.consumeResultLocked(rec)
 	}
 	if sev := buildSeverity(rec); sev != "" {
 		c.warning = &consoleWarning{Severity: sev, Message: clipConsoleLine(strings.TrimSpace(rec.Rendered), 240), IssuedAt: time.Now()}
@@ -134,6 +140,22 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 			c.pushEventLocked(clipConsoleLine(msg, 240))
 		}
 	}
+}
+
+func (c *BuildConsole) consumeResultLocked(rec tailer.LogRecord) {
+	type payload struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+	var p payload
+	_ = json.Unmarshal([]byte(strings.TrimSpace(rec.Raw)), &p)
+	c.finished = true
+	c.success = p.Success || strings.TrimSpace(rec.SourceGlyph) == "✔"
+	state := "failed"
+	if c.success {
+		state = "completed"
+	}
+	c.updatePhaseLocked("done", state, strings.TrimSpace(p.Error))
 }
 
 func (c *BuildConsole) consumeDiagnosticLocked(rec tailer.LogRecord) {
@@ -429,11 +451,8 @@ func (c *BuildConsole) renderGraphLinesLocked() []string {
 			pending = append(pending, n)
 		}
 	}
-	sort.Slice(running, func(i, j int) bool { return running[i].Label < running[j].Label })
-	sort.Slice(pending, func(i, j int) bool { return pending[i].Label < pending[j].Label })
-	sort.Slice(done, func(i, j int) bool { return done[i].Label < done[j].Label })
-	sort.Slice(cached, func(i, j int) bool { return cached[i].Label < cached[j].Label })
-	sort.Slice(failed, func(i, j int) bool { return failed[i].Label < failed[j].Label })
+	sort.Slice(running, func(i, j int) bool { return graphNodeOrder(running[i], running[j]) })
+	sort.Slice(failed, func(i, j int) bool { return graphNodeOrder(failed[i], failed[j]) })
 	lines := []string{}
 	lines = append(lines, fmt.Sprintf("Steps: %d running · %d pending · %d done · %d cached · %d failed", len(running), len(pending), len(done), len(cached), len(failed)))
 	emit := func(prefix string, list []buildGraphNode, limit int) {
@@ -473,10 +492,23 @@ func (c *BuildConsole) renderGraphLinesLocked() []string {
 		// Keep the final screen focused; pending vertices often remain in snapshots.
 		return lines
 	}
-	if len(lines) < maxLines {
-		emit("•", pending, maxLines-len(lines))
-	}
+	// Pending vertices are often not helpful (they can linger in snapshots); keep them as a count only.
 	return lines
+}
+
+func graphNodeOrder(a, b buildGraphNode) bool {
+	aTS := a.StartedUnix
+	if aTS == 0 {
+		aTS = a.FirstSeenUnix
+	}
+	bTS := b.StartedUnix
+	if bTS == 0 {
+		bTS = b.FirstSeenUnix
+	}
+	if aTS != bTS {
+		return aTS > bTS
+	}
+	return a.Label < b.Label
 }
 
 type buildGraphSnapshot struct {
@@ -484,11 +516,14 @@ type buildGraphSnapshot struct {
 }
 
 type buildGraphNode struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Status  string `json:"status"`
-	Cached  bool   `json:"cached"`
-	Current int64  `json:"current,omitempty"`
-	Total   int64  `json:"total,omitempty"`
-	Error   string `json:"error,omitempty"`
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	Status        string `json:"status"`
+	Cached        bool   `json:"cached"`
+	FirstSeenUnix int64  `json:"firstSeenUnix,omitempty"`
+	StartedUnix   int64  `json:"startedUnix,omitempty"`
+	CompletedUnix int64  `json:"completedUnix,omitempty"`
+	Current       int64  `json:"current,omitempty"`
+	Total         int64  `json:"total,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
