@@ -29,7 +29,7 @@ func collectNamespacedObjects(ctx context.Context, client *kube.Client, namespac
 		objs = append(objs, out)
 		return nil
 	}
-	addList := func(list any, err error) error {
+	addList := func(kind string, list any, err error) error {
 		if err != nil {
 			return err
 		}
@@ -44,6 +44,9 @@ func collectNamespacedObjects(ctx context.Context, client *kube.Client, namespac
 		items, _ := m["items"].([]any)
 		for _, it := range items {
 			if obj, ok := it.(map[string]any); ok {
+				if obj["kind"] == nil && kind != "" {
+					obj["kind"] = kind
+				}
 				objs = append(objs, obj)
 			}
 		}
@@ -51,46 +54,74 @@ func collectNamespacedObjects(ctx context.Context, client *kube.Client, namespac
 	}
 
 	opts := metav1.ListOptions{}
-	if err := addList(client.Clientset.AppsV1().Deployments(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.AppsV1().Deployments(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("Deployment", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.AppsV1().StatefulSets(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.AppsV1().StatefulSets(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("StatefulSet", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.AppsV1().DaemonSets(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.AppsV1().DaemonSets(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("DaemonSet", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.BatchV1().Jobs(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.BatchV1().Jobs(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("Job", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.BatchV1().CronJobs(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.BatchV1().CronJobs(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("CronJob", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.CoreV1().Pods(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.CoreV1().Pods(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("Pod", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.CoreV1().Services(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.CoreV1().Services(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("Service", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.NetworkingV1().Ingresses(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.NetworkingV1().Ingresses(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("Ingress", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.NetworkingV1().NetworkPolicies(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.NetworkingV1().NetworkPolicies(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("NetworkPolicy", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.CoreV1().ConfigMaps(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.CoreV1().ConfigMaps(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("ConfigMap", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.CoreV1().Secrets(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.CoreV1().Secrets(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("Secret", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.CoreV1().ServiceAccounts(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.CoreV1().ServiceAccounts(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("ServiceAccount", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.RbacV1().Roles(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.RbacV1().Roles(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("Role", list, nil); err != nil {
 		return nil, err
 	}
-	if err := addList(client.Clientset.RbacV1().RoleBindings(namespace).List(ctx, opts)); err != nil {
+	if list, err := client.Clientset.RbacV1().RoleBindings(namespace).List(ctx, opts); err != nil {
+		return nil, err
+	} else if err := addList("RoleBinding", list, nil); err != nil {
 		return nil, err
 	}
 
