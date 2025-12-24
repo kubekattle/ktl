@@ -353,7 +353,7 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 		fmt.Fprintf(errOut, "Serving ktl websocket build stream on %s\n", addr)
 	}
 	stream.emitInfo(fmt.Sprintf("Streaming ktl build from %s", contextDir))
-	deferCacheIntel := buildConsole != nil && cacheIntel != nil
+	var deferredCacheIntel func()
 	defer func() {
 		if buildConsole != nil {
 			buildConsole.Done()
@@ -361,8 +361,8 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 		if stream != nil {
 			stream.emitResult(runErr, time.Since(start))
 		}
-		if deferCacheIntel {
-			writeCacheIntel()
+		if deferredCacheIntel != nil {
+			deferredCacheIntel()
 		}
 		if stream != nil {
 			stream.emitSummary(buildSummary{
@@ -615,6 +615,9 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 			rep.writeHuman(w)
 		}
 	}
+	if buildConsole != nil && cacheIntel != nil {
+		deferredCacheIntel = writeCacheIntel
+	}
 
 	buildOpts := buildkit.DockerfileBuildOptions{
 		BuilderAddr:          opts.Builder,
@@ -669,7 +672,7 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 
 	result, err := s.buildRunner.BuildDockerfile(ctx, buildOpts)
 	if err != nil {
-		if !deferCacheIntel {
+		if deferredCacheIntel == nil {
 			writeCacheIntel()
 		}
 		runErr = err
@@ -679,7 +682,7 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 	if cacheIntel != nil && result != nil && strings.TrimSpace(result.OCIOutputPath) != "" {
 		cacheIntel.attachOCILayoutDir(result.OCIOutputPath)
 	}
-	if !deferCacheIntel {
+	if deferredCacheIntel == nil {
 		writeCacheIntel()
 	}
 	if captureRecorder != nil && result != nil {
