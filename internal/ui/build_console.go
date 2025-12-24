@@ -80,11 +80,13 @@ func (c *BuildConsole) Done() {
 }
 
 func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
+	source := strings.ToLower(strings.TrimSpace(rec.Source))
 	switch strings.ToLower(strings.TrimSpace(rec.Source)) {
 	case "graph":
 		var snap buildGraphSnapshot
 		if err := json.Unmarshal([]byte(rec.Raw), &snap); err == nil {
 			c.graph = &snap
+			c.lastEvent = "Build graph updated"
 		}
 	case "diagnostic":
 		switch strings.TrimSpace(rec.SourceGlyph) {
@@ -97,6 +99,7 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 		raw := strings.TrimSpace(rec.Raw)
 		if strings.HasPrefix(raw, "Summary:") {
 			c.consumeSummaryLocked(strings.TrimSpace(strings.TrimPrefix(raw, "Summary:")))
+			c.lastEvent = "Summary updated"
 		}
 	}
 	if sev := buildSeverity(rec); sev != "" {
@@ -105,7 +108,7 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 		// Clear the banner on explicit "info" events so older errors don't stick forever.
 		c.warning = nil
 	}
-	if msg := strings.TrimSpace(rec.Rendered); msg != "" {
+	if msg := strings.TrimSpace(rec.Rendered); msg != "" && source != "graph" {
 		c.lastEvent = clipConsoleLine(msg, 240)
 	}
 }
