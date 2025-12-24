@@ -93,16 +93,63 @@ func (c *BuildConsole) consumeLocked(rec tailer.LogRecord) {
 		case "⚠":
 			c.cacheMiss++
 		}
+	case "build":
+		raw := strings.TrimSpace(rec.Raw)
+		if strings.HasPrefix(raw, "Summary:") {
+			c.consumeSummaryLocked(strings.TrimSpace(strings.TrimPrefix(raw, "Summary:")))
+		}
 	}
-	level := normalizeSeverity(rec.Container)
-	if level == "warn" || level == "error" {
-		c.warning = &consoleWarning{Severity: level, Message: strings.TrimSpace(rec.Rendered), IssuedAt: time.Now()}
-	} else if level == "info" {
+	if sev := buildSeverity(rec); sev != "" {
+		c.warning = &consoleWarning{Severity: sev, Message: strings.TrimSpace(rec.Rendered), IssuedAt: time.Now()}
+	} else if strings.TrimSpace(rec.SourceGlyph) == "ℹ" || strings.TrimSpace(rec.SourceGlyph) == "ⓘ" {
+		// Clear the banner on explicit "info" events so older errors don't stick forever.
 		c.warning = nil
 	}
 	if msg := strings.TrimSpace(rec.Rendered); msg != "" {
-		c.lastEvent = msg
+		c.lastEvent = clipConsoleLine(msg, 240)
 	}
+}
+
+func (c *BuildConsole) consumeSummaryLocked(payload string) {
+	type summary struct {
+		CacheHits   int `json:"cacheHits"`
+		CacheMisses int `json:"cacheMisses"`
+	}
+	var parsed summary
+	if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+		return
+	}
+	if parsed.CacheHits > 0 {
+		c.cacheHits = parsed.CacheHits
+	}
+	if parsed.CacheMisses > 0 {
+		c.cacheMiss = parsed.CacheMisses
+	}
+}
+
+func buildSeverity(rec tailer.LogRecord) string {
+	switch strings.TrimSpace(rec.SourceGlyph) {
+	case "✖":
+		return "error"
+	case "⚠":
+		return "warn"
+	}
+	switch strings.ToLower(strings.TrimSpace(rec.Container)) {
+	case "stderr":
+		return "warn"
+	}
+	return ""
+}
+
+func clipConsoleLine(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 func (c *BuildConsole) renderLocked() {
@@ -247,4 +294,3 @@ type buildGraphNode struct {
 	Total   int64  `json:"total,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
-
