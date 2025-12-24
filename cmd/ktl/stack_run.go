@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
+func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var concurrency int
 	var failFast bool
 	var continueOnError bool
@@ -33,7 +33,19 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 			if err != nil {
 				return err
 			}
-			p = stack.FilterByClusters(p, splitCSV(*clusters))
+			p, err = stack.Select(u, p, splitCSV(*clusters), stack.Selector{
+				Tags:                 *tags,
+				FromPaths:            *fromPaths,
+				Releases:             *releases,
+				GitRange:             *gitRange,
+				GitIncludeDeps:       *gitIncludeDeps,
+				GitIncludeDependents: *gitIncludeDependents,
+				IncludeDeps:          *includeDeps,
+				IncludeDependents:    *includeDependents,
+			})
+			if err != nil {
+				return err
+			}
 			if *planOnly {
 				switch strings.ToLower(strings.TrimSpace(*output)) {
 				case "json":
@@ -64,7 +76,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	return cmd
 }
 
-func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
+func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var concurrency int
 	var failFast bool
 	var continueOnError bool
@@ -85,7 +97,19 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 			if err != nil {
 				return err
 			}
-			p = stack.FilterByClusters(p, splitCSV(*clusters))
+			p, err = stack.Select(u, p, splitCSV(*clusters), stack.Selector{
+				Tags:                 *tags,
+				FromPaths:            *fromPaths,
+				Releases:             *releases,
+				GitRange:             *gitRange,
+				GitIncludeDeps:       *gitIncludeDeps,
+				GitIncludeDependents: *gitIncludeDependents,
+				IncludeDeps:          *includeDeps,
+				IncludeDependents:    *includeDependents,
+			})
+			if err != nil {
+				return err
+			}
 			if *planOnly {
 				switch strings.ToLower(strings.TrimSpace(*output)) {
 				case "json":
