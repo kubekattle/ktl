@@ -413,6 +413,7 @@ func (c *BuildConsole) renderGraphLinesLocked() []string {
 	running := make([]buildGraphNode, 0)
 	pending := make([]buildGraphNode, 0)
 	done := make([]buildGraphNode, 0)
+	cached := make([]buildGraphNode, 0)
 	failed := make([]buildGraphNode, 0)
 	for _, n := range nodes {
 		switch strings.ToLower(strings.TrimSpace(n.Status)) {
@@ -420,7 +421,9 @@ func (c *BuildConsole) renderGraphLinesLocked() []string {
 			failed = append(failed, n)
 		case "running":
 			running = append(running, n)
-		case "completed", "cached":
+		case "cached":
+			cached = append(cached, n)
+		case "completed":
 			done = append(done, n)
 		default:
 			pending = append(pending, n)
@@ -429,9 +432,10 @@ func (c *BuildConsole) renderGraphLinesLocked() []string {
 	sort.Slice(running, func(i, j int) bool { return running[i].Label < running[j].Label })
 	sort.Slice(pending, func(i, j int) bool { return pending[i].Label < pending[j].Label })
 	sort.Slice(done, func(i, j int) bool { return done[i].Label < done[j].Label })
+	sort.Slice(cached, func(i, j int) bool { return cached[i].Label < cached[j].Label })
 	sort.Slice(failed, func(i, j int) bool { return failed[i].Label < failed[j].Label })
 	lines := []string{}
-	lines = append(lines, fmt.Sprintf("Steps: %d running · %d pending · %d done · %d failed", len(running), len(pending), len(done), len(failed)))
+	lines = append(lines, fmt.Sprintf("Steps: %d running · %d pending · %d done · %d cached · %d failed", len(running), len(pending), len(done), len(cached), len(failed)))
 	emit := func(prefix string, list []buildGraphNode, limit int) {
 		for i, n := range list {
 			if i >= limit {
@@ -464,11 +468,13 @@ func (c *BuildConsole) renderGraphLinesLocked() []string {
 	}
 	emit("•", failed, 3)
 	emit("•", running, maxLines-len(lines))
-	if !c.finished && len(lines) < maxLines {
-		emit("•", pending, maxLines-len(lines))
-	} else if c.finished {
-		// Keep the final screen focused; pending vertices often remain in snapshots.
+	if c.finished {
 		lines = append(lines, fmt.Sprintf("Done: %s", map[bool]string{true: "success", false: "failed"}[c.success]))
+		// Keep the final screen focused; pending vertices often remain in snapshots.
+		return lines
+	}
+	if len(lines) < maxLines {
+		emit("•", pending, maxLines-len(lines))
 	}
 	return lines
 }
