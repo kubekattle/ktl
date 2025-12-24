@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/example/ktl/internal/appconfig"
 	"github.com/example/ktl/internal/deploy"
@@ -53,8 +54,10 @@ func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyServ
 	}
 
 	var objects []map[string]any
+	target := ""
 	switch t := req.GetTarget().(type) {
 	case *apiv1.VerifyRequest_Chart:
+		target = "chart"
 		chart := strings.TrimSpace(t.Chart.GetChart())
 		release := strings.TrimSpace(t.Chart.GetRelease())
 		namespace := strings.TrimSpace(t.Chart.GetNamespace())
@@ -89,6 +92,7 @@ func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyServ
 		}
 		objects = objs
 	case *apiv1.VerifyRequest_Namespace:
+		target = "namespace"
 		ns := strings.TrimSpace(t.Namespace.GetNamespace())
 		if ns == "" {
 			return status.Error(codes.InvalidArgument, "namespace is required")
@@ -106,31 +110,120 @@ func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyServ
 		return status.Error(codes.InvalidArgument, "target is required")
 	}
 
-	rep, err := verify.VerifyObjects(ctx, objects, verify.Options{
+	policyRef := strings.TrimSpace(opts.GetPolicy())
+	policyMode := strings.TrimSpace(opts.GetPolicyMode())
+	if policyMode == "" {
+		policyMode = "warn"
+	}
+
+	emit := func(ev verify.Event) error {
+		now := time.Now().UTC()
+		msg := &apiv1.VerifyEvent{TimestampUnixNano: now.UnixNano()}
+		switch ev.Type {
+		case verify.EventStarted:
+			msg.Body = &apiv1.VerifyEvent_Started{Started: &apiv1.VerifyStarted{
+				Target:     target,
+				Ruleset:    ev.Ruleset,
+				PolicyRef:  policyRef,
+				PolicyMode: policyMode,
+			}}
+		case verify.EventProgress:
+			counts := map[string]int32{}
+			for k, v := range ev.Counts {
+				counts[k] = int32(v)
+			}
+			msg.Body = &apiv1.VerifyEvent_Progress{Progress: &apiv1.VerifyProgress{
+				Phase:        ev.Phase,
+				CountsByKind: counts,
+			}}
+		case verify.EventFinding:
+			if ev.Finding == nil {
+				return nil
+			}
+			f := ev.Finding
+			msg.Body = &apiv1.VerifyEvent_Finding{Finding: &apiv1.VerifyFinding{
+				RuleId:   f.RuleID,
+				Severity: string(f.Severity),
+				Category: f.Category,
+				Message:  f.Message,
+				Location: f.Location,
+				HelpUrl:  f.HelpURL,
+				Subject: &apiv1.VerifySubject{
+					Kind:      f.Subject.Kind,
+					Namespace: f.Subject.Namespace,
+					Name:      f.Subject.Name,
+				},
+			}}
+		case verify.EventSummary:
+			bySev := map[string]int32{}
+			if ev.Summary != nil {
+				for k, v := range ev.Summary.BySev {
+					bySev[string(k)] = int32(v)
+				}
+			}
+			total := int32(0)
+			blocked := ev.Blocked
+			if ev.Summary != nil {
+				total = int32(ev.Summary.Total)
+				blocked = ev.Summary.Blocked
+			}
+			msg.Body = &apiv1.VerifyEvent_Summary{Summary: &apiv1.VerifySummary{
+				Total:      total,
+				BySeverity: bySev,
+				Blocked:    blocked,
+			}}
+		case verify.EventDone:
+			msg.Body = &apiv1.VerifyEvent_Done{Done: &apiv1.VerifyDone{Passed: ev.Passed, Blocked: ev.Blocked}}
+		default:
+			return nil
+		}
+		return stream.Send(msg)
+	}
+
+	// Emit collect counts (cheap and useful).
+	counts := map[string]int{}
+	for _, obj := range objects {
+		if kind, ok := obj["kind"].(string); ok && strings.TrimSpace(kind) != "" {
+			counts[strings.TrimSpace(kind)]++
+		}
+	}
+	_ = emit(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "collect", Counts: counts})
+
+	runner := verify.Runner{RulesDir: rulesDir}
+	rep, err := runner.Verify(ctx, target, objects, verify.Options{
 		Mode:     verify.Mode(mode),
 		FailOn:   verify.Severity(failOn),
 		Format:   verify.OutputFormat(format),
 		RulesDir: rulesDir,
-	})
+	}, emit)
 	if err != nil {
 		return status.Errorf(codes.Internal, "verify: %v", err)
 	}
 
-	if strings.TrimSpace(opts.GetPolicy()) != "" {
-		pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: opts.GetPolicy(), Mode: opts.GetPolicyMode()}, objects)
+	if policyRef != "" {
+		pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: policyRef, Mode: policyMode}, objects)
 		if err != nil {
 			return status.Errorf(codes.Internal, "policy: %v", err)
 		}
-		rep.Findings = append(rep.Findings, verify.PolicyReportToFindings(pol)...)
-		if strings.EqualFold(strings.TrimSpace(opts.GetPolicyMode()), "enforce") && pol != nil && pol.DenyCount > 0 {
+		pfindings := verify.PolicyReportToFindings(pol)
+		for i := range pfindings {
+			f := pfindings[i]
+			_ = emit(verify.Event{Type: verify.EventFinding, When: time.Now().UTC(), Finding: &f})
+			rep.Findings = append(rep.Findings, f)
+		}
+		if strings.EqualFold(strings.TrimSpace(policyMode), "enforce") && pol != nil && pol.DenyCount > 0 {
 			rep.Blocked = true
 			rep.Passed = false
 		}
 	}
 
-	// Stream a single JSON event for now; CLI/UI can render progressively later.
+	// Optional full report payload (for clients that want one blob).
 	raw, _ := json.Marshal(rep)
-	return stream.Send(&apiv1.VerifyEvent{Json: string(raw)})
+	_ = stream.Send(&apiv1.VerifyEvent{
+		TimestampUnixNano: time.Now().UTC().UnixNano(),
+		Body:              &apiv1.VerifyEvent_Json{Json: string(raw)},
+	})
+	return nil
 }
 
 func collectNamespacedObjectsForAgent(ctx context.Context, client *kube.Client, namespace string) ([]map[string]any, error) {

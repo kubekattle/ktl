@@ -74,6 +74,7 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	var baselinePath string
 	var policyRef string
 	var policyMode string
+	var fixPlan bool
 
 	cmd := &cobra.Command{
 		Use:           "chart --chart <path> --release <name>",
@@ -183,6 +184,12 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			if err := verify.WriteReport(out, rep, repModeFormat(format)); err != nil {
 				return err
 			}
+			if fixPlan && (strings.TrimSpace(outputPath) == "" || strings.TrimSpace(outputPath) == "-") && repModeFormat(format) == verify.OutputTable {
+				plan := verify.BuildFixPlan(rep.Findings)
+				if text := verify.RenderFixPlanText(plan); text != "" {
+					fmt.Fprint(cmd.OutOrStdout(), text)
+				}
+			}
 			if rep.Blocked {
 				return fmt.Errorf("verify blocked (fail-on=%s)", failOn)
 			}
@@ -203,6 +210,7 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Only report new/changed findings vs this baseline report JSON")
 	cmd.Flags().StringVar(&policyRef, "policy", "", "Policy bundle ref (dir/tar/https) to evaluate against rendered objects")
 	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn or enforce")
+	cmd.Flags().BoolVar(&fixPlan, "fix-plan", false, "Print suggested patch snippets for known findings (table output only)")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
 	return cmd
@@ -217,6 +225,7 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	var baselinePath string
 	var policyRef string
 	var policyMode string
+	var fixPlan bool
 
 	cmd := &cobra.Command{
 		Use:           "namespace <name>",
@@ -297,6 +306,12 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			if err := verify.WriteReport(out, rep, repModeFormat(format)); err != nil {
 				return err
 			}
+			if fixPlan && (strings.TrimSpace(outputPath) == "" || strings.TrimSpace(outputPath) == "-") && repModeFormat(format) == verify.OutputTable {
+				plan := verify.BuildFixPlan(rep.Findings)
+				if text := verify.RenderFixPlanText(plan); text != "" {
+					fmt.Fprint(cmd.OutOrStdout(), text)
+				}
+			}
 			if rep.Blocked {
 				return fmt.Errorf("verify blocked (fail-on=%s)", failOn)
 			}
@@ -312,6 +327,7 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Only report new/changed findings vs this baseline report JSON")
 	cmd.Flags().StringVar(&policyRef, "policy", "", "Policy bundle ref (dir/tar/https) to evaluate against live objects")
 	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn or enforce")
+	cmd.Flags().BoolVar(&fixPlan, "fix-plan", false, "Print suggested patch snippets for known findings (table output only)")
 	_ = logLevel
 	return cmd
 }
