@@ -64,41 +64,6 @@
         color: var(--text);
       }
       #q::placeholder { color: rgba(15,23,42,0.48); }
-      .chips {
-        display: flex;
-        gap: 0;
-        justify-content: center;
-      }
-      .chip {
-        border-radius: 0;
-        padding: 10px 14px;
-        background: rgba(255,255,255,0.6);
-        color: rgba(15,23,42,0.78);
-        border: 1px solid rgba(15,23,42,0.12);
-        font-size: 0.78rem;
-        font-weight: 520;
-        text-transform: uppercase;
-        cursor: pointer;
-        user-select: none;
-      }
-      .chip:first-child {
-        border-top-left-radius: 999px;
-        border-bottom-left-radius: 999px;
-      }
-      .chip:last-child {
-        border-top-right-radius: 999px;
-        border-bottom-right-radius: 999px;
-      }
-      .chip + .chip {
-        margin-left: -1px;
-      }
-      .chip.active {
-        background: var(--chip-bg);
-        color: var(--chip-text);
-        border-color: rgba(37,99,235,0.45);
-        z-index: 1;
-      }
-
       .layout {
         display: grid;
         grid-template-columns: 1fr;
@@ -226,12 +191,6 @@
               <input id="q" autocomplete="off" spellcheck="false" placeholder="Search: apply, --namespace, KTL_SANDBOX_CONFIG…" />
             </div>
           </div>
-          <div class="chips" aria-label="Filters">
-            <div class="chip active" data-kind="all">All</div>
-            <div class="chip" data-kind="command">Commands</div>
-            <div class="chip" data-kind="flag">Flags</div>
-            <div class="chip" data-kind="env">Env</div>
-          </div>
         </div>
 
         <div class="layout" role="main">
@@ -267,6 +226,24 @@
 
       function norm(s) { return (s || "").toLowerCase(); }
 
+      function parseQuery(raw) {
+        let q = (raw || "").trim();
+        let kind = "all";
+        const m = q.match(/(?:^|\\s)kind:(all|cmd|command|flag|env)(?:\\s|$)/i);
+        if (m) {
+          const v = (m[1] || "").toLowerCase();
+          if (v === "flag" || v === "env" || v === "command" || v === "cmd" || v === "all") {
+            kind = (v === "cmd") ? "command" : v;
+          }
+          q = q.replace(m[0], " ").trim();
+        } else if (q.includes("--")) {
+          kind = "flag";
+        } else if (q.toUpperCase().includes("KTL_")) {
+          kind = "env";
+        }
+        return { q, kind };
+      }
+
       function score(entry, q) {
         if (!q) return 1;
         const hay = norm(entry.title + " " + (entry.subtitle || "") + " " + (entry.content || "") + " " + (entry.tags || []).join(" "));
@@ -282,8 +259,9 @@
 
       function filterAndRank() {
         if (!state.index) return [];
-        const q = state.q.trim();
-        const kind = state.kind;
+        const parsed = parseQuery(state.q);
+        const q = parsed.q;
+        const kind = parsed.kind;
         const scored = [];
         for (const entry of state.index.entries) {
           if (kind !== "all" && entry.kind !== kind) continue;
@@ -299,8 +277,13 @@
       function renderResults() {
         elResults.innerHTML = "";
         const q = state.q.trim();
+        // De-dupe by kind+title as a safety net (some commands include repeated flag sets).
+        const seen = new Set();
         elResults.style.display = "";
         for (const entry of state.results) {
+          const key = entry.kind + ":" + entry.title;
+          if (seen.has(key)) continue;
+          seen.add(key);
           const li = document.createElement("li");
           li.className = "resultItem" + (entry.id === state.activeId ? " active" : "");
           li.dataset.id = entry.id;
@@ -379,17 +362,6 @@
           state.activeId = null;
           onQueryChanged();
         }
-      });
-
-      document.querySelectorAll(".chip").forEach(chip => {
-        chip.addEventListener("click", () => {
-          document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
-          chip.classList.add("active");
-          state.kind = chip.dataset.kind;
-          state.activeId = null;
-          onQueryChanged();
-          elQ.focus();
-        });
       });
 
       elQ.addEventListener("input", onQueryChanged);

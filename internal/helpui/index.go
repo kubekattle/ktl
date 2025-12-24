@@ -1,6 +1,7 @@
 package helpui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -121,12 +122,12 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		if def := strings.TrimSpace(agg.defValue); def != "" && def != "false" && def != "0" {
 			content = strings.TrimSpace(content + "\n\nDefault: " + def)
 		}
-		available := agg.commandList()
-		if agg.global {
-			available = append([]string{"(global)"}, available...)
-		}
-		if len(available) > 0 {
-			content = strings.TrimSpace(content + "\n\nAvailable on:\n  " + strings.Join(available, "\n  "))
+		// Keep flag cards minimal: avoid long "available on" lists that duplicate command names in the UI.
+		// When a flag is truly global (persistent), listing every command is redundant noise.
+		if !agg.global {
+			if n := len(agg.commands); n > 1 {
+				content = strings.TrimSpace(content + "\n\nAvailable on: " + fmt.Sprintf("%d commands", n))
+			}
 		}
 		entries = append(entries, Entry{
 			ID:      "flag:" + agg.name,
