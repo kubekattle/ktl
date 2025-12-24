@@ -1,6 +1,6 @@
 # Frontend Style Book
 
-Reference manual for every HTML-based `ktl` surface (current `ktl apply --ui`, `ktl delete --ui`, and `ktl plan --format=html --visualize`). Keep this doc open while designing or implementing UI changes, and update it first when the system evolves.
+Reference manual for every HTML-based `ktl` surface (current `ktl apply --ui`, `ktl delete --ui`, and `ktl apply plan --format=html --visualize`). Keep this doc open while designing or implementing UI changes, and update it first when the system evolves.
 
 ---
 
@@ -178,6 +178,6 @@ Add new patterns to this table with a terse description + implementation hook be
 2. Are new components anchored inside `.panel`/`.insight-panel` and registered in Section 3?
 3. Did you update Interaction Patterns or Accessibility rules if behavior changed?
 4. Are print/export rules accurate for the new component?
-5. Have you run the relevant visual tests (manual `ktl apply --ui` / `ktl delete --ui`, `ktl plan --format=html --visualize`, screenshot diffs) and noted them in your PR?
+5. Have you run the relevant visual tests (manual `ktl apply --ui` / `ktl delete --ui`, `ktl apply plan --format=html --visualize`, screenshot diffs) and noted them in your PR?
 
 Only merge once every question above can be answered “yes” or the rationale is recorded here.

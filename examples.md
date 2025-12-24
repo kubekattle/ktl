@@ -29,14 +29,14 @@ ktl logs 'checkout-.*' \
 ## Plan / Apply / Delete (Helm)
 ```bash
 # Preview chart changes
-ktl plan \
+ktl apply plan \
   --chart ./deploy/checkout \
   --release checkout \
   --namespace prod-payments \
   --values values/prod.yaml
 
 # Write a shareable HTML plan
-ktl plan \
+ktl apply plan \
   --chart ./deploy/checkout \
   --release checkout \
   --namespace prod-payments \

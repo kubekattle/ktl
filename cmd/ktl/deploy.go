@@ -1,7 +1,7 @@
 // File: cmd/ktl/deploy.go
 // Brief: Shared Helm plan/apply/delete CLI implementation.
 
-// deploy.go contains the shared implementation for Helm operations used by `ktl plan`, `ktl apply`, and `ktl delete`.
+// deploy.go contains the shared implementation for Helm operations used by `ktl apply plan`, `ktl apply`, and `ktl delete`.
 package main
 
 import (

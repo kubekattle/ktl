@@ -1,7 +1,7 @@
 // File: internal/deploy/template.go
 // Brief: Internal deploy package implementation for 'template'.
 
-// template.go renders Helm manifests and change summaries for ktl plan/install operations.
+// template.go renders Helm manifests and change summaries for ktl apply plan/install operations.
 package deploy
 
 import (

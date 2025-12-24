@@ -11,9 +11,9 @@ var curatedExamples = map[string][]string{
 		"# Build an image from a directory\nktl build --context . --tag ghcr.io/acme/app:dev",
 		"# Share the build stream over WebSocket\nktl build --context . --ws-listen :9085",
 	},
-	"ktl plan": {
-		"# Preview a Helm upgrade\nktl plan --chart ./chart --release foo -n default",
-		"# Render a shareable HTML visualization\nktl plan --visualize --chart ./chart --release foo -n default",
+	"ktl apply plan": {
+		"# Preview a Helm upgrade\nktl apply plan --chart ./chart --release foo -n default",
+		"# Render a shareable HTML visualization\nktl apply plan --visualize --chart ./chart --release foo -n default",
 	},
 	"ktl apply": {
 		"# Deploy a chart\nktl apply --chart ./chart --release foo -n default",

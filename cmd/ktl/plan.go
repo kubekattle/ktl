@@ -11,7 +11,9 @@ import "github.com/spf13/cobra"
 
 func newPlanCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	cmd := newDeployPlanCommand(nil, kubeconfig, kubeContext, "Plan Flags")
+	cmd.Deprecated = "use `ktl apply plan`"
+	cmd.Hidden = true
 	cmd.Example = `  # Preview the impact of an upgrade
-  ktl plan --chart ./charts/web --release web-prod --namespace prod -f values/prod.yaml`
+  ktl apply plan --chart ./charts/web --release web-prod --namespace prod -f values/prod.yaml`
 	return cmd
 }

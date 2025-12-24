@@ -40,7 +40,7 @@ Reference for autonomous agents running the latest `ktl` toolchain. Follow these
 - Profile startup locally with `KTL_PROFILE=startup ktl logs checkout -n prod`. ktl drops CPU/heap `.pprof` files in the working directory so you can open them with `go tool pprof` and optimize hot paths.
 
 ### 2.7 Deploy Planning
-- Use `ktl plan --chart <path> --release <name> --namespace <ns> --kubeconfig ~/.kube/archimedes.yaml [-f values.yaml]` to render Helm manifests and diff them against the live cluster before mutating anything.
+- Use `ktl apply plan --chart <path> --release <name> --namespace <ns> --kubeconfig ~/.kube/archimedes.yaml [-f values.yaml]` to render Helm manifests and diff them against the live cluster before mutating anything.
 - The plan is read-only but still talks to the cluster; report RBAC or discovery gaps (e.g., CRDs missing) as warnings in your summary.
 - Highlight the creates/updates/deletes plus any pod-affecting changes (Deployments/StatefulSets/Jobs) and PodDisruptionBudget removals so humans understand disruption risk before running `ktl apply`.
 - Need an executive-friendly artifact? add `--html --output dist/<name>-plan.html` to emit the same frosted-glass UI as `ktl diag report`, complete with copy-to-clipboard deploy commands for reviewers.

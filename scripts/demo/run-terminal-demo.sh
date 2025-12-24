@@ -34,7 +34,7 @@ rm -f /tmp/ktl-demo-build.sqlite >/dev/null 2>&1 || true
 echo "Capture DB: /tmp/ktl-demo-build.sqlite"
 pause 4
 
-say "3) ktl plan --visualize (HTML output)"
+say "3) ktl apply plan --visualize (HTML output)"
 rm -f /tmp/ktl-demo-plan.html >/dev/null 2>&1 || true
 if [[ -d testdata/charts ]] && [[ -d testdata/charts/hello || -d testdata/charts/hello-world ]]; then
   chart="./testdata/charts/hello"
@@ -94,4 +94,3 @@ echo "Plan HTML:    /tmp/ktl-demo-plan.html (if created)"
 echo "Apply output: /tmp/ktl-demo-apply.out (if created)"
 echo "WS output:    /tmp/ktl-demo-ws.out"
 echo "Done."
-

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ktl Plan Visualize</title>
+  <title>ktl Apply Plan Visualize</title>
   <style>
     :root {
       color-scheme: light;
@@ -1239,7 +1239,7 @@
 	                <button id="resetViewBtn" class="chip" type="button">Reset</button>
 	              </div>
 	            </div>
-		            <p class="hero-eyebrow">ktl plan</p>
+		            <p class="hero-eyebrow">ktl apply plan</p>
 		            <div id="heroChips" class="hero-chips"></div>
 	          </div>
 	          <div class="hero-metrics">
@@ -1666,7 +1666,7 @@
       if (datasetParseError) {
         if (dataErrorBanner) {
           var msg = (datasetParseError && datasetParseError.message) ? datasetParseError.message : String(datasetParseError);
-          dataErrorBanner.textContent = 'Failed to load the embedded plan data (' + msg + '). Re-run `ktl plan --visualize ...` and re-open the newly generated HTML.';
+          dataErrorBanner.textContent = 'Failed to load the embedded plan data (' + msg + '). Re-run `ktl apply plan --visualize ...` and re-open the newly generated HTML.';
           dataErrorBanner.hidden = false;
         }
         return;

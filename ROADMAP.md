@@ -6,7 +6,7 @@ Pulumi’s secret-provider model lets users wire AWS Secrets Manager, HashiCorp 
 
 ### Goals
 
-- Allow `ktl apply` (and companions like `ktl plan`/`ktl plan --visualize`) to reference secret placeholders (e.g., `secret://aws-secrets-manager/my-app/db-password`) that are resolved right before templating.
+- Allow `ktl apply` (and companions like `ktl apply plan`/`ktl apply plan --visualize`) to reference secret placeholders (e.g., `secret://aws-secrets-manager/my-app/db-password`) that are resolved right before templating.
 - Support pluggable providers: AWS Secrets Manager, AWS Parameter Store, HashiCorp Vault, GCP Secret Manager, Azure Key Vault, plus a local `.env`/JSON fallback for dev.
 - Keep secrets out of values files, plan artefacts, and `--reuse-plan` metadata; resolution should happen in-memory with audit logs indicating which provider/secret was accessed.
 - Integrate with `--ui` and plan outputs by masking resolved secrets while still signalling where they came from (“value supplied by Vault path …”).
@@ -51,7 +51,7 @@ Terraform exposes most of its provider/plugin functionality over gRPC so the CLI
 
 ### Goals / Non-Goals
 
-- Offer a typed gRPC API for core workflows (`build`, `ktl plan`, `ktl apply`, `logs`, `analyze`) to unlock remote execution, richer automation, and future language bindings.
+- Offer a typed gRPC API for core workflows (`build`, `ktl apply plan`, `ktl apply`, `logs`, `analyze`) to unlock remote execution, richer automation, and future language bindings.
 - Mirror Terraform’s handshake/capabilities negotiation so old/new clients can coexist and roll independently.
 - Provide a **default-off** path: fresh `ktl` invocations continue to execute in-process unless a flag/env/daemon opt-in is supplied.
 - Avoid introducing extra background processes unless the user runs `ktl daemon` (or similar) explicitly.
@@ -551,7 +551,7 @@ Example commands:
 
 ## `ktl deploy` (future): Build → Lock → Apply (Release Units)
 
-Note: `ktl deploy` is not part of the current CLI (it was removed in favor of `ktl plan`/`ktl apply`/`ktl delete`). This section describes a possible future “release unit” workflow.
+Note: `ktl deploy` is not part of the current CLI (it was removed in favor of `ktl apply plan`/`ktl apply`/`ktl delete`). This section describes a possible future “release unit” workflow.
 
 Argo CD and Helmfile are strong at GitOps-style, continuously-reconciled Helm orchestration. `ktl deploy` should win on a different axis: a single, developer-to-prod workflow that produces a reproducible “release unit” (build outputs + chart inputs + manifests + verification) that can be reviewed, applied, captured, and promoted across environments.
 

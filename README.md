@@ -5,7 +5,7 @@
 ## Why ktl?
 - **Instant pod logs** – informer-backed discovery keeps startup under a second, even in large clusters.
 - **Human-friendly output** – colors for namespaces/containers, Go-template rendering, JSON passthrough, and regex highlighting.
-- **Deploy safety** – use `ktl plan` before `ktl apply`, and reuse plan artifacts during rollouts via `--reuse-plan`.
+- **Deploy safety** – use `ktl apply plan` before `ktl apply`, and reuse plan artifacts during rollouts via `--reuse-plan`.
 - **Shareable mirrors** – broadcast `ktl logs` / builds / deploys via `--ui` / `--ws-listen`.
 
 ### UI mirror defaults

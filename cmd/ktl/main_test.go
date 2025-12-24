@@ -174,7 +174,6 @@ func TestRootHelpSubcommandOrder(t *testing.T) {
 	wantOrder := []string{
 		"\nSubcommands:\n",
 		"  build",
-		"  plan",
 		"  apply",
 		"  delete",
 		"  revert",
@@ -220,6 +219,29 @@ func TestListCommandHasLsAlias(t *testing.T) {
 	}
 	if !slices.Contains(listCmdAliases, "ls") {
 		t.Fatalf("expected list aliases to include ls, got: %v", listCmdAliases)
+	}
+}
+
+func TestApplyHasPlanSubcommand(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var applyCmd *cobra.Command
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "apply" {
+			applyCmd = cmd
+			break
+		}
+	}
+	if applyCmd == nil {
+		t.Fatalf("expected root to include apply command")
+	}
+	if _, _, err := applyCmd.Find([]string{"plan"}); err != nil {
+		t.Fatalf("expected apply to include plan subcommand: %v", err)
 	}
 }
 

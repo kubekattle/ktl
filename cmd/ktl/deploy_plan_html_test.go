@@ -88,7 +88,7 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render viz html: %v", err)
 	}
-	if !strings.Contains(html, "ktl Plan Visualize") {
+	if !strings.Contains(html, "ktl Apply Plan Visualize") {
 		t.Fatalf("missing visualize heading")
 	}
 	if !strings.Contains(html, "Load comparison") {

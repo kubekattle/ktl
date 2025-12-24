@@ -46,7 +46,7 @@ If you’re an AI agent (or using one), start with:
 | `ktl build ... --ws-listen :9085` | Expose the build stream over WebSocket (for external consumers). |
 | `ktl apply ... --ui :8080 --ws-listen :9086` | Mirror Helm rollouts with the deploy viewer (phase timeline, resource readiness grid, manifest diff, event feed) so reviewers can follow along remotely. |
 | `ktl apply ...` (TTY) | Auto-enables the deploy console: metadata banner, inline phase badges, sticky warning rail, and adaptive resource table (use `--console-wide` to force the 100+ col layout). |
-| `ktl plan --visualize --chart ./chart --release foo --kubeconfig ~/.kube/archimedes.yaml` | Render the tree-based dependency browser + YAML/diff viewer (with optional comparison upload), auto-write `./ktl-deploy-visualize-<release>-<timestamp>.html` (override with `--output`, use `--output -` for stdout). |
+| `ktl apply plan --visualize --chart ./chart --release foo --kubeconfig ~/.kube/archimedes.yaml` | Render the tree-based dependency browser + YAML/diff viewer (with optional comparison upload), auto-write `./ktl-deploy-visualize-<release>-<timestamp>.html` (override with `--output`, use `--output -` for stdout). |
 | `./bin/ktl --kubeconfig /Users/antonkrylov/.kube/archimedes.yaml` | Manual smoke test against the shared Archimedes cluster (add `--context/--namespace` as needed). |
 
 `ktl deploy` has been removed; use `ktl apply`/`ktl delete` going forward.
@@ -78,7 +78,7 @@ export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 
 | Flag | Stage | Description | Enable via env |
 | --- | --- | --- | --- |
-| `deploy-plan-html-v3` | experimental | Switch `ktl plan --visualize` output to the v3 UI components. | `KTL_FEATURE_DEPLOY_PLAN_HTML_V3=1` |
+| `deploy-plan-html-v3` | experimental | Switch `ktl apply plan --visualize` output to the v3 UI components. | `KTL_FEATURE_DEPLOY_PLAN_HTML_V3=1` |
 
 ### UI Mirror Defaults
 - Passing `--ui` without an address binds the default port (`:8080` unless noted below). Use explicit `HOST:PORT` only when you need a custom interface.
@@ -130,7 +130,7 @@ export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 
 ## Frontend Design System Overview
 
-Source of truth for every HTML-based `ktl` surface (`ktl apply --ui`, `ktl delete --ui`, `ktl plan --format=html --visualize`, etc.). Extend tokens/components here first, then ship UI. Use the navigation below to jump to the exact rule you’re touching.
+Source of truth for every HTML-based `ktl` surface (`ktl apply --ui`, `ktl delete --ui`, `ktl apply plan --format=html --visualize`, etc.). Extend tokens/components here first, then ship UI. Use the navigation below to jump to the exact rule you’re touching.
 
 ### Navigation
 1. [Design Foundations](#1-design-foundations)

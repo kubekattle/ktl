@@ -1,7 +1,7 @@
 // File: cmd/ktl/deploy_plan.go
 // Brief: CLI command wiring and implementation for 'deploy plan'.
 
-// deploy_plan.go contains the 'ktl plan'/deploy-apply logic, rendering manifests, producing HTML diffs, and teeing the plan into files.
+// deploy_plan.go contains the deploy plan/apply logic (ktl apply plan / ktl apply), rendering manifests, producing HTML diffs, and teeing the plan into files.
 package main
 
 import (
@@ -1731,7 +1731,7 @@ const deployPlanHTMLTemplate = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ktl Plan</title>
+  <title>ktl Apply Plan</title>
   <style>
     :root {
       --surface: rgba(255,255,255,0.9);
@@ -1988,7 +1988,7 @@ const deployPlanHTMLTemplate = `<!DOCTYPE html>
 <body>
   <div class="chrome">
     <header>
-      <p class="eyebrow">ktl plan</p>
+      <p class="eyebrow">ktl apply plan</p>
       <h1>Release {{.ReleaseName}}</h1>
       <div class="subtitle">Namespace <strong>{{.NamespaceDisplay}}</strong>{{if .ChartVersion}} · Chart {{.ChartVersion}}{{end}}{{if .ClusterHost}} · Cluster {{.ClusterHost}}{{end}}</div>
       <div class="subtitle">Generated {{.GeneratedAt.Format "02 Jan 2006 15:04 MST"}}</div>

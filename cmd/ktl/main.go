@@ -203,7 +203,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	  ktl logs 'checkout-.*' --namespace prod-payments --highlight ERROR
 
   # Preview a Helm upgrade
-  ktl plan --chart ./chart --release foo
+  ktl apply plan --chart ./chart --release foo
 
   # Revert a release to the last known-good revision
   ktl revert --release foo --namespace prod
@@ -231,7 +231,7 @@ Usage:
   {{.UseLine}}
 
 Subcommands:
-{{- range $i, $n := (list "build" "plan" "apply" "delete" "verify" "revert" "list" "lint" "logs" "package" "env" "version") }}
+{{- range $i, $n := (list "build" "apply" "delete" "verify" "revert" "list" "lint" "logs" "package" "env" "version") }}
 {{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
 {{- end }}
