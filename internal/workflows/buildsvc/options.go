@@ -148,6 +148,7 @@ type Options struct {
 	LogFile            string
 	RemoveIntermediate bool
 	Quiet              bool
+	Output             string
 	WSListenAddr       string
 	Streams            Streams
 	Observers          []tailer.LogObserver

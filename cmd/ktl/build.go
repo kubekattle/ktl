@@ -93,6 +93,7 @@ type buildCLIOptions struct {
 	logFile          string
 	rm               bool
 	quiet            bool
+	output           string
 	wsListenAddr     string
 	remoteAddr       string
 }
@@ -126,6 +127,7 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string,
 		cacheIntelTop:    10,
 		cacheIntelFormat: "human",
 		logLevel:         *globalLogLevel,
+		output:           "auto",
 		rm:               true,
 		policyMode:       "enforce",
 		secretsMode:      "warn",
@@ -251,6 +253,7 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string,
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.logFile, name: "--logfile", allowEmpty: true, validator: nil}, "logfile", "Log to file instead of stdout/stderr")
 	cmd.Flags().BoolVar(&opts.rm, "rm", true, "Remove intermediate containers after a successful build")
 	cmd.Flags().BoolVarP(&opts.quiet, "quiet", "q", false, "Refrain from announcing build instructions and progress")
+	cmd.Flags().Var(newEnumStringValue(&opts.output, "auto", "auto", "tty", "logs"), "output", "Build output mode: auto (default), tty (live dashboard), or logs (streaming)")
 	cmd.Flags().BoolVar(&opts.sandboxLogs, "sandbox-logs", false, "Stream sandbox runtime logs to stderr and the websocket mirror (when --ws-listen is set)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.sandboxProbePath, name: "--sandbox-probe-path", allowEmpty: true, validator: nil}, "sandbox-probe-path", "Probe filesystem visibility before building by attempting to stat this host path")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.wsListenAddr, name: "--ws-listen", allowEmpty: true, validator: validateWSListenAddr}, "ws-listen", "Serve the raw BuildKit event stream over WebSocket at this address (e.g. :9085)")
@@ -503,6 +506,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 		LogFile:            opts.logFile,
 		RemoveIntermediate: opts.rm,
 		Quiet:              opts.quiet,
+		Output:             opts.output,
 		WSListenAddr:       opts.wsListenAddr,
 	}
 }
