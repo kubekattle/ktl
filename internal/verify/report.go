@@ -63,13 +63,14 @@ type Input struct {
 }
 
 type Report struct {
-	Tool        string     `json:"tool"`
-	Engine      EngineMeta `json:"engine"`
-	Mode        Mode       `json:"mode"`
-	Passed      bool       `json:"passed"`
-	Blocked     bool       `json:"blocked"`
-	EvaluatedAt time.Time  `json:"evaluatedAt"`
-	Inputs      []Input    `json:"inputs,omitempty"`
-	Summary     Summary    `json:"summary"`
-	Findings    []Finding  `json:"findings,omitempty"`
+	Tool        string          `json:"tool"`
+	Engine      EngineMeta      `json:"engine"`
+	Mode        Mode            `json:"mode"`
+	Passed      bool            `json:"passed"`
+	Blocked     bool            `json:"blocked"`
+	EvaluatedAt time.Time       `json:"evaluatedAt"`
+	Inputs      []Input         `json:"inputs,omitempty"`
+	Summary     Summary         `json:"summary"`
+	Findings    []Finding       `json:"findings,omitempty"`
+	Exposure    *ExposureReport `json:"exposure,omitempty"`
 }
