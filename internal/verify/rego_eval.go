@@ -103,15 +103,15 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 				msg = rule.Description
 			}
 			subj := Subject{}
-			if s, ok := m["resourceType"].(string); ok {
-				subj.Kind = s
+			if v, ok := m["resourceType"]; ok && v != nil {
+				subj.Kind = strings.TrimSpace(fmt.Sprintf("%v", v))
 			}
-			if s, ok := m["resourceName"].(string); ok {
-				subj.Name = s
+			if v, ok := m["resourceName"]; ok && v != nil {
+				subj.Name = strings.TrimSpace(fmt.Sprintf("%v", v))
 			}
 			loc := ""
-			if s, ok := m["searchKey"].(string); ok {
-				loc = s
+			if v, ok := m["searchKey"]; ok && v != nil {
+				loc = strings.TrimSpace(fmt.Sprintf("%v", v))
 			}
 			fp := rule.ID + ":" + subj.Kind + ":" + subj.Name + ":" + loc
 			findings = append(findings, Finding{
