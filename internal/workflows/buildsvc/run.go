@@ -27,6 +27,7 @@ import (
 	"github.com/example/ktl/pkg/buildkit"
 	appcompose "github.com/example/ktl/pkg/compose"
 	"github.com/example/ktl/pkg/registry"
+	"golang.org/x/term"
 )
 
 // Dependencies configures a build Service.
@@ -41,6 +42,18 @@ type Result struct {
 	Tags         []string
 	Digest       string
 	OCIOutputDir string
+}
+
+func terminalWidth(w io.Writer) (int, bool) {
+	type fdProvider interface {
+		Fd() uintptr
+	}
+	if v, ok := w.(fdProvider); ok {
+		if cols, _, err := term.GetSize(int(v.Fd())); err == nil {
+			return cols, true
+		}
+	}
+	return 0, false
 }
 
 func parseOptionalBool(v string) (*bool, error) {
@@ -284,8 +297,8 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 		buildConsole    *ui.BuildConsole
 	)
 	if !opts.Quiet {
-		switch resolveBuildOutputMode(opts.Output, streams.IsTerminal(errOut)) {
-		case buildOutputTTY:
+		switch ResolveOutputMode(opts.Output, streams.IsTerminal(errOut)) {
+		case OutputModeTTY:
 			width, _ := terminalWidth(errOut)
 			buildConsole = ui.NewBuildConsole(errOut, ui.BuildMetadata{
 				ContextDir: contextDir,
@@ -300,7 +313,7 @@ func (s *service) Run(ctx context.Context, opts Options) (*Result, error) {
 				Width:   width,
 			})
 			stream.addObserver(buildConsole)
-		case buildOutputLogs:
+		case OutputModeLogs:
 			if streams.IsTerminal(errOut) {
 				consoleObserver = NewConsoleObserverWithLevel(errOut, opts.LogLevel)
 				if consoleObserver != nil {

@@ -397,8 +397,8 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 	errOut := cmd.ErrOrStderr()
 	var observers []tailer.LogObserver
 	if !opts.quiet {
-		switch resolveBuildOutputMode(opts.output, isTerminalWriter(errOut)) {
-		case buildOutputModeTTY:
+		switch buildsvc.ResolveOutputMode(opts.output, isTerminalWriter(errOut)) {
+		case buildsvc.OutputModeTTY:
 			width, _ := terminalWidth(errOut)
 			observers = append(observers, ui.NewBuildConsole(errOut, ui.BuildMetadata{
 				ContextDir: opts.contextDir,
@@ -412,7 +412,7 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 				Enabled: isTerminalWriter(errOut),
 				Width:   width,
 			}))
-		case buildOutputModeLogs:
+		case buildsvc.OutputModeLogs:
 			if obs := buildsvc.NewConsoleObserverWithLevel(errOut, opts.logLevel); obs != nil {
 				observers = append(observers, obs)
 			}
@@ -477,35 +477,6 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 			}
 			return nil
 		}
-	}
-}
-
-type buildOutputMode string
-
-const (
-	buildOutputModeTTY  buildOutputMode = "tty"
-	buildOutputModeLogs buildOutputMode = "logs"
-)
-
-func resolveBuildOutputMode(raw string, terminal bool) buildOutputMode {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "auto":
-		if terminal {
-			return buildOutputModeTTY
-		}
-		return buildOutputModeLogs
-	case "tty":
-		if terminal {
-			return buildOutputModeTTY
-		}
-		return buildOutputModeLogs
-	case "logs":
-		return buildOutputModeLogs
-	default:
-		if terminal {
-			return buildOutputModeTTY
-		}
-		return buildOutputModeLogs
 	}
 }
 

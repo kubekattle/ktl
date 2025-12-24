@@ -4,49 +4,35 @@
 package buildsvc
 
 import (
-	"io"
 	"strings"
-
-	"golang.org/x/term"
 )
 
-type buildOutputMode string
+// OutputMode controls how ktl build renders progress locally.
+type OutputMode string
 
 const (
-	buildOutputTTY  buildOutputMode = "tty"
-	buildOutputLogs buildOutputMode = "logs"
+	OutputModeTTY  OutputMode = "tty"
+	OutputModeLogs OutputMode = "logs"
 )
 
-func resolveBuildOutputMode(raw string, terminal bool) buildOutputMode {
+func ResolveOutputMode(raw string, terminal bool) OutputMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "auto":
 		if terminal {
-			return buildOutputTTY
+			return OutputModeTTY
 		}
-		return buildOutputLogs
+		return OutputModeLogs
 	case "tty":
 		if terminal {
-			return buildOutputTTY
+			return OutputModeTTY
 		}
-		return buildOutputLogs
+		return OutputModeLogs
 	case "logs":
-		return buildOutputLogs
+		return OutputModeLogs
 	default:
 		if terminal {
-			return buildOutputTTY
+			return OutputModeTTY
 		}
-		return buildOutputLogs
+		return OutputModeLogs
 	}
-}
-
-func terminalWidth(w io.Writer) (int, bool) {
-	type fdProvider interface {
-		Fd() uintptr
-	}
-	if v, ok := w.(fdProvider); ok {
-		if cols, _, err := term.GetSize(int(v.Fd())); err == nil {
-			return cols, true
-		}
-	}
-	return 0, false
 }
