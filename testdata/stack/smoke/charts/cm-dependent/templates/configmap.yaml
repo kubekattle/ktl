@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name | default "cm-dependent" }}
+data:
+  dependsOn: cm-base
+

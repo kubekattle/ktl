@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cm-dependent
+version: 0.1.0
+type: application
+

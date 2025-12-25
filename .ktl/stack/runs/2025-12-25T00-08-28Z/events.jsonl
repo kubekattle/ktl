@@ -1,0 +1,6 @@
+{"ts":"2025-12-25T00:08:28.899366Z","runId":"2025-12-25T00-08-28Z","type":"RUN_STARTED","attempt":0}
+{"ts":"2025-12-25T00:08:28.905554Z","runId":"2025-12-25T00-08-28Z","nodeId":"archimedes/ktl-stack-smoke/cm-base","type":"NODE_RUNNING","attempt":1}
+{"ts":"2025-12-25T00:08:30.749159Z","runId":"2025-12-25T00-08-28Z","nodeId":"archimedes/ktl-stack-smoke/cm-base","type":"NODE_SUCCEEDED","attempt":1}
+{"ts":"2025-12-25T00:08:30.776376Z","runId":"2025-12-25T00-08-28Z","nodeId":"archimedes/ktl-stack-smoke/cm-dependent","type":"NODE_RUNNING","attempt":1}
+{"ts":"2025-12-25T00:08:32.204665Z","runId":"2025-12-25T00-08-28Z","nodeId":"archimedes/ktl-stack-smoke/cm-dependent","type":"NODE_SUCCEEDED","attempt":1}
+{"ts":"2025-12-25T00:08:32.228731Z","runId":"2025-12-25T00-08-28Z","type":"RUN_COMPLETED","attempt":0,"message":"succeeded"}
