@@ -75,3 +75,5 @@ make lint   # go vet ./...
 ```
 
 See `AGENTS.md` for contributor guidance.
+
+codex resume 019b52ae-9c33-7611-9548-f68b56f1ff56

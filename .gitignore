@@ -8,3 +8,8 @@ dist/
 *.deb
 *.rpm
 .DS_Store
+
+# ktl local state
+.ktl/
+# ktl local state
+.ktl/

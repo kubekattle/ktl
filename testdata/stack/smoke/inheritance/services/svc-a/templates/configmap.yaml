@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: svc-a
+data:
+  common: {{ .Values.common | quote }}
+  env: {{ .Values.env | quote }}
+  cluster: {{ index .Values "global" "cluster" | quote }}
+

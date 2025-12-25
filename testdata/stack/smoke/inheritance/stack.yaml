@@ -1,0 +1,21 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: smoke-inheritance
+
+defaultProfile: dev
+
+profiles:
+  dev:
+    defaults:
+      values: [values-dev.yaml]
+
+defaults:
+  cluster:
+    name: archimedes
+    kubeconfig: ~/.kube/archimedes.yaml
+  namespace: ktl-stack-smoke
+  values: [values-common.yaml]
+  set:
+    global.cluster: archimedes
+  tags: [root]
+

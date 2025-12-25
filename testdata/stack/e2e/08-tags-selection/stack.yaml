@@ -1,0 +1,16 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-08-tags-selection
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2e08-a
+    chart: ./charts/cm
+    tags: [team-a]
+    set: { fixture: "08-a" }
+  - name: e2e08-b
+    chart: ./charts/cm
+    tags: [team-b]
+    set: { fixture: "08-b" }
+

@@ -1,0 +1,26 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: smoke-basic
+
+defaults:
+  cluster:
+    name: archimedes
+    kubeconfig: ~/.kube/archimedes.yaml
+  namespace: ktl-stack-smoke
+  apply:
+    atomic: true
+    wait: true
+    timeout: 3m
+  delete:
+    timeout: 2m
+
+releases:
+  - name: cm-base
+    chart: ./charts/cm-base
+    tags: [smoke, base]
+
+  - name: cm-dependent
+    chart: ./charts/cm-dependent
+    needs: [cm-base]
+    tags: [smoke, dependent]
+

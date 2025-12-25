@@ -1,0 +1,13 @@
+defaults:
+  tags: [services]
+
+releases:
+  - name: svc-a
+    chart: ./svc-a
+    tags: [a]
+
+  - name: svc-b
+    chart: ./svc-b
+    needs: [svc-a]
+    tags: [b]
+

@@ -15,6 +15,7 @@ import (
 
 func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var concurrency int
+	var progressiveConcurrency bool
 	var failFast bool
 	var continueOnError bool
 	var yes bool
@@ -63,20 +64,21 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 				}
 				initialAttempts := loaded.AttemptByID
 				return stack.Run(cmd.Context(), stack.RunOptions{
-					Command:         "apply",
-					Plan:            p,
-					Concurrency:     concurrency,
-					FailFast:        failFast || !continueOnError,
-					AutoApprove:     yes,
-					Kubeconfig:      kubeconfig,
-					KubeContext:     kubeContext,
-					LogLevel:        logLevel,
-					RemoteAgentAddr: remoteAgent,
-					RunID:           strings.TrimSpace(runID),
-					RunRoot:         runRoot,
-					FailMode:        chooseFailMode(failFast || !continueOnError),
-					MaxAttempts:     maxAttemptsFromRetry(retry),
-					InitialAttempts: initialAttempts,
+					Command:                "apply",
+					Plan:                   p,
+					Concurrency:            concurrency,
+					ProgressiveConcurrency: progressiveConcurrency,
+					FailFast:               failFast || !continueOnError,
+					AutoApprove:            yes,
+					Kubeconfig:             kubeconfig,
+					KubeContext:            kubeContext,
+					LogLevel:               logLevel,
+					RemoteAgentAddr:        remoteAgent,
+					RunID:                  strings.TrimSpace(runID),
+					RunRoot:                runRoot,
+					FailMode:               chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:            maxAttemptsFromRetry(retry),
+					InitialAttempts:        initialAttempts,
 					Selector: stack.RunSelector{
 						Clusters:             splitCSV(*clusters),
 						Tags:                 splitCSV(*tags),
@@ -124,19 +126,20 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 				}
 			}
 			return stack.Run(cmd.Context(), stack.RunOptions{
-				Command:         "apply",
-				Plan:            p,
-				Concurrency:     concurrency,
-				FailFast:        failFast || !continueOnError,
-				AutoApprove:     yes,
-				Kubeconfig:      kubeconfig,
-				KubeContext:     kubeContext,
-				LogLevel:        logLevel,
-				RemoteAgentAddr: remoteAgent,
-				RunID:           strings.TrimSpace(runID),
-				RunRoot:         runRoot,
-				FailMode:        chooseFailMode(failFast || !continueOnError),
-				MaxAttempts:     maxAttemptsFromRetry(retry),
+				Command:                "apply",
+				Plan:                   p,
+				Concurrency:            concurrency,
+				ProgressiveConcurrency: progressiveConcurrency,
+				FailFast:               failFast || !continueOnError,
+				AutoApprove:            yes,
+				Kubeconfig:             kubeconfig,
+				KubeContext:            kubeContext,
+				LogLevel:               logLevel,
+				RemoteAgentAddr:        remoteAgent,
+				RunID:                  strings.TrimSpace(runID),
+				RunRoot:                runRoot,
+				FailMode:               chooseFailMode(failFast || !continueOnError),
+				MaxAttempts:            maxAttemptsFromRetry(retry),
 				Selector: stack.RunSelector{
 					Clusters:             splitCSV(*clusters),
 					Tags:                 splitCSV(*tags),
@@ -152,6 +155,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 		},
 	}
 	cmd.Flags().IntVar(&concurrency, "concurrency", 1, "Maximum number of concurrent releases to run")
+	cmd.Flags().BoolVar(&progressiveConcurrency, "progressive-concurrency", false, "Start at 1 worker, then ramp up/down based on successes/failures")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", true, "Stop scheduling new releases on first error")
 	cmd.Flags().BoolVar(&continueOnError, "continue-on-error", false, "Continue scheduling independent releases after failures")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip confirmation prompts")
@@ -166,6 +170,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 
 func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var concurrency int
+	var progressiveConcurrency bool
 	var failFast bool
 	var continueOnError bool
 	var yes bool
@@ -240,20 +245,21 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					}
 				}
 				return stack.Run(cmd.Context(), stack.RunOptions{
-					Command:         "delete",
-					Plan:            p,
-					Concurrency:     concurrency,
-					FailFast:        failFast || !continueOnError,
-					AutoApprove:     yes,
-					Kubeconfig:      kubeconfig,
-					KubeContext:     kubeContext,
-					LogLevel:        logLevel,
-					RemoteAgentAddr: remoteAgent,
-					RunID:           strings.TrimSpace(runID),
-					RunRoot:         runRoot,
-					FailMode:        chooseFailMode(failFast || !continueOnError),
-					MaxAttempts:     maxAttemptsFromRetry(retry),
-					InitialAttempts: initialAttempts,
+					Command:                "delete",
+					Plan:                   p,
+					Concurrency:            concurrency,
+					ProgressiveConcurrency: progressiveConcurrency,
+					FailFast:               failFast || !continueOnError,
+					AutoApprove:            yes,
+					Kubeconfig:             kubeconfig,
+					KubeContext:            kubeContext,
+					LogLevel:               logLevel,
+					RemoteAgentAddr:        remoteAgent,
+					RunID:                  strings.TrimSpace(runID),
+					RunRoot:                runRoot,
+					FailMode:               chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:            maxAttemptsFromRetry(retry),
+					InitialAttempts:        initialAttempts,
 					Selector: stack.RunSelector{
 						Clusters:             splitCSV(*clusters),
 						Tags:                 splitCSV(*tags),
@@ -316,19 +322,20 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 				}
 			}
 			return stack.Run(cmd.Context(), stack.RunOptions{
-				Command:         "delete",
-				Plan:            p,
-				Concurrency:     concurrency,
-				FailFast:        failFast || !continueOnError,
-				AutoApprove:     yes,
-				Kubeconfig:      kubeconfig,
-				KubeContext:     kubeContext,
-				LogLevel:        logLevel,
-				RemoteAgentAddr: remoteAgent,
-				RunID:           strings.TrimSpace(runID),
-				RunRoot:         runRoot,
-				FailMode:        chooseFailMode(failFast || !continueOnError),
-				MaxAttempts:     maxAttemptsFromRetry(retry),
+				Command:                "delete",
+				Plan:                   p,
+				Concurrency:            concurrency,
+				ProgressiveConcurrency: progressiveConcurrency,
+				FailFast:               failFast || !continueOnError,
+				AutoApprove:            yes,
+				Kubeconfig:             kubeconfig,
+				KubeContext:            kubeContext,
+				LogLevel:               logLevel,
+				RemoteAgentAddr:        remoteAgent,
+				RunID:                  strings.TrimSpace(runID),
+				RunRoot:                runRoot,
+				FailMode:               chooseFailMode(failFast || !continueOnError),
+				MaxAttempts:            maxAttemptsFromRetry(retry),
 				Selector: stack.RunSelector{
 					Clusters:             splitCSV(*clusters),
 					Tags:                 splitCSV(*tags),
@@ -344,6 +351,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 		},
 	}
 	cmd.Flags().IntVar(&concurrency, "concurrency", 1, "Maximum number of concurrent releases to run")
+	cmd.Flags().BoolVar(&progressiveConcurrency, "progressive-concurrency", false, "Start at 1 worker, then ramp up/down based on successes/failures")
 	cmd.Flags().BoolVar(&failFast, "fail-fast", true, "Stop scheduling new releases on first error")
 	cmd.Flags().BoolVar(&continueOnError, "continue-on-error", false, "Continue scheduling independent releases after failures")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip confirmation prompts")

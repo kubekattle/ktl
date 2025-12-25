@@ -23,6 +23,8 @@ type RunOptions struct {
 	FailFast    bool
 	AutoApprove bool
 
+	ProgressiveConcurrency bool
+
 	Kubeconfig      *string
 	KubeContext     *string
 	LogLevel        *string
@@ -100,8 +102,46 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	s := newScheduler(run.Nodes, cmd)
 	var mu sync.Mutex
 	var firstErr error
+	var poolMu sync.Mutex
+	targetWorkers := concurrency
+	runningWorkers := 0
+	consecutiveFailures := 0
+	if opts.ProgressiveConcurrency && concurrency > 1 {
+		targetWorkers = 1
+	}
 
-	worker := func() {
+	var worker func()
+	var wg sync.WaitGroup
+	spawnWorker := func() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			worker()
+		}()
+	}
+	maybeSpawn := func() {
+		if !(opts.ProgressiveConcurrency && concurrency > 1) {
+			return
+		}
+		poolMu.Lock()
+		want := targetWorkers
+		have := runningWorkers
+		poolMu.Unlock()
+		for have < want {
+			spawnWorker()
+			have++
+		}
+	}
+
+	worker = func() {
+		poolMu.Lock()
+		runningWorkers++
+		poolMu.Unlock()
+		defer func() {
+			poolMu.Lock()
+			runningWorkers--
+			poolMu.Unlock()
+		}()
 		for {
 			node := s.NextReady()
 			if node == nil {
@@ -114,11 +154,31 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				if err == nil {
 					s.MarkSucceeded(node.ID)
 					run.AppendEvent(node.ID, "NODE_SUCCEEDED", node.Attempt, "", nil)
+					if opts.ProgressiveConcurrency && concurrency > 1 {
+						poolMu.Lock()
+						consecutiveFailures = 0
+						if targetWorkers < concurrency {
+							targetWorkers++
+						}
+						poolMu.Unlock()
+						maybeSpawn()
+					}
 					break
 				}
 				class := classifyError(err)
 				retryable := isRetryableClass(class)
 				run.AppendEvent(node.ID, "NODE_FAILED", node.Attempt, err.Error(), &RunError{Class: class, Message: err.Error()})
+				if opts.ProgressiveConcurrency && concurrency > 1 {
+					poolMu.Lock()
+					consecutiveFailures++
+					if consecutiveFailures >= 2 {
+						targetWorkers = 1
+					} else if targetWorkers > 1 {
+						targetWorkers--
+					}
+					poolMu.Unlock()
+					maybeSpawn()
+				}
 				if retryable && node.Attempt < maxAttempts {
 					backoff := retryBackoff(node.Attempt)
 					run.AppendEvent(node.ID, "NODE_RETRY_SCHEDULED", node.Attempt+1, fmt.Sprintf("backoff=%s", backoff), &RunError{Class: class, Message: err.Error()})
@@ -145,13 +205,8 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	run.AppendEvent("", "RUN_STARTED", 0, "", nil)
 	run.WriteSummarySnapshot(run.BuildSummary("running", start, s.Snapshot()))
 
-	var wg sync.WaitGroup
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			worker()
-		}()
+	for i := 0; i < targetWorkers; i++ {
+		spawnWorker()
 	}
 	wg.Wait()
 
@@ -211,7 +266,7 @@ func newRunState(p *Plan, command string) *runState {
 	runID := time.Now().UTC().Format("2006-01-02T15-04-05Z")
 	return &runState{
 		RunID:   runID,
-		RunRoot: filepath.Join(".ktl", "stack", "runs", runID),
+		RunRoot: filepath.Join(p.StackRoot, ".ktl", "stack", "runs", runID),
 		Plan:    p,
 		Command: command,
 		Nodes:   wrapRunNodes(p.Nodes),

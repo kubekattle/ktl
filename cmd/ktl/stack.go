@@ -49,8 +49,11 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.AddCommand(newStackPlanCommand(&rootDir, &profile, &clusters, &output, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
 	cmd.AddCommand(newStackGraphCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
 	cmd.AddCommand(newStackExplainCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
+	cmd.AddCommand(newStackStatusCommand(&rootDir))
+	cmd.AddCommand(newStackRunsCommand(&rootDir))
 	cmd.AddCommand(newStackApplyCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
 	cmd.AddCommand(newStackDeleteCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
+	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
 	return cmd
 }
 

@@ -1,0 +1,17 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-05-inline-releases
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2e05-a
+    chart: ./charts/cm
+    tags: [inline]
+    set: { fixture: "05-a" }
+  - name: e2e05-b
+    chart: ./charts/cm
+    tags: [inline]
+    needs: [e2e05-a]
+    set: { fixture: "05-b" }
+

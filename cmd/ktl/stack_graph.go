@@ -54,6 +54,7 @@ func newStackGraphCommand(rootDir, profile *string, clusters *[]string, tags *[]
 }
 
 func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool) *cobra.Command {
+	var why bool
 	cmd := &cobra.Command{
 		Use:   "explain <id|name>",
 		Short: "Explain why a release was selected",
@@ -102,6 +103,12 @@ func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *
 				}
 				node = matches[0]
 			}
+			if why {
+				for _, r := range node.SelectedBy {
+					fmt.Fprintln(cmd.OutOrStdout(), r)
+				}
+				return nil
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ID: %s\n", node.ID)
 			fmt.Fprintf(cmd.OutOrStdout(), "Chart: %s\n", node.Chart)
 			fmt.Fprintf(cmd.OutOrStdout(), "Values: %v\n", node.Values)
@@ -111,5 +118,6 @@ func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&why, "why", false, "Print only the selection reasons")
 	return cmd
 }
