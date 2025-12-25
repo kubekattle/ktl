@@ -8,13 +8,13 @@ import (
 	"sort"
 )
 
-type graph struct {
+type Graph struct {
 	deps       map[string][]string
 	dependents map[string][]string
 }
 
-func buildGraph(p *Plan) (*graph, error) {
-	g := &graph{
+func BuildGraph(p *Plan) (*Graph, error) {
+	g := &Graph{
 		deps:       map[string][]string{},
 		dependents: map[string][]string{},
 	}
@@ -43,7 +43,7 @@ func buildGraph(p *Plan) (*graph, error) {
 	return g, nil
 }
 
-func (g *graph) DepsOf(id string) []string {
+func (g *Graph) DepsOf(id string) []string {
 	var out []string
 	seen := map[string]struct{}{}
 	var walk func(string)
@@ -62,7 +62,7 @@ func (g *graph) DepsOf(id string) []string {
 	return out
 }
 
-func (g *graph) DependentsOf(id string) []string {
+func (g *Graph) DependentsOf(id string) []string {
 	var out []string
 	seen := map[string]struct{}{}
 	var walk func(string)
@@ -79,4 +79,20 @@ func (g *graph) DependentsOf(id string) []string {
 	walk(id)
 	sort.Strings(out)
 	return out
+}
+
+func (g *Graph) Edges() [][2]string {
+	var edges [][2]string
+	for from, deps := range g.deps {
+		for _, to := range deps {
+			edges = append(edges, [2]string{from, to})
+		}
+	}
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i][0] != edges[j][0] {
+			return edges[i][0] < edges[j][0]
+		}
+		return edges[i][1] < edges[j][1]
+	})
+	return edges
 }

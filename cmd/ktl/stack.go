@@ -47,6 +47,8 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.PersistentFlags().BoolVar(&planOnly, "plan-only", false, "Compile and print the plan, but do not execute")
 
 	cmd.AddCommand(newStackPlanCommand(&rootDir, &profile, &clusters, &output, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
+	cmd.AddCommand(newStackGraphCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
+	cmd.AddCommand(newStackExplainCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
 	cmd.AddCommand(newStackApplyCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
 	cmd.AddCommand(newStackDeleteCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
 	return cmd

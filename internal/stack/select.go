@@ -123,7 +123,7 @@ func Select(u *Universe, p *Plan, clusters []string, sel Selector) (*Plan, error
 	includeDeps := sel.IncludeDeps || sel.GitIncludeDeps
 	includeDependents := sel.IncludeDependents || sel.GitIncludeDependents
 	if includeDeps || includeDependents {
-		g, err := buildGraph(p)
+		g, err := BuildGraph(p)
 		if err != nil {
 			return nil, err
 		}
