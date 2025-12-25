@@ -30,6 +30,11 @@ type RunOptions struct {
 
 	RunID   string
 	RunRoot string
+
+	Selector        RunSelector
+	FailMode        string
+	MaxAttempts     int
+	InitialAttempts map[string]int
 }
 
 func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) error {
@@ -54,6 +59,26 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	}
 	if opts.RunRoot != "" {
 		run.RunRoot = opts.RunRoot
+	}
+	run.Concurrency = concurrency
+	if strings.TrimSpace(opts.FailMode) != "" {
+		run.FailMode = opts.FailMode
+	} else if opts.FailFast {
+		run.FailMode = "fail-fast"
+	} else {
+		run.FailMode = "continue"
+	}
+	run.Selector = opts.Selector
+	if opts.InitialAttempts != nil {
+		for _, n := range run.Nodes {
+			if a, ok := opts.InitialAttempts[n.ID]; ok {
+				n.Attempt = a
+			}
+		}
+	}
+	maxAttempts := opts.MaxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 1
 	}
 	if err := run.InitFiles(); err != nil {
 		return err
@@ -82,31 +107,42 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			if node == nil {
 				return
 			}
+			for {
+				node.Attempt++
+				run.AppendEvent(node.ID, "NODE_RUNNING", node.Attempt, "", nil)
+				err := exec.RunNode(ctx, node, cmd)
+				if err == nil {
+					s.MarkSucceeded(node.ID)
+					run.AppendEvent(node.ID, "NODE_SUCCEEDED", node.Attempt, "", nil)
+					break
+				}
+				class := classifyError(err)
+				retryable := isRetryableClass(class)
+				run.AppendEvent(node.ID, "NODE_FAILED", node.Attempt, err.Error(), &RunError{Class: class, Message: err.Error()})
+				if retryable && node.Attempt < maxAttempts {
+					backoff := retryBackoff(node.Attempt)
+					run.AppendEvent(node.ID, "NODE_RETRY_SCHEDULED", node.Attempt+1, fmt.Sprintf("backoff=%s", backoff), &RunError{Class: class, Message: err.Error()})
+					time.Sleep(backoff)
+					continue
+				}
 
-			run.AppendEvent(node.ID, "NODE_RUNNING", node.Attempt, "")
-			err := exec.RunNode(ctx, node, cmd)
-			if err == nil {
-				s.MarkSucceeded(node.ID)
-				run.AppendEvent(node.ID, "NODE_SUCCEEDED", node.Attempt, "")
-				continue
-			}
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
 
-			mu.Lock()
-			if firstErr == nil {
-				firstErr = err
-			}
-			mu.Unlock()
-
-			s.MarkFailed(node.ID, err)
-			run.AppendEvent(node.ID, "NODE_FAILED", node.Attempt, err.Error())
-			if opts.FailFast {
-				s.Stop()
-				return
+				s.MarkFailed(node.ID, err)
+				if opts.FailFast {
+					s.Stop()
+					return
+				}
+				break
 			}
 		}
 	}
 
-	run.AppendEvent("", "RUN_STARTED", 0, "")
+	run.AppendEvent("", "RUN_STARTED", 0, "", nil)
 	run.WriteSummarySnapshot(run.BuildSummary("running", start, s.Snapshot()))
 
 	var wg sync.WaitGroup
@@ -124,7 +160,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	if firstErr != nil {
 		status = "failed"
 	}
-	run.AppendEvent("", "RUN_COMPLETED", 0, status)
+	run.AppendEvent("", "RUN_COMPLETED", 0, status, nil)
 	run.WriteSummarySnapshot(run.BuildSummary(status, start, s.Snapshot()))
 
 	printRunSummary(errOut, run, start)
@@ -154,9 +190,12 @@ type runState struct {
 	RunID   string
 	RunRoot string
 
-	Plan    *Plan
-	Command string
-	Nodes   []*runNode
+	Plan        *Plan
+	Command     string
+	Nodes       []*runNode
+	Concurrency int
+	FailMode    string
+	Selector    RunSelector
 
 	mu sync.Mutex
 
@@ -207,7 +246,7 @@ func (r *runState) WritePlan() error {
 	return writeJSONAtomic(planPath, payload)
 }
 
-func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string) {
+func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string, runErr *RunError) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	_ = appendJSONLine(filepath.Join(r.RunRoot, "events.jsonl"), RunEvent{
@@ -217,6 +256,7 @@ func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string) 
 		Type:    typ,
 		Attempt: attempt,
 		Message: message,
+		Error:   runErr,
 	})
 }
 

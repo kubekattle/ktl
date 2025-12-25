@@ -23,6 +23,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	var replan bool
 	var allowDrift bool
 	var rerunFailed bool
+	var retry int
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Apply the selected stack releases in DAG order",
@@ -60,6 +61,34 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 				if rerunFailed {
 					p = stack.FilterByNodeStatus(p, loaded.StatusByID, []string{"failed"})
 				}
+				initialAttempts := loaded.AttemptByID
+				return stack.Run(cmd.Context(), stack.RunOptions{
+					Command:         "apply",
+					Plan:            p,
+					Concurrency:     concurrency,
+					FailFast:        failFast || !continueOnError,
+					AutoApprove:     yes,
+					Kubeconfig:      kubeconfig,
+					KubeContext:     kubeContext,
+					LogLevel:        logLevel,
+					RemoteAgentAddr: remoteAgent,
+					RunID:           strings.TrimSpace(runID),
+					RunRoot:         runRoot,
+					FailMode:        chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:     maxAttemptsFromRetry(retry),
+					InitialAttempts: initialAttempts,
+					Selector: stack.RunSelector{
+						Clusters:             splitCSV(*clusters),
+						Tags:                 splitCSV(*tags),
+						FromPaths:            splitCSV(*fromPaths),
+						Releases:             splitCSV(*releases),
+						GitRange:             strings.TrimSpace(*gitRange),
+						GitIncludeDeps:       *gitIncludeDeps,
+						GitIncludeDependents: *gitIncludeDependents,
+						IncludeDeps:          *includeDeps,
+						IncludeDependents:    *includeDependents,
+					},
+				}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			} else {
 				u, err := stack.Discover(*rootDir)
 				if err != nil {
@@ -106,6 +135,19 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 				RemoteAgentAddr: remoteAgent,
 				RunID:           strings.TrimSpace(runID),
 				RunRoot:         runRoot,
+				FailMode:        chooseFailMode(failFast || !continueOnError),
+				MaxAttempts:     maxAttemptsFromRetry(retry),
+				Selector: stack.RunSelector{
+					Clusters:             splitCSV(*clusters),
+					Tags:                 splitCSV(*tags),
+					FromPaths:            splitCSV(*fromPaths),
+					Releases:             splitCSV(*releases),
+					GitRange:             strings.TrimSpace(*gitRange),
+					GitIncludeDeps:       *gitIncludeDeps,
+					GitIncludeDependents: *gitIncludeDependents,
+					IncludeDeps:          *includeDeps,
+					IncludeDependents:    *includeDependents,
+				},
 			}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
@@ -118,6 +160,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	cmd.Flags().BoolVar(&replan, "replan", false, "Recompute the plan from current config when resuming")
 	cmd.Flags().BoolVar(&allowDrift, "allow-drift", false, "Allow resume even when inputs changed since the plan was written (unsafe)")
 	cmd.Flags().BoolVar(&rerunFailed, "rerun-failed", false, "When resuming, schedule only failed nodes")
+	cmd.Flags().IntVar(&retry, "retry", 1, "Maximum attempts per release (includes the initial attempt)")
 	return cmd
 }
 
@@ -132,6 +175,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	var allowDrift bool
 	var rerunFailed bool
 	var largeDeletePromptThreshold int
+	var retry int
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete the selected stack releases in reverse DAG order",
@@ -169,6 +213,59 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 				if rerunFailed {
 					p = stack.FilterByNodeStatus(p, loaded.StatusByID, []string{"failed"})
 				}
+				initialAttempts := loaded.AttemptByID
+				if *planOnly {
+					switch strings.ToLower(strings.TrimSpace(*output)) {
+					case "json":
+						enc := json.NewEncoder(cmd.OutOrStdout())
+						enc.SetIndent("", "  ")
+						return enc.Encode(p)
+					default:
+						return stack.PrintPlanTable(cmd.OutOrStdout(), p)
+					}
+				}
+				if !yes {
+					if largeDeletePromptThreshold <= 0 {
+						largeDeletePromptThreshold = 20
+					}
+					if len(p.Nodes) >= largeDeletePromptThreshold {
+						dec, err := approvalMode(cmd, false, false)
+						if err != nil {
+							return err
+						}
+						prompt := fmt.Sprintf("About to delete %d releases. Only 'yes' will be accepted:", len(p.Nodes))
+						if err := confirmAction(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), dec, prompt, confirmModeYes, ""); err != nil {
+							return err
+						}
+					}
+				}
+				return stack.Run(cmd.Context(), stack.RunOptions{
+					Command:         "delete",
+					Plan:            p,
+					Concurrency:     concurrency,
+					FailFast:        failFast || !continueOnError,
+					AutoApprove:     yes,
+					Kubeconfig:      kubeconfig,
+					KubeContext:     kubeContext,
+					LogLevel:        logLevel,
+					RemoteAgentAddr: remoteAgent,
+					RunID:           strings.TrimSpace(runID),
+					RunRoot:         runRoot,
+					FailMode:        chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:     maxAttemptsFromRetry(retry),
+					InitialAttempts: initialAttempts,
+					Selector: stack.RunSelector{
+						Clusters:             splitCSV(*clusters),
+						Tags:                 splitCSV(*tags),
+						FromPaths:            splitCSV(*fromPaths),
+						Releases:             splitCSV(*releases),
+						GitRange:             strings.TrimSpace(*gitRange),
+						GitIncludeDeps:       *gitIncludeDeps,
+						GitIncludeDependents: *gitIncludeDependents,
+						IncludeDeps:          *includeDeps,
+						IncludeDependents:    *includeDependents,
+					},
+				}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			} else {
 				u, err := stack.Discover(*rootDir)
 				if err != nil {
@@ -230,6 +327,19 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 				RemoteAgentAddr: remoteAgent,
 				RunID:           strings.TrimSpace(runID),
 				RunRoot:         runRoot,
+				FailMode:        chooseFailMode(failFast || !continueOnError),
+				MaxAttempts:     maxAttemptsFromRetry(retry),
+				Selector: stack.RunSelector{
+					Clusters:             splitCSV(*clusters),
+					Tags:                 splitCSV(*tags),
+					FromPaths:            splitCSV(*fromPaths),
+					Releases:             splitCSV(*releases),
+					GitRange:             strings.TrimSpace(*gitRange),
+					GitIncludeDeps:       *gitIncludeDeps,
+					GitIncludeDependents: *gitIncludeDependents,
+					IncludeDeps:          *includeDeps,
+					IncludeDependents:    *includeDependents,
+				},
 			}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
@@ -243,5 +353,20 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	cmd.Flags().BoolVar(&allowDrift, "allow-drift", false, "Allow resume even when inputs changed since the plan was written (unsafe)")
 	cmd.Flags().BoolVar(&rerunFailed, "rerun-failed", false, "When resuming, schedule only failed nodes")
 	cmd.Flags().IntVar(&largeDeletePromptThreshold, "delete-confirm-threshold", 20, "Prompt when deleting at least this many releases (0 disables)")
+	cmd.Flags().IntVar(&retry, "retry", 1, "Maximum attempts per release (includes the initial attempt)")
 	return cmd
+}
+
+func chooseFailMode(failFast bool) string {
+	if failFast {
+		return "fail-fast"
+	}
+	return "continue"
+}
+
+func maxAttemptsFromRetry(retry int) int {
+	if retry <= 0 {
+		return 1
+	}
+	return retry
 }

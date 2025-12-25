@@ -11,22 +11,44 @@ import (
 )
 
 type RunPlan struct {
-	APIVersion string             `json:"apiVersion"`
-	RunID      string             `json:"runId"`
-	StackRoot  string             `json:"stackRoot"`
-	StackName  string             `json:"stackName"`
-	Command    string             `json:"command"`
-	Profile    string             `json:"profile"`
-	Nodes      []*ResolvedRelease `json:"nodes"`
+	APIVersion  string             `json:"apiVersion"`
+	RunID       string             `json:"runId"`
+	StackRoot   string             `json:"stackRoot"`
+	StackName   string             `json:"stackName"`
+	Command     string             `json:"command"`
+	Profile     string             `json:"profile"`
+	Concurrency int                `json:"concurrency"`
+	FailMode    string             `json:"failMode"`
+	Selector    RunSelector        `json:"selector,omitempty"`
+	Nodes       []*ResolvedRelease `json:"nodes"`
+}
+
+type RunSelector struct {
+	Clusters             []string `json:"clusters,omitempty"`
+	Tags                 []string `json:"tags,omitempty"`
+	FromPaths            []string `json:"fromPaths,omitempty"`
+	Releases             []string `json:"releases,omitempty"`
+	GitRange             string   `json:"gitRange,omitempty"`
+	GitIncludeDeps       bool     `json:"gitIncludeDeps,omitempty"`
+	GitIncludeDependents bool     `json:"gitIncludeDependents,omitempty"`
+	IncludeDeps          bool     `json:"includeDeps,omitempty"`
+	IncludeDependents    bool     `json:"includeDependents,omitempty"`
 }
 
 type RunEvent struct {
-	TS      string `json:"ts"`
-	RunID   string `json:"runId"`
-	NodeID  string `json:"nodeId,omitempty"`
-	Type    string `json:"type"`
-	Attempt int    `json:"attempt"`
+	TS      string    `json:"ts"`
+	RunID   string    `json:"runId"`
+	NodeID  string    `json:"nodeId,omitempty"`
+	Type    string    `json:"type"`
+	Attempt int       `json:"attempt"`
+	Message string    `json:"message,omitempty"`
+	Error   *RunError `json:"error,omitempty"`
+}
+
+type RunError struct {
+	Class   string `json:"class,omitempty"`
 	Message string `json:"message,omitempty"`
+	Digest  string `json:"digest,omitempty"`
 }
 
 type RunTotals struct {
@@ -57,13 +79,16 @@ type RunSummary struct {
 func buildRunPlanPayload(run *runState, p *Plan) *RunPlan {
 	nodes := append([]*ResolvedRelease(nil), p.Nodes...)
 	return &RunPlan{
-		APIVersion: "ktl.dev/stack-run/v1",
-		RunID:      run.RunID,
-		StackRoot:  p.StackRoot,
-		StackName:  p.StackName,
-		Command:    run.Command,
-		Profile:    p.Profile,
-		Nodes:      nodes,
+		APIVersion:  "ktl.dev/stack-run/v1",
+		RunID:       run.RunID,
+		StackRoot:   p.StackRoot,
+		StackName:   p.StackName,
+		Command:     run.Command,
+		Profile:     p.Profile,
+		Concurrency: run.Concurrency,
+		FailMode:    run.FailMode,
+		Selector:    run.Selector,
+		Nodes:       nodes,
 	}
 }
 
