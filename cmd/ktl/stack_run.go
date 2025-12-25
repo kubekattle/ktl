@@ -131,6 +131,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	var replan bool
 	var allowDrift bool
 	var rerunFailed bool
+	var largeDeletePromptThreshold int
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete the selected stack releases in reverse DAG order",
@@ -202,6 +203,21 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					return stack.PrintPlanTable(cmd.OutOrStdout(), p)
 				}
 			}
+			if !yes {
+				if largeDeletePromptThreshold <= 0 {
+					largeDeletePromptThreshold = 20
+				}
+				if len(p.Nodes) >= largeDeletePromptThreshold {
+					dec, err := approvalMode(cmd, false, false)
+					if err != nil {
+						return err
+					}
+					prompt := fmt.Sprintf("About to delete %d releases. Only 'yes' will be accepted:", len(p.Nodes))
+					if err := confirmAction(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), dec, prompt, confirmModeYes, ""); err != nil {
+						return err
+					}
+				}
+			}
 			return stack.Run(cmd.Context(), stack.RunOptions{
 				Command:         "delete",
 				Plan:            p,
@@ -226,5 +242,6 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	cmd.Flags().BoolVar(&replan, "replan", false, "Recompute the plan from current config when resuming")
 	cmd.Flags().BoolVar(&allowDrift, "allow-drift", false, "Allow resume even when inputs changed since the plan was written (unsafe)")
 	cmd.Flags().BoolVar(&rerunFailed, "rerun-failed", false, "When resuming, schedule only failed nodes")
+	cmd.Flags().IntVar(&largeDeletePromptThreshold, "delete-confirm-threshold", 20, "Prompt when deleting at least this many releases (0 disables)")
 	return cmd
 }
