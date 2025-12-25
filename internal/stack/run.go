@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -84,6 +83,9 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	}
 	if err := run.InitFiles(); err != nil {
 		return err
+	}
+	if run.store != nil {
+		defer run.store.Close()
 	}
 	if err := run.WritePlan(); err != nil {
 		return err
@@ -244,6 +246,7 @@ func printRunSummary(w io.Writer, run *runState, startedAt time.Time) {
 type runState struct {
 	RunID   string
 	RunRoot string
+	store   *stackStateStore
 
 	Plan        *Plan
 	Command     string
@@ -263,7 +266,9 @@ type runNode struct {
 }
 
 func newRunState(p *Plan, command string) *runState {
-	runID := time.Now().UTC().Format("2006-01-02T15-04-05Z")
+	// Include sub-second precision to avoid collisions when commands re-run quickly
+	// (e.g. rerun-failed immediately after apply).
+	runID := time.Now().UTC().Format("2006-01-02T15-04-05.000000000Z")
 	return &runState{
 		RunID:   runID,
 		RunRoot: filepath.Join(p.StackRoot, ".ktl", "stack", "runs", runID),
@@ -282,14 +287,16 @@ func wrapRunNodes(nodes []*ResolvedRelease) []*runNode {
 }
 
 func (r *runState) InitFiles() error {
-	if err := os.MkdirAll(r.RunRoot, 0o755); err != nil {
+	// Prefer durable sqlite state store; keep legacy RunRoot only as a logical identifier.
+	s, err := openStackStateStore(r.Plan.StackRoot, false)
+	if err != nil {
 		return err
 	}
+	r.store = s
 	return nil
 }
 
 func (r *runState) WritePlan() error {
-	planPath := filepath.Join(r.RunRoot, "plan.json")
 	for _, n := range r.Plan.Nodes {
 		hash, err := ComputeEffectiveInputHash(n, true)
 		if err != nil {
@@ -297,14 +304,16 @@ func (r *runState) WritePlan() error {
 		}
 		n.EffectiveInputHash = hash
 	}
-	payload := buildRunPlanPayload(r, r.Plan)
-	return writeJSONAtomic(planPath, payload)
+	if r.store == nil {
+		return fmt.Errorf("internal error: state store not initialized")
+	}
+	return r.store.CreateRun(context.Background(), r, r.Plan)
 }
 
 func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string, runErr *RunError) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_ = appendJSONLine(filepath.Join(r.RunRoot, "events.jsonl"), RunEvent{
+	ev := RunEvent{
 		TS:      time.Now().UTC().Format(time.RFC3339Nano),
 		RunID:   r.RunID,
 		NodeID:  nodeID,
@@ -312,10 +321,19 @@ func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string, 
 		Attempt: attempt,
 		Message: message,
 		Error:   runErr,
-	})
+	}
+	if r.store != nil {
+		_ = r.store.AppendEvent(context.Background(), r.RunID, ev)
+		return
+	}
+	_ = appendJSONLine(filepath.Join(r.RunRoot, "events.jsonl"), ev)
 }
 
 func (r *runState) WriteSummarySnapshot(s *RunSummary) {
+	if r.store != nil {
+		_ = r.store.WriteSummary(context.Background(), r.RunID, s)
+		return
+	}
 	_ = writeJSONAtomic(filepath.Join(r.RunRoot, "summary.json"), s)
 }
 

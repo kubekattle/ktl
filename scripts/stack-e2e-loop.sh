@@ -26,8 +26,8 @@ for ((i=1; i<=ITERATIONS; i++)); do
   else
     echo "FAIL iteration ${i}" >&2
     failures=$((failures+1))
-    echo "Most recent run artifact (if any):" >&2
-    find "${ROOT}/.ktl/stack/runs" -maxdepth 1 -type d -print 2>/dev/null | sort | tail -n 3 >&2 || true
+    echo "Stack state (if any):" >&2
+    ls -la "${ROOT}/.ktl/stack/" 2>/dev/null >&2 || true
     echo >&2
   fi
 done

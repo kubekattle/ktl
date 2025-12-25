@@ -5,6 +5,7 @@ package stack
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,6 +31,21 @@ type LoadedRun struct {
 }
 
 func LoadMostRecentRun(root string) (string, error) {
+	// Prefer sqlite state store when present.
+	statePath := filepath.Join(root, stackStateSQLiteRelPath)
+	if _, err := os.Stat(statePath); err == nil {
+		s, err := openStackStateStore(root, true)
+		if err != nil {
+			return "", err
+		}
+		defer s.Close()
+		runID, err := s.MostRecentRunID(context.Background())
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(root, ".ktl", "stack", "runs", runID), nil
+	}
+
 	base := filepath.Join(root, ".ktl", "stack", "runs")
 	entries, err := os.ReadDir(base)
 	if err != nil {
@@ -49,6 +65,32 @@ func LoadMostRecentRun(root string) (string, error) {
 }
 
 func LoadRun(runRoot string) (*LoadedRun, error) {
+	runID := filepath.Base(runRoot)
+	// runRoot is <stackRoot>/.ktl/stack/runs/<run-id>
+	root := filepath.Clean(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(runRoot)))))
+	statePath := filepath.Join(root, stackStateSQLiteRelPath)
+	if _, err := os.Stat(statePath); err == nil {
+		s, err := openStackStateStore(root, true)
+		if err != nil {
+			return nil, err
+		}
+		defer s.Close()
+		p, err := s.GetRunPlan(context.Background(), runID)
+		if err != nil {
+			return nil, err
+		}
+		statusByID, attemptByID, err := s.GetNodeStatus(context.Background(), runID)
+		if err != nil {
+			return nil, err
+		}
+		return &LoadedRun{
+			RunRoot:     runRoot,
+			Plan:        p,
+			StatusByID:  statusByID,
+			AttemptByID: attemptByID,
+		}, nil
+	}
+
 	planPath := filepath.Join(runRoot, "plan.json")
 	raw, err := os.ReadFile(planPath)
 	if err != nil {

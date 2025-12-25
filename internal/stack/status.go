@@ -38,14 +38,13 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 		}
 	}
 
-	loaded, err := LoadRun(runRoot)
-	if err != nil {
-		return err
-	}
+	runID := filepath.Base(runRoot)
 
-	summaryPath := filepath.Join(runRoot, "summary.json")
-	eventsPath := filepath.Join(runRoot, "events.jsonl")
-	planPath := filepath.Join(runRoot, "plan.json")
+	statePath := filepath.Join(root, stackStateSQLiteRelPath)
+	useSQLite := false
+	if _, err := os.Stat(statePath); err == nil {
+		useSQLite = true
+	}
 
 	format := opts.Format
 	if format == "" {
@@ -56,26 +55,29 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 		return fmt.Errorf("--follow is only supported with --format raw")
 	}
 
-	fmt.Fprintf(out, "RUN\t%s\n", filepath.Base(runRoot))
-	fmt.Fprintf(out, "ROOT\t%s\n", loaded.Plan.StackRoot)
-	fmt.Fprintf(out, "STACK\t%s\n", loaded.Plan.StackName)
-	if loaded.Plan.Profile != "" {
-		fmt.Fprintf(out, "PROFILE\t%s\n", loaded.Plan.Profile)
-	}
-	fmt.Fprintf(out, "PLAN\t%s\n", planPath)
-	fmt.Fprintf(out, "SUMMARY\t%s\n", summaryPath)
-	fmt.Fprintf(out, "EVENTS\t%s\n", eventsPath)
-	fmt.Fprintln(out)
-
 	var summary *RunSummary
-	if raw, err := os.ReadFile(summaryPath); err == nil {
-		var s RunSummary
-		if jsonErr := json.Unmarshal(raw, &s); jsonErr == nil {
-			summary = &s
+	if useSQLite {
+		s, err := openStackStateStore(root, true)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		ss, err := s.GetRunSummary(ctx, runID)
+		if err != nil {
+			return err
+		}
+		summary = ss
+	} else {
+		summaryPath := filepath.Join(runRoot, "summary.json")
+		if raw, err := os.ReadFile(summaryPath); err == nil {
+			var s RunSummary
+			if jsonErr := json.Unmarshal(raw, &s); jsonErr == nil {
+				summary = &s
+			}
 		}
 	}
 	if summary == nil {
-		return fmt.Errorf("missing or unreadable summary: %s", summaryPath)
+		return fmt.Errorf("missing or unreadable summary for run %s", runID)
 	}
 
 	switch format {
@@ -84,11 +86,20 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(summary)
 	case "table":
-		return PrintRunStatusTable(out, filepath.Base(runRoot), summary)
+		return PrintRunStatusTable(out, runID, summary)
 	case "raw":
 	default:
 		return fmt.Errorf("unknown --format %q (expected raw|table|json)", format)
 	}
+
+	fmt.Fprintf(out, "RUN\t%s\n", runID)
+	fmt.Fprintf(out, "STATE\t%s\n", func() string {
+		if useSQLite {
+			return filepath.Join(root, stackStateSQLiteRelPath)
+		}
+		return runRoot
+	}())
+	fmt.Fprintln(out)
 
 	fmt.Fprintf(out, "STATUS\t%s\n", summary.Status)
 	fmt.Fprintf(out, "STARTED\t%s\n", summary.StartedAt)
@@ -100,6 +111,16 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 	if limit <= 0 {
 		limit = 50
 	}
+	if useSQLite {
+		// Keep raw output simple for sqlite: print only summary + hint to use table/json.
+		if opts.Follow {
+			return fmt.Errorf("--follow is not supported with sqlite state yet; use --format table or json")
+		}
+		fmt.Fprintf(out, "EVENTS\t(use ktl stack status --format table|json)\n")
+		return nil
+	}
+
+	eventsPath := filepath.Join(runRoot, "events.jsonl")
 	last, err := readLastJSONLines(eventsPath, limit)
 	if err != nil && !os.IsNotExist(err) {
 		return err
