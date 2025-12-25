@@ -219,6 +219,9 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	}
 	run.AppendEvent("", "RUN_COMPLETED", 0, status, nil)
 	run.WriteSummarySnapshot(run.BuildSummary(status, start, s.Snapshot()))
+	if run.store != nil {
+		_ = run.store.CheckpointPortable(context.Background())
+	}
 
 	printRunSummary(errOut, run, start)
 	if firstErr != nil {

@@ -17,8 +17,9 @@ import (
 const stackStateSQLiteRelPath = ".ktl/stack/state.sqlite"
 
 type stackStateStore struct {
-	db   *sql.DB
-	path string
+	db       *sql.DB
+	path     string
+	readOnly bool
 }
 
 func openStackStateStore(root string, readOnly bool) (*stackStateStore, error) {
@@ -62,7 +63,7 @@ func openStackStateStore(root string, readOnly bool) (*stackStateStore, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	s := &stackStateStore{db: db, path: path}
+	s := &stackStateStore{db: db, path: path, readOnly: readOnly}
 	if !readOnly {
 		if err := s.initSchema(ctx); err != nil {
 			_ = s.Close()
@@ -77,6 +78,18 @@ func (s *stackStateStore) Close() error {
 		return nil
 	}
 	return s.db.Close()
+}
+
+func (s *stackStateStore) CheckpointPortable(ctx context.Context) error {
+	if s == nil || s.db == nil || s.readOnly {
+		return nil
+	}
+	// Fold WAL back into the main DB file so it can be moved/copied as a single .sqlite.
+	// TRUNCATE also removes/empties the -wal file on success.
+	if _, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE);`); err != nil {
+		return fmt.Errorf("wal checkpoint: %w", err)
+	}
+	return nil
 }
 
 func (s *stackStateStore) initSchema(ctx context.Context) error {
