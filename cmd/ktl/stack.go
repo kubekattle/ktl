@@ -24,6 +24,7 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	var gitIncludeDependents bool
 	var includeDeps bool
 	var includeDependents bool
+	var allowMissingDeps bool
 	var output string
 	var planOnly bool
 
@@ -43,21 +44,22 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.PersistentFlags().BoolVar(&gitIncludeDependents, "git-include-dependents", false, "When using --git-range, expand selection to include dependents")
 	cmd.PersistentFlags().BoolVar(&includeDeps, "include-deps", false, "Expand selection to include dependencies")
 	cmd.PersistentFlags().BoolVar(&includeDependents, "include-dependents", false, "Expand selection to include dependents")
+	cmd.PersistentFlags().BoolVar(&allowMissingDeps, "allow-missing-deps", false, "Allow selected releases to run even if their declared needs are not selected (missing needs are ignored)")
 	cmd.PersistentFlags().StringVar(&output, "output", "table", "Output format: table|json")
 	cmd.PersistentFlags().BoolVar(&planOnly, "plan-only", false, "Compile and print the plan, but do not execute")
 
-	cmd.AddCommand(newStackPlanCommand(&rootDir, &profile, &clusters, &output, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
-	cmd.AddCommand(newStackGraphCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
-	cmd.AddCommand(newStackExplainCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents))
+	cmd.AddCommand(newStackPlanCommand(&rootDir, &profile, &clusters, &output, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
+	cmd.AddCommand(newStackGraphCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
+	cmd.AddCommand(newStackExplainCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
 	cmd.AddCommand(newStackStatusCommand(&rootDir))
 	cmd.AddCommand(newStackRunsCommand(&rootDir))
-	cmd.AddCommand(newStackApplyCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
-	cmd.AddCommand(newStackDeleteCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
-	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, kubeconfig, kubeContext, logLevel, remoteAgent))
+	cmd.AddCommand(newStackApplyCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
+	cmd.AddCommand(newStackDeleteCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
+	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
 	return cmd
 }
 
-func newStackPlanCommand(rootDir, profile *string, clusters *[]string, output *string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool) *cobra.Command {
+func newStackPlanCommand(rootDir, profile *string, clusters *[]string, output *string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "plan",
 		Short: "Compile stack configs into an execution plan",
@@ -80,6 +82,7 @@ func newStackPlanCommand(rootDir, profile *string, clusters *[]string, output *s
 				GitIncludeDependents: *gitIncludeDependents,
 				IncludeDeps:          *includeDeps,
 				IncludeDependents:    *includeDependents,
+				AllowMissingDeps:     *allowMissingDeps,
 			})
 			if err != nil {
 				return err

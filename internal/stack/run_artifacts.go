@@ -33,6 +33,7 @@ type RunSelector struct {
 	GitIncludeDependents bool     `json:"gitIncludeDependents,omitempty"`
 	IncludeDeps          bool     `json:"includeDeps,omitempty"`
 	IncludeDependents    bool     `json:"includeDependents,omitempty"`
+	AllowMissingDeps     bool     `json:"allowMissingDeps,omitempty"`
 }
 
 type RunEvent struct {

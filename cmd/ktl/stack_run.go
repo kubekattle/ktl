@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
+func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var concurrency int
 	var progressiveConcurrency bool
 	var failFast bool
@@ -89,6 +89,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 						GitIncludeDependents: *gitIncludeDependents,
 						IncludeDeps:          *includeDeps,
 						IncludeDependents:    *includeDependents,
+						AllowMissingDeps:     *allowMissingDeps,
 					},
 				}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			} else {
@@ -109,6 +110,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 					GitIncludeDependents: *gitIncludeDependents,
 					IncludeDeps:          *includeDeps,
 					IncludeDependents:    *includeDependents,
+					AllowMissingDeps:     *allowMissingDeps,
 				})
 				if err != nil {
 					return err
@@ -150,6 +152,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 					GitIncludeDependents: *gitIncludeDependents,
 					IncludeDeps:          *includeDeps,
 					IncludeDependents:    *includeDependents,
+					AllowMissingDeps:     *allowMissingDeps,
 				},
 			}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
@@ -168,7 +171,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	return cmd
 }
 
-func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
+func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output *string, planOnly *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var concurrency int
 	var progressiveConcurrency bool
 	var failFast bool
@@ -270,6 +273,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 						GitIncludeDependents: *gitIncludeDependents,
 						IncludeDeps:          *includeDeps,
 						IncludeDependents:    *includeDependents,
+						AllowMissingDeps:     *allowMissingDeps,
 					},
 				}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			} else {
@@ -290,6 +294,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					GitIncludeDependents: *gitIncludeDependents,
 					IncludeDeps:          *includeDeps,
 					IncludeDependents:    *includeDependents,
+					AllowMissingDeps:     *allowMissingDeps,
 				})
 				if err != nil {
 					return err
@@ -346,6 +351,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					GitIncludeDependents: *gitIncludeDependents,
 					IncludeDeps:          *includeDeps,
 					IncludeDependents:    *includeDependents,
+					AllowMissingDeps:     *allowMissingDeps,
 				},
 			}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},

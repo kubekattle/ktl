@@ -60,6 +60,17 @@ func main() {
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	// Cobra subcommands should honor ctx cancellation; however some long-running Kubernetes/Helm
+	// flows may not unwind promptly. Treat a second interrupt as a hard stop, matching kubectl UX.
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		<-sigCh // first interrupt cancels ctx (via NotifyContext); no-op here
+		<-sigCh // second interrupt -> force exit
+		fmt.Fprintln(os.Stderr, "\ninterrupt: forcing exit")
+		os.Exit(130)
+	}()
 
 	initKlogFlags()
 

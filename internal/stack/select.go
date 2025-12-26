@@ -21,6 +21,10 @@ type Selector struct {
 
 	IncludeDeps       bool
 	IncludeDependents bool
+
+	// AllowMissingDeps relaxes validation and treats missing needs as "skipped":
+	// the selected plan is pruned so nodes only depend on other selected nodes.
+	AllowMissingDeps bool
 }
 
 type SelectResult struct {
@@ -173,15 +177,40 @@ func Select(u *Universe, p *Plan, clusters []string, sel Selector) (*Plan, error
 		out.ByCluster[n.Cluster.Name] = append(out.ByCluster[n.Cluster.Name], n)
 	}
 
-	// Ensure selected plan is internally consistent (missing deps are user error when not expanded).
-	if err := validateSelectedNeeds(out); err != nil {
-		return nil, err
+	if sel.AllowMissingDeps {
+		pruneMissingNeeds(out)
+	} else {
+		// Ensure selected plan is internally consistent (missing deps are user error when not expanded).
+		if err := validateSelectedNeeds(out); err != nil {
+			return nil, err
+		}
 	}
 	// Recompute waves for the selected graph.
 	if err := assignExecutionGroups(out); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+func pruneMissingNeeds(p *Plan) {
+	for _, nodes := range p.ByCluster {
+		byName := map[string]struct{}{}
+		for _, n := range nodes {
+			byName[n.Name] = struct{}{}
+		}
+		for _, n := range nodes {
+			if len(n.Needs) == 0 {
+				continue
+			}
+			out := make([]string, 0, len(n.Needs))
+			for _, dep := range n.Needs {
+				if _, ok := byName[dep]; ok {
+					out = append(out, dep)
+				}
+			}
+			n.Needs = out
+		}
+	}
 }
 
 func validateSelectedNeeds(p *Plan) error {

@@ -145,6 +145,10 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			poolMu.Unlock()
 		}()
 		for {
+			if err := ctx.Err(); err != nil {
+				s.Stop()
+				return
+			}
 			node := s.NextReady()
 			if node == nil {
 				return
@@ -167,6 +171,16 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 					}
 					break
 				}
+				if errors.Is(err, context.Canceled) {
+					s.MarkFailed(node.ID, err)
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					s.Stop()
+					return
+				}
 				class := classifyError(err)
 				retryable := isRetryableClass(class)
 				run.AppendEvent(node.ID, "NODE_FAILED", node.Attempt, err.Error(), &RunError{Class: class, Message: err.Error()})
@@ -184,7 +198,18 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				if retryable && node.Attempt < maxAttempts {
 					backoff := retryBackoff(node.Attempt)
 					run.AppendEvent(node.ID, "NODE_RETRY_SCHEDULED", node.Attempt+1, fmt.Sprintf("backoff=%s", backoff), &RunError{Class: class, Message: err.Error()})
-					time.Sleep(backoff)
+					select {
+					case <-ctx.Done():
+						s.MarkFailed(node.ID, ctx.Err())
+						mu.Lock()
+						if firstErr == nil {
+							firstErr = ctx.Err()
+						}
+						mu.Unlock()
+						s.Stop()
+						return
+					case <-time.After(backoff):
+					}
 					continue
 				}
 

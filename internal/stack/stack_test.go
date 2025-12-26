@@ -116,6 +116,45 @@ releases:
 	}
 }
 
+func TestSelect_AllowMissingDeps_PrunesNeeds(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stack.yaml"), `
+apiVersion: ktl.dev/v1
+kind: Stack
+name: demo
+defaults:
+  cluster: { name: c1 }
+  namespace: ns1
+releases:
+  - name: db
+    chart: ./db
+  - name: app
+    chart: ./app
+    needs: [db]
+`)
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	selected, err := Select(u, p, nil, Selector{Releases: []string{"app"}, AllowMissingDeps: true})
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if len(selected.Nodes) != 1 {
+		t.Fatalf("selected=%d", len(selected.Nodes))
+	}
+	if selected.Nodes[0].Name != "app" {
+		t.Fatalf("node=%q", selected.Nodes[0].Name)
+	}
+	if len(selected.Nodes[0].Needs) != 0 {
+		t.Fatalf("needs=%v", selected.Nodes[0].Needs)
+	}
+}
+
 func join(vals []string) string {
 	out := ""
 	for _, v := range vals {

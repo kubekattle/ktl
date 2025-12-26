@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackGraphCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool) *cobra.Command {
+func newStackGraphCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   "graph",
@@ -35,6 +35,7 @@ func newStackGraphCommand(rootDir, profile *string, clusters *[]string, tags *[]
 				GitIncludeDependents: *gitIncludeDependents,
 				IncludeDeps:          *includeDeps,
 				IncludeDependents:    *includeDependents,
+				AllowMissingDeps:     *allowMissingDeps,
 			})
 			if err != nil {
 				return err
@@ -53,7 +54,7 @@ func newStackGraphCommand(rootDir, profile *string, clusters *[]string, tags *[]
 	return cmd
 }
 
-func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool) *cobra.Command {
+func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
 	var why bool
 	cmd := &cobra.Command{
 		Use:   "explain <id|name>",
@@ -77,6 +78,7 @@ func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *
 				GitIncludeDependents: *gitIncludeDependents,
 				IncludeDeps:          *includeDeps,
 				IncludeDependents:    *includeDependents,
+				AllowMissingDeps:     *allowMissingDeps,
 			})
 			if err != nil {
 				return err

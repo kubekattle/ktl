@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
+func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var yes bool
 	var runID string
 	var allowDrift bool
@@ -75,6 +75,7 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 					GitIncludeDependents: *gitIncludeDependents,
 					IncludeDeps:          *includeDeps,
 					IncludeDependents:    *includeDependents,
+					AllowMissingDeps:     *allowMissingDeps,
 				},
 			}, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},

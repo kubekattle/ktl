@@ -111,4 +111,3 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		t.Fatalf("expected 1 event in copied db, got %d", events)
 	}
 }
-
