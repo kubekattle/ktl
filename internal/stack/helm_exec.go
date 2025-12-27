@@ -33,6 +33,10 @@ type helmExecutor struct {
 	clients clientCache
 }
 
+type NodeExecutor interface {
+	RunNode(ctx context.Context, node *runNode, command string) error
+}
+
 type clientCache struct {
 	mu sync.Mutex
 	m  map[string]*kube.Client

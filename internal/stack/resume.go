@@ -79,6 +79,9 @@ func LoadRun(runRoot string) (*LoadedRun, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Runs can be moved/copied to a different directory; always treat the current
+		// root (where state.sqlite lives) as the stack root for resume/drift checks.
+		p.StackRoot = root
 		statusByID, attemptByID, err := s.GetNodeStatus(context.Background(), runID)
 		if err != nil {
 			return nil, err

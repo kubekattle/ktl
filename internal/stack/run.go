@@ -23,6 +23,7 @@ type RunOptions struct {
 	AutoApprove bool
 	DryRun      bool
 	Diff        bool
+	Executor    NodeExecutor
 
 	ProgressiveConcurrency bool
 	Lock                   bool
@@ -104,13 +105,16 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 
 	fmt.Fprintf(errOut, "ktl stack %s: %d releases (runId=%s)\n", cmd, len(run.Nodes), run.RunID)
 
-	exec := &helmExecutor{
-		kubeconfig:  opts.Kubeconfig,
-		kubeContext: opts.KubeContext,
-		out:         out,
-		errOut:      errOut,
-		dryRun:      opts.DryRun,
-		diff:        opts.Diff,
+	exec := opts.Executor
+	if exec == nil {
+		exec = &helmExecutor{
+			kubeconfig:  opts.Kubeconfig,
+			kubeContext: opts.KubeContext,
+			out:         out,
+			errOut:      errOut,
+			dryRun:      opts.DryRun,
+			diff:        opts.Diff,
+		}
 	}
 
 	start := time.Now()

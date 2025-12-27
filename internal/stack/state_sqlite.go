@@ -49,7 +49,6 @@ func openStackStateStore(root string, readOnly bool) (*stackStateStore, error) {
 		u := url.URL{Scheme: "file", Path: path}
 		q := u.Query()
 		q.Set("mode", "ro")
-		q.Set("_busy_timeout", "5000")
 		u.RawQuery = q.Encode()
 		dsn = u.String()
 	}

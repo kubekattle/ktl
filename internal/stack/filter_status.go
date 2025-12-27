@@ -34,6 +34,9 @@ func FilterByNodeStatus(p *Plan, statusByID map[string]string, wantStatuses []st
 		out.ByID[n.ID] = n
 		out.ByCluster[n.Cluster.Name] = append(out.ByCluster[n.Cluster.Name], n)
 	}
+	// When resuming/rerunning, it's valid (and common) to rerun only a subset of
+	// nodes; treat missing needs as already satisfied by the previous run.
+	pruneMissingNeeds(out)
 	_ = assignExecutionGroups(out)
 	return out
 }
