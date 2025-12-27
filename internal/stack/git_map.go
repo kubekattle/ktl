@@ -4,25 +4,73 @@
 package stack
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 )
 
 func mapChangedFiles(u *Universe, p *Plan, changedFiles []string) map[string][]string {
-	ownerDirs := map[string][]string{} // abs dir -> node IDs
-	for _, n := range p.Nodes {
-		abs, err := filepath.Abs(n.Dir)
-		if err != nil {
+	mapped := map[string][]string{}
+
+	// If a stack.yaml changed, select every release under that stack.yaml directory
+	// because hierarchical defaults can affect the full subtree.
+	for _, rel := range changedFiles {
+		abs := filepath.Join(p.StackRoot, rel)
+		if filepath.Base(abs) == stackFileName {
+			stackDir := filepath.Dir(abs)
+			var ids []string
+			for _, n := range p.Nodes {
+				if samePath(n.Dir, stackDir) || isUnder(n.Dir, stackDir) {
+					ids = append(ids, n.ID)
+				}
+			}
+			sort.Strings(ids)
+			if len(ids) > 0 {
+				mapped[rel] = ids
+			}
 			continue
 		}
-		ownerDirs[abs] = append(ownerDirs[abs], n.ID)
+	}
+
+	ownerDirs := map[string][]string{} // abs dir -> node IDs
+	addOwnerDir := func(dir, id string) {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return
+		}
+		if !samePath(abs, p.StackRoot) && !isUnder(abs, p.StackRoot) && !samePath(p.StackRoot, abs) {
+			return
+		}
+		ownerDirs[abs] = append(ownerDirs[abs], id)
+	}
+
+	for _, n := range p.Nodes {
+		addOwnerDir(n.Dir, n.ID)
+
+		for _, v := range n.Values {
+			if !isLocalPath(v) {
+				continue
+			}
+			addOwnerDir(filepath.Dir(v), n.ID)
+		}
+
+		if isExistingPath(n.Chart) {
+			chartPath := n.Chart
+			if st, err := os.Stat(chartPath); err == nil && !st.IsDir() {
+				chartPath = filepath.Dir(chartPath)
+			}
+			addOwnerDir(chartPath, n.ID)
+		}
 	}
 	for dir := range ownerDirs {
 		sort.Strings(ownerDirs[dir])
 	}
 
-	mapped := map[string][]string{}
 	for _, rel := range changedFiles {
+		if _, already := mapped[rel]; already {
+			continue
+		}
+
 		abs := filepath.Join(p.StackRoot, rel)
 		dir := filepath.Dir(abs)
 		for {
@@ -40,7 +88,6 @@ func mapChangedFiles(u *Universe, p *Plan, changedFiles []string) map[string][]s
 			dir = parent
 		}
 	}
-
-	_ = u // reserved for future mapping rules (stack.yaml releases ownership).
+	_ = u // reserved for future mapping rules.
 	return mapped
 }
