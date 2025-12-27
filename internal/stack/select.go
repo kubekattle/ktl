@@ -53,6 +53,7 @@ func Select(u *Universe, p *Plan, clusters []string, sel Selector) (*Plan, error
 	if !hasAnySelector {
 		for _, n := range p.Nodes {
 			selectedIDs[n.ID] = struct{}{}
+			reasonsByID[n.ID] = append(reasonsByID[n.ID], "default:all")
 		}
 	} else {
 		if len(normalizedTags) > 0 {

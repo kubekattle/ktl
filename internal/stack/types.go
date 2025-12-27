@@ -56,29 +56,31 @@ type StackFile struct {
 type ReleaseFile struct {
 	APIVersionKind `yaml:",inline" json:",inline"`
 
-	Name      string            `yaml:"name,omitempty" json:"name,omitempty"`
-	Chart     string            `yaml:"chart,omitempty" json:"chart,omitempty"`
-	Cluster   ClusterTarget     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
-	Namespace string            `yaml:"namespace,omitempty" json:"namespace,omitempty"`
-	Values    []string          `yaml:"values,omitempty" json:"values,omitempty"`
-	Set       map[string]string `yaml:"set,omitempty" json:"set,omitempty"`
-	Tags      []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Needs     []string          `yaml:"needs,omitempty" json:"needs,omitempty"`
-	Apply     ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
-	Delete    DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Name         string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Chart        string            `yaml:"chart,omitempty" json:"chart,omitempty"`
+	ChartVersion string            `yaml:"chartVersion,omitempty" json:"chartVersion,omitempty"`
+	Cluster      ClusterTarget     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Namespace    string            `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Values       []string          `yaml:"values,omitempty" json:"values,omitempty"`
+	Set          map[string]string `yaml:"set,omitempty" json:"set,omitempty"`
+	Tags         []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Needs        []string          `yaml:"needs,omitempty" json:"needs,omitempty"`
+	Apply        ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
+	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
 }
 
 type ReleaseSpec struct {
-	Name      string            `yaml:"name,omitempty" json:"name,omitempty"`
-	Chart     string            `yaml:"chart,omitempty" json:"chart,omitempty"`
-	Cluster   ClusterTarget     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
-	Namespace string            `yaml:"namespace,omitempty" json:"namespace,omitempty"`
-	Values    []string          `yaml:"values,omitempty" json:"values,omitempty"`
-	Set       map[string]string `yaml:"set,omitempty" json:"set,omitempty"`
-	Tags      []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Needs     []string          `yaml:"needs,omitempty" json:"needs,omitempty"`
-	Apply     ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
-	Delete    DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Name         string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Chart        string            `yaml:"chart,omitempty" json:"chart,omitempty"`
+	ChartVersion string            `yaml:"chartVersion,omitempty" json:"chartVersion,omitempty"`
+	Cluster      ClusterTarget     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Namespace    string            `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Values       []string          `yaml:"values,omitempty" json:"values,omitempty"`
+	Set          map[string]string `yaml:"set,omitempty" json:"set,omitempty"`
+	Tags         []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Needs        []string          `yaml:"needs,omitempty" json:"needs,omitempty"`
+	Apply        ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
+	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
 }
 
 type ResolvedRelease struct {
@@ -88,9 +90,10 @@ type ResolvedRelease struct {
 	Cluster   ClusterTarget `json:"cluster"`
 	Namespace string        `json:"namespace"`
 
-	Chart  string            `json:"chart"`
-	Values []string          `json:"values"`
-	Set    map[string]string `json:"set"`
+	Chart        string            `json:"chart"`
+	ChartVersion string            `json:"chartVersion,omitempty"`
+	Values       []string          `json:"values"`
+	Set          map[string]string `json:"set"`
 
 	Tags  []string `json:"tags"`
 	Needs []string `json:"needs"`
@@ -100,6 +103,53 @@ type ResolvedRelease struct {
 
 	SelectedBy []string `json:"selectedBy,omitempty"`
 
-	EffectiveInputHash string `json:"effectiveInputHash,omitempty"`
-	ExecutionGroup     int    `json:"executionGroup,omitempty"`
+	EffectiveInputHash string          `json:"effectiveInputHash,omitempty"`
+	EffectiveInput     *EffectiveInput `json:"effectiveInput,omitempty"`
+	ExecutionGroup     int             `json:"executionGroup,omitempty"`
+}
+
+type EffectiveInput struct {
+	APIVersion string `json:"apiVersion"`
+
+	StackGitCommit string `json:"stackGitCommit,omitempty"`
+	StackGitDirty  bool   `json:"stackGitDirty,omitempty"`
+
+	KtlVersion   string `json:"ktlVersion,omitempty"`
+	KtlGitCommit string `json:"ktlGitCommit,omitempty"`
+
+	NodeID string `json:"nodeId"`
+
+	Chart EffectiveChartInput `json:"chart"`
+
+	Values []FileDigest `json:"values,omitempty"`
+
+	SetDigest     string `json:"setDigest,omitempty"`
+	ClusterDigest string `json:"clusterDigest,omitempty"`
+
+	Apply  EffectiveApplyInput  `json:"apply"`
+	Delete EffectiveDeleteInput `json:"delete"`
+}
+
+type EffectiveChartInput struct {
+	Ref             string `json:"ref"`
+	Version         string `json:"version,omitempty"`
+	ResolvedVersion string `json:"resolvedVersion,omitempty"`
+	Digest          string `json:"digest,omitempty"`
+}
+
+type EffectiveApplyInput struct {
+	Atomic  bool   `json:"atomic"`
+	Wait    bool   `json:"wait"`
+	Timeout string `json:"timeout"`
+	Digest  string `json:"digest,omitempty"`
+}
+
+type EffectiveDeleteInput struct {
+	Timeout string `json:"timeout"`
+	Digest  string `json:"digest,omitempty"`
+}
+
+type FileDigest struct {
+	Path   string `json:"path"`
+	Digest string `json:"digest"`
 }

@@ -5,7 +5,11 @@ package stack
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 )
@@ -13,6 +17,7 @@ import (
 type RunPlan struct {
 	APIVersion  string             `json:"apiVersion"`
 	RunID       string             `json:"runId"`
+	PlanHash    string             `json:"planHash,omitempty"`
 	StackRoot   string             `json:"stackRoot"`
 	StackName   string             `json:"stackName"`
 	Command     string             `json:"command"`
@@ -21,6 +26,12 @@ type RunPlan struct {
 	FailMode    string             `json:"failMode"`
 	Selector    RunSelector        `json:"selector,omitempty"`
 	Nodes       []*ResolvedRelease `json:"nodes"`
+
+	StackGitCommit string `json:"stackGitCommit,omitempty"`
+	StackGitDirty  bool   `json:"stackGitDirty,omitempty"`
+
+	KtlVersion   string `json:"ktlVersion,omitempty"`
+	KtlGitCommit string `json:"ktlGitCommit,omitempty"`
 }
 
 type RunSelector struct {
@@ -37,6 +48,7 @@ type RunSelector struct {
 }
 
 type RunEvent struct {
+	Seq     int64     `json:"seq,omitempty"`
 	TS      string    `json:"ts"`
 	RunID   string    `json:"runId"`
 	NodeID  string    `json:"nodeId,omitempty"`
@@ -44,6 +56,10 @@ type RunEvent struct {
 	Attempt int       `json:"attempt"`
 	Message string    `json:"message,omitempty"`
 	Error   *RunError `json:"error,omitempty"`
+
+	PrevDigest string `json:"prevDigest,omitempty"`
+	Digest     string `json:"digest,omitempty"`
+	CRC32      string `json:"crc32,omitempty"`
 }
 
 type RunError struct {
@@ -91,6 +107,53 @@ func buildRunPlanPayload(run *runState, p *Plan) *RunPlan {
 		Selector:    run.Selector,
 		Nodes:       nodes,
 	}
+}
+
+// ComputeRunPlanHash returns a stable sha256 hash of the run plan content.
+// The hash is computed over the JSON form with PlanHash itself cleared.
+func ComputeRunPlanHash(p *RunPlan) (string, error) {
+	if p == nil {
+		return "", nil
+	}
+	clone := *p
+	clone.PlanHash = ""
+	raw, err := json.Marshal(&clone)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func computeRunEventIntegrity(ev RunEvent) (digest string, crc string) {
+	h := sha256.New()
+	c := crc32.NewIEEE()
+	write := func(s string) {
+		_, _ = h.Write([]byte(s))
+		_, _ = c.Write([]byte(s))
+		_, _ = h.Write([]byte{0})
+		_, _ = c.Write([]byte{0})
+	}
+	write("ktl.stack-event.v1")
+	write(fmt.Sprintf("seq=%d", ev.Seq))
+	write(ev.TS)
+	write(ev.RunID)
+	write(ev.NodeID)
+	write(ev.Type)
+	write(fmt.Sprintf("attempt=%d", ev.Attempt))
+	write(ev.Message)
+	if ev.Error != nil {
+		write(ev.Error.Class)
+		write(ev.Error.Message)
+		write(ev.Error.Digest)
+	} else {
+		write("")
+		write("")
+		write("")
+	}
+	write(ev.PrevDigest)
+
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), fmt.Sprintf("crc32:%08x", c.Sum32())
 }
 
 func writeJSONAtomic(path string, v any) error {

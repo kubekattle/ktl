@@ -85,16 +85,17 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 	switch {
 	case dr.FromFile != nil:
 		leaf = ReleaseSpec{
-			Name:      dr.FromFile.Name,
-			Chart:     dr.FromFile.Chart,
-			Cluster:   dr.FromFile.Cluster,
-			Namespace: dr.FromFile.Namespace,
-			Values:    dr.FromFile.Values,
-			Set:       dr.FromFile.Set,
-			Tags:      dr.FromFile.Tags,
-			Needs:     dr.FromFile.Needs,
-			Apply:     dr.FromFile.Apply,
-			Delete:    dr.FromFile.Delete,
+			Name:         dr.FromFile.Name,
+			Chart:        dr.FromFile.Chart,
+			ChartVersion: dr.FromFile.ChartVersion,
+			Cluster:      dr.FromFile.Cluster,
+			Namespace:    dr.FromFile.Namespace,
+			Values:       dr.FromFile.Values,
+			Set:          dr.FromFile.Set,
+			Tags:         dr.FromFile.Tags,
+			Needs:        dr.FromFile.Needs,
+			Apply:        dr.FromFile.Apply,
+			Delete:       dr.FromFile.Delete,
 		}
 	case dr.FromInline != nil:
 		leaf = *dr.FromInline

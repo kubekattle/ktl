@@ -12,6 +12,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/example/ktl/internal/version"
 )
 
 const stackStateSQLiteRelPath = ".ktl/stack/state.sqlite"
@@ -136,22 +138,93 @@ CREATE TABLE IF NOT EXISTS ktl_stack_events (
   error_class TEXT NOT NULL,
   error_message TEXT NOT NULL,
   error_digest TEXT NOT NULL,
+  seq INTEGER NOT NULL DEFAULT 0,
+  prev_digest TEXT NOT NULL DEFAULT '',
+  digest TEXT NOT NULL DEFAULT '',
+  crc32 TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (run_id) REFERENCES ktl_stack_runs(run_id) ON DELETE CASCADE
 );`,
 		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_events_run_id_id ON ktl_stack_events(run_id, id);`,
+		`
+CREATE TABLE IF NOT EXISTS ktl_stack_lock (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  owner TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  created_at_ns INTEGER NOT NULL,
+  ttl_ns INTEGER NOT NULL
+);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("init schema: %w", err)
 		}
 	}
+	if err := s.ensureEventsIntegrityColumns(ctx); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *stackStateStore) ensureEventsIntegrityColumns(ctx context.Context) error {
+	cols, err := s.tableColumns(ctx, "ktl_stack_events")
+	if err != nil {
+		return err
+	}
+	want := map[string]string{
+		"seq":         "INTEGER NOT NULL DEFAULT 0",
+		"prev_digest": "TEXT NOT NULL DEFAULT ''",
+		"digest":      "TEXT NOT NULL DEFAULT ''",
+		"crc32":       "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, ddl := range want {
+		if _, ok := cols[name]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE ktl_stack_events ADD COLUMN %s %s;", name, ddl)); err != nil {
+			return fmt.Errorf("add column ktl_stack_events.%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (s *stackStateStore) tableColumns(ctx context.Context, table string) (map[string]struct{}, error) {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s);", table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cols := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var dfltValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltValue, &pk); err != nil {
+			return nil, err
+		}
+		cols[name] = struct{}{}
+	}
+	return cols, rows.Err()
 }
 
 func (s *stackStateStore) CreateRun(ctx context.Context, run *runState, p *Plan) error {
 	now := time.Now().UTC()
 
 	payload := buildRunPlanPayload(run, p)
+	gid, err := GitIdentityForRoot(p.StackRoot)
+	if err != nil {
+		return err
+	}
+	payload.StackGitCommit = gid.Commit
+	payload.StackGitDirty = gid.Dirty
+	payload.KtlVersion = version.Version
+	payload.KtlGitCommit = version.GitCommit
+	planHash, err := ComputeRunPlanHash(payload)
+	if err != nil {
+		return err
+	}
+	payload.PlanHash = planHash
 	planJSON, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -240,9 +313,9 @@ func (s *stackStateStore) AppendEvent(ctx context.Context, runID string, ev RunE
 	}
 	msg := strings.TrimSpace(ev.Message)
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, runID, ts.UnixNano(), nodeID, ev.Type, ev.Attempt, msg, errClass, errMsg, errDigest)
+INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, runID, ts.UnixNano(), nodeID, ev.Type, ev.Attempt, msg, errClass, errMsg, errDigest, ev.Seq, ev.PrevDigest, ev.Digest, ev.CRC32)
 	if err != nil {
 		return err
 	}
@@ -340,22 +413,7 @@ func (s *stackStateStore) GetRunPlan(ctx context.Context, runID string) (*Plan, 
 	if err := json.Unmarshal([]byte(raw), &rp); err != nil {
 		return nil, err
 	}
-	p := &Plan{
-		StackRoot: rp.StackRoot,
-		StackName: rp.StackName,
-		Profile:   rp.Profile,
-		Nodes:     rp.Nodes,
-		ByID:      map[string]*ResolvedRelease{},
-		ByCluster: map[string][]*ResolvedRelease{},
-	}
-	for _, n := range p.Nodes {
-		p.ByID[n.ID] = n
-		p.ByCluster[n.Cluster.Name] = append(p.ByCluster[n.Cluster.Name], n)
-	}
-	if err := assignExecutionGroups(p); err != nil {
-		return nil, err
-	}
-	return p, nil
+	return PlanFromRunPlan(&rp)
 }
 
 func (s *stackStateStore) GetNodeStatus(ctx context.Context, runID string) (map[string]string, map[string]int, error) {
@@ -421,4 +479,112 @@ LIMIT ?
 		})
 	}
 	return out, rows.Err()
+}
+
+type StackLock struct {
+	Owner     string
+	RunID     string
+	CreatedAt time.Time
+	TTL       time.Duration
+}
+
+func (s *stackStateStore) GetLock(ctx context.Context) (*StackLock, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	var owner, runID string
+	var createdAtNS, ttlNS int64
+	err := s.db.QueryRowContext(ctx, `SELECT owner, run_id, created_at_ns, ttl_ns FROM ktl_stack_lock WHERE id = 1`).Scan(&owner, &runID, &createdAtNS, &ttlNS)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &StackLock{
+		Owner:     owner,
+		RunID:     runID,
+		CreatedAt: time.Unix(0, createdAtNS).UTC(),
+		TTL:       time.Duration(ttlNS),
+	}, nil
+}
+
+func (s *stackStateStore) AcquireLock(ctx context.Context, owner string, ttl time.Duration, takeover bool, runID string) (*StackLock, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("state store not initialized")
+	}
+	if s.readOnly {
+		return nil, fmt.Errorf("cannot acquire lock in read-only mode")
+	}
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		owner = defaultLockOwner()
+	}
+	if ttl <= 0 {
+		ttl = 30 * time.Minute
+	}
+	now := time.Now().UTC()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var curOwner, curRunID string
+	var createdAtNS, ttlNS int64
+	err = tx.QueryRowContext(ctx, `SELECT owner, run_id, created_at_ns, ttl_ns FROM ktl_stack_lock WHERE id = 1`).Scan(&curOwner, &curRunID, &createdAtNS, &ttlNS)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	expired := false
+	if err == nil {
+		created := time.Unix(0, createdAtNS).UTC()
+		curTTL := time.Duration(ttlNS)
+		if curTTL <= 0 {
+			curTTL = 30 * time.Minute
+		}
+		if now.After(created.Add(curTTL)) {
+			expired = true
+		}
+		if !expired && !takeover {
+			return nil, fmt.Errorf("stack state is locked by %q (runId=%s, createdAt=%s, ttl=%s); rerun with --takeover to steal the lock",
+				curOwner, curRunID, created.Format(time.RFC3339), curTTL.String())
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE ktl_stack_lock SET owner = ?, run_id = ?, created_at_ns = ?, ttl_ns = ? WHERE id = 1`,
+			owner, strings.TrimSpace(runID), now.UnixNano(), ttl.Nanoseconds())
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		_, err := tx.ExecContext(ctx, `INSERT INTO ktl_stack_lock (id, owner, run_id, created_at_ns, ttl_ns) VALUES (1, ?, ?, ?, ?)`,
+			owner, strings.TrimSpace(runID), now.UnixNano(), ttl.Nanoseconds())
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &StackLock{
+		Owner:     owner,
+		RunID:     strings.TrimSpace(runID),
+		CreatedAt: now,
+		TTL:       ttl,
+	}, nil
+}
+
+func (s *stackStateStore) ReleaseLock(ctx context.Context, owner string, runID string) error {
+	if s == nil || s.db == nil || s.readOnly {
+		return nil
+	}
+	owner = strings.TrimSpace(owner)
+	runID = strings.TrimSpace(runID)
+	if owner == "" {
+		return nil
+	}
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM ktl_stack_lock WHERE id = 1 AND owner = ? AND run_id = ?`, owner, runID)
+	return nil
 }

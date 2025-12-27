@@ -101,19 +101,8 @@ func LoadRun(runRoot string) (*LoadedRun, error) {
 		return nil, fmt.Errorf("parse %s: %w", planPath, err)
 	}
 
-	p := &Plan{
-		StackRoot: rp.StackRoot,
-		StackName: rp.StackName,
-		Profile:   rp.Profile,
-		Nodes:     rp.Nodes,
-		ByID:      map[string]*ResolvedRelease{},
-		ByCluster: map[string][]*ResolvedRelease{},
-	}
-	for _, n := range p.Nodes {
-		p.ByID[n.ID] = n
-		p.ByCluster[n.Cluster.Name] = append(p.ByCluster[n.Cluster.Name], n)
-	}
-	if err := assignExecutionGroups(p); err != nil {
+	p, err := PlanFromRunPlan(&rp)
+	if err != nil {
 		return nil, err
 	}
 
@@ -177,14 +166,105 @@ func DriftReport(p *Plan) ([]string, error) {
 		if want == "" {
 			continue
 		}
-		got, err := ComputeEffectiveInputHash(n, true)
+		got, gotInput, err := ComputeEffectiveInputHash(p.StackRoot, n, true)
 		if err != nil {
 			return nil, err
 		}
 		if got != want {
-			drift = append(drift, fmt.Sprintf("%s inputs changed (%s -> %s)", n.ID, want, got))
+			if n.EffectiveInput == nil || gotInput == nil {
+				drift = append(drift, fmt.Sprintf("%s inputs changed (%s -> %s)", n.ID, want, got))
+				continue
+			}
+
+			// Include a stable header so multiple diffs per node are easy to scan.
+			drift = append(drift, fmt.Sprintf("%s inputs changed (%s -> %s):", n.ID, want, got))
+
+			if n.EffectiveInput.KtlVersion != gotInput.KtlVersion || n.EffectiveInput.KtlGitCommit != gotInput.KtlGitCommit {
+				drift = append(drift, fmt.Sprintf("  ktl: %s (%s) -> %s (%s)",
+					n.EffectiveInput.KtlVersion, n.EffectiveInput.KtlGitCommit,
+					gotInput.KtlVersion, gotInput.KtlGitCommit,
+				))
+			}
+			if n.EffectiveInput.StackGitCommit != gotInput.StackGitCommit || n.EffectiveInput.StackGitDirty != gotInput.StackGitDirty {
+				drift = append(drift, fmt.Sprintf("  stack git: %s dirty=%t -> %s dirty=%t",
+					n.EffectiveInput.StackGitCommit, n.EffectiveInput.StackGitDirty,
+					gotInput.StackGitCommit, gotInput.StackGitDirty,
+				))
+			}
+
+			if n.EffectiveInput.Chart.Digest != gotInput.Chart.Digest {
+				drift = append(drift, fmt.Sprintf("  chart digest: %s -> %s", n.EffectiveInput.Chart.Digest, gotInput.Chart.Digest))
+			}
+			if strings.TrimSpace(n.EffectiveInput.Chart.Version) != strings.TrimSpace(gotInput.Chart.Version) {
+				drift = append(drift, fmt.Sprintf("  chart version: %q -> %q", n.EffectiveInput.Chart.Version, gotInput.Chart.Version))
+			}
+			if strings.TrimSpace(n.EffectiveInput.Chart.ResolvedVersion) != strings.TrimSpace(gotInput.Chart.ResolvedVersion) {
+				drift = append(drift, fmt.Sprintf("  chart resolvedVersion: %q -> %q", n.EffectiveInput.Chart.ResolvedVersion, gotInput.Chart.ResolvedVersion))
+			}
+
+			if n.EffectiveInput.SetDigest != gotInput.SetDigest {
+				drift = append(drift, fmt.Sprintf("  set digest: %s -> %s", n.EffectiveInput.SetDigest, gotInput.SetDigest))
+			}
+			if n.EffectiveInput.ClusterDigest != gotInput.ClusterDigest {
+				drift = append(drift, fmt.Sprintf("  cluster digest: %s -> %s", n.EffectiveInput.ClusterDigest, gotInput.ClusterDigest))
+			}
+
+			if n.EffectiveInput.Apply.Digest != gotInput.Apply.Digest {
+				drift = append(drift, fmt.Sprintf("  apply options: atomic=%t wait=%t timeout=%s -> atomic=%t wait=%t timeout=%s",
+					n.EffectiveInput.Apply.Atomic, n.EffectiveInput.Apply.Wait, n.EffectiveInput.Apply.Timeout,
+					gotInput.Apply.Atomic, gotInput.Apply.Wait, gotInput.Apply.Timeout,
+				))
+			}
+			if n.EffectiveInput.Delete.Digest != gotInput.Delete.Digest {
+				drift = append(drift, fmt.Sprintf("  delete options: timeout=%s -> timeout=%s",
+					n.EffectiveInput.Delete.Timeout, gotInput.Delete.Timeout,
+				))
+			}
+
+			for _, line := range diffFileDigests("values", n.EffectiveInput.Values, gotInput.Values) {
+				drift = append(drift, "  "+line)
+			}
 		}
 	}
-	sort.Strings(drift)
 	return drift, nil
+}
+
+func diffFileDigests(label string, oldList []FileDigest, newList []FileDigest) []string {
+	oldByPath := map[string]string{}
+	for _, d := range oldList {
+		oldByPath[d.Path] = d.Digest
+	}
+	newByPath := map[string]string{}
+	for _, d := range newList {
+		newByPath[d.Path] = d.Digest
+	}
+
+	paths := make([]string, 0, len(oldByPath)+len(newByPath))
+	seen := map[string]struct{}{}
+	for p := range oldByPath {
+		paths = append(paths, p)
+		seen[p] = struct{}{}
+	}
+	for p := range newByPath {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+
+	var out []string
+	for _, p := range paths {
+		od, okOld := oldByPath[p]
+		nd, okNew := newByPath[p]
+		switch {
+		case okOld && okNew && od != nd:
+			out = append(out, fmt.Sprintf("%s %s: %s -> %s", label, p, od, nd))
+		case okOld && !okNew:
+			out = append(out, fmt.Sprintf("%s %s: removed (was %s)", label, p, od))
+		case !okOld && okNew:
+			out = append(out, fmt.Sprintf("%s %s: added (%s)", label, p, nd))
+		}
+	}
+	return out
 }

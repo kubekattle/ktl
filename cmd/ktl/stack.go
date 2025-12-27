@@ -51,6 +51,7 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.AddCommand(newStackPlanCommand(&rootDir, &profile, &clusters, &output, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
 	cmd.AddCommand(newStackGraphCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
 	cmd.AddCommand(newStackExplainCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
+	cmd.AddCommand(newStackSealCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
 	cmd.AddCommand(newStackStatusCommand(&rootDir))
 	cmd.AddCommand(newStackRunsCommand(&rootDir))
 	cmd.AddCommand(newStackApplyCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))

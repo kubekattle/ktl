@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/example/ktl/internal/stack"
 	"github.com/spf13/cobra"
@@ -19,6 +20,10 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 	var retry int
 	var concurrency int
 	var progressiveConcurrency bool
+	var lock bool
+	var takeover bool
+	var lockTTL time.Duration
+	var lockOwner string
 	cmd := &cobra.Command{
 		Use:   "rerun-failed",
 		Short: "Resume the most recent run and schedule only failed nodes",
@@ -56,6 +61,10 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 				ProgressiveConcurrency: progressiveConcurrency,
 				FailFast:               true,
 				AutoApprove:            yes,
+				Lock:                   lock,
+				LockOwner:              lockOwner,
+				LockTTL:                lockTTL,
+				TakeoverLock:           takeover,
 				Kubeconfig:             kubeconfig,
 				KubeContext:            kubeContext,
 				LogLevel:               logLevel,
@@ -86,5 +95,9 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 	cmd.Flags().IntVar(&retry, "retry", 1, "Maximum attempts per release (includes the initial attempt)")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 1, "Maximum number of concurrent releases to run")
 	cmd.Flags().BoolVar(&progressiveConcurrency, "progressive-concurrency", false, "Start at 1 worker, then ramp up/down based on successes/failures")
+	cmd.Flags().BoolVar(&lock, "lock", true, "Acquire a stack state lock for this run")
+	cmd.Flags().BoolVar(&takeover, "takeover", false, "Take over the stack state lock if held (unsafe)")
+	cmd.Flags().DurationVar(&lockTTL, "lock-ttl", 30*time.Minute, "How long before the lock is considered stale")
+	cmd.Flags().StringVar(&lockOwner, "lock-owner", "", "Lock owner string (defaults to user@host:pid)")
 	return cmd
 }

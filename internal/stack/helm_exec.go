@@ -113,6 +113,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		setPairs := flattenSet(node.Set)
 		_, err := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
 			Chart:             node.Chart,
+			Version:           node.ChartVersion,
 			ReleaseName:       node.Name,
 			Namespace:         node.Namespace,
 			ValuesFiles:       node.Values,

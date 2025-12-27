@@ -62,6 +62,9 @@ func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 	if r.Chart != "" {
 		dst.Chart = resolvePath(baseDir, r.Chart)
 	}
+	if r.ChartVersion != "" {
+		dst.ChartVersion = r.ChartVersion
+	}
 	if r.Cluster.Name != "" {
 		dst.Cluster.Name = r.Cluster.Name
 	}

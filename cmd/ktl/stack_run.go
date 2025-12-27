@@ -4,10 +4,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/example/ktl/internal/stack"
 	"github.com/spf13/cobra"
@@ -25,6 +30,11 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	var allowDrift bool
 	var rerunFailed bool
 	var retry int
+	var lock bool
+	var takeover bool
+	var lockTTL time.Duration
+	var lockOwner string
+	var sealedDir string
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Apply the selected stack releases in DAG order",
@@ -35,7 +45,89 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 			}
 			var p *stack.Plan
 			runRoot := ""
-			if resume && !replan {
+			if strings.TrimSpace(sealedDir) != "" {
+				if resume || replan {
+					return fmt.Errorf("cannot combine --sealed-dir with --resume/--replan")
+				}
+				dir := strings.TrimSpace(sealedDir)
+				rp, err := readRunPlanFile(filepath.Join(dir, "plan.json"))
+				if err != nil {
+					return err
+				}
+				wantPlanHash := strings.TrimSpace(rp.PlanHash)
+				bundleFile := "inputs.tar.gz"
+				attPath := filepath.Join(dir, "attestation.json")
+				if _, err := os.Stat(attPath); err == nil {
+					att, err := readSealAttestation(attPath)
+					if err != nil {
+						return err
+					}
+					if strings.TrimSpace(att.PlanHash) != "" {
+						if wantPlanHash != "" && att.PlanHash != wantPlanHash {
+							return fmt.Errorf("attestation planHash mismatch (%s != %s)", att.PlanHash, wantPlanHash)
+						}
+						if wantPlanHash == "" {
+							wantPlanHash = att.PlanHash
+						}
+					}
+					if strings.TrimSpace(att.InputsBundle) != "" {
+						bundleFile = strings.TrimSpace(att.InputsBundle)
+					}
+					if strings.TrimSpace(att.InputsBundleSH) != "" {
+						got, err := sha256File(filepath.Join(dir, bundleFile))
+						if err != nil {
+							return err
+						}
+						if got != strings.TrimSpace(att.InputsBundleSH) {
+							return fmt.Errorf("attestation bundle digest mismatch (%s != %s)", got, strings.TrimSpace(att.InputsBundleSH))
+						}
+					}
+				}
+				gotPlanHash, err := stack.ComputeRunPlanHash(rp)
+				if err != nil {
+					return err
+				}
+				if wantPlanHash != "" && gotPlanHash != wantPlanHash {
+					return fmt.Errorf("sealed plan hash mismatch (%s != %s)", gotPlanHash, wantPlanHash)
+				}
+				pp, err := stack.PlanFromRunPlan(rp)
+				if err != nil {
+					return err
+				}
+				tmpDir, err := os.MkdirTemp("", "ktl-stack-inputs-*")
+				if err != nil {
+					return err
+				}
+				defer os.RemoveAll(tmpDir)
+				manifest, err := stack.ExtractInputBundle(cmd.Context(), filepath.Join(dir, bundleFile), tmpDir)
+				if err != nil {
+					return err
+				}
+				if strings.TrimSpace(manifest.PlanHash) != "" && wantPlanHash != "" && manifest.PlanHash != wantPlanHash {
+					return fmt.Errorf("bundle planHash mismatch (%s != %s)", manifest.PlanHash, wantPlanHash)
+				}
+				if err := stack.ApplyInputBundleToPlan(pp, tmpDir, manifest); err != nil {
+					return err
+				}
+				gid := &stack.GitIdentity{Commit: rp.StackGitCommit, Dirty: rp.StackGitDirty}
+				for _, n := range pp.Nodes {
+					got, _, err := stack.ComputeEffectiveInputHashWithOptions(n, stack.EffectiveInputHashOptions{
+						StackRoot:             tmpDir,
+						IncludeValuesContents: true,
+						StackGitIdentity:      gid,
+					})
+					if err != nil {
+						return err
+					}
+					want := strings.TrimSpace(n.EffectiveInputHash)
+					if want != "" && got != want {
+						return fmt.Errorf("%s inputs mismatch (want %s got %s)", n.ID, want, got)
+					}
+				}
+				// Use the current root as the state store location for this run.
+				pp.StackRoot = *rootDir
+				p = pp
+			} else if resume && !replan {
 				var err error
 				if strings.TrimSpace(runID) != "" {
 					runRoot = filepath.Join(*rootDir, ".ktl", "stack", "runs", strings.TrimSpace(runID))
@@ -70,6 +162,10 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 					ProgressiveConcurrency: progressiveConcurrency,
 					FailFast:               failFast || !continueOnError,
 					AutoApprove:            yes,
+					Lock:                   lock,
+					LockOwner:              lockOwner,
+					LockTTL:                lockTTL,
+					TakeoverLock:           takeover,
 					Kubeconfig:             kubeconfig,
 					KubeContext:            kubeContext,
 					LogLevel:               logLevel,
@@ -134,6 +230,10 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 				ProgressiveConcurrency: progressiveConcurrency,
 				FailFast:               failFast || !continueOnError,
 				AutoApprove:            yes,
+				Lock:                   lock,
+				LockOwner:              lockOwner,
+				LockTTL:                lockTTL,
+				TakeoverLock:           takeover,
 				Kubeconfig:             kubeconfig,
 				KubeContext:            kubeContext,
 				LogLevel:               logLevel,
@@ -168,6 +268,11 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	cmd.Flags().BoolVar(&allowDrift, "allow-drift", false, "Allow resume even when inputs changed since the plan was written (unsafe)")
 	cmd.Flags().BoolVar(&rerunFailed, "rerun-failed", false, "When resuming, schedule only failed nodes")
 	cmd.Flags().IntVar(&retry, "retry", 1, "Maximum attempts per release (includes the initial attempt)")
+	cmd.Flags().BoolVar(&lock, "lock", true, "Acquire a stack state lock for this run")
+	cmd.Flags().BoolVar(&takeover, "takeover", false, "Take over the stack state lock if held (unsafe)")
+	cmd.Flags().DurationVar(&lockTTL, "lock-ttl", 30*time.Minute, "How long before the lock is considered stale")
+	cmd.Flags().StringVar(&lockOwner, "lock-owner", "", "Lock owner string (defaults to user@host:pid)")
+	cmd.Flags().StringVar(&sealedDir, "sealed-dir", "", "Run from a sealed plan/bundle directory (expects plan.json + inputs.tar.gz)")
 	return cmd
 }
 
@@ -184,6 +289,11 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	var rerunFailed bool
 	var largeDeletePromptThreshold int
 	var retry int
+	var lock bool
+	var takeover bool
+	var lockTTL time.Duration
+	var lockOwner string
+	var sealedDir string
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete the selected stack releases in reverse DAG order",
@@ -194,7 +304,88 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 			}
 			var p *stack.Plan
 			runRoot := ""
-			if resume && !replan {
+			if strings.TrimSpace(sealedDir) != "" {
+				if resume || replan {
+					return fmt.Errorf("cannot combine --sealed-dir with --resume/--replan")
+				}
+				dir := strings.TrimSpace(sealedDir)
+				rp, err := readRunPlanFile(filepath.Join(dir, "plan.json"))
+				if err != nil {
+					return err
+				}
+				wantPlanHash := strings.TrimSpace(rp.PlanHash)
+				bundleFile := "inputs.tar.gz"
+				attPath := filepath.Join(dir, "attestation.json")
+				if _, err := os.Stat(attPath); err == nil {
+					att, err := readSealAttestation(attPath)
+					if err != nil {
+						return err
+					}
+					if strings.TrimSpace(att.PlanHash) != "" {
+						if wantPlanHash != "" && att.PlanHash != wantPlanHash {
+							return fmt.Errorf("attestation planHash mismatch (%s != %s)", att.PlanHash, wantPlanHash)
+						}
+						if wantPlanHash == "" {
+							wantPlanHash = att.PlanHash
+						}
+					}
+					if strings.TrimSpace(att.InputsBundle) != "" {
+						bundleFile = strings.TrimSpace(att.InputsBundle)
+					}
+					if strings.TrimSpace(att.InputsBundleSH) != "" {
+						got, err := sha256File(filepath.Join(dir, bundleFile))
+						if err != nil {
+							return err
+						}
+						if got != strings.TrimSpace(att.InputsBundleSH) {
+							return fmt.Errorf("attestation bundle digest mismatch (%s != %s)", got, strings.TrimSpace(att.InputsBundleSH))
+						}
+					}
+				}
+				gotPlanHash, err := stack.ComputeRunPlanHash(rp)
+				if err != nil {
+					return err
+				}
+				if wantPlanHash != "" && gotPlanHash != wantPlanHash {
+					return fmt.Errorf("sealed plan hash mismatch (%s != %s)", gotPlanHash, wantPlanHash)
+				}
+				pp, err := stack.PlanFromRunPlan(rp)
+				if err != nil {
+					return err
+				}
+				tmpDir, err := os.MkdirTemp("", "ktl-stack-inputs-*")
+				if err != nil {
+					return err
+				}
+				defer os.RemoveAll(tmpDir)
+				manifest, err := stack.ExtractInputBundle(cmd.Context(), filepath.Join(dir, bundleFile), tmpDir)
+				if err != nil {
+					return err
+				}
+				if strings.TrimSpace(manifest.PlanHash) != "" && wantPlanHash != "" && manifest.PlanHash != wantPlanHash {
+					return fmt.Errorf("bundle planHash mismatch (%s != %s)", manifest.PlanHash, wantPlanHash)
+				}
+				if err := stack.ApplyInputBundleToPlan(pp, tmpDir, manifest); err != nil {
+					return err
+				}
+				gid := &stack.GitIdentity{Commit: rp.StackGitCommit, Dirty: rp.StackGitDirty}
+				for _, n := range pp.Nodes {
+					got, _, err := stack.ComputeEffectiveInputHashWithOptions(n, stack.EffectiveInputHashOptions{
+						StackRoot:             tmpDir,
+						IncludeValuesContents: true,
+						StackGitIdentity:      gid,
+					})
+					if err != nil {
+						return err
+					}
+					want := strings.TrimSpace(n.EffectiveInputHash)
+					if want != "" && got != want {
+						return fmt.Errorf("%s inputs mismatch (want %s got %s)", n.ID, want, got)
+					}
+				}
+				pp.StackRoot = *rootDir
+				p = pp
+			} else if resume && !replan {
 				var err error
 				if strings.TrimSpace(runID) != "" {
 					runRoot = filepath.Join(*rootDir, ".ktl", "stack", "runs", strings.TrimSpace(runID))
@@ -254,6 +445,10 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					ProgressiveConcurrency: progressiveConcurrency,
 					FailFast:               failFast || !continueOnError,
 					AutoApprove:            yes,
+					Lock:                   lock,
+					LockOwner:              lockOwner,
+					LockTTL:                lockTTL,
+					TakeoverLock:           takeover,
 					Kubeconfig:             kubeconfig,
 					KubeContext:            kubeContext,
 					LogLevel:               logLevel,
@@ -333,6 +528,10 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 				ProgressiveConcurrency: progressiveConcurrency,
 				FailFast:               failFast || !continueOnError,
 				AutoApprove:            yes,
+				Lock:                   lock,
+				LockOwner:              lockOwner,
+				LockTTL:                lockTTL,
+				TakeoverLock:           takeover,
 				Kubeconfig:             kubeconfig,
 				KubeContext:            kubeContext,
 				LogLevel:               logLevel,
@@ -368,6 +567,11 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	cmd.Flags().BoolVar(&rerunFailed, "rerun-failed", false, "When resuming, schedule only failed nodes")
 	cmd.Flags().IntVar(&largeDeletePromptThreshold, "delete-confirm-threshold", 20, "Prompt when deleting at least this many releases (0 disables)")
 	cmd.Flags().IntVar(&retry, "retry", 1, "Maximum attempts per release (includes the initial attempt)")
+	cmd.Flags().BoolVar(&lock, "lock", true, "Acquire a stack state lock for this run")
+	cmd.Flags().BoolVar(&takeover, "takeover", false, "Take over the stack state lock if held (unsafe)")
+	cmd.Flags().DurationVar(&lockTTL, "lock-ttl", 30*time.Minute, "How long before the lock is considered stale")
+	cmd.Flags().StringVar(&lockOwner, "lock-owner", "", "Lock owner string (defaults to user@host:pid)")
+	cmd.Flags().StringVar(&sealedDir, "sealed-dir", "", "Run from a sealed plan/bundle directory (expects plan.json + inputs.tar.gz)")
 	return cmd
 }
 
@@ -383,4 +587,53 @@ func maxAttemptsFromRetry(retry int) int {
 		return 1
 	}
 	return retry
+}
+
+func readRunPlanFile(path string) (*stack.RunPlan, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var rp stack.RunPlan
+	if err := json.Unmarshal(raw, &rp); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return &rp, nil
+}
+
+type stackSealAttestationFile struct {
+	PlanHash         string `json:"planHash"`
+	InputsBundle     string `json:"inputsBundle,omitempty"`
+	InputsBundleSH   string `json:"inputsBundleDigest,omitempty"`
+	StackGitCommit   string `json:"stackGitCommit,omitempty"`
+	StackGitDirty    bool   `json:"stackGitDirty,omitempty"`
+	KtlVersion       string `json:"ktlVersion,omitempty"`
+	KtlGitCommit     string `json:"ktlGitCommit,omitempty"`
+	AttestationVer   string `json:"apiVersion,omitempty"`
+	AttestationStamp string `json:"createdAt,omitempty"`
+}
+
+func readSealAttestation(path string) (*stackSealAttestationFile, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var a stackSealAttestationFile
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return &a, nil
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }

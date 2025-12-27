@@ -23,6 +23,10 @@ type RunOptions struct {
 	AutoApprove bool
 
 	ProgressiveConcurrency bool
+	Lock                   bool
+	LockOwner              string
+	LockTTL                time.Duration
+	TakeoverLock           bool
 
 	Kubeconfig      *string
 	KubeContext     *string
@@ -81,11 +85,16 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
-	if err := run.InitFiles(); err != nil {
+	if err := run.InitFiles(opts.Lock, opts.LockOwner, opts.LockTTL, opts.TakeoverLock); err != nil {
 		return err
 	}
 	if run.store != nil {
-		defer run.store.Close()
+		defer func() {
+			if run.lockHeld {
+				_ = run.store.ReleaseLock(context.Background(), run.lockOwner, run.lockRunID)
+			}
+			_ = run.store.Close()
+		}()
 	}
 	if err := run.WritePlan(); err != nil {
 		return err
@@ -102,6 +111,10 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 
 	start := time.Now()
 	s := newScheduler(run.Nodes, cmd)
+	nodesByID := map[string]*runNode{}
+	for _, n := range run.Nodes {
+		nodesByID[n.ID] = n
+	}
 	var mu sync.Mutex
 	var firstErr error
 	var poolMu sync.Mutex
@@ -150,6 +163,20 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				return
 			}
 			node := s.NextReady()
+			if blocked := s.TakeNewlyBlocked(); len(blocked) > 0 {
+				ids := make([]string, 0, len(blocked))
+				for id := range blocked {
+					ids = append(ids, id)
+				}
+				sort.Strings(ids)
+				for _, id := range ids {
+					attempt := 0
+					if n := nodesByID[id]; n != nil {
+						attempt = n.Attempt
+					}
+					run.AppendEvent(id, "NODE_BLOCKED", attempt, blocked[id], nil)
+				}
+			}
 			if node == nil {
 				return
 			}
@@ -238,6 +265,20 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	wg.Wait()
 
 	s.FinalizeBlocked()
+	if blocked := s.TakeNewlyBlocked(); len(blocked) > 0 {
+		ids := make([]string, 0, len(blocked))
+		for id := range blocked {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			attempt := 0
+			if n := nodesByID[id]; n != nil {
+				attempt = n.Attempt
+			}
+			run.AppendEvent(id, "NODE_BLOCKED", attempt, blocked[id], nil)
+		}
+	}
 	status := "succeeded"
 	if firstErr != nil {
 		status = "failed"
@@ -285,7 +326,13 @@ type runState struct {
 
 	mu sync.Mutex
 
-	lastSnapshot schedulerSnapshot
+	lastSnapshot  schedulerSnapshot
+	eventSeq      int64
+	eventPrevHash string
+
+	lockOwner string
+	lockRunID string
+	lockHeld  bool
 }
 
 type runNode struct {
@@ -314,11 +361,29 @@ func wrapRunNodes(nodes []*ResolvedRelease) []*runNode {
 	return out
 }
 
-func (r *runState) InitFiles() error {
+func (r *runState) InitFiles(lock bool, lockOwner string, lockTTL time.Duration, takeover bool) error {
 	// Prefer durable sqlite state store; keep legacy RunRoot only as a logical identifier.
 	s, err := openStackStateStore(r.Plan.StackRoot, false)
 	if err != nil {
 		return err
+	}
+	if lock {
+		owner := strings.TrimSpace(lockOwner)
+		if owner == "" {
+			owner = defaultLockOwner()
+		}
+		ttl := lockTTL
+		if ttl <= 0 {
+			ttl = 30 * time.Minute
+		}
+		l, err := s.AcquireLock(context.Background(), owner, ttl, takeover, r.RunID)
+		if err != nil {
+			_ = s.Close()
+			return err
+		}
+		r.lockOwner = l.Owner
+		r.lockRunID = l.RunID
+		r.lockHeld = true
 	}
 	r.store = s
 	return nil
@@ -326,11 +391,12 @@ func (r *runState) InitFiles() error {
 
 func (r *runState) WritePlan() error {
 	for _, n := range r.Plan.Nodes {
-		hash, err := ComputeEffectiveInputHash(n, true)
+		hash, input, err := ComputeEffectiveInputHash(r.Plan.StackRoot, n, true)
 		if err != nil {
 			return err
 		}
 		n.EffectiveInputHash = hash
+		n.EffectiveInput = input
 	}
 	if r.store == nil {
 		return fmt.Errorf("internal error: state store not initialized")
@@ -341,7 +407,9 @@ func (r *runState) WritePlan() error {
 func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string, runErr *RunError) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.eventSeq++
 	ev := RunEvent{
+		Seq:     r.eventSeq,
 		TS:      time.Now().UTC().Format(time.RFC3339Nano),
 		RunID:   r.RunID,
 		NodeID:  nodeID,
@@ -350,6 +418,9 @@ func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string, 
 		Message: message,
 		Error:   runErr,
 	}
+	ev.PrevDigest = r.eventPrevHash
+	ev.Digest, ev.CRC32 = computeRunEventIntegrity(ev)
+	r.eventPrevHash = ev.Digest
 	if r.store != nil {
 		_ = r.store.AppendEvent(context.Background(), r.RunID, ev)
 		return
@@ -416,6 +487,9 @@ type scheduler struct {
 	status map[string]string // planned, running, succeeded, failed, blocked
 	errs   map[string]error
 
+	newlyBlocked []string
+	blockedBy    map[string]string
+
 	stopped bool
 }
 
@@ -432,6 +506,7 @@ func newScheduler(nodes []*runNode, command string) *scheduler {
 		dependents: map[string][]string{},
 		status:     map[string]string{},
 		errs:       map[string]error{},
+		blockedBy:  map[string]string{},
 	}
 
 	byName := map[string]*runNode{}
@@ -498,14 +573,16 @@ func (s *scheduler) NextReady() *runNode {
 		}
 		// Ensure all deps succeeded.
 		ok := true
+		blockedReason := ""
 		for _, depID := range s.deps[id] {
 			if s.status[depID] != "succeeded" {
 				ok = false
+				blockedReason = fmt.Sprintf("blocked by %s (%s)", depID, s.status[depID])
 				break
 			}
 		}
 		if !ok {
-			s.status[id] = "blocked"
+			s.setBlocked(id, blockedReason)
 			continue
 		}
 		s.status[id] = "running"
@@ -558,11 +635,38 @@ func (s *scheduler) FinalizeBlocked() {
 		}
 		for _, depID := range s.deps[id] {
 			if s.status[depID] == "failed" || s.status[depID] == "blocked" {
-				s.status[id] = "blocked"
+				s.setBlocked(id, fmt.Sprintf("blocked by %s (%s)", depID, s.status[depID]))
 				break
 			}
 		}
 	}
+}
+
+func (s *scheduler) TakeNewlyBlocked() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.newlyBlocked) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(s.newlyBlocked))
+	for _, id := range s.newlyBlocked {
+		out[id] = s.blockedBy[id]
+	}
+	s.newlyBlocked = nil
+	return out
+}
+
+func (s *scheduler) setBlocked(id string, reason string) {
+	if s.status[id] == "blocked" {
+		return
+	}
+	if s.status[id] != "planned" {
+		return
+	}
+	s.status[id] = "blocked"
+	s.blockedBy[id] = reason
+	s.newlyBlocked = append(s.newlyBlocked, id)
+	sort.Strings(s.newlyBlocked)
 }
 
 func (s *scheduler) Snapshot() schedulerSnapshot {
