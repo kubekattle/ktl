@@ -21,6 +21,8 @@ type RunOptions struct {
 	Concurrency int
 	FailFast    bool
 	AutoApprove bool
+	DryRun      bool
+	Diff        bool
 
 	ProgressiveConcurrency bool
 	Lock                   bool
@@ -107,6 +109,8 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		kubeContext: opts.KubeContext,
 		out:         out,
 		errOut:      errOut,
+		dryRun:      opts.DryRun,
+		diff:        opts.Diff,
 	}
 
 	start := time.Now()

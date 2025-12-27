@@ -27,6 +27,9 @@ type helmExecutor struct {
 	out    io.Writer
 	errOut io.Writer
 
+	dryRun bool
+	diff   bool
+
 	clients clientCache
 }
 
@@ -122,8 +125,8 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			Wait:              wait,
 			Atomic:            atomic,
 			CreateNamespace:   false,
-			DryRun:            false,
-			Diff:              false,
+			DryRun:            e.dryRun,
+			Diff:              e.diff,
 			UpgradeOnly:       false,
 			ProgressObservers: []deploy.ProgressObserver{obs},
 		})

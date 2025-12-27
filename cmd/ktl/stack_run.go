@@ -24,6 +24,8 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	var failFast bool
 	var continueOnError bool
 	var yes bool
+	var dryRun bool
+	var diff bool
 	var resume bool
 	var runID string
 	var replan bool
@@ -162,6 +164,8 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 					ProgressiveConcurrency: progressiveConcurrency,
 					FailFast:               failFast || !continueOnError,
 					AutoApprove:            yes,
+					DryRun:                 dryRun,
+					Diff:                   diff,
 					Lock:                   lock,
 					LockOwner:              lockOwner,
 					LockTTL:                lockTTL,
@@ -230,6 +234,8 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 				ProgressiveConcurrency: progressiveConcurrency,
 				FailFast:               failFast || !continueOnError,
 				AutoApprove:            yes,
+				DryRun:                 dryRun,
+				Diff:                   diff,
 				Lock:                   lock,
 				LockOwner:              lockOwner,
 				LockTTL:                lockTTL,
@@ -262,6 +268,8 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 	cmd.Flags().BoolVar(&failFast, "fail-fast", true, "Stop scheduling new releases on first error")
 	cmd.Flags().BoolVar(&continueOnError, "continue-on-error", false, "Continue scheduling independent releases after failures")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip confirmation prompts")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without applying them")
+	cmd.Flags().BoolVar(&diff, "diff", false, "Print a manifest diff during apply")
 	cmd.Flags().BoolVar(&resume, "resume", false, "Resume the most recent run (uses its frozen plan.json unless --replan is set)")
 	cmd.Flags().StringVar(&runID, "run-id", "", "Resume a specific run ID (directory name under .ktl/stack/runs)")
 	cmd.Flags().BoolVar(&replan, "replan", false, "Recompute the plan from current config when resuming")
@@ -282,6 +290,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	var failFast bool
 	var continueOnError bool
 	var yes bool
+	var dryRun bool
 	var resume bool
 	var runID string
 	var replan bool
@@ -301,6 +310,9 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if continueOnError && failFast {
 				return fmt.Errorf("cannot combine --fail-fast and --continue-on-error")
+			}
+			if dryRun {
+				return fmt.Errorf("ktl stack delete: --dry-run is not supported")
 			}
 			var p *stack.Plan
 			runRoot := ""
@@ -445,6 +457,8 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					ProgressiveConcurrency: progressiveConcurrency,
 					FailFast:               failFast || !continueOnError,
 					AutoApprove:            yes,
+					DryRun:                 false,
+					Diff:                   false,
 					Lock:                   lock,
 					LockOwner:              lockOwner,
 					LockTTL:                lockTTL,
@@ -528,6 +542,8 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 				ProgressiveConcurrency: progressiveConcurrency,
 				FailFast:               failFast || !continueOnError,
 				AutoApprove:            yes,
+				DryRun:                 false,
+				Diff:                   false,
 				Lock:                   lock,
 				LockOwner:              lockOwner,
 				LockTTL:                lockTTL,
@@ -560,6 +576,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 	cmd.Flags().BoolVar(&failFast, "fail-fast", true, "Stop scheduling new releases on first error")
 	cmd.Flags().BoolVar(&continueOnError, "continue-on-error", false, "Continue scheduling independent releases after failures")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip confirmation prompts")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview deletes without applying them (not supported)")
 	cmd.Flags().BoolVar(&resume, "resume", false, "Resume the most recent run (uses its frozen plan.json unless --replan is set)")
 	cmd.Flags().StringVar(&runID, "run-id", "", "Resume a specific run ID (directory name under .ktl/stack/runs)")
 	cmd.Flags().BoolVar(&replan, "replan", false, "Recompute the plan from current config when resuming")
