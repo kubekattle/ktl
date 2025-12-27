@@ -12,6 +12,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type RunPlan struct {
@@ -154,6 +155,33 @@ func computeRunEventIntegrity(ev RunEvent) (digest string, crc string) {
 	write(ev.PrevDigest)
 
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), fmt.Sprintf("crc32:%08x", c.Sum32())
+}
+
+// VerifyRunEventChain checks the per-event digest/crc chain produced by computeRunEventIntegrity.
+// If the chain is absent (digest/crc empty on the first event), it returns nil for backward compatibility.
+func VerifyRunEventChain(events []RunEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(events[0].Digest) == "" || strings.TrimSpace(events[0].CRC32) == "" {
+		return nil
+	}
+	prev := ""
+	for i := range events {
+		ev := events[i]
+		if strings.TrimSpace(ev.PrevDigest) != strings.TrimSpace(prev) {
+			return fmt.Errorf("event[%d] prevDigest mismatch (want %q got %q)", i, prev, ev.PrevDigest)
+		}
+		wantDigest, wantCRC := computeRunEventIntegrity(ev)
+		if strings.TrimSpace(ev.Digest) != strings.TrimSpace(wantDigest) {
+			return fmt.Errorf("event[%d] digest mismatch (want %q got %q)", i, wantDigest, ev.Digest)
+		}
+		if strings.TrimSpace(ev.CRC32) != strings.TrimSpace(wantCRC) {
+			return fmt.Errorf("event[%d] crc32 mismatch (want %q got %q)", i, wantCRC, ev.CRC32)
+		}
+		prev = ev.Digest
+	}
+	return nil
 }
 
 func writeJSONAtomic(path string, v any) error {

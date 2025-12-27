@@ -75,6 +75,9 @@ func LoadRun(runRoot string) (*LoadedRun, error) {
 			return nil, err
 		}
 		defer s.Close()
+		if err := s.VerifyEventsIntegrity(context.Background(), runID); err != nil {
+			return nil, fmt.Errorf("run %s events integrity: %w", runID, err)
+		}
 		p, err := s.GetRunPlan(context.Background(), runID)
 		if err != nil {
 			return nil, err
@@ -134,11 +137,13 @@ func replayEvents(path string) (map[string]string, map[string]int, error) {
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
+	var events []RunEvent
 	for sc.Scan() {
 		var ev RunEvent
 		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
 			return nil, nil, fmt.Errorf("parse %s: %w", path, err)
 		}
+		events = append(events, ev)
 		if strings.TrimSpace(ev.NodeID) == "" {
 			continue
 		}
@@ -158,6 +163,9 @@ func replayEvents(path string) (map[string]string, map[string]int, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, nil, err
+	}
+	if err := VerifyRunEventChain(events); err != nil {
+		return nil, nil, fmt.Errorf("events integrity: %w", err)
 	}
 	return status, attempt, nil
 }

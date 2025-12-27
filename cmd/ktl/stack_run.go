@@ -131,6 +131,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 				p = pp
 			} else if resume && !replan {
 				var err error
+				resumeFromRunID := strings.TrimSpace(runID)
 				if strings.TrimSpace(runID) != "" {
 					runRoot = filepath.Join(*rootDir, ".ktl", "stack", "runs", strings.TrimSpace(runID))
 				} else {
@@ -138,6 +139,7 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 					if err != nil {
 						return err
 					}
+					resumeFromRunID = filepath.Base(runRoot)
 				}
 				loaded, err := stack.LoadRun(runRoot)
 				if err != nil {
@@ -176,11 +178,14 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 					RemoteAgentAddr:        remoteAgent,
 					// When resuming, always create a new runId; --run-id selects which previous
 					// run to resume from, not the id of the new run.
-					RunID:           "",
-					RunRoot:         "",
-					FailMode:        chooseFailMode(failFast || !continueOnError),
-					MaxAttempts:     maxAttemptsFromRetry(retry),
-					InitialAttempts: initialAttempts,
+					RunID:             "",
+					RunRoot:           "",
+					ResumeStatusByID:  loaded.StatusByID,
+					ResumeAttemptByID: loaded.AttemptByID,
+					ResumeFromRunID:   resumeFromRunID,
+					FailMode:          chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:       maxAttemptsFromRetry(retry),
+					InitialAttempts:   initialAttempts,
 					Selector: stack.RunSelector{
 						Clusters:             splitCSV(*clusters),
 						Tags:                 splitCSV(*tags),
@@ -401,6 +406,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 				p = pp
 			} else if resume && !replan {
 				var err error
+				resumeFromRunID := strings.TrimSpace(runID)
 				if strings.TrimSpace(runID) != "" {
 					runRoot = filepath.Join(*rootDir, ".ktl", "stack", "runs", strings.TrimSpace(runID))
 				} else {
@@ -408,6 +414,7 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					if err != nil {
 						return err
 					}
+					resumeFromRunID = filepath.Base(runRoot)
 				}
 				loaded, err := stack.LoadRun(runRoot)
 				if err != nil {
@@ -471,11 +478,14 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					RemoteAgentAddr:        remoteAgent,
 					// When resuming, always create a new runId; --run-id selects which previous
 					// run to resume from, not the id of the new run.
-					RunID:           "",
-					RunRoot:         "",
-					FailMode:        chooseFailMode(failFast || !continueOnError),
-					MaxAttempts:     maxAttemptsFromRetry(retry),
-					InitialAttempts: initialAttempts,
+					RunID:             "",
+					RunRoot:           "",
+					ResumeStatusByID:  loaded.StatusByID,
+					ResumeAttemptByID: loaded.AttemptByID,
+					ResumeFromRunID:   resumeFromRunID,
+					FailMode:          chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:       maxAttemptsFromRetry(retry),
+					InitialAttempts:   initialAttempts,
 					Selector: stack.RunSelector{
 						Clusters:             splitCSV(*clusters),
 						Tags:                 splitCSV(*tags),

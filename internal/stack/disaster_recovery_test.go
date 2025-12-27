@@ -3,6 +3,7 @@ package stack
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -55,6 +57,67 @@ func TestLoadRun_SqliteOverridesStackRootAfterMove(t *testing.T) {
 	}
 	if filepath.Clean(loaded.Plan.StackRoot) != filepath.Clean(root2) {
 		t.Fatalf("expected stackRoot=%s got %s", root2, loaded.Plan.StackRoot)
+	}
+}
+
+func TestLoadRun_RejectsTamperedEvents(t *testing.T) {
+	root := t.TempDir()
+	writeMinimalStackFixture(t, root, "tamper-test")
+
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Lock:        true,
+		LockTTL:     2 * time.Second,
+		Executor:    &fakeExecutor{},
+	}, &out, &errOut); err != nil {
+		t.Fatalf("run: %v\nstderr:\n%s", err, errOut.String())
+	}
+
+	runRoot, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := filepath.Base(runRoot)
+
+	// Tamper with the stored message without updating digest/crc.
+	s, err := openStackStateStore(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.db.Exec(`
+UPDATE ktl_stack_events
+SET message = message || ' tampered'
+WHERE id = (
+  SELECT id
+  FROM ktl_stack_events
+  WHERE run_id = ? AND node_id != ''
+  ORDER BY id ASC
+  LIMIT 1
+)
+`, runID)
+	_ = s.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = LoadRun(runRoot)
+	if err == nil {
+		t.Fatalf("expected integrity error, got nil")
+	}
+	if !strings.Contains(err.Error(), "integrity") && !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -204,6 +267,68 @@ func TestSQLite_ConcurrentReadDuringWrite(t *testing.T) {
 	<-runDone
 }
 
+func TestResume_SkipsPreviouslySucceededNodes(t *testing.T) {
+	root := t.TempDir()
+	writeMinimalStackFixture(t, root, "resume-skips")
+
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First run: app2 fails; app3 becomes blocked.
+	failExec := &recordingExecutor{failOn: map[string]error{"app2": errors.New("boom")}}
+	var out1, errOut1 bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Lock:        true,
+		LockTTL:     2 * time.Second,
+		Executor:    failExec,
+		FailFast:    false,
+	}, &out1, &errOut1); err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+
+	runRoot, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadRun(runRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second run: resume should not call executor for app1 again.
+	resumeExec := &recordingExecutor{}
+	var out2, errOut2 bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:           "apply",
+		Plan:              loaded.Plan,
+		Concurrency:       1,
+		Lock:              true,
+		LockTTL:           2 * time.Second,
+		Executor:          resumeExec,
+		FailFast:          true,
+		ResumeStatusByID:  loaded.StatusByID,
+		ResumeAttemptByID: loaded.AttemptByID,
+		ResumeFromRunID:   filepath.Base(runRoot),
+	}, &out2, &errOut2); err != nil {
+		t.Fatalf("resume run: %v\nstderr:\n%s", err, errOut2.String())
+	}
+
+	for _, name := range resumeExec.calledNames() {
+		if name == "app1" {
+			t.Fatalf("expected app1 to be skipped on resume, but it ran; called=%v", resumeExec.calledNames())
+		}
+	}
+}
+
 type fakeExecutor struct {
 	sleepOn string
 	sleep   time.Duration
@@ -219,6 +344,31 @@ func (f *fakeExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		}
 	}
 	return nil
+}
+
+type recordingExecutor struct {
+	mu    sync.Mutex
+	calls []string
+
+	failOn map[string]error
+}
+
+func (r *recordingExecutor) RunNode(ctx context.Context, node *runNode, command string) error {
+	_ = command
+	r.mu.Lock()
+	r.calls = append(r.calls, node.Name)
+	r.mu.Unlock()
+
+	if err, ok := r.failOn[node.Name]; ok && err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *recordingExecutor) calledNames() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.calls...)
 }
 
 func helperMain(t *testing.T) {

@@ -418,6 +418,50 @@ func (s *stackStateStore) GetRunPlan(ctx context.Context, runID string) (*Plan, 
 	return PlanFromRunPlan(&rp)
 }
 
+func (s *stackStateStore) VerifyEventsIntegrity(ctx context.Context, runID string) error {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+FROM ktl_stack_events
+WHERE run_id = ?
+ORDER BY id ASC
+`, runID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	prev := ""
+	checked := false
+	for rows.Next() {
+		var r sqliteEventRow
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+			return err
+		}
+		ev := sqliteRowToRunEvent(runID, r)
+		if !checked {
+			if strings.TrimSpace(ev.Digest) == "" || strings.TrimSpace(ev.CRC32) == "" {
+				return nil
+			}
+			checked = true
+		}
+		if strings.TrimSpace(ev.PrevDigest) != strings.TrimSpace(prev) {
+			return fmt.Errorf("event prevDigest mismatch (want %q got %q)", prev, ev.PrevDigest)
+		}
+		wantDigest, wantCRC := computeRunEventIntegrity(ev)
+		if strings.TrimSpace(ev.Digest) != strings.TrimSpace(wantDigest) {
+			return fmt.Errorf("event digest mismatch (want %q got %q)", wantDigest, ev.Digest)
+		}
+		if strings.TrimSpace(ev.CRC32) != strings.TrimSpace(wantCRC) {
+			return fmt.Errorf("event crc32 mismatch (want %q got %q)", wantCRC, ev.CRC32)
+		}
+		prev = ev.Digest
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *stackStateStore) GetNodeStatus(ctx context.Context, runID string) (map[string]string, map[string]int, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT node_id, status, attempt FROM ktl_stack_nodes WHERE run_id = ?`, runID)
 	if err != nil {

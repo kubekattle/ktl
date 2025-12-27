@@ -25,6 +25,10 @@ type RunOptions struct {
 	Diff        bool
 	Executor    NodeExecutor
 
+	ResumeStatusByID  map[string]string
+	ResumeFromRunID   string
+	ResumeAttemptByID map[string]int
+
 	ProgressiveConcurrency bool
 	Lock                   bool
 	LockOwner              string
@@ -265,6 +269,28 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	}
 
 	run.AppendEvent("", "RUN_STARTED", 0, "", nil)
+
+	// Seed the scheduler with already-completed nodes from a previous run.
+	// Emit NODE_SUCCEEDED events so the new run's sqlite summary matches the resumed state.
+	if len(opts.ResumeStatusByID) > 0 {
+		for _, n := range run.Nodes {
+			if strings.TrimSpace(opts.ResumeStatusByID[n.ID]) != "succeeded" {
+				continue
+			}
+			if opts.ResumeAttemptByID != nil {
+				if a, ok := opts.ResumeAttemptByID[n.ID]; ok && a > n.Attempt {
+					n.Attempt = a
+				}
+			}
+			s.SeedSucceeded(n.ID)
+
+			msg := "resume: already succeeded"
+			if strings.TrimSpace(opts.ResumeFromRunID) != "" {
+				msg = fmt.Sprintf("resume: already succeeded in run %s", strings.TrimSpace(opts.ResumeFromRunID))
+			}
+			run.AppendEvent(n.ID, "NODE_SUCCEEDED", n.Attempt, msg, nil)
+		}
+	}
 	run.WriteSummarySnapshot(run.BuildSummary("running", start, s.Snapshot()))
 
 	for i := 0; i < targetWorkers; i++ {
@@ -609,6 +635,31 @@ func (s *scheduler) MarkSucceeded(id string) {
 	for _, depID := range s.dependents[id] {
 		s.inDegree[depID]--
 		if s.inDegree[depID] == 0 {
+			s.ready = append(s.ready, depID)
+		}
+	}
+	sort.Strings(s.ready)
+}
+
+func (s *scheduler) SeedSucceeded(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.status[id] == "succeeded" {
+		return
+	}
+	// Allow seeding from "planned" (fresh run) or "running" (defensive), but never
+	// override failed/blocked states.
+	switch s.status[id] {
+	case "planned", "running":
+	default:
+		return
+	}
+	s.status[id] = "succeeded"
+	for _, depID := range s.dependents[id] {
+		if s.inDegree[depID] > 0 {
+			s.inDegree[depID]--
+		}
+		if s.inDegree[depID] == 0 && s.status[depID] == "planned" {
 			s.ready = append(s.ready, depID)
 		}
 	}
