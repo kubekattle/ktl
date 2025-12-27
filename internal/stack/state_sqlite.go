@@ -61,6 +61,9 @@ func openStackStateStore(root string, readOnly bool) (*stackStateStore, error) {
 	db.SetMaxIdleConns(1)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	// Make lock contention tolerable for concurrent readers/writers (status --follow
+	// while a run is executing). This is safe in both ro and rw modes.
+	_, _ = db.ExecContext(ctx, `PRAGMA busy_timeout=5000;`)
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)

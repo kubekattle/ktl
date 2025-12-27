@@ -116,17 +116,7 @@ PY
 }
 
 json_first_node() {
-  python3 - <<'PY'
-import json
-import sys
-
-doc = json.load(sys.stdin)
-nodes = doc.get("Nodes") or doc.get("nodes") or []
-if not nodes:
-    sys.exit(1)
-n = nodes[0]
-print(n.get("id",""), n.get("name",""))
-PY
+  python3 -c 'import json,sys; doc=json.load(open(sys.argv[1],"r",encoding="utf-8")); nodes=doc.get("Nodes") or doc.get("nodes") or []; assert nodes; n=nodes[0]; print(n.get("id",""), n.get("name",""))' "$1"
 }
 
 must_fail() {
@@ -141,14 +131,7 @@ must_fail() {
 
 most_recent_run_id() {
   local root="$1"
-  ./bin/ktl "${ktl_args[@]}" stack runs --root "${root}" --output json --limit 1 | python3 - <<'PY'
-import json
-import sys
-doc = json.load(sys.stdin)
-if not doc:
-    sys.exit(1)
-print(doc[0].get("runId") or doc[0].get("runID") or doc[0].get("RunID") or "")
-PY
+  ./bin/ktl "${ktl_args[@]}" stack runs --root "${root}" --output json --limit 1 | python3 -c 'import json,sys; doc=json.load(sys.stdin); assert doc; print(doc[0].get("runId") or doc[0].get("runID") or doc[0].get("RunID") or "")'
 }
 
 fixtures_ok=(
@@ -172,34 +155,71 @@ expected_fail_plan=(
 run_ok_fixture() {
   local root="$1"
   shift || true
-  local -a extra_args=()
-  if [[ $# -gt 0 ]]; then
-    extra_args=("$@")
-  fi
 
   echo ">> plan table (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output table "${extra_args[@]}" >/dev/null
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output table "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output table >/dev/null
+  fi
   echo ">> plan json (${root})"
-  plan_json="$(./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output json "${extra_args[@]}")"
-  echo "${plan_json}" >/dev/null
+  plan_file="${root}/.plan.json"
+  rm -f "${plan_file}"
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output json "$@" >"${plan_file}"
+  else
+    ./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output json >"${plan_file}"
+  fi
+  if [[ ! -s "${plan_file}" ]]; then
+    echo "empty plan json output for root=${root}" >&2
+    exit 1
+  fi
 
   echo ">> graph dot (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack graph --root "${root}" --format dot "${extra_args[@]}" >/dev/null
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack graph --root "${root}" --format dot "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack graph --root "${root}" --format dot >/dev/null
+  fi
   echo ">> graph mermaid (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack graph --root "${root}" --format mermaid "${extra_args[@]}" >/dev/null
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack graph --root "${root}" --format mermaid "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack graph --root "${root}" --format mermaid >/dev/null
+  fi
 
   echo ">> explain (${root})"
-  first_id_and_name="$(printf '%s' "${plan_json}" | json_first_node)"
+  first_id_and_name="$(json_first_node "${plan_file}")"
   first_id="$(printf '%s' "${first_id_and_name}" | awk '{print $1}')"
   first_name="$(printf '%s' "${first_id_and_name}" | awk '{print $2}')"
-  ./bin/ktl "${ktl_args[@]}" stack explain --root "${root}" "${first_id}" "${extra_args[@]}" >/dev/null
-  ./bin/ktl "${ktl_args[@]}" stack explain --root "${root}" "${first_name}" --why "${extra_args[@]}" >/dev/null
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack explain --root "${root}" "${first_id}" "$@" >/dev/null
+    ./bin/ktl "${ktl_args[@]}" stack explain --root "${root}" "${first_name}" --why "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack explain --root "${root}" "${first_id}" >/dev/null
+    ./bin/ktl "${ktl_args[@]}" stack explain --root "${root}" "${first_name}" --why >/dev/null
+  fi
 
   echo ">> apply dry-run (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 2 --yes --dry-run "${extra_args[@]}" >/dev/null
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 2 --yes --dry-run "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 2 --yes --dry-run >/dev/null
+  fi
 
-  echo ">> apply diff (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 --diff "${extra_args[@]}" >/dev/null
+  echo ">> apply diff preview (${root})"
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 2 --yes --diff "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 2 --yes --diff >/dev/null
+  fi
+
+  echo ">> apply real (${root})"
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 >/dev/null
+  fi
 
   echo ">> status raw (${root})"
   ./bin/ktl "${ktl_args[@]}" stack status --root "${root}" --format raw --tail 5 >/dev/null
@@ -212,16 +232,24 @@ run_ok_fixture() {
   ./bin/ktl "${ktl_args[@]}" stack runs --root "${root}" --limit 5 >/dev/null
 
   echo ">> resume rerun-failed (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack rerun-failed --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 "${extra_args[@]}" >/dev/null
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack rerun-failed --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack rerun-failed --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 >/dev/null
+  fi
 
   echo ">> seal + apply sealed-dir (${root})"
   sealed_dir="${root}/.sealed"
   rm -rf "${sealed_dir}"
   ./bin/ktl "${ktl_args[@]}" stack seal --root "${root}" --out "${sealed_dir}" --bundle >/dev/null
-  ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --sealed-dir "${sealed_dir}" --yes --diff >/dev/null
+  ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --sealed-dir "${sealed_dir}" --yes >/dev/null
 
   echo ">> delete (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack delete --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 "${extra_args[@]}" >/dev/null
+  if [[ $# -gt 0 ]]; then
+    ./bin/ktl "${ktl_args[@]}" stack delete --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 "$@" >/dev/null
+  else
+    ./bin/ktl "${ktl_args[@]}" stack delete --root "${root}" --concurrency 4 --progressive-concurrency --yes --retry 2 >/dev/null
+  fi
 
   echo ">> follow status during apply (${root})"
   (
@@ -326,4 +354,3 @@ for ((iter=1; iter<=ITERATIONS; iter++)); do
 done
 
 echo "All stack real-cluster e2e checks passed (${ITERATIONS} iterations)"
-

@@ -39,7 +39,7 @@ Per success fixture (`01-...` through `10-...`):
 - `ktl stack explain` by ID and by name (`--why`)
 - `ktl stack apply`:
   - `--dry-run`
-  - `--diff`
+  - `--diff` (diff preview; current deploy engine treats diff as dry-run)
   - `--concurrency` + `--progressive-concurrency`
   - `--retry`
 - `ktl stack status`:
@@ -51,7 +51,7 @@ Per success fixture (`01-...` through `10-...`):
   - drift detection on `--resume` (expects failure without `--allow-drift`, then success with it)
 - sealing flows:
   - `ktl stack seal --bundle`
-  - `ktl stack apply --sealed-dir`
+  - `ktl stack apply --sealed-dir` (real apply, no diff)
 - `ktl stack delete` with concurrency controls
 
 Expected-failure fixtures:
@@ -71,4 +71,3 @@ Selection feature checks:
 
 - This suite focuses on real cluster correctness and UX surfaces. It is intentionally conservative and does not attempt lock contention or takeover scenarios.
 - If you need to validate git-range selection behavior (`--git-range`), add an additional dedicated step that runs inside a temporary git repo; the real-cluster suite keeps cluster-facing operations and git behavior separate.
-

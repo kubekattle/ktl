@@ -174,11 +174,13 @@ func newStackApplyCommand(rootDir, profile *string, clusters *[]string, output *
 					KubeContext:            kubeContext,
 					LogLevel:               logLevel,
 					RemoteAgentAddr:        remoteAgent,
-					RunID:                  strings.TrimSpace(runID),
-					RunRoot:                runRoot,
-					FailMode:               chooseFailMode(failFast || !continueOnError),
-					MaxAttempts:            maxAttemptsFromRetry(retry),
-					InitialAttempts:        initialAttempts,
+					// When resuming, always create a new runId; --run-id selects which previous
+					// run to resume from, not the id of the new run.
+					RunID:           "",
+					RunRoot:         "",
+					FailMode:        chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:     maxAttemptsFromRetry(retry),
+					InitialAttempts: initialAttempts,
 					Selector: stack.RunSelector{
 						Clusters:             splitCSV(*clusters),
 						Tags:                 splitCSV(*tags),
@@ -467,11 +469,13 @@ func newStackDeleteCommand(rootDir, profile *string, clusters *[]string, output 
 					KubeContext:            kubeContext,
 					LogLevel:               logLevel,
 					RemoteAgentAddr:        remoteAgent,
-					RunID:                  strings.TrimSpace(runID),
-					RunRoot:                runRoot,
-					FailMode:               chooseFailMode(failFast || !continueOnError),
-					MaxAttempts:            maxAttemptsFromRetry(retry),
-					InitialAttempts:        initialAttempts,
+					// When resuming, always create a new runId; --run-id selects which previous
+					// run to resume from, not the id of the new run.
+					RunID:           "",
+					RunRoot:         "",
+					FailMode:        chooseFailMode(failFast || !continueOnError),
+					MaxAttempts:     maxAttemptsFromRetry(retry),
+					InitialAttempts: initialAttempts,
 					Selector: stack.RunSelector{
 						Clusters:             splitCSV(*clusters),
 						Tags:                 splitCSV(*tags),

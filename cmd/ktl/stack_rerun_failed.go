@@ -69,11 +69,12 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 				KubeContext:            kubeContext,
 				LogLevel:               logLevel,
 				RemoteAgentAddr:        remoteAgent,
-				RunID:                  strings.TrimSpace(runID),
-				RunRoot:                runRoot,
-				FailMode:               chooseFailMode(true),
-				MaxAttempts:            maxAttemptsFromRetry(retry),
-				InitialAttempts:        loaded.AttemptByID,
+				// Always create a new runId; --run-id selects which previous run to resume from.
+				RunID:           "",
+				RunRoot:         "",
+				FailMode:        chooseFailMode(true),
+				MaxAttempts:     maxAttemptsFromRetry(retry),
+				InitialAttempts: loaded.AttemptByID,
 				Selector: stack.RunSelector{
 					Clusters:             splitCSV(*clusters),
 					Tags:                 splitCSV(*tags),
