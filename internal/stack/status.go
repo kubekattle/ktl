@@ -56,6 +56,7 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 	}
 
 	var summary *RunSummary
+	var sqliteStore *stackStateStore
 	if useSQLite {
 		s, err := openStackStateStore(root, true)
 		if err != nil {
@@ -66,6 +67,7 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 		if err != nil {
 			return err
 		}
+		sqliteStore = s
 		summary = ss
 	} else {
 		summaryPath := filepath.Join(runRoot, "summary.json")
@@ -112,12 +114,52 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 		limit = 50
 	}
 	if useSQLite {
-		// Keep raw output simple for sqlite: print only summary + hint to use table/json.
-		if opts.Follow {
-			return fmt.Errorf("--follow is not supported with sqlite state yet; use --format table or json")
+		if sqliteStore == nil {
+			return fmt.Errorf("internal error: sqlite state store is nil")
 		}
-		fmt.Fprintf(out, "EVENTS\t(use ktl stack status --format table|json)\n")
-		return nil
+		fmt.Fprintf(out, "EVENTS\t(last %d)\n", limit)
+
+		enc := json.NewEncoder(out)
+		events, lastID, err := sqliteStore.TailEvents(ctx, runID, limit)
+		if err != nil {
+			return err
+		}
+		for _, ev := range events {
+			if err := enc.Encode(ev); err != nil {
+				return err
+			}
+		}
+		if len(events) > 0 {
+			fmt.Fprintln(out)
+		}
+		if !opts.Follow {
+			return nil
+		}
+
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		after := lastID
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+			}
+
+			newEvents, newLast, err := sqliteStore.EventsAfter(ctx, runID, after, 200)
+			if err != nil {
+				return err
+			}
+			if len(newEvents) == 0 {
+				continue
+			}
+			for _, ev := range newEvents {
+				if err := enc.Encode(ev); err != nil {
+					return err
+				}
+			}
+			after = newLast
+		}
 	}
 
 	eventsPath := filepath.Join(runRoot, "events.jsonl")

@@ -436,6 +436,124 @@ func (s *stackStateStore) GetNodeStatus(ctx context.Context, runID string) (map[
 	return status, attempt, rows.Err()
 }
 
+type sqliteEventRow struct {
+	id         int64
+	tsNS       int64
+	nodeID     string
+	typ        string
+	attempt    int
+	message    string
+	errClass   string
+	errMessage string
+	errDigest  string
+	seq        int64
+	prevDigest string
+	digest     string
+	crc32      string
+}
+
+func (s *stackStateStore) TailEvents(ctx context.Context, runID string, limit int) ([]RunEvent, int64, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+FROM ktl_stack_events
+WHERE run_id = ?
+ORDER BY id DESC
+LIMIT ?
+`, runID, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var raw []sqliteEventRow
+	var maxID int64
+	for rows.Next() {
+		var r sqliteEventRow
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+			return nil, 0, err
+		}
+		if r.id > maxID {
+			maxID = r.id
+		}
+		raw = append(raw, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	// Reverse to chronological order.
+	for i, j := 0, len(raw)-1; i < j; i, j = i+1, j-1 {
+		raw[i], raw[j] = raw[j], raw[i]
+	}
+
+	out := make([]RunEvent, 0, len(raw))
+	for _, r := range raw {
+		out = append(out, sqliteRowToRunEvent(runID, r))
+	}
+	return out, maxID, nil
+}
+
+func (s *stackStateStore) EventsAfter(ctx context.Context, runID string, afterID int64, limit int) ([]RunEvent, int64, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+FROM ktl_stack_events
+WHERE run_id = ? AND id > ?
+ORDER BY id ASC
+LIMIT ?
+`, runID, afterID, limit)
+	if err != nil {
+		return nil, afterID, err
+	}
+	defer rows.Close()
+
+	var out []RunEvent
+	maxID := afterID
+	for rows.Next() {
+		var r sqliteEventRow
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+			return nil, afterID, err
+		}
+		if r.id > maxID {
+			maxID = r.id
+		}
+		out = append(out, sqliteRowToRunEvent(runID, r))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, afterID, err
+	}
+	return out, maxID, nil
+}
+
+func sqliteRowToRunEvent(runID string, r sqliteEventRow) RunEvent {
+	ev := RunEvent{
+		Seq:     r.seq,
+		TS:      time.Unix(0, r.tsNS).UTC().Format(time.RFC3339Nano),
+		RunID:   runID,
+		NodeID:  strings.TrimSpace(r.nodeID),
+		Type:    strings.TrimSpace(r.typ),
+		Attempt: r.attempt,
+		Message: strings.TrimSpace(r.message),
+
+		PrevDigest: strings.TrimSpace(r.prevDigest),
+		Digest:     strings.TrimSpace(r.digest),
+		CRC32:      strings.TrimSpace(r.crc32),
+	}
+	if strings.TrimSpace(r.errClass) != "" || strings.TrimSpace(r.errMessage) != "" || strings.TrimSpace(r.errDigest) != "" {
+		ev.Error = &RunError{
+			Class:   strings.TrimSpace(r.errClass),
+			Message: strings.TrimSpace(r.errMessage),
+			Digest:  strings.TrimSpace(r.errDigest),
+		}
+	}
+	return ev
+}
+
 func (s *stackStateStore) MostRecentRunID(ctx context.Context) (string, error) {
 	var runID string
 	err := s.db.QueryRowContext(ctx, `SELECT run_id FROM ktl_stack_runs ORDER BY created_at_ns DESC LIMIT 1`).Scan(&runID)
