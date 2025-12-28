@@ -27,6 +27,7 @@ type RunConsole struct {
 	plan       *Plan
 	nodeOrder  []string
 	nodes      map[string]*runConsoleNodeState
+	metaByID   map[string]runConsoleNodeMeta
 	failures   []runConsoleFailure
 	logTail    []string
 	startedAt  time.Time
@@ -49,6 +50,16 @@ type runConsoleNodeState struct {
 	updatedAt time.Time
 }
 
+type runConsoleNodeMeta struct {
+	cluster          string
+	namespace        string
+	name             string
+	executionGroup   int
+	parallelismGroup string
+	primaryKind      string
+	critical         bool
+}
+
 type runConsoleFailure struct {
 	nodeID  string
 	attempt int
@@ -69,6 +80,7 @@ func NewRunConsole(out io.Writer, plan *Plan, command string, opts RunConsoleOpt
 		command:   strings.TrimSpace(command),
 		startedAt: time.Now(),
 		nodes:     map[string]*runConsoleNodeState{},
+		metaByID:  map[string]runConsoleNodeMeta{},
 	}
 	if plan != nil {
 		c.nodeOrder = runConsoleOrder(plan)
@@ -117,6 +129,8 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 		c.runID = strings.TrimSpace(ev.RunID)
 	}
 	switch ev.Type {
+	case string(NodeMeta):
+		c.applyNodeMetaLocked(ev)
 	case string(RunConcurrency):
 		c.concurrent = strings.TrimSpace(ev.Message)
 	case string(NodeQueued):
@@ -126,9 +140,17 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 	case string(BudgetWait):
 		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, c.getPhase(ev.NodeID), strings.TrimSpace(ev.Message), nil, ts)
 	case string(PhaseStarted):
-		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, strings.TrimSpace(ev.Message), "", nil, ts)
+		phase := strings.TrimSpace(ev.Message)
+		if v := fieldString(ev.Fields, "phase"); v != "" {
+			phase = v
+		}
+		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, phase, "", nil, ts)
 	case string(PhaseCompleted):
-		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, strings.TrimSpace(ev.Message), "", nil, ts)
+		phase := fieldString(ev.Fields, "phase")
+		if phase == "" {
+			phase = strings.TrimSpace(ev.Message)
+		}
+		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, phase, "", nil, ts)
 	case string(HookFailed):
 		c.appendLogLocked(fmt.Sprintf("[%s] %s", ev.NodeID, strings.TrimSpace(ev.Message)), true)
 	case string(HookStarted), string(HookSucceeded):
@@ -155,6 +177,49 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 			c.appendLogLocked(fmt.Sprintf("run completed: %s", msg), true)
 		}
 	}
+}
+
+func (c *RunConsole) applyNodeMetaLocked(ev RunEvent) {
+	id := strings.TrimSpace(ev.NodeID)
+	if id == "" {
+		return
+	}
+	meta := runConsoleNodeMeta{}
+	meta.cluster = fieldString(ev.Fields, "cluster")
+	meta.namespace = fieldString(ev.Fields, "namespace")
+	meta.name = fieldString(ev.Fields, "name")
+	meta.parallelismGroup = fieldString(ev.Fields, "parallelismGroup")
+	meta.primaryKind = fieldString(ev.Fields, "primaryKind")
+	meta.executionGroup = fieldInt(ev.Fields, "executionGroup")
+	meta.critical = fieldBool(ev.Fields, "critical")
+	c.metaByID[id] = meta
+
+	if _, ok := c.nodes[id]; !ok {
+		c.nodes[id] = &runConsoleNodeState{id: id, status: "planned"}
+	}
+	// If the console was created without a plan, build a deterministic order.
+	if c.plan == nil {
+		c.rebuildOrderFromMetaLocked()
+	}
+}
+
+func (c *RunConsole) rebuildOrderFromMetaLocked() {
+	ids := make([]string, 0, len(c.nodes))
+	for id := range c.nodes {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		mi := c.metaByID[ids[i]]
+		mj := c.metaByID[ids[j]]
+		if mi.executionGroup != mj.executionGroup {
+			return mi.executionGroup < mj.executionGroup
+		}
+		if mi.parallelismGroup != mj.parallelismGroup {
+			return mi.parallelismGroup < mj.parallelismGroup
+		}
+		return ids[i] < ids[j]
+	})
+	c.nodeOrder = ids
 }
 
 func (c *RunConsole) setNodeLocked(id, status string, attempt int, phase string, wait string, runErr *RunError, ts time.Time) {
@@ -306,7 +371,72 @@ func (c *RunConsole) renderHeaderLocked() []string {
 	if strings.TrimSpace(c.concurrent) != "" {
 		lines = append(lines, strings.TrimSpace(c.concurrent))
 	}
+
+	if focus := c.pickFocusLocked(); focus != "" {
+		meta := c.metaByID[focus]
+		ns := c.nodes[focus]
+		target := focus
+		if meta.cluster != "" || meta.namespace != "" || meta.name != "" {
+			target = fmt.Sprintf("%s/%s/%s", meta.cluster, meta.namespace, meta.name)
+		}
+		attempt := 0
+		phase := ""
+		nodeElapsed := ""
+		if ns != nil {
+			attempt = ns.attempt
+			phase = strings.TrimSpace(ns.phase)
+			if !ns.startedAt.IsZero() && (ns.status == "running" || ns.status == "retrying") {
+				nodeElapsed = time.Since(ns.startedAt).Round(100 * time.Millisecond).String()
+			}
+		}
+		if !c.opts.Verbose && isNoisyPhase(phase) && ns != nil && ns.status != "failed" {
+			phase = ""
+		}
+		focusLine := fmt.Sprintf("focus: %s attempt=%d", target, attempt)
+		if phase != "" {
+			focusLine += " phase=" + phase
+		}
+		if nodeElapsed != "" {
+			focusLine += " elapsed=" + nodeElapsed
+		}
+		lines = append(lines, focusLine)
+	}
+
 	return lines
+}
+
+func (c *RunConsole) pickFocusLocked() string {
+	// Prefer a running/retrying node (most recently updated), otherwise a failed node.
+	best := ""
+	bestTS := time.Time{}
+	for id, ns := range c.nodes {
+		if ns == nil {
+			continue
+		}
+		if ns.status != "running" && ns.status != "retrying" {
+			continue
+		}
+		if best == "" || ns.updatedAt.After(bestTS) {
+			best = id
+			bestTS = ns.updatedAt
+		}
+	}
+	if best != "" {
+		return best
+	}
+	for id, ns := range c.nodes {
+		if ns == nil {
+			continue
+		}
+		if ns.status != "failed" {
+			continue
+		}
+		if best == "" || ns.updatedAt.After(bestTS) {
+			best = id
+			bestTS = ns.updatedAt
+		}
+	}
+	return best
 }
 
 func (c *RunConsole) renderFailuresLocked() []string {
@@ -360,6 +490,9 @@ func (c *RunConsole) renderNodesLocked() []string {
 		if phase == "" {
 			phase = "-"
 		}
+		if !c.opts.Verbose && ns.status != "failed" && isNoisyPhase(phase) {
+			phase = "-"
+		}
 		note := strings.TrimSpace(ns.wait)
 		if note == "" && ns.lastError != nil {
 			note = strings.TrimSpace(ns.lastError.Class)
@@ -374,6 +507,69 @@ func (c *RunConsole) renderNodesLocked() []string {
 		lines = append(lines, fmt.Sprintf("%-44s %-9s %-7d %-24s %s", runConsoleTrimTo(id, 44), status, attempt, runConsoleTrimTo(phase, 24), runConsoleTrimTo(note, runConsoleMaxInt(width-44-9-7-24-4, 0))))
 	}
 	return lines
+}
+
+func isNoisyPhase(phase string) bool {
+	p := strings.ToLower(strings.TrimSpace(phase))
+	switch p {
+	case "render", "wait", "pre-apply", "post-apply", "pre-delete", "post-delete":
+		return true
+	default:
+		return false
+	}
+}
+
+func fieldString(fields any, key string) string {
+	m, ok := fields.(map[string]any)
+	if !ok || m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	default:
+		return strings.TrimSpace(fmt.Sprint(t))
+	}
+}
+
+func fieldInt(fields any, key string) int {
+	m, ok := fields.(map[string]any)
+	if !ok || m == nil {
+		return 0
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	default:
+		return 0
+	}
+}
+
+func fieldBool(fields any, key string) bool {
+	m, ok := fields.(map[string]any)
+	if !ok || m == nil {
+		return false
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return false
+	}
+	switch t := v.(type) {
+	case bool:
+		return t
+	default:
+		return false
+	}
 }
 
 func (c *RunConsole) renderLogLocked() []string {
