@@ -260,6 +260,19 @@ CREATE TABLE IF NOT EXISTS ktl_stack_apply_cache (
   PRIMARY KEY (cluster_key, namespace, release_name, command, effective_input_hash)
 );`,
 		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_apply_cache_lookup ON ktl_stack_apply_cache(cluster_key, namespace, release_name, command, effective_input_hash);`,
+		`
+CREATE TABLE IF NOT EXISTS ktl_stack_verify_cache (
+  cluster_key TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  release_name TEXT NOT NULL,
+  last_ok_at_ns INTEGER NOT NULL DEFAULT 0,
+  last_checked_at_ns INTEGER NOT NULL DEFAULT 0,
+  last_result TEXT NOT NULL DEFAULT '',
+  last_message TEXT NOT NULL DEFAULT '',
+  updated_at_ns INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (cluster_key, namespace, release_name)
+);`,
+		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_verify_cache_lookup ON ktl_stack_verify_cache(cluster_key, namespace, release_name);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -369,6 +382,94 @@ ON CONFLICT(cluster_key, namespace, release_name, command, effective_input_hash)
   updated_at_ns = CASE WHEN excluded.updated_at_ns > ktl_stack_apply_cache.updated_at_ns THEN excluded.updated_at_ns ELSE ktl_stack_apply_cache.updated_at_ns END
 `, clusterKey, ns, releaseName, command, effective,
 		desiredDigest, hasHooksInt, runID, updatedAtNS)
+	return err
+}
+
+type VerifyCacheKey struct {
+	ClusterKey  string
+	Namespace   string
+	ReleaseName string
+}
+
+type VerifyCacheEntry struct {
+	LastOKAtNS      int64
+	LastCheckedAtNS int64
+	LastResult      string
+	LastMessage     string
+	UpdatedAtNS     int64
+}
+
+func (s *stackStateStore) GetVerifyCache(ctx context.Context, key VerifyCacheKey) (VerifyCacheEntry, bool, error) {
+	if s == nil || s.db == nil {
+		return VerifyCacheEntry{}, false, nil
+	}
+	clusterKey := strings.TrimSpace(key.ClusterKey)
+	ns := strings.TrimSpace(key.Namespace)
+	if ns == "" {
+		ns = "default"
+	}
+	releaseName := strings.TrimSpace(key.ReleaseName)
+	if clusterKey == "" || releaseName == "" {
+		return VerifyCacheEntry{}, false, nil
+	}
+	var lastOK, lastChecked, updatedAt int64
+	var lastResult, lastMessage string
+	err := s.db.QueryRowContext(ctx, `
+SELECT last_ok_at_ns, last_checked_at_ns, last_result, last_message, updated_at_ns
+FROM ktl_stack_verify_cache
+WHERE cluster_key = ? AND namespace = ? AND release_name = ?
+LIMIT 1
+`, clusterKey, ns, releaseName).Scan(&lastOK, &lastChecked, &lastResult, &lastMessage, &updatedAt)
+	if err == sql.ErrNoRows {
+		return VerifyCacheEntry{}, false, nil
+	}
+	if err != nil {
+		return VerifyCacheEntry{}, false, err
+	}
+	return VerifyCacheEntry{
+		LastOKAtNS:      lastOK,
+		LastCheckedAtNS: lastChecked,
+		LastResult:      strings.TrimSpace(lastResult),
+		LastMessage:     strings.TrimSpace(lastMessage),
+		UpdatedAtNS:     updatedAt,
+	}, true, nil
+}
+
+func (s *stackStateStore) UpsertVerifyCache(ctx context.Context, key VerifyCacheKey, checkedAtNS int64, okAtNS int64, result string, message string) error {
+	if s == nil || s.db == nil || s.readOnly {
+		return nil
+	}
+	clusterKey := strings.TrimSpace(key.ClusterKey)
+	ns := strings.TrimSpace(key.Namespace)
+	if ns == "" {
+		ns = "default"
+	}
+	releaseName := strings.TrimSpace(key.ReleaseName)
+	if clusterKey == "" || releaseName == "" {
+		return nil
+	}
+	if checkedAtNS <= 0 {
+		checkedAtNS = time.Now().UTC().UnixNano()
+	}
+	if okAtNS < 0 {
+		okAtNS = 0
+	}
+	now := time.Now().UTC().UnixNano()
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO ktl_stack_verify_cache (
+  cluster_key, namespace, release_name,
+  last_ok_at_ns, last_checked_at_ns, last_result, last_message,
+  updated_at_ns
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(cluster_key, namespace, release_name) DO UPDATE SET
+  last_ok_at_ns = CASE WHEN excluded.last_ok_at_ns > 0 THEN excluded.last_ok_at_ns ELSE ktl_stack_verify_cache.last_ok_at_ns END,
+  last_checked_at_ns = CASE WHEN excluded.last_checked_at_ns > 0 THEN excluded.last_checked_at_ns ELSE ktl_stack_verify_cache.last_checked_at_ns END,
+  last_result = CASE WHEN excluded.last_result != '' THEN excluded.last_result ELSE ktl_stack_verify_cache.last_result END,
+  last_message = CASE WHEN excluded.last_message != '' THEN excluded.last_message ELSE ktl_stack_verify_cache.last_message END,
+  updated_at_ns = CASE WHEN excluded.updated_at_ns > ktl_stack_verify_cache.updated_at_ns THEN excluded.updated_at_ns ELSE ktl_stack_verify_cache.updated_at_ns END
+`, clusterKey, ns, releaseName,
+		okAtNS, checkedAtNS, strings.TrimSpace(result), strings.TrimSpace(message),
+		now)
 	return err
 }
 

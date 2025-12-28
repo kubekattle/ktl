@@ -27,6 +27,13 @@ func verifyFailOnWarnings(v VerifyOptions) bool {
 	return *v.FailOnWarnings
 }
 
+func verifyWarnOnly(v VerifyOptions) bool {
+	if v.WarnOnly == nil {
+		return false
+	}
+	return *v.WarnOnly
+}
+
 func verifyEventsWindow(v VerifyOptions) time.Duration {
 	if v.EventsWindow == nil || *v.EventsWindow <= 0 {
 		return 15 * time.Minute
@@ -34,7 +41,14 @@ func verifyEventsWindow(v VerifyOptions) time.Duration {
 	return *v.EventsWindow
 }
 
-func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultNamespace string, releaseName string, manifest string, v VerifyOptions) (string, error) {
+func verifyTimeout(v VerifyOptions) time.Duration {
+	if v.Timeout == nil || *v.Timeout <= 0 {
+		return 2 * time.Minute
+	}
+	return *v.Timeout
+}
+
+func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultNamespace string, releaseName string, manifest string, v VerifyOptions, okSinceNS int64) (string, error) {
 	if kubeClient == nil || kubeClient.Clientset == nil {
 		return "", fmt.Errorf("missing kube client")
 	}
@@ -84,6 +98,11 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 	if verifyFailOnWarnings(v) {
 		window := verifyEventsWindow(v)
 		since := time.Now().Add(-window)
+		if okSinceNS > 0 {
+			if t := time.Unix(0, okSinceNS); t.After(since) {
+				since = t
+			}
+		}
 		var warnings []corev1.Event
 		for _, ns := range namespaces {
 			evs, err := kubeClient.Clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
@@ -108,6 +127,9 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 				if _, ok := targetKey[strings.ToLower(kind)+"\n"+evNS+"\n"+name]; !ok {
 					continue
 				}
+				if !verifyReasonAllowed(v, strings.TrimSpace(ev.Reason)) {
+					continue
+				}
 				warnings = append(warnings, ev)
 			}
 		}
@@ -127,6 +149,27 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 	}
 
 	return "verified", nil
+}
+
+func verifyReasonAllowed(v VerifyOptions, reason string) bool {
+	r := strings.ToLower(strings.TrimSpace(reason))
+	if len(v.AllowReasons) > 0 {
+		for _, a := range v.AllowReasons {
+			if strings.ToLower(strings.TrimSpace(a)) == r {
+				return true
+			}
+		}
+		return false
+	}
+	if len(v.DenyReasons) > 0 {
+		for _, d := range v.DenyReasons {
+			if strings.ToLower(strings.TrimSpace(d)) == r {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 func eventTimestamp(ev corev1.Event) time.Time {

@@ -173,7 +173,8 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			if rel, err := getAction.Run(node.Name); err == nil && rel != nil {
 				manifest = rel.Manifest
 			}
-			if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+			clusterKey := stackClusterCacheKey(node.Cluster.Name, kubeconfigPath, kubeCtx)
+			if err := maybeVerify(ctx, e.run, clusterKey, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
 				return wrapNodeErr(node.ResolvedRelease, err)
 			}
 			return nil
@@ -235,7 +236,8 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 					if rel, err := getAction.Run(node.Name); err == nil && rel != nil {
 						manifest = rel.Manifest
 					}
-					if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+					clusterKey := stackClusterCacheKey(node.Cluster.Name, kubeconfigPath, kubeCtx)
+					if err := maybeVerify(ctx, e.run, clusterKey, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
 						return wrapNodeErr(node.ResolvedRelease, err)
 					}
 					obs.PhaseCompleted(deploy.PhasePostHooks, "skipped", "Apply cache: no-op")
@@ -269,7 +271,8 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 				lastRows = rows
 				if allReleaseResourcesReady(rows) {
 					obs.PhaseCompleted(deploy.PhaseWait, "succeeded", "Release resources ready")
-					if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+					clusterKey := stackClusterCacheKey(node.Cluster.Name, kubeconfigPath, kubeCtx)
+					if err := maybeVerify(ctx, e.run, clusterKey, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
 						return wrapNodeErr(node.ResolvedRelease, err)
 					}
 					obs.PhaseStarted(deploy.PhasePostHooks)
@@ -393,7 +396,8 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 				manifest = rel.Manifest
 			}
 		}
-		if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+		clusterKey := stackClusterCacheKey(node.Cluster.Name, kubeconfigPath, kubeCtx)
+		if err := maybeVerify(ctx, e.run, clusterKey, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
 			return wrapNodeErr(node.ResolvedRelease, err)
 		}
 		if e.cacheApply && e.run != nil && e.run.store != nil && !e.dryRun {
@@ -437,22 +441,46 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 	}
 }
 
-func maybeVerify(ctx context.Context, kubeClient *kube.Client, obs *stackEventObserver, node *runNode, manifest string, v VerifyOptions, dryRun bool) error {
+func maybeVerify(ctx context.Context, run *runState, clusterKey string, kubeClient *kube.Client, obs *stackEventObserver, node *runNode, manifest string, v VerifyOptions, dryRun bool) error {
 	if dryRun || !verifyEnabled(v) {
 		return nil
 	}
+	timeout := verifyTimeout(v)
+	tryCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		tryCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+
 	if obs != nil {
 		obs.PhaseStarted("verify")
 	}
-	msg, err := verifyKubeRelease(ctx, kubeClient, node.Namespace, node.Name, manifest, v)
+	sinceNS := int64(0)
+	if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
+		if entry, ok, _ := run.store.GetVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}); ok {
+			sinceNS = entry.LastOKAtNS
+		}
+	}
+	msg, err := verifyKubeRelease(tryCtx, kubeClient, node.Namespace, node.Name, manifest, v, sinceNS)
 	if err != nil {
 		if obs != nil {
 			obs.PhaseCompleted("verify", "failed", err.Error())
+		}
+		if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
+			_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, time.Now().UTC().UnixNano(), 0, "failed", err.Error())
+		}
+		if verifyWarnOnly(v) {
+			return nil
 		}
 		return err
 	}
 	if obs != nil {
 		obs.PhaseCompleted("verify", "succeeded", msg)
+	}
+	if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
+		now := time.Now().UTC().UnixNano()
+		_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, now, now, "succeeded", msg)
 	}
 	return nil
 }
