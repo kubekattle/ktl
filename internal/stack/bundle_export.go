@@ -57,6 +57,9 @@ func ExportRunBundle(ctx context.Context, root string, runID string, outPath str
 	if err := copyRunNodes(ctx, src.db, dst.db, runID); err != nil {
 		return "", err
 	}
+	if err := copyRunNodeSteps(ctx, src.db, dst.db, runID); err != nil {
+		return "", err
+	}
 	if err := copyRunEvents(ctx, src.db, dst.db, runID); err != nil {
 		return "", err
 	}
@@ -183,6 +186,41 @@ ORDER BY id ASC
 INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, runID, tsNS, nodeID, typ, attempt, msg, errClass, errMsg, errDigest, seq, prevDigest, digest, crc32)
+		if err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func copyRunNodeSteps(ctx context.Context, src *sql.DB, dst *sql.DB, runID string) error {
+	rows, err := src.QueryContext(ctx, `
+SELECT node_id, attempt, step,
+  started_at_ns, completed_at_ns, status, message,
+  error_class, error_message, error_digest, cursor_json
+FROM ktl_stack_node_steps
+WHERE run_id = ?
+ORDER BY node_id ASC, attempt ASC, step ASC
+`, runID)
+	if err != nil {
+		// Backward compat: older state DBs may not have the table.
+		return nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var nodeID, step, status, message, errClass, errMsg, errDigest, cursorJSON string
+		var attempt int
+		var startedAtNS, completedAtNS int64
+		if err := rows.Scan(&nodeID, &attempt, &step, &startedAtNS, &completedAtNS, &status, &message, &errClass, &errMsg, &errDigest, &cursorJSON); err != nil {
+			return err
+		}
+		_, err := dst.ExecContext(ctx, `
+INSERT INTO ktl_stack_node_steps (
+  run_id, node_id, attempt, step,
+  started_at_ns, completed_at_ns, status, message,
+  error_class, error_message, error_digest, cursor_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, runID, nodeID, attempt, step, startedAtNS, completedAtNS, status, message, errClass, errMsg, errDigest, cursorJSON)
 		if err != nil {
 			return err
 		}

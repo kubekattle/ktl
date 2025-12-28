@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS ktl_stack_runs (
   run_digest TEXT NOT NULL DEFAULT ''
 );`,
 		`
-CREATE TABLE IF NOT EXISTS ktl_stack_nodes (
+	CREATE TABLE IF NOT EXISTS ktl_stack_nodes (
   run_id TEXT NOT NULL,
   node_id TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -140,9 +140,26 @@ CREATE TABLE IF NOT EXISTS ktl_stack_nodes (
   updated_at_ns INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (run_id, node_id),
   FOREIGN KEY (run_id) REFERENCES ktl_stack_runs(run_id) ON DELETE CASCADE
-);`,
+	);`,
 		`
-CREATE TABLE IF NOT EXISTS ktl_stack_events (
+	CREATE TABLE IF NOT EXISTS ktl_stack_node_steps (
+	  run_id TEXT NOT NULL,
+	  node_id TEXT NOT NULL,
+	  attempt INTEGER NOT NULL,
+	  step TEXT NOT NULL,
+	  started_at_ns INTEGER NOT NULL DEFAULT 0,
+	  completed_at_ns INTEGER NOT NULL DEFAULT 0,
+	  status TEXT NOT NULL DEFAULT '',
+	  message TEXT NOT NULL DEFAULT '',
+	  error_class TEXT NOT NULL DEFAULT '',
+	  error_message TEXT NOT NULL DEFAULT '',
+	  error_digest TEXT NOT NULL DEFAULT '',
+	  cursor_json TEXT NOT NULL DEFAULT '',
+	  PRIMARY KEY (run_id, node_id, attempt, step),
+	  FOREIGN KEY (run_id) REFERENCES ktl_stack_runs(run_id) ON DELETE CASCADE
+	);`,
+		`
+	CREATE TABLE IF NOT EXISTS ktl_stack_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT NOT NULL,
   ts_ns INTEGER NOT NULL,
@@ -159,12 +176,13 @@ CREATE TABLE IF NOT EXISTS ktl_stack_events (
   digest TEXT NOT NULL DEFAULT '',
   crc32 TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (run_id) REFERENCES ktl_stack_runs(run_id) ON DELETE CASCADE
-);`,
+	);`,
 		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_events_run_id_id ON ktl_stack_events(run_id, id);`,
 		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_events_run_id_error_digest ON ktl_stack_events(run_id, error_digest);`,
 		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_nodes_run_id_status ON ktl_stack_nodes(run_id, status);`,
+		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_node_steps_by_run_node ON ktl_stack_node_steps(run_id, node_id);`,
 		`
-CREATE TABLE IF NOT EXISTS ktl_stack_lock (
+	CREATE TABLE IF NOT EXISTS ktl_stack_lock (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   owner TEXT NOT NULL,
   run_id TEXT NOT NULL,
@@ -410,12 +428,13 @@ func (s *stackStateStore) AppendEvent(ctx context.Context, runID string, ev RunE
 		fieldsJSON = string(raw)
 	}
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, runID, ts.UnixNano(), nodeID, ev.Type, ev.Attempt, msg, fieldsJSON, errClass, errMsg, errDigest, ev.Seq, ev.PrevDigest, ev.Digest, ev.CRC32)
+	INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, runID, ts.UnixNano(), nodeID, ev.Type, ev.Attempt, msg, fieldsJSON, errClass, errMsg, errDigest, ev.Seq, ev.PrevDigest, ev.Digest, ev.CRC32)
 	if err != nil {
 		return err
 	}
+	_ = s.upsertNodeStepFromEvent(ctx, runID, ts.UnixNano(), nodeID, ev, errClass, errMsg, errDigest)
 
 	updatedAt := time.Now().UTC().UnixNano()
 	_, _ = s.db.ExecContext(ctx, `UPDATE ktl_stack_runs SET updated_at_ns = ? WHERE run_id = ?`, updatedAt, runID)
@@ -768,6 +787,89 @@ func sqliteRowToRunEvent(runID string, r sqliteEventRow) RunEvent {
 		}
 	}
 	return ev
+}
+
+func (s *stackStateStore) upsertNodeStepFromEvent(ctx context.Context, runID string, tsNS int64, nodeID string, ev RunEvent, errClass, errMsg, errDigest string) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	if strings.TrimSpace(runID) == "" || strings.TrimSpace(nodeID) == "" || ev.Attempt <= 0 {
+		return nil
+	}
+	typ := strings.TrimSpace(ev.Type)
+	if typ != string(PhaseStarted) && typ != string(PhaseCompleted) {
+		return nil
+	}
+	step := ""
+	if v, ok := ev.Fields["phase"]; ok {
+		if s, ok := v.(string); ok {
+			step = strings.TrimSpace(s)
+		}
+	}
+	if step == "" {
+		step = strings.TrimSpace(ev.Message)
+	}
+	if step == "" {
+		return nil
+	}
+
+	status := ""
+	message := ""
+	if typ == string(PhaseStarted) {
+		status = "running"
+	} else {
+		if v, ok := ev.Fields["status"]; ok {
+			if s, ok := v.(string); ok {
+				status = strings.TrimSpace(s)
+			}
+		}
+		if status == "" {
+			status = "success"
+		}
+		if v, ok := ev.Fields["message"]; ok {
+			if s, ok := v.(string); ok {
+				message = strings.TrimSpace(s)
+			}
+		}
+	}
+	if message == "" && strings.TrimSpace(ev.Message) != "" && typ == string(PhaseCompleted) {
+		message = strings.TrimSpace(ev.Message)
+	}
+
+	cursorJSON := ""
+	if v, ok := ev.Fields["cursor"]; ok && v != nil {
+		if raw, err := json.Marshal(v); err == nil {
+			cursorJSON = string(raw)
+		}
+	}
+
+	startedAt := int64(0)
+	completedAt := int64(0)
+	if typ == string(PhaseStarted) {
+		startedAt = tsNS
+	} else {
+		completedAt = tsNS
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO ktl_stack_node_steps (
+  run_id, node_id, attempt, step,
+  started_at_ns, completed_at_ns, status, message,
+  error_class, error_message, error_digest, cursor_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(run_id, node_id, attempt, step) DO UPDATE SET
+  started_at_ns = CASE WHEN excluded.started_at_ns > 0 THEN excluded.started_at_ns ELSE ktl_stack_node_steps.started_at_ns END,
+  completed_at_ns = CASE WHEN excluded.completed_at_ns > 0 THEN excluded.completed_at_ns ELSE ktl_stack_node_steps.completed_at_ns END,
+  status = CASE WHEN excluded.status != '' THEN excluded.status ELSE ktl_stack_node_steps.status END,
+  message = CASE WHEN excluded.message != '' THEN excluded.message ELSE ktl_stack_node_steps.message END,
+  error_class = CASE WHEN excluded.error_class != '' THEN excluded.error_class ELSE ktl_stack_node_steps.error_class END,
+  error_message = CASE WHEN excluded.error_message != '' THEN excluded.error_message ELSE ktl_stack_node_steps.error_message END,
+  error_digest = CASE WHEN excluded.error_digest != '' THEN excluded.error_digest ELSE ktl_stack_node_steps.error_digest END,
+  cursor_json = CASE WHEN excluded.cursor_json != '' THEN excluded.cursor_json ELSE ktl_stack_node_steps.cursor_json END
+`, runID, nodeID, ev.Attempt, step,
+		startedAt, completedAt, status, message,
+		strings.TrimSpace(errClass), strings.TrimSpace(errMsg), strings.TrimSpace(errDigest), cursorJSON)
+	return err
 }
 
 func (s *stackStateStore) MostRecentRunID(ctx context.Context) (string, error) {
