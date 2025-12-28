@@ -6,6 +6,7 @@ import (
 )
 
 type StackCLIResolved struct {
+	Clusters []string
 	Selector Selector
 
 	InferDeps       bool
@@ -64,6 +65,7 @@ func ResolveStackCLIConfig(u *Universe, profile string) (StackCLIResolved, error
 		Releases:  cfg.Selector.Releases,
 		GitRange:  cfg.Selector.GitRange,
 	}
+	out.Clusters = append([]string(nil), cfg.Selector.Clusters...)
 	if cfg.Selector.GitIncludeDeps != nil {
 		out.Selector.GitIncludeDeps = *cfg.Selector.GitIncludeDeps
 	}
