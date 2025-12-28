@@ -7,9 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/example/ktl/internal/caststream"
+	"github.com/example/ktl/internal/castutil"
 	"github.com/example/ktl/internal/stack"
+	"github.com/example/ktl/internal/tailer"
+	"github.com/example/ktl/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -101,6 +106,86 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				planOutput = cfg.Output
 			}
 
+			runWithViews := func(p *stack.Plan, runOpts stack.RunOptions) error {
+				out := cmd.OutOrStdout()
+				errOut := cmd.ErrOrStderr()
+
+				outFormat := strings.ToLower(strings.TrimSpace(planOutput))
+				verbose := strings.ToLower(strings.TrimSpace(derefString(common.logLevel))) == "debug"
+
+				var observers []stack.RunEventObserver
+				var encMu sync.Mutex
+
+				var console *ui.StackRunConsole
+				if outFormat == "json" {
+					enc := json.NewEncoder(out)
+					enc.SetEscapeHTML(false)
+					observers = append(observers, stack.RunEventObserverFunc(func(ev stack.RunEvent) {
+						encMu.Lock()
+						defer encMu.Unlock()
+						_ = enc.Encode(ev)
+					}))
+				} else if isTerminalWriter(errOut) {
+					width, _ := ui.TerminalWidth(errOut)
+					console = ui.NewStackRunConsole(errOut, p, string(kind), ui.StackRunConsoleOptions{
+						Enabled: true,
+						Verbose: verbose,
+						Width:   width,
+					})
+					observers = append(observers, console)
+				} else {
+					observers = append(observers, stack.RunEventObserverFunc(func(ev stack.RunEvent) {
+						encMu.Lock()
+						defer encMu.Unlock()
+						node := strings.TrimSpace(ev.NodeID)
+						if node == "" {
+							node = "-"
+						}
+						msg := strings.TrimSpace(ev.Message)
+						if msg != "" {
+							fmt.Fprintf(errOut, "%s\t%s\t%s\t%d\t%s\n", ev.TS, ev.Type, node, ev.Attempt, msg)
+							return
+						}
+						fmt.Fprintf(errOut, "%s\t%s\t%s\t%d\n", ev.TS, ev.Type, node, ev.Attempt)
+					}))
+				}
+
+				if addr := strings.TrimSpace(opts.WSListenAddr); addr != "" {
+					logger, err := buildLogger(derefString(common.logLevel))
+					if err != nil {
+						return err
+					}
+					label := "ktl stack"
+					if p != nil && strings.TrimSpace(p.StackName) != "" {
+						label = fmt.Sprintf("ktl stack %s", strings.TrimSpace(p.StackName))
+					}
+					wsServer := caststream.New(addr, caststream.ModeWS, label, logger.WithName("stack-ws"))
+					if err := castutil.StartCastServer(cmd.Context(), wsServer, "ktl stack websocket stream", logger.WithName("stack-ws"), errOut); err != nil {
+						return err
+					}
+					observers = append(observers, stack.RunEventObserverFunc(func(ev stack.RunEvent) {
+						raw, err := json.Marshal(ev)
+						if err != nil {
+							return
+						}
+						rec := tailer.LogRecord{
+							Timestamp: time.Now().UTC(),
+							Raw:       string(raw),
+							Rendered:  string(raw),
+							Source:    "stack",
+						}
+						wsServer.ObserveLog(rec)
+					}))
+					fmt.Fprintf(errOut, "Serving ktl websocket stack stream on %s\n", addr)
+				}
+
+				runOpts.EventObservers = append(runOpts.EventObservers, observers...)
+				if console != nil {
+					defer console.Done()
+				}
+				return stack.Run(cmd.Context(), runOpts, out, errOut)
+			}
+
 			if strings.TrimSpace(opts.SealedDir) != "" || strings.TrimSpace(opts.FromBundle) != "" {
 				var trustedPub []byte
 				if opts.RequireSigned && strings.TrimSpace(opts.BundlePub) != "" {
@@ -167,7 +252,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				runOpts.ResumeFromRunID = resumeFromRunID
 				runOpts.InitialAttempts = initialAttempts
 				runOpts.Selector = runSelector
-				return stack.Run(cmd.Context(), runOpts, cmd.OutOrStdout(), cmd.ErrOrStderr())
+				return runWithViews(p, runOpts)
 			} else {
 				var pp *stack.Plan
 				var err error
@@ -216,7 +301,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 
 			runOpts := buildRunOptions(kind, common, p, opts, effective, adaptiveOpts)
 			runOpts.Selector = runSelector
-			return stack.Run(cmd.Context(), runOpts, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			return runWithViews(p, runOpts)
 		},
 	}
 
@@ -275,6 +360,8 @@ type stackRunCLIOptions struct {
 	BundlePub     string
 
 	DeleteConfirmThreshold int
+
+	WSListenAddr string
 }
 
 func (o stackRunCLIOptions) runnerOverrides() stackRunnerOverrides {
@@ -321,6 +408,7 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	if kind == stackRunDelete {
 		cmd.Flags().IntVar(&opts.DeleteConfirmThreshold, "delete-confirm-threshold", opts.DeleteConfirmThreshold, "Prompt when deleting at least this many releases (0 disables)")
 	}
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.WSListenAddr, name: "--ws-listen", allowEmpty: true, validator: validateWSListenAddr}, "ws-listen", "Expose the stack run event stream over WebSocket at this address (e.g. :9090)")
 
 	// Minimal-flag UX: keep knobs configurable via stack.yaml/env; hide overrides but keep them working.
 	_ = cmd.Flags().MarkHidden("fail-fast")
@@ -341,6 +429,7 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	if kind == stackRunDelete {
 		_ = cmd.Flags().MarkHidden("delete-confirm-threshold")
 	}
+	_ = cmd.Flags().MarkHidden("ws-listen")
 }
 
 func addStackRunnerFlags(cmd *cobra.Command, opts *stackRunCLIOptions) {
