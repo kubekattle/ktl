@@ -417,13 +417,13 @@ type VerifyCacheKey struct {
 }
 
 type VerifyCacheEntry struct {
-	LastOKAtNS      int64
-	LastCheckedAtNS int64
-	LastResult      string
-	LastMessage     string
-	LastEventRVJSON string
+	LastOKAtNS       int64
+	LastCheckedAtNS  int64
+	LastResult       string
+	LastMessage      string
+	LastEventRVJSON  string
 	LastEvidenceJSON string
-	UpdatedAtNS     int64
+	UpdatedAtNS      int64
 }
 
 func (s *stackStateStore) GetVerifyCache(ctx context.Context, key VerifyCacheKey) (VerifyCacheEntry, bool, error) {
@@ -454,13 +454,13 @@ LIMIT 1
 		return VerifyCacheEntry{}, false, err
 	}
 	return VerifyCacheEntry{
-		LastOKAtNS:      lastOK,
-		LastCheckedAtNS: lastChecked,
-		LastResult:      strings.TrimSpace(lastResult),
-		LastMessage:     strings.TrimSpace(lastMessage),
-		LastEventRVJSON: strings.TrimSpace(lastEventRVJSON),
+		LastOKAtNS:       lastOK,
+		LastCheckedAtNS:  lastChecked,
+		LastResult:       strings.TrimSpace(lastResult),
+		LastMessage:      strings.TrimSpace(lastMessage),
+		LastEventRVJSON:  strings.TrimSpace(lastEventRVJSON),
 		LastEvidenceJSON: strings.TrimSpace(lastEvidenceJSON),
-		UpdatedAtNS:     updatedAt,
+		UpdatedAtNS:      updatedAt,
 	}, true, nil
 }
 

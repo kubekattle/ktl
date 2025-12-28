@@ -37,6 +37,7 @@ releases:
 - `failOnWarnings`: when enabled, the verify phase fails the release if it sees recent `type=Warning` events whose `involvedObject` matches a resource from the release manifest.
 - `warnOnly`: if true, verification never fails the release (it records findings in the run stream).
 - `eventsWindow`: limits how far back warning events are considered (prevents old noisy events from failing new runs). Default is `15m`.
+- Event watermarking: when the sqlite run store is enabled, ktl records the Events list `resourceVersion` per namespace after successful verifies and uses it as a best-effort watermark to ignore old Warning events on subsequent runs (falls back to the time window when RVs are missing/unparseable).
 - `timeout`: bounds how long verify may run for this release. Default is `2m`.
 - `denyReasons` / `allowReasons`: optional filters for `involvedObject` warning event reasons (case-insensitive).
 - `requireConditions`: optional enforcement of `status.conditions` on matching custom resources (CRs).

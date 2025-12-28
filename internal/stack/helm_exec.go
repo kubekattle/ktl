@@ -457,18 +457,20 @@ func maybeVerify(ctx context.Context, run *runState, clusterKey string, kubeClie
 		obs.PhaseStarted("verify")
 	}
 	sinceNS := int64(0)
+	lastEventRVJSON := ""
 	if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
 		if entry, ok, _ := run.store.GetVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}); ok {
 			sinceNS = entry.LastOKAtNS
+			lastEventRVJSON = entry.LastEventRVJSON
 		}
 	}
-	msg, err := verifyKubeRelease(tryCtx, kubeClient, node.Namespace, node.Name, manifest, v, sinceNS)
+	res, err := verifyKubeRelease(tryCtx, kubeClient, node.Namespace, node.Name, manifest, v, sinceNS, lastEventRVJSON)
 	if err != nil {
 		if obs != nil {
 			obs.PhaseCompleted("verify", "failed", err.Error())
 		}
 		if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
-			_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, time.Now().UTC().UnixNano(), 0, "failed", err.Error(), "", "")
+			_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, time.Now().UTC().UnixNano(), 0, "failed", err.Error(), res.EventRVJSON, res.EvidenceJSON)
 		}
 		if verifyWarnOnly(v) {
 			return nil
@@ -476,11 +478,11 @@ func maybeVerify(ctx context.Context, run *runState, clusterKey string, kubeClie
 		return err
 	}
 	if obs != nil {
-		obs.PhaseCompleted("verify", "succeeded", msg)
+		obs.PhaseCompleted("verify", "succeeded", strings.TrimSpace(res.Message))
 	}
 	if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
 		now := time.Now().UTC().UnixNano()
-		_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, now, now, "succeeded", msg, "", "")
+		_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, now, now, "succeeded", strings.TrimSpace(res.Message), res.EventRVJSON, res.EvidenceJSON)
 	}
 	return nil
 }

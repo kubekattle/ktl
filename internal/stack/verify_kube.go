@@ -2,8 +2,10 @@ package stack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+type verifyResult struct {
+	Message      string
+	EventRVJSON  string
+	EvidenceJSON string
+}
 
 func verifyEnabled(v VerifyOptions) bool {
 	if v.Enabled == nil {
@@ -51,16 +59,16 @@ func verifyTimeout(v VerifyOptions) time.Duration {
 	return *v.Timeout
 }
 
-func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultNamespace string, releaseName string, manifest string, v VerifyOptions, okSinceNS int64) (string, error) {
+func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultNamespace string, releaseName string, manifest string, v VerifyOptions, okSinceNS int64, lastEventRVJSON string) (verifyResult, error) {
 	if kubeClient == nil || kubeClient.Clientset == nil {
-		return "", fmt.Errorf("missing kube client")
+		return verifyResult{}, fmt.Errorf("missing kube client")
 	}
 	if strings.TrimSpace(releaseName) == "" {
-		return "", fmt.Errorf("missing release name")
+		return verifyResult{}, fmt.Errorf("missing release name")
 	}
 	manifest = strings.TrimSpace(manifest)
 	if manifest == "" {
-		return "no manifest targets", nil
+		return verifyResult{Message: "no manifest targets"}, nil
 	}
 
 	targets := deploy.ManifestTargets(manifest)
@@ -101,18 +109,26 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 				}
 				parts = append(parts, fmt.Sprintf("%s/%s status=%s reason=%s msg=%s", b.Kind, b.Name, b.Status, reason, msg))
 			}
-			return "", fmt.Errorf("verify: not ready (top blockers: %s)", strings.Join(parts, " | "))
+			ev := map[string]any{"topBlockers": parts}
+			evJSON, _ := json.Marshal(ev)
+			return verifyResult{EvidenceJSON: string(evJSON)}, fmt.Errorf("verify: not ready (top blockers: %s)", strings.Join(parts, " | "))
 		}
-		return "", fmt.Errorf("verify: not ready")
+		return verifyResult{}, fmt.Errorf("verify: not ready")
 	}
 
 	if len(v.RequireConditions) > 0 {
 		if err := verifyRequiredConditions(ctx, kubeClient, defaultNamespace, targets, v.RequireConditions); err != nil {
-			return "", err
+			return verifyResult{}, err
 		}
 	}
 
+	lastRVByNS := map[string]string{}
+	if strings.TrimSpace(lastEventRVJSON) != "" {
+		_ = json.Unmarshal([]byte(lastEventRVJSON), &lastRVByNS)
+	}
+
 	if verifyFailOnWarnings(v) {
+		// since is used only as a fallback when resourceVersion watermarks are missing/unparseable.
 		window := verifyEventsWindow(v)
 		since := time.Now().Add(-window)
 		if okSinceNS > 0 {
@@ -120,20 +136,32 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 				since = t
 			}
 		}
+
 		var warnings []corev1.Event
+		eventRVByNS := map[string]string{}
 		for _, ns := range namespaces {
+			watermarkRV := strings.TrimSpace(lastRVByNS[ns])
 			evs, err := kubeClient.Clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
 			if err != nil {
 				continue
 			}
+			eventRVByNS[ns] = strings.TrimSpace(evs.ResourceVersion)
 			for i := range evs.Items {
 				ev := evs.Items[i]
 				if strings.ToLower(strings.TrimSpace(ev.Type)) != "warning" {
 					continue
 				}
 				ts := eventTimestamp(ev)
-				if !ts.IsZero() && ts.Before(since) {
-					continue
+				// ResourceVersion watermarking: if the caller provides a per-namespace RV watermark,
+				// filter by RV; otherwise fall back to time-based filtering.
+				if strings.TrimSpace(watermarkRV) != "" {
+					if !eventAfterResourceVersion(&ev, watermarkRV) {
+						continue
+					}
+				} else {
+					if !ts.IsZero() && ts.Before(since) {
+						continue
+					}
 				}
 				kind := strings.TrimSpace(ev.InvolvedObject.Kind)
 				name := strings.TrimSpace(ev.InvolvedObject.Name)
@@ -151,13 +179,58 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 			}
 		}
 		sort.Slice(warnings, func(i, j int) bool { return eventTimestamp(warnings[i]).Before(eventTimestamp(warnings[j])) })
+		rvJSON, _ := json.Marshal(eventRVByNS)
 		if len(warnings) > 0 {
 			latest := warnings[len(warnings)-1]
-			return "", fmt.Errorf("verify: warning events observed (count=%d since=%s latest=%s)", len(warnings), since.Format(time.RFC3339), formatEventSummary(latest))
+			max := 5
+			if len(warnings) < max {
+				max = len(warnings)
+			}
+			summaries := make([]string, 0, max)
+			for i := len(warnings) - max; i < len(warnings); i++ {
+				summaries = append(summaries, formatEventSummary(warnings[i]))
+			}
+			ev := map[string]any{
+				"warnings": summaries,
+				"since":    since.Format(time.RFC3339),
+			}
+			evJSON, _ := json.Marshal(ev)
+			return verifyResult{EventRVJSON: string(rvJSON), EvidenceJSON: string(evJSON)}, fmt.Errorf("verify: warning events observed (count=%d since=%s latest=%s)", len(warnings), since.Format(time.RFC3339), formatEventSummary(latest))
 		}
+		return verifyResult{Message: "verified", EventRVJSON: string(rvJSON)}, nil
 	}
 
-	return "verified", nil
+	// No events gate: still advance RV watermark so future runs can ignore old warnings.
+	eventRVByNS := map[string]string{}
+	for _, ns := range namespaces {
+		evs, err := kubeClient.Clientset.CoreV1().Events(ns).List(ctx, metav1.ListOptions{})
+		if err == nil {
+			eventRVByNS[ns] = strings.TrimSpace(evs.ResourceVersion)
+		}
+	}
+	rvJSON, _ := json.Marshal(eventRVByNS)
+	return verifyResult{Message: "verified", EventRVJSON: string(rvJSON)}, nil
+}
+
+func eventAfterResourceVersion(ev *corev1.Event, watermarkRV string) bool {
+	if ev == nil {
+		return false
+	}
+	watermarkRV = strings.TrimSpace(watermarkRV)
+	if watermarkRV == "" {
+		return true
+	}
+	evRV := strings.TrimSpace(ev.ResourceVersion)
+	if evRV == "" {
+		return true
+	}
+	// Best-effort: treat RV as integer when possible.
+	w, err1 := strconv.ParseInt(watermarkRV, 10, 64)
+	e, err2 := strconv.ParseInt(evRV, 10, 64)
+	if err1 != nil || err2 != nil {
+		return true
+	}
+	return e > w
 }
 
 func formatEventSummary(ev corev1.Event) string {

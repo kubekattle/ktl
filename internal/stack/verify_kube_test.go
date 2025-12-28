@@ -26,7 +26,7 @@ metadata:
 	now := time.Now().UTC()
 	addEvent := func(reason string, ts time.Time) {
 		_, _ = client.Clientset.CoreV1().Events(ns).Create(context.Background(), &corev1.Event{
-			ObjectMeta: metav1.ObjectMeta{Name: reason + "-" + ts.Format("150405.000"), Namespace: ns},
+			ObjectMeta: metav1.ObjectMeta{Name: reason + "-" + ts.Format("150405.000"), Namespace: ns, ResourceVersion: "99"},
 			Type:       "Warning",
 			Reason:     reason,
 			Message:    "boom",
@@ -44,7 +44,7 @@ metadata:
 		Enabled:        boolPtr(true),
 		FailOnWarnings: boolPtr(true),
 		EventsWindow:   durationPtr(15 * time.Minute),
-	}, 0)
+	}, 0, "")
 	if err != nil {
 		t.Fatalf("expected ok, got %v", err)
 	}
@@ -55,7 +55,7 @@ metadata:
 		Enabled:        boolPtr(true),
 		FailOnWarnings: boolPtr(true),
 		EventsWindow:   durationPtr(15 * time.Minute),
-	}, 0)
+	}, 0, "")
 	if err == nil {
 		t.Fatalf("expected warning failure, got nil")
 	}
@@ -66,7 +66,7 @@ metadata:
 		FailOnWarnings: boolPtr(true),
 		DenyReasons:    []string{"SomeOtherReason"},
 		EventsWindow:   durationPtr(15 * time.Minute),
-	}, 0)
+	}, 0, "")
 	if err != nil {
 		t.Fatalf("expected ok with denyReasons filter, got %v", err)
 	}
@@ -76,9 +76,19 @@ metadata:
 		Enabled:        boolPtr(true),
 		FailOnWarnings: boolPtr(true),
 		EventsWindow:   durationPtr(15 * time.Minute),
-	}, now.Add(-1*time.Second).UnixNano())
+	}, now.Add(-1*time.Second).UnixNano(), "")
 	if err != nil {
 		t.Fatalf("expected ok with watermark, got %v", err)
+	}
+
+	// ResourceVersion watermark excludes old events without relying on clocks.
+	_, err = verifyKubeRelease(context.Background(), client, ns, release, manifest, VerifyOptions{
+		Enabled:        boolPtr(true),
+		FailOnWarnings: boolPtr(true),
+		EventsWindow:   durationPtr(15 * time.Minute),
+	}, 0, `{"ns":"100"}`)
+	if err != nil {
+		t.Fatalf("expected ok with rv watermark, got %v", err)
 	}
 }
 
