@@ -40,6 +40,8 @@ type ReleaseDefaults struct {
 
 type StackProfile struct {
 	Defaults ReleaseDefaults `yaml:"defaults,omitempty" json:"defaults,omitempty"`
+	Runner   RunnerConfig    `yaml:"runner,omitempty" json:"runner,omitempty"`
+	CLI      StackCLIConfig  `yaml:"cli,omitempty" json:"cli,omitempty"`
 }
 
 type StackFile struct {
@@ -50,7 +52,108 @@ type StackFile struct {
 	Profiles       map[string]StackProfile `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 
 	Defaults ReleaseDefaults `yaml:"defaults,omitempty" json:"defaults,omitempty"`
+	Runner   RunnerConfig    `yaml:"runner,omitempty" json:"runner,omitempty"`
+	CLI      StackCLIConfig  `yaml:"cli,omitempty" json:"cli,omitempty"`
 	Releases []ReleaseSpec   `yaml:"releases,omitempty" json:"releases,omitempty"`
+}
+
+// StackCLIConfig controls default CLI behavior for `ktl stack ...` subcommands.
+// Flags and environment variables can override these settings.
+type StackCLIConfig struct {
+	// Selector sets default release selection constraints.
+	Selector StackSelectorConfig `yaml:"selector,omitempty" json:"selector,omitempty"`
+
+	// InferDeps controls whether selection includes inferred edges via manifest rendering.
+	InferDeps       *bool `yaml:"inferDeps,omitempty" json:"inferDeps,omitempty"`
+	InferConfigRefs *bool `yaml:"inferConfigRefs,omitempty" json:"inferConfigRefs,omitempty"`
+
+	// Output sets default output format for commands that support it (e.g. plan/runs).
+	Output string `yaml:"output,omitempty" json:"output,omitempty"`
+
+	// Apply/Delete are CLI defaults specific to the run commands.
+	Apply  StackApplyCLIConfig  `yaml:"apply,omitempty" json:"apply,omitempty"`
+	Delete StackDeleteCLIConfig `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Resume StackResumeCLIConfig `yaml:"resume,omitempty" json:"resume,omitempty"`
+}
+
+type StackSelectorConfig struct {
+	Clusters  []string `yaml:"clusters,omitempty" json:"clusters,omitempty"`
+	Tags      []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	FromPaths []string `yaml:"fromPaths,omitempty" json:"fromPaths,omitempty"`
+	Releases  []string `yaml:"releases,omitempty" json:"releases,omitempty"`
+	GitRange  string   `yaml:"gitRange,omitempty" json:"gitRange,omitempty"`
+
+	GitIncludeDeps       *bool `yaml:"gitIncludeDeps,omitempty" json:"gitIncludeDeps,omitempty"`
+	GitIncludeDependents *bool `yaml:"gitIncludeDependents,omitempty" json:"gitIncludeDependents,omitempty"`
+
+	IncludeDeps       *bool `yaml:"includeDeps,omitempty" json:"includeDeps,omitempty"`
+	IncludeDependents *bool `yaml:"includeDependents,omitempty" json:"includeDependents,omitempty"`
+
+	AllowMissingDeps *bool `yaml:"allowMissingDeps,omitempty" json:"allowMissingDeps,omitempty"`
+}
+
+type StackApplyCLIConfig struct {
+	DryRun *bool `yaml:"dryRun,omitempty" json:"dryRun,omitempty"`
+	Diff   *bool `yaml:"diff,omitempty" json:"diff,omitempty"`
+}
+
+type StackDeleteCLIConfig struct {
+	ConfirmThreshold *int `yaml:"confirmThreshold,omitempty" json:"confirmThreshold,omitempty"`
+}
+
+type StackResumeCLIConfig struct {
+	AllowDrift  *bool `yaml:"allowDrift,omitempty" json:"allowDrift,omitempty"`
+	RerunFailed *bool `yaml:"rerunFailed,omitempty" json:"rerunFailed,omitempty"`
+}
+
+type RunnerConfig struct {
+	Concurrency            *int           `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
+	ProgressiveConcurrency *bool          `yaml:"progressiveConcurrency,omitempty" json:"progressiveConcurrency,omitempty"`
+	KubeQPS                *float32       `yaml:"kubeQPS,omitempty" json:"kubeQPS,omitempty"`
+	KubeBurst              *int           `yaml:"kubeBurst,omitempty" json:"kubeBurst,omitempty"`
+	Limits                 RunnerLimits   `yaml:"limits,omitempty" json:"limits,omitempty"`
+	Adaptive               RunnerAdaptive `yaml:"adaptive,omitempty" json:"adaptive,omitempty"`
+	Extra                  map[string]any `yaml:",inline" json:"-"`
+	RawIgnored             map[string]any `yaml:"-" json:"-"`
+}
+
+type RunnerLimits struct {
+	MaxParallelPerNamespace *int           `yaml:"maxParallelPerNamespace,omitempty" json:"maxParallelPerNamespace,omitempty"`
+	MaxParallelKind         map[string]int `yaml:"maxParallelKind,omitempty" json:"maxParallelKind,omitempty"`
+	ParallelismGroupLimit   *int           `yaml:"parallelismGroupLimit,omitempty" json:"parallelismGroupLimit,omitempty"`
+}
+
+type RunnerAdaptive struct {
+	Mode               string   `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Min                *int     `yaml:"min,omitempty" json:"min,omitempty"`
+	Window             *int     `yaml:"window,omitempty" json:"window,omitempty"`
+	RampAfterSuccesses *int     `yaml:"rampAfterSuccesses,omitempty" json:"rampAfterSuccesses,omitempty"`
+	RampMaxFailureRate *float64 `yaml:"rampMaxFailureRate,omitempty" json:"rampMaxFailureRate,omitempty"`
+	CooldownSevere     *int     `yaml:"cooldownSevere,omitempty" json:"cooldownSevere,omitempty"`
+}
+
+type RunnerResolved struct {
+	Concurrency            int                    `json:"concurrency"`
+	ProgressiveConcurrency bool                   `json:"progressiveConcurrency"`
+	KubeQPS                float32                `json:"kubeQPS,omitempty"`
+	KubeBurst              int                    `json:"kubeBurst,omitempty"`
+	Limits                 RunnerLimitsResolved   `json:"limits,omitempty"`
+	Adaptive               RunnerAdaptiveResolved `json:"adaptive,omitempty"`
+}
+
+type RunnerLimitsResolved struct {
+	MaxParallelPerNamespace int            `json:"maxParallelPerNamespace,omitempty"`
+	MaxParallelKind         map[string]int `json:"maxParallelKind,omitempty"`
+	ParallelismGroupLimit   int            `json:"parallelismGroupLimit,omitempty"`
+}
+
+type RunnerAdaptiveResolved struct {
+	Mode               string  `json:"mode,omitempty"`
+	Min                int     `json:"min,omitempty"`
+	Window             int     `json:"window,omitempty"`
+	RampAfterSuccesses int     `json:"rampAfterSuccesses,omitempty"`
+	RampMaxFailureRate float64 `json:"rampMaxFailureRate,omitempty"`
+	CooldownSevere     int     `json:"cooldownSevere,omitempty"`
 }
 
 type ReleaseFile struct {
@@ -59,6 +162,9 @@ type ReleaseFile struct {
 	Name         string            `yaml:"name,omitempty" json:"name,omitempty"`
 	Chart        string            `yaml:"chart,omitempty" json:"chart,omitempty"`
 	ChartVersion string            `yaml:"chartVersion,omitempty" json:"chartVersion,omitempty"`
+	Wave         int               `yaml:"wave,omitempty" json:"wave,omitempty"`
+	Critical     bool              `yaml:"critical,omitempty" json:"critical,omitempty"`
+	Parallelism  string            `yaml:"parallelismGroup,omitempty" json:"parallelismGroup,omitempty"`
 	Cluster      ClusterTarget     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
 	Namespace    string            `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 	Values       []string          `yaml:"values,omitempty" json:"values,omitempty"`
@@ -73,6 +179,9 @@ type ReleaseSpec struct {
 	Name         string            `yaml:"name,omitempty" json:"name,omitempty"`
 	Chart        string            `yaml:"chart,omitempty" json:"chart,omitempty"`
 	ChartVersion string            `yaml:"chartVersion,omitempty" json:"chartVersion,omitempty"`
+	Wave         int               `yaml:"wave,omitempty" json:"wave,omitempty"`
+	Critical     bool              `yaml:"critical,omitempty" json:"critical,omitempty"`
+	Parallelism  string            `yaml:"parallelismGroup,omitempty" json:"parallelismGroup,omitempty"`
 	Cluster      ClusterTarget     `yaml:"cluster,omitempty" json:"cluster,omitempty"`
 	Namespace    string            `yaml:"namespace,omitempty" json:"namespace,omitempty"`
 	Values       []string          `yaml:"values,omitempty" json:"values,omitempty"`
@@ -92,6 +201,9 @@ type ResolvedRelease struct {
 
 	Chart        string            `json:"chart"`
 	ChartVersion string            `json:"chartVersion,omitempty"`
+	Wave         int               `json:"wave,omitempty"`
+	Critical     bool              `json:"critical,omitempty"`
+	Parallelism  string            `json:"parallelismGroup,omitempty"`
 	Values       []string          `json:"values"`
 	Set          map[string]string `json:"set"`
 
@@ -103,9 +215,23 @@ type ResolvedRelease struct {
 
 	SelectedBy []string `json:"selectedBy,omitempty"`
 
+	InferredNeeds       []InferredNeed `json:"inferredNeeds,omitempty"`
+	InferredRole        string         `json:"inferredRole,omitempty"`
+	InferredPrimaryKind string         `json:"inferredPrimaryKind,omitempty"`
+
 	EffectiveInputHash string          `json:"effectiveInputHash,omitempty"`
 	EffectiveInput     *EffectiveInput `json:"effectiveInput,omitempty"`
 	ExecutionGroup     int             `json:"executionGroup,omitempty"`
+}
+
+type InferredNeed struct {
+	Name    string           `json:"name"`
+	Reasons []InferredReason `json:"reasons,omitempty"`
+}
+
+type InferredReason struct {
+	Type     string `json:"type"`
+	Evidence string `json:"evidence,omitempty"`
 }
 
 type EffectiveInput struct {
