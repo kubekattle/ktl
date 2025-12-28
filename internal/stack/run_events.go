@@ -11,6 +11,8 @@ const (
 	RunCompleted   RunEventType = "RUN_COMPLETED"
 	RunConcurrency RunEventType = "RUN_CONCURRENCY"
 
+	NodeMeta RunEventType = "NODE_META"
+
 	NodeQueued    RunEventType = "NODE_QUEUED"
 	NodeRunning   RunEventType = "NODE_RUNNING"
 	NodeSucceeded RunEventType = "NODE_SUCCEEDED"

@@ -185,7 +185,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 				blockers := deploy.TopBlockers(snap, 6)
 				if len(blockers) > 0 {
 					if e.run != nil {
-						e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, "TOP BLOCKERS")
+						e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, "TOP BLOCKERS", map[string]any{"kind": "top-blockers"})
 					}
 					for _, b := range blockers {
 						reason := strings.TrimSpace(b.Reason)
@@ -197,7 +197,14 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 							msg = "-"
 						}
 						if e.run != nil {
-							e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, fmt.Sprintf("%s/%s\t%s\t%s\t%s", b.Kind, b.Name, b.Status, reason, msg))
+							e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, fmt.Sprintf("%s/%s\t%s\t%s\t%s", b.Kind, b.Name, b.Status, reason, msg), map[string]any{
+								"kind":      "top-blocker",
+								"resource":  fmt.Sprintf("%s/%s", b.Kind, b.Name),
+								"status":    b.Status,
+								"reason":    reason,
+								"message":   msg,
+								"namespace": b.Namespace,
+							})
 						}
 					}
 				}
@@ -207,7 +214,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		return nil
 	case "delete":
 		if e.run != nil {
-			e.run.AppendEvent(node.ID, PhaseStarted, node.Attempt, "destroy", nil)
+			e.run.AppendEvent(node.ID, PhaseStarted, node.Attempt, "destroy", map[string]any{"phase": "destroy"}, nil)
 		}
 		timeout := 5 * time.Minute
 		if node.Delete.Timeout != nil {
@@ -218,12 +225,12 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		_, err := uninstall.Run(node.Name)
 		if err != nil {
 			if e.run != nil {
-				e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "destroy failure", nil)
+				e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "destroy failure", map[string]any{"phase": "destroy", "status": "failure"}, nil)
 			}
 			return wrapNodeErr(node.ResolvedRelease, err)
 		}
 		if e.run != nil {
-			e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "destroy success", nil)
+			e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "destroy success", map[string]any{"phase": "destroy", "status": "success"}, nil)
 		}
 		return nil
 	default:
@@ -240,7 +247,8 @@ func (o *stackEventObserver) PhaseStarted(name string) {
 	if o == nil || o.run == nil || o.node == nil {
 		return
 	}
-	o.run.AppendEvent(o.node.ID, PhaseStarted, o.node.Attempt, strings.TrimSpace(name), nil)
+	phase := strings.TrimSpace(name)
+	o.run.AppendEvent(o.node.ID, PhaseStarted, o.node.Attempt, phase, map[string]any{"phase": phase}, nil)
 }
 
 func (o *stackEventObserver) PhaseCompleted(name, status, message string) {
@@ -251,7 +259,13 @@ func (o *stackEventObserver) PhaseCompleted(name, status, message string) {
 	if strings.TrimSpace(message) != "" {
 		desc += ": " + strings.TrimSpace(message)
 	}
-	o.run.AppendEvent(o.node.ID, PhaseCompleted, o.node.Attempt, desc, nil)
+	phase := strings.TrimSpace(name)
+	st := strings.TrimSpace(status)
+	o.run.AppendEvent(o.node.ID, PhaseCompleted, o.node.Attempt, desc, map[string]any{
+		"phase":   phase,
+		"status":  st,
+		"message": strings.TrimSpace(message),
+	}, nil)
 }
 
 func (o *stackEventObserver) EmitEvent(level, message string) {
@@ -266,7 +280,7 @@ func (o *stackEventObserver) EmitEvent(level, message string) {
 	if message == "" {
 		return
 	}
-	o.run.EmitEphemeralEvent(o.node.ID, NodeLog, o.node.Attempt, fmt.Sprintf("%s: %s", level, message))
+	o.run.EmitEphemeralEvent(o.node.ID, NodeLog, o.node.Attempt, fmt.Sprintf("%s: %s", level, message), map[string]any{"level": level})
 }
 
 func (o *stackEventObserver) SetDiff(diff string) {
@@ -277,7 +291,7 @@ func (o *stackEventObserver) SetDiff(diff string) {
 	if diff == "" {
 		return
 	}
-	o.run.EmitEphemeralEvent(o.node.ID, NodeLog, o.node.Attempt, "diff:\n"+diff)
+	o.run.EmitEphemeralEvent(o.node.ID, NodeLog, o.node.Attempt, "diff:\n"+diff, map[string]any{"kind": "diff"})
 }
 
 func flattenSet(m map[string]string) []string {

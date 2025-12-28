@@ -235,7 +235,12 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				*waited = true
 				used := b.inUse.Load()
 				msg := fmt.Sprintf("waiting: %s budget %s (limit=%d used=%d)", waitType, waitKey, b.limit, used)
-				run.AppendEvent(node.ID, BudgetWait, node.Attempt, msg, nil)
+				run.AppendEvent(node.ID, BudgetWait, node.Attempt, msg, map[string]any{
+					"budgetType": waitType,
+					"budgetKey":  waitKey,
+					"limit":      b.limit,
+					"used":       used,
+				}, nil)
 			}
 			select {
 			case <-ctx.Done():
@@ -304,7 +309,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				ids := append([]string(nil), newlyReady...)
 				sort.Strings(ids)
 				for _, id := range ids {
-					run.AppendEvent(id, NodeQueued, 0, "ready", nil)
+					run.AppendEvent(id, NodeQueued, 0, "ready", nil, nil)
 				}
 			}
 			if blocked := s.TakeNewlyBlocked(); len(blocked) > 0 {
@@ -318,7 +323,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 					if n := nodesByID[id]; n != nil {
 						attempt = n.Attempt
 					}
-					run.AppendEvent(id, NodeBlocked, attempt, blocked[id], nil)
+					run.AppendEvent(id, NodeBlocked, attempt, blocked[id], nil, nil)
 				}
 			}
 			if node == nil {
@@ -326,7 +331,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			}
 			for {
 				node.Attempt++
-				run.AppendEvent(node.ID, NodeRunning, node.Attempt, "", nil)
+				run.AppendEvent(node.ID, NodeRunning, node.Attempt, "", nil, nil)
 				releaseNS := strings.TrimSpace(node.Namespace)
 				if releaseNS == "" {
 					releaseNS = "default"
@@ -395,7 +400,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				}
 				if err == nil {
 					s.MarkSucceeded(node.ID)
-					run.AppendEvent(node.ID, NodeSucceeded, node.Attempt, "", nil)
+					run.AppendEvent(node.ID, NodeSucceeded, node.Attempt, "", nil, nil)
 					if adaptive != nil {
 						poolMu.Lock()
 						before := adaptive.Target
@@ -403,7 +408,13 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 						if changed {
 							targetWorkers = adaptive.Target
 							msg := fmt.Sprintf("concurrency: %d -> %d reason=%s window=%d failRate=%.2f", before, adaptive.Target, reason, len(adaptive.window), adaptive.failureRate())
-							run.AppendEvent("", RunConcurrency, 0, msg, nil)
+							run.AppendEvent("", RunConcurrency, 0, msg, map[string]any{
+								"from":     before,
+								"to":       adaptive.Target,
+								"reason":   reason,
+								"window":   len(adaptive.window),
+								"failRate": adaptive.failureRate(),
+							}, nil)
 						}
 						poolMu.Unlock()
 						maybeSpawn()
@@ -422,22 +433,31 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				}
 				class := classifyError(err)
 				retryable := isRetryableClass(class)
-				run.AppendEvent(node.ID, NodeFailed, node.Attempt, err.Error(), &RunError{Class: class, Message: err.Error(), Digest: computeRunErrorDigest(class, err.Error())})
+				run.AppendEvent(node.ID, NodeFailed, node.Attempt, err.Error(), nil, &RunError{Class: class, Message: err.Error(), Digest: computeRunErrorDigest(class, err.Error())})
 				if adaptive != nil {
 					poolMu.Lock()
 					before := adaptive.Target
-					changed, _ := adaptive.OnFailure(class)
+					changed, reason := adaptive.OnFailure(class)
 					if changed {
 						targetWorkers = adaptive.Target
-						msg := fmt.Sprintf("concurrency: %d -> %d reason=%s window=%d failRate=%.2f", before, adaptive.Target, class, len(adaptive.window), adaptive.failureRate())
-						run.AppendEvent("", RunConcurrency, 0, msg, nil)
+						msg := fmt.Sprintf("concurrency: %d -> %d reason=%s window=%d failRate=%.2f", before, adaptive.Target, reason, len(adaptive.window), adaptive.failureRate())
+						run.AppendEvent("", RunConcurrency, 0, msg, map[string]any{
+							"from":     before,
+							"to":       adaptive.Target,
+							"reason":   reason,
+							"class":    class,
+							"window":   len(adaptive.window),
+							"failRate": adaptive.failureRate(),
+						}, nil)
 					}
 					poolMu.Unlock()
 					maybeSpawn()
 				}
 				if retryable && node.Attempt < maxAttempts {
 					backoff := retryBackoff(node.Attempt)
-					run.AppendEvent(node.ID, RetryScheduled, node.Attempt+1, fmt.Sprintf("backoff=%s", backoff), &RunError{Class: class, Message: err.Error(), Digest: computeRunErrorDigest(class, err.Error())})
+					run.AppendEvent(node.ID, RetryScheduled, node.Attempt+1, fmt.Sprintf("backoff=%s", backoff), map[string]any{
+						"backoff": backoff.String(),
+					}, &RunError{Class: class, Message: err.Error(), Digest: computeRunErrorDigest(class, err.Error())})
 					select {
 					case <-ctx.Done():
 						s.MarkFailed(node.ID, ctx.Err())
@@ -469,7 +489,26 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		}
 	}
 
-	run.AppendEvent("", RunStarted, 0, fmt.Sprintf("command=%s planned=%d", cmd, len(run.Nodes)), nil)
+	for _, n := range run.Nodes {
+		run.AppendEvent(n.ID, NodeMeta, 0, "", map[string]any{
+			"cluster":          strings.TrimSpace(n.Cluster.Name),
+			"namespace":        strings.TrimSpace(n.Namespace),
+			"name":             strings.TrimSpace(n.Name),
+			"executionGroup":   n.ExecutionGroup,
+			"parallelismGroup": strings.TrimSpace(n.Parallelism),
+			"critical":         n.Critical,
+			"primaryKind":      strings.TrimSpace(n.InferredPrimaryKind),
+		}, nil)
+	}
+	run.AppendEvent("", RunStarted, 0, fmt.Sprintf("command=%s planned=%d", cmd, len(run.Nodes)), map[string]any{
+		"command":     cmd,
+		"planned":     len(run.Nodes),
+		"stackName":   strings.TrimSpace(run.Plan.StackName),
+		"stackRoot":   strings.TrimSpace(run.Plan.StackRoot),
+		"profile":     strings.TrimSpace(run.Plan.Profile),
+		"concurrency": run.Concurrency,
+		"failMode":    strings.TrimSpace(run.FailMode),
+	}, nil)
 
 	// Stack-level runOnce hooks (pre).
 	if err := runHookList(ctx, hookRunContext{
@@ -481,7 +520,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		baseDir: run.Plan.StackRoot,
 	}, hooksForRunOnce(run.Plan, cmd, true)); err != nil {
 		firstErr = err
-		run.AppendEvent("", RunCompleted, 0, "failed", nil)
+		run.AppendEvent("", RunCompleted, 0, "failed", map[string]any{"status": "failed"}, nil)
 		run.WriteSummarySnapshot(run.BuildSummary("failed", start, s.Snapshot()))
 		if run.store != nil {
 			_, _ = run.store.FinalizeRun(context.Background(), run.RunID, time.Now().UTC().UnixNano(), run.eventPrevHash)
@@ -508,7 +547,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			if strings.TrimSpace(opts.ResumeFromRunID) != "" {
 				msg = fmt.Sprintf("resume: already succeeded in run %s", strings.TrimSpace(opts.ResumeFromRunID))
 			}
-			run.AppendEvent(n.ID, NodeSucceeded, n.Attempt, msg, nil)
+			run.AppendEvent(n.ID, NodeSucceeded, n.Attempt, msg, nil, nil)
 		}
 	}
 	run.WriteSummarySnapshot(run.BuildSummary("running", start, s.Snapshot()))
@@ -530,7 +569,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			if n := nodesByID[id]; n != nil {
 				attempt = n.Attempt
 			}
-			run.AppendEvent(id, NodeBlocked, attempt, blocked[id], nil)
+			run.AppendEvent(id, NodeBlocked, attempt, blocked[id], nil, nil)
 		}
 	}
 	status := "succeeded"
@@ -554,7 +593,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		firstErr = err
 		status = "failed"
 	}
-	run.AppendEvent("", RunCompleted, 0, status, nil)
+	run.AppendEvent("", RunCompleted, 0, status, map[string]any{"status": status}, nil)
 	run.WriteSummarySnapshot(run.BuildSummary(status, start, s.Snapshot()))
 	if run.store != nil {
 		_, _ = run.store.FinalizeRun(context.Background(), run.RunID, time.Now().UTC().UnixNano(), run.eventPrevHash)
@@ -660,15 +699,15 @@ func (r *runState) WritePlan() error {
 	return r.store.CreateRun(context.Background(), r, r.Plan)
 }
 
-func (r *runState) AppendEvent(nodeID string, typ RunEventType, attempt int, message string, runErr *RunError) {
-	r.emitEvent(nodeID, typ, attempt, message, runErr, true)
+func (r *runState) AppendEvent(nodeID string, typ RunEventType, attempt int, message string, fields any, runErr *RunError) {
+	r.emitEvent(nodeID, typ, attempt, message, fields, runErr, true)
 }
 
-func (r *runState) EmitEphemeralEvent(nodeID string, typ RunEventType, attempt int, message string) {
-	r.emitEvent(nodeID, typ, attempt, message, nil, false)
+func (r *runState) EmitEphemeralEvent(nodeID string, typ RunEventType, attempt int, message string, fields any) {
+	r.emitEvent(nodeID, typ, attempt, message, fields, nil, false)
 }
 
-func (r *runState) emitEvent(nodeID string, typ RunEventType, attempt int, message string, runErr *RunError, persist bool) {
+func (r *runState) emitEvent(nodeID string, typ RunEventType, attempt int, message string, fields any, runErr *RunError, persist bool) {
 	r.mu.Lock()
 	r.eventSeq++
 	ev := RunEvent{
@@ -679,6 +718,7 @@ func (r *runState) emitEvent(nodeID string, typ RunEventType, attempt int, messa
 		Type:    string(typ),
 		Attempt: attempt,
 		Message: message,
+		Fields:  fields,
 		Error:   runErr,
 	}
 	observers := append([]RunEventObserver(nil), r.observers...)

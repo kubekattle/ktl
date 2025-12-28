@@ -137,7 +137,7 @@ func runOneHook(ctx context.Context, hc hookRunContext, hook HookSpec) error {
 	desc := fmt.Sprintf("%s %s", strings.TrimSpace(hc.phase), name)
 
 	if hc.run != nil {
-		hc.run.AppendEvent(nodeID, HookStarted, attempt, desc, nil)
+		hc.run.AppendEvent(nodeID, HookStarted, attempt, desc, map[string]any{"hook": strings.TrimSpace(name), "phase": strings.TrimSpace(hc.phase)}, nil)
 	}
 
 	maxAttempts := 1
@@ -164,7 +164,7 @@ func runOneHook(ctx context.Context, hc hookRunContext, hook HookSpec) error {
 		cancel()
 		if lastErr == nil {
 			if hc.run != nil {
-				hc.run.AppendEvent(nodeID, HookSucceeded, attempt, desc, nil)
+				hc.run.AppendEvent(nodeID, HookSucceeded, attempt, desc, map[string]any{"hook": strings.TrimSpace(name), "phase": strings.TrimSpace(hc.phase)}, nil)
 			}
 			return nil
 		}
@@ -172,7 +172,7 @@ func runOneHook(ctx context.Context, hc hookRunContext, hook HookSpec) error {
 		if try < maxAttempts {
 			backoff := time.Duration(try) * 500 * time.Millisecond
 			if hc.run != nil {
-				hc.run.EmitEphemeralEvent(nodeID, NodeLog, attempt, fmt.Sprintf("hook %s failed (attempt %d/%d): %v (retrying in %s)", desc, try, maxAttempts, lastErr, backoff))
+				hc.run.EmitEphemeralEvent(nodeID, NodeLog, attempt, fmt.Sprintf("hook %s failed (attempt %d/%d): %v (retrying in %s)", desc, try, maxAttempts, lastErr, backoff), map[string]any{"hook": strings.TrimSpace(name), "attempt": try, "maxAttempts": maxAttempts, "backoff": backoff.String()})
 			}
 			select {
 			case <-ctx.Done():
@@ -183,7 +183,7 @@ func runOneHook(ctx context.Context, hc hookRunContext, hook HookSpec) error {
 	}
 
 	if hc.run != nil {
-		hc.run.AppendEvent(nodeID, HookFailed, attempt, fmt.Sprintf("%s: %v", desc, lastErr), &RunError{Class: "HOOK_FAILED", Message: lastErr.Error(), Digest: computeRunErrorDigest("HOOK_FAILED", lastErr.Error())})
+		hc.run.AppendEvent(nodeID, HookFailed, attempt, fmt.Sprintf("%s: %v", desc, lastErr), map[string]any{"hook": strings.TrimSpace(name), "phase": strings.TrimSpace(hc.phase)}, &RunError{Class: "HOOK_FAILED", Message: lastErr.Error(), Digest: computeRunErrorDigest("HOOK_FAILED", lastErr.Error())})
 	}
 	return lastErr
 }
@@ -307,7 +307,7 @@ func emitHookOutput(hc hookRunContext, desc string, output []byte) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		hc.run.EmitEphemeralEvent(nodeID, NodeLog, attempt, fmt.Sprintf("hook-output %s: %s", strings.TrimSpace(desc), line))
+		hc.run.EmitEphemeralEvent(nodeID, NodeLog, attempt, fmt.Sprintf("hook-output %s: %s", strings.TrimSpace(desc), line), map[string]any{"kind": "hook-output"})
 	}
 }
 

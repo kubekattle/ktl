@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS ktl_stack_events (
   type TEXT NOT NULL,
   attempt INTEGER NOT NULL,
   message TEXT NOT NULL,
+  fields_json TEXT NOT NULL DEFAULT '',
   error_class TEXT NOT NULL,
   error_message TEXT NOT NULL,
   error_digest TEXT NOT NULL,
@@ -194,6 +195,7 @@ func (s *stackStateStore) ensureEventsIntegrityColumns(ctx context.Context) erro
 		return err
 	}
 	want := map[string]string{
+		"fields_json": "TEXT NOT NULL DEFAULT ''",
 		"seq":         "INTEGER NOT NULL DEFAULT 0",
 		"prev_digest": "TEXT NOT NULL DEFAULT ''",
 		"digest":      "TEXT NOT NULL DEFAULT ''",
@@ -403,10 +405,16 @@ func (s *stackStateStore) AppendEvent(ctx context.Context, runID string, ev RunE
 		nodeID = ""
 	}
 	msg := strings.TrimSpace(ev.Message)
+	fieldsJSON := ""
+	if ev.Fields != nil {
+		if raw, err := json.Marshal(ev.Fields); err == nil {
+			fieldsJSON = string(raw)
+		}
+	}
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, runID, ts.UnixNano(), nodeID, ev.Type, ev.Attempt, msg, errClass, errMsg, errDigest, ev.Seq, ev.PrevDigest, ev.Digest, ev.CRC32)
+INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, runID, ts.UnixNano(), nodeID, ev.Type, ev.Attempt, msg, fieldsJSON, errClass, errMsg, errDigest, ev.Seq, ev.PrevDigest, ev.Digest, ev.CRC32)
 	if err != nil {
 		return err
 	}
@@ -545,7 +553,7 @@ func (s *stackStateStore) GetRunPlan(ctx context.Context, runID string) (*Plan, 
 
 func (s *stackStateStore) VerifyEventsIntegrity(ctx context.Context, runID string) error {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+SELECT id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
 FROM ktl_stack_events
 WHERE run_id = ?
 ORDER BY id ASC
@@ -559,7 +567,7 @@ ORDER BY id ASC
 	checked := false
 	for rows.Next() {
 		var r sqliteEventRow
-		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.fieldsJSON, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
 			return err
 		}
 		ev := sqliteRowToRunEvent(runID, r)
@@ -614,6 +622,7 @@ type sqliteEventRow struct {
 	typ        string
 	attempt    int
 	message    string
+	fieldsJSON string
 	errClass   string
 	errMessage string
 	errDigest  string
@@ -628,7 +637,7 @@ func (s *stackStateStore) TailEvents(ctx context.Context, runID string, limit in
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+SELECT id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
 FROM ktl_stack_events
 WHERE run_id = ?
 ORDER BY id DESC
@@ -643,7 +652,7 @@ LIMIT ?
 	var maxID int64
 	for rows.Next() {
 		var r sqliteEventRow
-		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.fieldsJSON, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
 			return nil, 0, err
 		}
 		if r.id > maxID {
@@ -672,7 +681,7 @@ func (s *stackStateStore) EventsAfter(ctx context.Context, runID string, afterID
 		limit = 200
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+SELECT id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
 FROM ktl_stack_events
 WHERE run_id = ? AND id > ?
 ORDER BY id ASC
@@ -687,7 +696,7 @@ LIMIT ?
 	maxID := afterID
 	for rows.Next() {
 		var r sqliteEventRow
-		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.fieldsJSON, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
 			return nil, afterID, err
 		}
 		if r.id > maxID {
@@ -706,7 +715,7 @@ func (s *stackStateStore) ListEvents(ctx context.Context, runID string, limit in
 		limit = 0
 	}
 	query := `
-SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+SELECT id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
 FROM ktl_stack_events
 WHERE run_id = ?
 ORDER BY id ASC
@@ -724,7 +733,7 @@ ORDER BY id ASC
 	var out []RunEvent
 	for rows.Next() {
 		var r sqliteEventRow
-		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.fieldsJSON, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
 			return nil, err
 		}
 		out = append(out, sqliteRowToRunEvent(runID, r))
@@ -745,6 +754,12 @@ func sqliteRowToRunEvent(runID string, r sqliteEventRow) RunEvent {
 		PrevDigest: strings.TrimSpace(r.prevDigest),
 		Digest:     strings.TrimSpace(r.digest),
 		CRC32:      strings.TrimSpace(r.crc32),
+	}
+	if strings.TrimSpace(r.fieldsJSON) != "" {
+		var fields any
+		if err := json.Unmarshal([]byte(r.fieldsJSON), &fields); err == nil {
+			ev.Fields = fields
+		}
 	}
 	if strings.TrimSpace(r.errClass) != "" || strings.TrimSpace(r.errMessage) != "" || strings.TrimSpace(r.errDigest) != "" {
 		ev.Error = &RunError{

@@ -54,6 +54,7 @@ type RunEvent struct {
 	Type    string    `json:"type"`
 	Attempt int       `json:"attempt"`
 	Message string    `json:"message,omitempty"`
+	Fields  any       `json:"fields,omitempty"`
 	Error   *RunError `json:"error,omitempty"`
 
 	PrevDigest string `json:"prevDigest,omitempty"`
@@ -142,6 +143,13 @@ func computeRunEventIntegrity(ev RunEvent) (digest string, crc string) {
 	write(ev.Type)
 	write(fmt.Sprintf("attempt=%d", ev.Attempt))
 	write(ev.Message)
+	fieldsJSON := ""
+	if ev.Fields != nil {
+		if raw, err := json.Marshal(ev.Fields); err == nil {
+			fieldsJSON = string(raw)
+		}
+	}
+	write(fieldsJSON)
 	if ev.Error != nil {
 		write(ev.Error.Class)
 		write(ev.Error.Message)

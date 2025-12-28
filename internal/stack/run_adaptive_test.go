@@ -95,8 +95,16 @@ func TestRun_AdaptiveConcurrency_EmitsEvents(t *testing.T) {
 		if strings.Contains(ev.Message, "reason=ramp-up") {
 			sawRamp = true
 		}
-		if strings.Contains(ev.Message, "reason=RATE_LIMIT") {
+		if strings.Contains(ev.Message, "shrink:RATE_LIMIT") {
 			sawShrink = true
+			continue
+		}
+		if fields, ok := ev.Fields.(map[string]any); ok {
+			if v, ok := fields["class"].(string); ok && v == "RATE_LIMIT" {
+				if r, ok := fields["reason"].(string); ok && strings.Contains(r, "shrink:RATE_LIMIT") {
+					sawShrink = true
+				}
+			}
 		}
 	}
 	if !sawRamp {
