@@ -11,6 +11,7 @@ func PlanFromRunPlan(rp *RunPlan) (*Plan, error) {
 		StackName: rp.StackName,
 		Profile:   rp.Profile,
 		Nodes:     rp.Nodes,
+		Runner:    rp.Runner,
 		ByID:      map[string]*ResolvedRelease{},
 		ByCluster: map[string][]*ResolvedRelease{},
 	}

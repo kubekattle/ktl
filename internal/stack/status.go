@@ -4,7 +4,6 @@
 package stack
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,23 +26,18 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 	if root == "" {
 		root = "."
 	}
-	runRoot := ""
-	if opts.RunID != "" {
-		runRoot = filepath.Join(root, ".ktl", "stack", "runs", opts.RunID)
-	} else {
+	runID := opts.RunID
+	if runID == "" {
 		var err error
-		runRoot, err = LoadMostRecentRun(root)
+		runID, err = LoadMostRecentRun(root)
 		if err != nil {
 			return err
 		}
 	}
 
-	runID := filepath.Base(runRoot)
-
 	statePath := filepath.Join(root, stackStateSQLiteRelPath)
-	useSQLite := false
-	if _, err := os.Stat(statePath); err == nil {
-		useSQLite = true
+	if _, err := os.Stat(statePath); err != nil {
+		return fmt.Errorf("missing stack state (expected %s)", statePath)
 	}
 
 	format := opts.Format
@@ -55,31 +49,14 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 		return fmt.Errorf("--follow is only supported with --format raw")
 	}
 
-	var summary *RunSummary
-	var sqliteStore *stackStateStore
-	if useSQLite {
-		s, err := openStackStateStore(root, true)
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-		ss, err := s.GetRunSummary(ctx, runID)
-		if err != nil {
-			return err
-		}
-		sqliteStore = s
-		summary = ss
-	} else {
-		summaryPath := filepath.Join(runRoot, "summary.json")
-		if raw, err := os.ReadFile(summaryPath); err == nil {
-			var s RunSummary
-			if jsonErr := json.Unmarshal(raw, &s); jsonErr == nil {
-				summary = &s
-			}
-		}
+	s, err := openStackStateStore(root, true)
+	if err != nil {
+		return err
 	}
-	if summary == nil {
-		return fmt.Errorf("missing or unreadable summary for run %s", runID)
+	defer s.Close()
+	summary, err := s.GetRunSummary(ctx, runID)
+	if err != nil {
+		return err
 	}
 
 	switch format {
@@ -95,12 +72,7 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 	}
 
 	fmt.Fprintf(out, "RUN\t%s\n", runID)
-	fmt.Fprintf(out, "STATE\t%s\n", func() string {
-		if useSQLite {
-			return filepath.Join(root, stackStateSQLiteRelPath)
-		}
-		return runRoot
-	}())
+	fmt.Fprintf(out, "STATE\t%s\n", filepath.Join(root, stackStateSQLiteRelPath))
 	fmt.Fprintln(out)
 
 	fmt.Fprintf(out, "STATUS\t%s\n", summary.Status)
@@ -113,127 +85,45 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 	if limit <= 0 {
 		limit = 50
 	}
-	if useSQLite {
-		if sqliteStore == nil {
-			return fmt.Errorf("internal error: sqlite state store is nil")
-		}
-		fmt.Fprintf(out, "EVENTS\t(last %d)\n", limit)
+	fmt.Fprintf(out, "EVENTS\t(last %d)\n", limit)
 
-		enc := json.NewEncoder(out)
-		events, lastID, err := sqliteStore.TailEvents(ctx, runID, limit)
-		if err != nil {
-			return err
-		}
-		for _, ev := range events {
-			if err := enc.Encode(ev); err != nil {
-				return err
-			}
-		}
-		if len(events) > 0 {
-			fmt.Fprintln(out)
-		}
-		if !opts.Follow {
-			return nil
-		}
-
-		ticker := time.NewTicker(250 * time.Millisecond)
-		defer ticker.Stop()
-		after := lastID
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ticker.C:
-			}
-
-			newEvents, newLast, err := sqliteStore.EventsAfter(ctx, runID, after, 200)
-			if err != nil {
-				return err
-			}
-			if len(newEvents) == 0 {
-				continue
-			}
-			for _, ev := range newEvents {
-				if err := enc.Encode(ev); err != nil {
-					return err
-				}
-			}
-			after = newLast
-		}
-	}
-
-	eventsPath := filepath.Join(runRoot, "events.jsonl")
-	last, err := readLastJSONLines(eventsPath, limit)
-	if err != nil && !os.IsNotExist(err) {
+	enc := json.NewEncoder(out)
+	events, lastID, err := s.TailEvents(ctx, runID, limit)
+	if err != nil {
 		return err
 	}
-	for _, line := range last {
-		fmt.Fprintln(out, line)
+	for _, ev := range events {
+		if err := enc.Encode(ev); err != nil {
+			return err
+		}
 	}
-	if len(last) > 0 {
+	if len(events) > 0 {
 		fmt.Fprintln(out)
 	}
-
 	if !opts.Follow {
 		return nil
 	}
-	return followJSONLines(ctx, eventsPath, out)
-}
 
-func readLastJSONLines(path string, limit int) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	var lines []string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		lines = append(lines, sc.Text())
-		if len(lines) > limit {
-			lines = lines[len(lines)-limit:]
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	return lines, nil
-}
-
-func followJSONLines(ctx context.Context, path string, out io.Writer) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// Start following from the end so we don't re-print the tail.
-	if _, err := f.Seek(0, io.SeekEnd); err != nil {
-		_, _ = f.Seek(0, io.SeekStart)
-	}
-
-	r := bufio.NewReader(f)
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-
+	after := lastID
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		default:
+		case <-time.After(250 * time.Millisecond):
 		}
 
-		line, err := r.ReadString('\n')
-		if err == nil {
-			fmt.Fprint(out, line)
+		newEvents, newLast, err := s.EventsAfter(ctx, runID, after, 200)
+		if err != nil {
+			return err
+		}
+		if len(newEvents) == 0 {
 			continue
 		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
+		for _, ev := range newEvents {
+			if err := enc.Encode(ev); err != nil {
+				return err
+			}
 		}
+		after = newLast
 	}
 }

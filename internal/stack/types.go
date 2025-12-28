@@ -39,9 +39,10 @@ type ReleaseDefaults struct {
 }
 
 type StackProfile struct {
-	Defaults ReleaseDefaults `yaml:"defaults,omitempty" json:"defaults,omitempty"`
-	Runner   RunnerConfig    `yaml:"runner,omitempty" json:"runner,omitempty"`
-	CLI      StackCLIConfig  `yaml:"cli,omitempty" json:"cli,omitempty"`
+	Defaults ReleaseDefaults  `yaml:"defaults,omitempty" json:"defaults,omitempty"`
+	Runner   RunnerConfig     `yaml:"runner,omitempty" json:"runner,omitempty"`
+	CLI      StackCLIConfig   `yaml:"cli,omitempty" json:"cli,omitempty"`
+	Hooks    StackHooksConfig `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 }
 
 type StackFile struct {
@@ -51,10 +52,52 @@ type StackFile struct {
 	DefaultProfile string                  `yaml:"defaultProfile,omitempty" json:"defaultProfile,omitempty"`
 	Profiles       map[string]StackProfile `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 
-	Defaults ReleaseDefaults `yaml:"defaults,omitempty" json:"defaults,omitempty"`
-	Runner   RunnerConfig    `yaml:"runner,omitempty" json:"runner,omitempty"`
-	CLI      StackCLIConfig  `yaml:"cli,omitempty" json:"cli,omitempty"`
-	Releases []ReleaseSpec   `yaml:"releases,omitempty" json:"releases,omitempty"`
+	Defaults ReleaseDefaults  `yaml:"defaults,omitempty" json:"defaults,omitempty"`
+	Runner   RunnerConfig     `yaml:"runner,omitempty" json:"runner,omitempty"`
+	CLI      StackCLIConfig   `yaml:"cli,omitempty" json:"cli,omitempty"`
+	Hooks    StackHooksConfig `yaml:"hooks,omitempty" json:"hooks,omitempty"`
+	Releases []ReleaseSpec    `yaml:"releases,omitempty" json:"releases,omitempty"`
+}
+
+type StackHooksConfig struct {
+	PreApply   []HookSpec `yaml:"preApply,omitempty" json:"preApply,omitempty"`
+	PostApply  []HookSpec `yaml:"postApply,omitempty" json:"postApply,omitempty"`
+	PreDelete  []HookSpec `yaml:"preDelete,omitempty" json:"preDelete,omitempty"`
+	PostDelete []HookSpec `yaml:"postDelete,omitempty" json:"postDelete,omitempty"`
+}
+
+type HookSpec struct {
+	Name    string         `yaml:"name,omitempty" json:"name,omitempty"`
+	Type    string         `yaml:"type,omitempty" json:"type,omitempty"` // kubectl|script|http
+	RunOnce bool           `yaml:"runOnce,omitempty" json:"runOnce,omitempty"`
+	When    string         `yaml:"when,omitempty" json:"when,omitempty"` // success|failure|always
+	Timeout *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Retry   *int           `yaml:"retry,omitempty" json:"retry,omitempty"` // max attempts, includes the initial attempt
+
+	Kubeconfig string `yaml:"kubeconfig,omitempty" json:"kubeconfig,omitempty"`
+	Context    string `yaml:"context,omitempty" json:"context,omitempty"`
+	Namespace  string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+
+	Kubectl *KubectlHookConfig `yaml:"kubectl,omitempty" json:"kubectl,omitempty"`
+	Script  *ScriptHookConfig  `yaml:"script,omitempty" json:"script,omitempty"`
+	HTTP    *HTTPHookConfig    `yaml:"http,omitempty" json:"http,omitempty"`
+}
+
+type KubectlHookConfig struct {
+	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
+}
+
+type ScriptHookConfig struct {
+	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	WorkDir string            `yaml:"workDir,omitempty" json:"workDir,omitempty"`
+}
+
+type HTTPHookConfig struct {
+	Method  string            `yaml:"method,omitempty" json:"method,omitempty"`
+	URL     string            `yaml:"url,omitempty" json:"url,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Body    string            `yaml:"body,omitempty" json:"body,omitempty"`
 }
 
 // StackCLIConfig controls default CLI behavior for `ktl stack ...` subcommands.
@@ -95,15 +138,30 @@ type StackSelectorConfig struct {
 type StackApplyCLIConfig struct {
 	DryRun *bool `yaml:"dryRun,omitempty" json:"dryRun,omitempty"`
 	Diff   *bool `yaml:"diff,omitempty" json:"diff,omitempty"`
+
+	FailFast *bool              `yaml:"failFast,omitempty" json:"failFast,omitempty"`
+	Retry    *int               `yaml:"retry,omitempty" json:"retry,omitempty"`
+	Lock     StackLockCLIConfig `yaml:"lock,omitempty" json:"lock,omitempty"`
 }
 
 type StackDeleteCLIConfig struct {
 	ConfirmThreshold *int `yaml:"confirmThreshold,omitempty" json:"confirmThreshold,omitempty"`
+
+	FailFast *bool              `yaml:"failFast,omitempty" json:"failFast,omitempty"`
+	Retry    *int               `yaml:"retry,omitempty" json:"retry,omitempty"`
+	Lock     StackLockCLIConfig `yaml:"lock,omitempty" json:"lock,omitempty"`
 }
 
 type StackResumeCLIConfig struct {
 	AllowDrift  *bool `yaml:"allowDrift,omitempty" json:"allowDrift,omitempty"`
 	RerunFailed *bool `yaml:"rerunFailed,omitempty" json:"rerunFailed,omitempty"`
+}
+
+type StackLockCLIConfig struct {
+	Enabled  *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Takeover *bool          `yaml:"takeover,omitempty" json:"takeover,omitempty"`
+	TTL      *time.Duration `yaml:"ttl,omitempty" json:"ttl,omitempty"`
+	Owner    *string        `yaml:"owner,omitempty" json:"owner,omitempty"`
 }
 
 type RunnerConfig struct {
@@ -173,6 +231,7 @@ type ReleaseFile struct {
 	Needs        []string          `yaml:"needs,omitempty" json:"needs,omitempty"`
 	Apply        ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
 	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 }
 
 type ReleaseSpec struct {
@@ -190,6 +249,7 @@ type ReleaseSpec struct {
 	Needs        []string          `yaml:"needs,omitempty" json:"needs,omitempty"`
 	Apply        ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
 	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 }
 
 type ResolvedRelease struct {
@@ -212,6 +272,8 @@ type ResolvedRelease struct {
 
 	Apply  ApplyOptions  `json:"apply"`
 	Delete DeleteOptions `json:"delete"`
+
+	Hooks StackHooksConfig `json:"hooks,omitempty"`
 
 	SelectedBy []string `json:"selectedBy,omitempty"`
 

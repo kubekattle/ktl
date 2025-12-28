@@ -17,6 +17,8 @@ func classifyError(err error) string {
 	switch {
 	case strings.Contains(msg, "429") || strings.Contains(msg, "too many requests"):
 		return "RATE_LIMIT"
+	case strings.Contains(msg, " 409") || strings.Contains(msg, "statuscode=409") || strings.Contains(msg, "the object has been modified") || strings.Contains(msg, "conflict"):
+		return "CONFLICT"
 	case strings.Contains(msg, "timeout") || strings.Contains(msg, "context deadline exceeded"):
 		return "TIMEOUT"
 	case strings.Contains(msg, "connection reset") || strings.Contains(msg, "broken pipe") || strings.Contains(msg, "eof"):
@@ -32,7 +34,7 @@ func classifyError(err error) string {
 
 func isRetryableClass(class string) bool {
 	switch class {
-	case "RATE_LIMIT", "TIMEOUT", "TRANSPORT", "UNAVAILABLE", "SERVER_5XX":
+	case "RATE_LIMIT", "CONFLICT", "TIMEOUT", "TRANSPORT", "UNAVAILABLE", "SERVER_5XX":
 		return true
 	default:
 		return false

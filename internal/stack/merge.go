@@ -65,6 +65,15 @@ func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 	if r.ChartVersion != "" {
 		dst.ChartVersion = r.ChartVersion
 	}
+	if r.Wave != 0 {
+		dst.Wave = r.Wave
+	}
+	if r.Critical {
+		dst.Critical = true
+	}
+	if r.Parallelism != "" {
+		dst.Parallelism = r.Parallelism
+	}
 	if r.Cluster.Name != "" {
 		dst.Cluster.Name = r.Cluster.Name
 	}
@@ -94,6 +103,7 @@ func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 	if len(r.Needs) > 0 {
 		dst.Needs = append([]string(nil), r.Needs...)
 	}
+	mergeHooks(dst, baseDir, r.Hooks)
 	mergeApply(&dst.Apply, r.Apply)
 	mergeDelete(&dst.Delete, r.Delete)
 }

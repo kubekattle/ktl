@@ -18,17 +18,23 @@ import (
 	"github.com/example/ktl/internal/kube"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/rest"
 )
 
 type helmExecutor struct {
 	kubeconfig  *string
 	kubeContext *string
+	run         *runState
 
 	out    io.Writer
 	errOut io.Writer
 
 	dryRun bool
 	diff   bool
+
+	kubeQPS   float32
+	kubeBurst int
 
 	clients clientCache
 }
@@ -74,7 +80,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		kubeCtx = strings.TrimSpace(*e.kubeContext)
 	}
 
-	_, err := e.clients.get(ctx, kubeconfigPath, kubeCtx)
+	kubeClient, err := e.clients.get(ctx, kubeconfigPath, kubeCtx)
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
@@ -91,6 +97,25 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 	}
 
 	actionCfg := new(action.Configuration)
+	getter := settings.RESTClientGetter()
+	if cfgFlags, ok := getter.(*genericclioptions.ConfigFlags); ok && cfgFlags != nil {
+		prev := cfgFlags.WrapConfigFn
+		cfgFlags.WrapConfigFn = func(cfg *rest.Config) *rest.Config {
+			if prev != nil {
+				cfg = prev(cfg)
+			}
+			if cfg == nil {
+				return cfg
+			}
+			if e.kubeQPS > 0 {
+				cfg.QPS = e.kubeQPS
+			}
+			if e.kubeBurst > 0 {
+				cfg.Burst = e.kubeBurst
+			}
+			return cfg
+		}
+	}
 	helmDebug := strings.TrimSpace(os.Getenv("KTL_STACK_HELM_DEBUG")) == "1"
 	logFunc := func(format string, v ...interface{}) {
 		if !helmDebug {
@@ -98,11 +123,11 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		}
 		fmt.Fprintf(e.errOut, "[helm] "+format+"\n", v...)
 	}
-	if err := actionCfg.Init(settings.RESTClientGetter(), node.Namespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
+	if err := actionCfg.Init(getter, node.Namespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
 		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("init helm action config: %w", err))
 	}
 
-	obs := &prefixedObserver{prefix: node.ID, out: e.errOut}
+	obs := &stackEventObserver{run: e.run, node: node}
 	switch command {
 	case "apply":
 		timeout := 5 * time.Minute
@@ -117,6 +142,24 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		if node.Apply.Atomic != nil {
 			atomic = *node.Apply.Atomic
 		}
+
+		var (
+			trackCtx    context.Context
+			cancelTrack context.CancelFunc
+			lastRowsMu  sync.Mutex
+			lastRows    []deploy.ResourceStatus
+		)
+		if wait && !e.dryRun && kubeClient != nil {
+			trackCtx, cancelTrack = context.WithCancel(ctx)
+			tracker := deploy.NewResourceTracker(kubeClient, node.Namespace, node.Name, "", func(rows []deploy.ResourceStatus) {
+				lastRowsMu.Lock()
+				lastRows = append(lastRows[:0], rows...)
+				lastRowsMu.Unlock()
+			})
+			go tracker.Run(trackCtx)
+			defer cancelTrack()
+		}
+
 		setPairs := flattenSet(node.Set)
 		_, err := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
 			Chart:             node.Chart,
@@ -135,10 +178,37 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			ProgressObservers: []deploy.ProgressObserver{obs},
 		})
 		if err != nil {
+			if wait && !e.dryRun {
+				lastRowsMu.Lock()
+				snap := append([]deploy.ResourceStatus(nil), lastRows...)
+				lastRowsMu.Unlock()
+				blockers := deploy.TopBlockers(snap, 6)
+				if len(blockers) > 0 {
+					if e.run != nil {
+						e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, "TOP BLOCKERS")
+					}
+					for _, b := range blockers {
+						reason := strings.TrimSpace(b.Reason)
+						if reason == "" {
+							reason = "-"
+						}
+						msg := strings.TrimSpace(b.Message)
+						if msg == "" {
+							msg = "-"
+						}
+						if e.run != nil {
+							e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, fmt.Sprintf("%s/%s\t%s\t%s\t%s", b.Kind, b.Name, b.Status, reason, msg))
+						}
+					}
+				}
+			}
 			return wrapNodeErr(node.ResolvedRelease, err)
 		}
 		return nil
 	case "delete":
+		if e.run != nil {
+			e.run.AppendEvent(node.ID, PhaseStarted, node.Attempt, "destroy", nil)
+		}
 		timeout := 5 * time.Minute
 		if node.Delete.Timeout != nil {
 			timeout = *node.Delete.Timeout
@@ -147,41 +217,67 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		uninstall.Timeout = timeout
 		_, err := uninstall.Run(node.Name)
 		if err != nil {
+			if e.run != nil {
+				e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "destroy failure", nil)
+			}
 			return wrapNodeErr(node.ResolvedRelease, err)
 		}
-		fmt.Fprintf(e.errOut, "[%s] deleted\n", node.ID)
+		if e.run != nil {
+			e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "destroy success", nil)
+		}
 		return nil
 	default:
 		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("unknown command %q", command))
 	}
 }
 
-type prefixedObserver struct {
-	prefix string
-	out    io.Writer
+type stackEventObserver struct {
+	run  *runState
+	node *runNode
 }
 
-func (p *prefixedObserver) PhaseStarted(name string) {
-	fmt.Fprintf(p.out, "[%s] %s started\n", p.prefix, name)
-}
-
-func (p *prefixedObserver) PhaseCompleted(name, status, message string) {
-	if strings.TrimSpace(message) == "" {
-		fmt.Fprintf(p.out, "[%s] %s %s\n", p.prefix, name, status)
+func (o *stackEventObserver) PhaseStarted(name string) {
+	if o == nil || o.run == nil || o.node == nil {
 		return
 	}
-	fmt.Fprintf(p.out, "[%s] %s %s: %s\n", p.prefix, name, status, message)
+	o.run.AppendEvent(o.node.ID, PhaseStarted, o.node.Attempt, strings.TrimSpace(name), nil)
 }
 
-func (p *prefixedObserver) EmitEvent(level, message string) {
-	fmt.Fprintf(p.out, "[%s] %s: %s\n", p.prefix, level, message)
-}
-
-func (p *prefixedObserver) SetDiff(diff string) {
-	if strings.TrimSpace(diff) == "" {
+func (o *stackEventObserver) PhaseCompleted(name, status, message string) {
+	if o == nil || o.run == nil || o.node == nil {
 		return
 	}
-	fmt.Fprintf(p.out, "[%s] diff:\n%s\n", p.prefix, diff)
+	desc := strings.TrimSpace(name) + " " + strings.TrimSpace(status)
+	if strings.TrimSpace(message) != "" {
+		desc += ": " + strings.TrimSpace(message)
+	}
+	o.run.AppendEvent(o.node.ID, PhaseCompleted, o.node.Attempt, desc, nil)
+}
+
+func (o *stackEventObserver) EmitEvent(level, message string) {
+	if o == nil || o.run == nil || o.node == nil {
+		return
+	}
+	level = strings.TrimSpace(level)
+	message = strings.TrimSpace(message)
+	if level == "" {
+		level = "info"
+	}
+	if message == "" {
+		return
+	}
+	o.run.EmitEphemeralEvent(o.node.ID, NodeLog, o.node.Attempt, fmt.Sprintf("%s: %s", level, message))
+}
+
+func (o *stackEventObserver) SetDiff(diff string) {
+	if o == nil || o.run == nil || o.node == nil {
+		return
+	}
+	diff = strings.TrimSpace(diff)
+	if diff == "" {
+		return
+	}
+	o.run.EmitEphemeralEvent(o.node.ID, NodeLog, o.node.Attempt, "diff:\n"+diff)
 }
 
 func flattenSet(m map[string]string) []string {

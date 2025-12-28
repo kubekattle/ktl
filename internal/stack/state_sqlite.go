@@ -114,9 +114,19 @@ CREATE TABLE IF NOT EXISTS ktl_stack_runs (
   status TEXT NOT NULL,
   created_at_ns INTEGER NOT NULL,
   updated_at_ns INTEGER NOT NULL,
+  completed_at_ns INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL DEFAULT '',
+  pid INTEGER NOT NULL DEFAULT 0,
+  ci_run_url TEXT NOT NULL DEFAULT '',
+  git_author TEXT NOT NULL DEFAULT '',
+  kubeconfig TEXT NOT NULL DEFAULT '',
+  kube_context TEXT NOT NULL DEFAULT '',
   selector_json TEXT NOT NULL,
   plan_json TEXT NOT NULL,
-  summary_json TEXT NOT NULL
+  summary_json TEXT NOT NULL,
+  last_event_digest TEXT NOT NULL DEFAULT '',
+  run_digest TEXT NOT NULL DEFAULT ''
 );`,
 		`
 CREATE TABLE IF NOT EXISTS ktl_stack_nodes (
@@ -125,6 +135,9 @@ CREATE TABLE IF NOT EXISTS ktl_stack_nodes (
   status TEXT NOT NULL,
   attempt INTEGER NOT NULL,
   error TEXT NOT NULL,
+  last_error_class TEXT NOT NULL DEFAULT '',
+  last_error_digest TEXT NOT NULL DEFAULT '',
+  updated_at_ns INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (run_id, node_id),
   FOREIGN KEY (run_id) REFERENCES ktl_stack_runs(run_id) ON DELETE CASCADE
 );`,
@@ -147,6 +160,8 @@ CREATE TABLE IF NOT EXISTS ktl_stack_events (
   FOREIGN KEY (run_id) REFERENCES ktl_stack_runs(run_id) ON DELETE CASCADE
 );`,
 		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_events_run_id_id ON ktl_stack_events(run_id, id);`,
+		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_events_run_id_error_digest ON ktl_stack_events(run_id, error_digest);`,
+		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_nodes_run_id_status ON ktl_stack_nodes(run_id, status);`,
 		`
 CREATE TABLE IF NOT EXISTS ktl_stack_lock (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -162,6 +177,12 @@ CREATE TABLE IF NOT EXISTS ktl_stack_lock (
 		}
 	}
 	if err := s.ensureEventsIntegrityColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureRunColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.ensureNodeColumns(ctx); err != nil {
 		return err
 	}
 	return nil
@@ -184,6 +205,55 @@ func (s *stackStateStore) ensureEventsIntegrityColumns(ctx context.Context) erro
 		}
 		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE ktl_stack_events ADD COLUMN %s %s;", name, ddl)); err != nil {
 			return fmt.Errorf("add column ktl_stack_events.%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (s *stackStateStore) ensureRunColumns(ctx context.Context) error {
+	cols, err := s.tableColumns(ctx, "ktl_stack_runs")
+	if err != nil {
+		return err
+	}
+	want := map[string]string{
+		"completed_at_ns":   "INTEGER NOT NULL DEFAULT 0",
+		"created_by":        "TEXT NOT NULL DEFAULT ''",
+		"host":              "TEXT NOT NULL DEFAULT ''",
+		"pid":               "INTEGER NOT NULL DEFAULT 0",
+		"ci_run_url":        "TEXT NOT NULL DEFAULT ''",
+		"git_author":        "TEXT NOT NULL DEFAULT ''",
+		"kubeconfig":        "TEXT NOT NULL DEFAULT ''",
+		"kube_context":      "TEXT NOT NULL DEFAULT ''",
+		"last_event_digest": "TEXT NOT NULL DEFAULT ''",
+		"run_digest":        "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, ddl := range want {
+		if _, ok := cols[name]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE ktl_stack_runs ADD COLUMN %s %s;", name, ddl)); err != nil {
+			return fmt.Errorf("add column ktl_stack_runs.%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (s *stackStateStore) ensureNodeColumns(ctx context.Context) error {
+	cols, err := s.tableColumns(ctx, "ktl_stack_nodes")
+	if err != nil {
+		return err
+	}
+	want := map[string]string{
+		"last_error_class":  "TEXT NOT NULL DEFAULT ''",
+		"last_error_digest": "TEXT NOT NULL DEFAULT ''",
+		"updated_at_ns":     "INTEGER NOT NULL DEFAULT 0",
+	}
+	for name, ddl := range want {
+		if _, ok := cols[name]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE ktl_stack_nodes ADD COLUMN %s %s;", name, ddl)); err != nil {
+			return fmt.Errorf("add column ktl_stack_nodes.%s: %w", name, err)
 		}
 	}
 	return nil
@@ -255,6 +325,21 @@ func (s *stackStateStore) CreateRun(ctx context.Context, run *runState, p *Plan)
 		return err
 	}
 
+	createdBy := strings.TrimSpace(run.lockOwner)
+	if createdBy == "" {
+		createdBy = defaultLockOwner()
+	}
+	host, _ := os.Hostname()
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "unknown-host"
+	}
+	pid := os.Getpid()
+	ciRunURL := strings.TrimSpace(ciRunURLFromEnv())
+	gitAuthor := strings.TrimSpace(gitAuthorForRoot(p.StackRoot))
+	kubeconfig := strings.TrimSpace(run.Kubeconfig)
+	kubeContext := strings.TrimSpace(run.KubeContext)
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -264,10 +349,14 @@ func (s *stackStateStore) CreateRun(ctx context.Context, run *runState, p *Plan)
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO ktl_stack_runs (
   run_id, stack_root, stack_name, profile, command, concurrency, fail_mode, status,
-  created_at_ns, updated_at_ns, selector_json, plan_json, summary_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  created_at_ns, updated_at_ns, completed_at_ns, created_by, host, pid,
+  ci_run_url, git_author, kubeconfig, kube_context,
+  selector_json, plan_json, summary_json, last_event_digest, run_digest
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, run.RunID, p.StackRoot, p.StackName, p.Profile, run.Command, run.Concurrency, run.FailMode, "running",
-		now.UnixNano(), now.UnixNano(), string(selectorJSON), string(planJSON), string(summaryJSON))
+		now.UnixNano(), now.UnixNano(), int64(0), createdBy, host, pid,
+		ciRunURL, gitAuthor, kubeconfig, kubeContext,
+		string(selectorJSON), string(planJSON), string(summaryJSON), "", "")
 	if err != nil {
 		return err
 	}
@@ -340,14 +429,19 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		}
 		if status != "" && nodeID != "" {
 			nodeErr := ""
+			lastErrClass := ""
+			lastErrDigest := ""
 			if status == "failed" {
 				nodeErr = errMsg
+				lastErrClass = errClass
+				lastErrDigest = errDigest
 			}
+			updatedNodeAt := time.Now().UTC().UnixNano()
 			_, _ = s.db.ExecContext(ctx, `
 UPDATE ktl_stack_nodes
-SET status = ?, attempt = CASE WHEN ? > attempt THEN ? ELSE attempt END, error = ?
+SET status = ?, attempt = CASE WHEN ? > attempt THEN ? ELSE attempt END, error = ?, last_error_class = ?, last_error_digest = ?, updated_at_ns = ?
 WHERE run_id = ? AND node_id = ?
-`, status, ev.Attempt, ev.Attempt, nodeErr, runID, nodeID)
+`, status, ev.Attempt, ev.Attempt, nodeErr, lastErrClass, lastErrDigest, updatedNodeAt, runID, nodeID)
 		}
 	}
 
@@ -380,16 +474,47 @@ func (s *stackStateStore) WriteSummary(ctx context.Context, runID string, summar
 	}
 	for nodeID, ns := range summary.Nodes {
 		nodeErr := strings.TrimSpace(ns.Error)
+		updatedNodeAt := updatedAt
 		_, err := tx.ExecContext(ctx, `
 UPDATE ktl_stack_nodes
-SET status = ?, attempt = ?, error = ?
+SET status = ?, attempt = ?, error = ?, updated_at_ns = ?
 WHERE run_id = ? AND node_id = ?
-`, ns.Status, ns.Attempt, nodeErr, runID, nodeID)
+`, ns.Status, ns.Attempt, nodeErr, updatedNodeAt, runID, nodeID)
 		if err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *stackStateStore) FinalizeRun(ctx context.Context, runID string, completedAtNS int64, lastEventDigest string) (string, error) {
+	if s == nil || s.db == nil {
+		return "", fmt.Errorf("state store not initialized")
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return "", fmt.Errorf("run id is required")
+	}
+	if completedAtNS <= 0 {
+		completedAtNS = time.Now().UTC().UnixNano()
+	}
+	lastEventDigest = strings.TrimSpace(lastEventDigest)
+
+	var planJSON string
+	var summaryJSON string
+	if err := s.db.QueryRowContext(ctx, `SELECT plan_json, summary_json FROM ktl_stack_runs WHERE run_id = ?`, runID).Scan(&planJSON, &summaryJSON); err != nil {
+		return "", err
+	}
+	digest := computeRunDigest(planJSON, summaryJSON, lastEventDigest)
+	_, err := s.db.ExecContext(ctx, `
+UPDATE ktl_stack_runs
+SET completed_at_ns = ?, last_event_digest = ?, run_digest = ?, updated_at_ns = CASE WHEN updated_at_ns < ? THEN ? ELSE updated_at_ns END
+WHERE run_id = ?
+`, completedAtNS, lastEventDigest, digest, completedAtNS, completedAtNS, runID)
+	if err != nil {
+		return "", err
+	}
+	return digest, nil
 }
 
 func (s *stackStateStore) GetRunSummary(ctx context.Context, runID string) (*RunSummary, error) {
@@ -574,6 +699,37 @@ LIMIT ?
 		return nil, afterID, err
 	}
 	return out, maxID, nil
+}
+
+func (s *stackStateStore) ListEvents(ctx context.Context, runID string, limit int) ([]RunEvent, error) {
+	if limit < 0 {
+		limit = 0
+	}
+	query := `
+SELECT id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+FROM ktl_stack_events
+WHERE run_id = ?
+ORDER BY id ASC
+`
+	args := []any{runID}
+	if limit > 0 {
+		query += "\nLIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunEvent
+	for rows.Next() {
+		var r sqliteEventRow
+		if err := rows.Scan(&r.id, &r.tsNS, &r.nodeID, &r.typ, &r.attempt, &r.message, &r.errClass, &r.errMessage, &r.errDigest, &r.seq, &r.prevDigest, &r.digest, &r.crc32); err != nil {
+			return nil, err
+		}
+		out = append(out, sqliteRowToRunEvent(runID, r))
+	}
+	return out, rows.Err()
 }
 
 func sqliteRowToRunEvent(runID string, r sqliteEventRow) RunEvent {

@@ -37,7 +37,7 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd := &cobra.Command{
 		Use:   "stack",
 		Short: "Compile and orchestrate many Helm releases as a dependency graph",
-		Long:  "ktl stack discovers stack.yaml/release.yaml, compiles them with inheritance into a DAG, and runs ktl apply/delete per release.",
+		Long:  "ktl stack discovers stack.yaml/release.yaml, compiles them with inheritance into a DAG, and runs ktl apply/delete per release.\n\nMinimal-flags workflow: put defaults into stack.yaml `cli:` and/or KTL_STACK_* env vars (see docs/stack-cli-defaults.md). Run `ktl env --match stack` to discover environment overrides.",
 	}
 	cmd.PersistentFlags().StringVar(&rootDir, "root", ".", "Stack root directory")
 	cmd.PersistentFlags().StringVar(&profile, "profile", "", "Profile overlay name (defaults to stack.yaml.defaultProfile when present)")
@@ -101,7 +101,7 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 
 	cmd.AddCommand(newStackSealCommand(&rootDir, &profile, &clusters, &inferDeps, &inferConfigRefs, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
 	cmd.AddCommand(newStackStatusCommand(&rootDir))
-	cmd.AddCommand(newStackRunsCommand(&rootDir, &output))
+	cmd.AddCommand(newStackRunsCommand(common))
 	cmd.AddCommand(newStackAuditCommand(&rootDir))
 	cmd.AddCommand(newStackExportCommand(&rootDir))
 	cmd.AddCommand(newStackKeygenCommand(&rootDir))
@@ -155,16 +155,16 @@ func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 					Concurrency: selected.Runner.Concurrency,
 					FailMode:    "fail-fast",
 					Selector: stack.RunSelector{
-						Clusters:             splitCSV(*common.clusters),
-						Tags:                 splitCSV(*common.tags),
-						FromPaths:            splitCSV(*common.fromPaths),
-						Releases:             splitCSV(*common.releases),
-						GitRange:             strings.TrimSpace(*common.gitRange),
-						GitIncludeDeps:       *common.gitIncludeDeps,
-						GitIncludeDependents: *common.gitIncludeDependents,
-						IncludeDeps:          *common.includeDeps,
-						IncludeDependents:    *common.includeDependents,
-						AllowMissingDeps:     *common.allowMissingDeps,
+						Clusters:             effective.Clusters,
+						Tags:                 effective.Selector.Tags,
+						FromPaths:            effective.Selector.FromPaths,
+						Releases:             effective.Selector.Releases,
+						GitRange:             strings.TrimSpace(effective.Selector.GitRange),
+						GitIncludeDeps:       effective.Selector.GitIncludeDeps,
+						GitIncludeDependents: effective.Selector.GitIncludeDependents,
+						IncludeDeps:          effective.Selector.IncludeDeps,
+						IncludeDependents:    effective.Selector.IncludeDependents,
+						AllowMissingDeps:     effective.Selector.AllowMissingDeps,
 					},
 					Nodes:  selected.Nodes,
 					Runner: selected.Runner,

@@ -1,12 +1,10 @@
 // File: internal/stack/resume.go
-// Brief: Resume and rerun-failed support from on-disk run artifacts.
+// Brief: Resume and rerun-failed support for stack runs.
 
 package stack
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,24 +12,15 @@ import (
 	"strings"
 )
 
-type ResumeOptions struct {
-	RunID       string
-	StackRunDir string // default .ktl/stack/runs
-
-	AllowDrift        bool
-	RerunFailed       bool
-	IncludeDependents bool
-}
-
 type LoadedRun struct {
-	RunRoot     string
+	RootDir     string
+	RunID       string
 	Plan        *Plan
 	StatusByID  map[string]string
 	AttemptByID map[string]int
 }
 
 func LoadMostRecentRun(root string) (string, error) {
-	// Prefer sqlite state store when present.
 	statePath := filepath.Join(root, stackStateSQLiteRelPath)
 	if _, err := os.Stat(statePath); err == nil {
 		s, err := openStackStateStore(root, true)
@@ -39,135 +28,52 @@ func LoadMostRecentRun(root string) (string, error) {
 			return "", err
 		}
 		defer s.Close()
-		runID, err := s.MostRecentRunID(context.Background())
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(root, ".ktl", "stack", "runs", runID), nil
+		return s.MostRecentRunID(context.Background())
 	}
-
-	base := filepath.Join(root, ".ktl", "stack", "runs")
-	entries, err := os.ReadDir(base)
-	if err != nil {
-		return "", err
-	}
-	var dirs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, e.Name())
-		}
-	}
-	if len(dirs) == 0 {
-		return "", fmt.Errorf("no previous runs found under %s", base)
-	}
-	sort.Strings(dirs)
-	return filepath.Join(base, dirs[len(dirs)-1]), nil
+	return "", fmt.Errorf("no stack state found (expected %s)", statePath)
 }
 
-func LoadRun(runRoot string) (*LoadedRun, error) {
-	runID := filepath.Base(runRoot)
-	// runRoot is <stackRoot>/.ktl/stack/runs/<run-id>
-	root := filepath.Clean(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(runRoot)))))
+func LoadRun(root string, runID string) (*LoadedRun, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "."
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("run id is required")
+	}
+
 	statePath := filepath.Join(root, stackStateSQLiteRelPath)
-	if _, err := os.Stat(statePath); err == nil {
-		s, err := openStackStateStore(root, true)
-		if err != nil {
-			return nil, err
-		}
-		defer s.Close()
-		if err := s.VerifyEventsIntegrity(context.Background(), runID); err != nil {
-			return nil, fmt.Errorf("run %s events integrity: %w", runID, err)
-		}
-		p, err := s.GetRunPlan(context.Background(), runID)
-		if err != nil {
-			return nil, err
-		}
-		// Runs can be moved/copied to a different directory; always treat the current
-		// root (where state.sqlite lives) as the stack root for resume/drift checks.
-		p.StackRoot = root
-		statusByID, attemptByID, err := s.GetNodeStatus(context.Background(), runID)
-		if err != nil {
-			return nil, err
-		}
-		return &LoadedRun{
-			RunRoot:     runRoot,
-			Plan:        p,
-			StatusByID:  statusByID,
-			AttemptByID: attemptByID,
-		}, nil
+	if _, err := os.Stat(statePath); err != nil {
+		return nil, fmt.Errorf("missing stack state (expected %s)", statePath)
 	}
-
-	planPath := filepath.Join(runRoot, "plan.json")
-	raw, err := os.ReadFile(planPath)
+	s, err := openStackStateStore(root, true)
 	if err != nil {
 		return nil, err
 	}
-	var rp RunPlan
-	if err := json.Unmarshal(raw, &rp); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", planPath, err)
+	defer s.Close()
+	if err := s.VerifyEventsIntegrity(context.Background(), runID); err != nil {
+		return nil, fmt.Errorf("run %s events integrity: %w", runID, err)
 	}
 
-	p, err := PlanFromRunPlan(&rp)
+	p, err := s.GetRunPlan(context.Background(), runID)
 	if err != nil {
 		return nil, err
 	}
-
-	statusByID, attemptByID, err := replayEvents(filepath.Join(runRoot, "events.jsonl"))
+	// Runs can be moved/copied to a different directory; always treat the current
+	// root (where state.sqlite lives) as the stack root for resume/drift checks.
+	p.StackRoot = root
+	statusByID, attemptByID, err := s.GetNodeStatus(context.Background(), runID)
 	if err != nil {
 		return nil, err
 	}
-
 	return &LoadedRun{
-		RunRoot:     runRoot,
+		RootDir:     root,
+		RunID:       runID,
 		Plan:        p,
 		StatusByID:  statusByID,
 		AttemptByID: attemptByID,
 	}, nil
-}
-
-func replayEvents(path string) (map[string]string, map[string]int, error) {
-	status := map[string]string{}
-	attempt := map[string]int{}
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return status, attempt, nil
-		}
-		return nil, nil, err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	var events []RunEvent
-	for sc.Scan() {
-		var ev RunEvent
-		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
-			return nil, nil, fmt.Errorf("parse %s: %w", path, err)
-		}
-		events = append(events, ev)
-		if strings.TrimSpace(ev.NodeID) == "" {
-			continue
-		}
-		switch ev.Type {
-		case "NODE_RUNNING":
-			status[ev.NodeID] = "running"
-		case "NODE_SUCCEEDED":
-			status[ev.NodeID] = "succeeded"
-		case "NODE_FAILED":
-			status[ev.NodeID] = "failed"
-		case "NODE_BLOCKED":
-			status[ev.NodeID] = "blocked"
-		}
-		if ev.Attempt > attempt[ev.NodeID] {
-			attempt[ev.NodeID] = ev.Attempt
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return nil, nil, err
-	}
-	if err := VerifyRunEventChain(events); err != nil {
-		return nil, nil, fmt.Errorf("events integrity: %w", err)
-	}
-	return status, attempt, nil
 }
 
 func DriftReport(p *Plan) ([]string, error) {

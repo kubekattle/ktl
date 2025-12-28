@@ -30,6 +30,8 @@ func FilterByClusters(p *Plan, clusters []string) *Plan {
 		StackName: p.StackName,
 		Profile:   p.Profile,
 		Nodes:     nodes,
+		Runner:    p.Runner,
+		Hooks:     p.Hooks,
 		ByID:      map[string]*ResolvedRelease{},
 		ByCluster: map[string][]*ResolvedRelease{},
 	}

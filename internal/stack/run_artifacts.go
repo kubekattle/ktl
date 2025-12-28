@@ -4,14 +4,11 @@
 package stack
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -27,6 +24,7 @@ type RunPlan struct {
 	FailMode    string             `json:"failMode"`
 	Selector    RunSelector        `json:"selector,omitempty"`
 	Nodes       []*ResolvedRelease `json:"nodes"`
+	Runner      RunnerResolved     `json:"runner,omitempty"`
 
 	StackGitCommit string `json:"stackGitCommit,omitempty"`
 	StackGitDirty  bool   `json:"stackGitDirty,omitempty"`
@@ -107,6 +105,7 @@ func buildRunPlanPayload(run *runState, p *Plan) *RunPlan {
 		FailMode:    run.FailMode,
 		Selector:    run.Selector,
 		Nodes:       nodes,
+		Runner:      p.Runner,
 	}
 }
 
@@ -184,50 +183,27 @@ func VerifyRunEventChain(events []RunEvent) error {
 	return nil
 }
 
-func writeJSONAtomic(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+func computeRunDigest(planJSON string, summaryJSON string, lastEventDigest string) string {
+	h := sha256.New()
+	write := func(s string) {
+		_, _ = h.Write([]byte(s))
+		_, _ = h.Write([]byte{0})
 	}
-	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, path)
+	write("ktl.stack-run.v1")
+	write(planJSON)
+	write(summaryJSON)
+	write(strings.TrimSpace(lastEventDigest))
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
-func appendJSONLine(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+func computeRunErrorDigest(class string, message string) string {
+	h := sha256.New()
+	write := func(s string) {
+		_, _ = h.Write([]byte(s))
+		_, _ = h.Write([]byte{0})
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	w := bufio.NewWriter(f)
-	enc := json.NewEncoder(w)
-	if err := enc.Encode(v); err != nil {
-		return err
-	}
-	if err := w.Flush(); err != nil {
-		return err
-	}
-	return f.Sync()
+	write("ktl.stack-error.v1")
+	write(strings.TrimSpace(class))
+	write(strings.TrimSpace(message))
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }

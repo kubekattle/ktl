@@ -13,33 +13,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackRunsCommand(rootDir *string, output *string) *cobra.Command {
+func newStackRunsCommand(common stackCommandCommon) *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{
 		Use:   "runs",
 		Short: "List recent stack runs from the sqlite state store",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runs, err := stack.ListRuns(*rootDir, limit)
+			rootDir := strings.TrimSpace(derefString(common.rootDir))
+			if !flagChanged(cmd, "root") {
+				if v := strings.TrimSpace(os.Getenv("KTL_STACK_ROOT")); v != "" {
+					rootDir = v
+				}
+			}
+			if rootDir == "" {
+				rootDir = "."
+			}
+
+			runs, err := stack.ListRuns(rootDir, limit)
 			if err != nil {
 				return err
 			}
-			outFormat := strings.ToLower(strings.TrimSpace(*output))
-			// Allow stack.yaml/env to set a default output format even when --output is hidden.
-			if !cmd.Flags().Changed("output") {
+			outFormat := strings.ToLower(strings.TrimSpace(derefString(common.output)))
+			if cfg, err := resolveStackCommandConfig(cmd, common); err == nil {
+				printStackConfigWarnings(cmd, cfg.Warnings)
+				outFormat = cfg.Output
+			} else if !isNoStackRootError(err) {
+				return err
+			} else if !flagChanged(cmd, "output") {
 				if v := strings.TrimSpace(os.Getenv("KTL_STACK_OUTPUT")); v != "" {
 					outFormat = strings.ToLower(v)
-				} else if u, err := stack.Discover(*rootDir); err == nil {
-					profile := ""
-					if pf := cmd.Flag("profile"); pf != nil {
-						profile = strings.TrimSpace(pf.Value.String())
-					}
-					if strings.TrimSpace(profile) == "" {
-						profile = strings.TrimSpace(u.DefaultProfile)
-					}
-					if cfg, err := stack.ResolveStackCLIConfig(u, profile); err == nil {
-						outFormat = strings.ToLower(strings.TrimSpace(cfg.Output))
-					}
 				}
 			}
 

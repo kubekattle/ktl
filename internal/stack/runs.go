@@ -9,7 +9,7 @@ import (
 )
 
 // ListRuns lists recent runs. It prefers the sqlite state store when present, and
-// falls back to legacy per-run directories for backwards compatibility.
+// requires it (legacy on-disk runs have been removed).
 func ListRuns(root string, limit int) ([]RunIndexEntry, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -24,14 +24,5 @@ func ListRuns(root string, limit int) ([]RunIndexEntry, error) {
 		defer s.Close()
 		return s.ListRuns(context.Background(), limit)
 	}
-
-	// Legacy fallback: scan .ktl/stack/runs/*/summary.json
-	entries, err := listRunsLegacy(root, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(entries) == 0 {
-		return nil, fmt.Errorf("no runs found (expected %s or %s)", filepath.Join(root, stackStateSQLiteRelPath), filepath.Join(root, ".ktl", "stack", "runs"))
-	}
-	return entries, nil
+	return nil, fmt.Errorf("no runs found (expected %s)", filepath.Join(root, stackStateSQLiteRelPath))
 }

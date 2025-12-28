@@ -170,6 +170,8 @@ func Select(u *Universe, p *Plan, clusters []string, sel Selector) (*Plan, error
 		StackName: p.StackName,
 		Profile:   p.Profile,
 		Nodes:     outNodes,
+		Runner:    p.Runner,
+		Hooks:     p.Hooks,
 		ByID:      map[string]*ResolvedRelease{},
 		ByCluster: map[string][]*ResolvedRelease{},
 	}
@@ -189,6 +191,9 @@ func Select(u *Universe, p *Plan, clusters []string, sel Selector) (*Plan, error
 	// Recompute waves for the selected graph.
 	if err := assignExecutionGroups(out); err != nil {
 		return nil, err
+	}
+	if order, err := ComputeExecutionOrder(out, "apply"); err == nil {
+		out.Order = order
 	}
 	return out, nil
 }

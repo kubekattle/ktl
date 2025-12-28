@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 )
 
 type RunOptions struct {
@@ -24,6 +26,14 @@ type RunOptions struct {
 	DryRun      bool
 	Diff        bool
 	Executor    NodeExecutor
+
+	KubeQPS   float32
+	KubeBurst int
+
+	MaxConcurrencyPerNamespace int
+	MaxConcurrencyByKind       map[string]int
+	ParallelismGroupLimit      int
+	Adaptive                   *AdaptiveConcurrencyOptions
 
 	ResumeStatusByID  map[string]string
 	ResumeFromRunID   string
@@ -40,13 +50,14 @@ type RunOptions struct {
 	LogLevel        *string
 	RemoteAgentAddr *string
 
-	RunID   string
-	RunRoot string
+	RunID string
 
 	Selector        RunSelector
 	FailMode        string
 	MaxAttempts     int
 	InitialAttempts map[string]int
+
+	EventObservers []RunEventObserver
 }
 
 func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) error {
@@ -69,8 +80,12 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	if opts.RunID != "" {
 		run.RunID = opts.RunID
 	}
-	if opts.RunRoot != "" {
-		run.RunRoot = opts.RunRoot
+	run.observers = append([]RunEventObserver(nil), opts.EventObservers...)
+	if opts.Kubeconfig != nil {
+		run.Kubeconfig = strings.TrimSpace(*opts.Kubeconfig)
+	}
+	if opts.KubeContext != nil {
+		run.KubeContext = strings.TrimSpace(*opts.KubeContext)
 	}
 	run.Concurrency = concurrency
 	if strings.TrimSpace(opts.FailMode) != "" {
@@ -107,19 +122,21 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		return err
 	}
 
-	fmt.Fprintf(errOut, "ktl stack %s: %d releases (runId=%s)\n", cmd, len(run.Nodes), run.RunID)
-
 	exec := opts.Executor
 	if exec == nil {
 		exec = &helmExecutor{
 			kubeconfig:  opts.Kubeconfig,
 			kubeContext: opts.KubeContext,
+			run:         run,
 			out:         out,
 			errOut:      errOut,
 			dryRun:      opts.DryRun,
 			diff:        opts.Diff,
+			kubeQPS:     opts.KubeQPS,
+			kubeBurst:   opts.KubeBurst,
 		}
 	}
+	exec = &hookedExecutor{base: exec, run: run, opts: opts, out: out, errOut: errOut}
 
 	start := time.Now()
 	s := newScheduler(run.Nodes, cmd)
@@ -132,9 +149,107 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	var poolMu sync.Mutex
 	targetWorkers := concurrency
 	runningWorkers := 0
-	consecutiveFailures := 0
+	var adaptive *AdaptiveConcurrency
 	if opts.ProgressiveConcurrency && concurrency > 1 {
-		targetWorkers = 1
+		if opts.Adaptive != nil {
+			adaptive = NewAdaptiveConcurrencyWithOptions(concurrency, *opts.Adaptive)
+		} else {
+			adaptive = NewAdaptiveConcurrency(concurrency)
+		}
+		targetWorkers = adaptive.Target
+	}
+
+	var semMu sync.Mutex
+	type budgetSem struct {
+		sem   *semaphore.Weighted
+		limit int64
+		inUse atomic.Int64
+	}
+	getBudgetSem := func(m map[string]*budgetSem, key string, limit int64) *budgetSem {
+		semMu.Lock()
+		defer semMu.Unlock()
+		if v, ok := m[key]; ok {
+			return v
+		}
+		if limit < 1 {
+			limit = 1
+		}
+		b := &budgetSem{sem: semaphore.NewWeighted(limit), limit: limit}
+		m[key] = b
+		return b
+	}
+
+	nsSem := map[string]*budgetSem{}
+	getNSSem := func(namespace string) *budgetSem {
+		limit := int64(opts.MaxConcurrencyPerNamespace)
+		if limit < 1 {
+			limit = 1
+		}
+		return getBudgetSem(nsSem, namespace, limit)
+	}
+
+	kindSem := map[string]*budgetSem{}
+	getKindSem := func(kind string) *budgetSem {
+		kind = strings.TrimSpace(kind)
+		if kind == "" {
+			return nil
+		}
+		limit := int64(0)
+		if opts.MaxConcurrencyByKind != nil {
+			if v, ok := opts.MaxConcurrencyByKind[kind]; ok {
+				limit = int64(v)
+			}
+		}
+		if limit < 1 {
+			limit = 1
+		}
+		return getBudgetSem(kindSem, kind, limit)
+	}
+
+	groupSem := map[string]*budgetSem{}
+	getGroupSem := func(group string) *budgetSem {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			return nil
+		}
+		limit := int64(opts.ParallelismGroupLimit)
+		if limit < 1 {
+			limit = 1
+		}
+		return getBudgetSem(groupSem, group, limit)
+	}
+
+	acquireBudget := func(ctx context.Context, node *runNode, b *budgetSem, waitType string, waitKey string, waited *bool) error {
+		if b == nil {
+			return nil
+		}
+		for {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if b.sem.TryAcquire(1) {
+				b.inUse.Add(1)
+				return nil
+			}
+			if waited != nil && !*waited {
+				*waited = true
+				used := b.inUse.Load()
+				msg := fmt.Sprintf("waiting: %s budget %s (limit=%d used=%d)", waitType, waitKey, b.limit, used)
+				run.AppendEvent(node.ID, BudgetWait, node.Attempt, msg, nil)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+		}
+	}
+	releaseBudget := func(b *budgetSem) {
+		if b == nil {
+			return
+		}
+		b.inUse.Add(-1)
+		b.sem.Release(1)
 	}
 
 	var worker func()
@@ -174,7 +289,24 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				s.Stop()
 				return
 			}
+			// Allow shrinking the pool while work is still pending by having idle workers
+			// self-terminate once the target drops below the current worker count.
+			if adaptive != nil {
+				poolMu.Lock()
+				shouldExit := runningWorkers > targetWorkers
+				poolMu.Unlock()
+				if shouldExit {
+					return
+				}
+			}
 			node := s.NextReady()
+			if newlyReady := s.TakeNewlyReady(); len(newlyReady) > 0 {
+				ids := append([]string(nil), newlyReady...)
+				sort.Strings(ids)
+				for _, id := range ids {
+					run.AppendEvent(id, NodeQueued, 0, "ready", nil)
+				}
+			}
 			if blocked := s.TakeNewlyBlocked(); len(blocked) > 0 {
 				ids := make([]string, 0, len(blocked))
 				for id := range blocked {
@@ -186,7 +318,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 					if n := nodesByID[id]; n != nil {
 						attempt = n.Attempt
 					}
-					run.AppendEvent(id, "NODE_BLOCKED", attempt, blocked[id], nil)
+					run.AppendEvent(id, NodeBlocked, attempt, blocked[id], nil)
 				}
 			}
 			if node == nil {
@@ -194,16 +326,84 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			}
 			for {
 				node.Attempt++
-				run.AppendEvent(node.ID, "NODE_RUNNING", node.Attempt, "", nil)
+				run.AppendEvent(node.ID, NodeRunning, node.Attempt, "", nil)
+				releaseNS := strings.TrimSpace(node.Namespace)
+				if releaseNS == "" {
+					releaseNS = "default"
+				}
+				var (
+					semNS    *budgetSem
+					semKind  *budgetSem
+					semGroup *budgetSem
+				)
+				if node.Parallelism != "" {
+					semGroup = getGroupSem(node.Parallelism)
+					waited := false
+					if err := acquireBudget(ctx, node, semGroup, "group", node.Parallelism, &waited); err != nil {
+						s.MarkFailed(node.ID, err)
+						mu.Lock()
+						if firstErr == nil {
+							firstErr = err
+						}
+						mu.Unlock()
+						s.Stop()
+						return
+					}
+				}
+				if node.InferredPrimaryKind != "" && opts.MaxConcurrencyByKind != nil {
+					if _, ok := opts.MaxConcurrencyByKind[node.InferredPrimaryKind]; ok {
+						semKind = getKindSem(node.InferredPrimaryKind)
+						waited := false
+						if err := acquireBudget(ctx, node, semKind, "kind", node.InferredPrimaryKind, &waited); err != nil {
+							releaseBudget(semGroup)
+							s.MarkFailed(node.ID, err)
+							mu.Lock()
+							if firstErr == nil {
+								firstErr = err
+							}
+							mu.Unlock()
+							s.Stop()
+							return
+						}
+					}
+				}
+				if opts.MaxConcurrencyPerNamespace > 0 {
+					semNS = getNSSem(releaseNS)
+					waited := false
+					if err := acquireBudget(ctx, node, semNS, "namespace", releaseNS, &waited); err != nil {
+						releaseBudget(semKind)
+						releaseBudget(semGroup)
+						s.MarkFailed(node.ID, err)
+						mu.Lock()
+						if firstErr == nil {
+							firstErr = err
+						}
+						mu.Unlock()
+						s.Stop()
+						return
+					}
+				}
 				err := exec.RunNode(ctx, node, cmd)
+				if semNS != nil {
+					releaseBudget(semNS)
+				}
+				if semKind != nil {
+					releaseBudget(semKind)
+				}
+				if semGroup != nil {
+					releaseBudget(semGroup)
+				}
 				if err == nil {
 					s.MarkSucceeded(node.ID)
-					run.AppendEvent(node.ID, "NODE_SUCCEEDED", node.Attempt, "", nil)
-					if opts.ProgressiveConcurrency && concurrency > 1 {
+					run.AppendEvent(node.ID, NodeSucceeded, node.Attempt, "", nil)
+					if adaptive != nil {
 						poolMu.Lock()
-						consecutiveFailures = 0
-						if targetWorkers < concurrency {
-							targetWorkers++
+						before := adaptive.Target
+						changed, reason := adaptive.OnSuccess()
+						if changed {
+							targetWorkers = adaptive.Target
+							msg := fmt.Sprintf("concurrency: %d -> %d reason=%s window=%d failRate=%.2f", before, adaptive.Target, reason, len(adaptive.window), adaptive.failureRate())
+							run.AppendEvent("", RunConcurrency, 0, msg, nil)
 						}
 						poolMu.Unlock()
 						maybeSpawn()
@@ -222,21 +422,22 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				}
 				class := classifyError(err)
 				retryable := isRetryableClass(class)
-				run.AppendEvent(node.ID, "NODE_FAILED", node.Attempt, err.Error(), &RunError{Class: class, Message: err.Error()})
-				if opts.ProgressiveConcurrency && concurrency > 1 {
+				run.AppendEvent(node.ID, NodeFailed, node.Attempt, err.Error(), &RunError{Class: class, Message: err.Error(), Digest: computeRunErrorDigest(class, err.Error())})
+				if adaptive != nil {
 					poolMu.Lock()
-					consecutiveFailures++
-					if consecutiveFailures >= 2 {
-						targetWorkers = 1
-					} else if targetWorkers > 1 {
-						targetWorkers--
+					before := adaptive.Target
+					changed, _ := adaptive.OnFailure(class)
+					if changed {
+						targetWorkers = adaptive.Target
+						msg := fmt.Sprintf("concurrency: %d -> %d reason=%s window=%d failRate=%.2f", before, adaptive.Target, class, len(adaptive.window), adaptive.failureRate())
+						run.AppendEvent("", RunConcurrency, 0, msg, nil)
 					}
 					poolMu.Unlock()
 					maybeSpawn()
 				}
 				if retryable && node.Attempt < maxAttempts {
 					backoff := retryBackoff(node.Attempt)
-					run.AppendEvent(node.ID, "NODE_RETRY_SCHEDULED", node.Attempt+1, fmt.Sprintf("backoff=%s", backoff), &RunError{Class: class, Message: err.Error()})
+					run.AppendEvent(node.ID, RetryScheduled, node.Attempt+1, fmt.Sprintf("backoff=%s", backoff), &RunError{Class: class, Message: err.Error(), Digest: computeRunErrorDigest(class, err.Error())})
 					select {
 					case <-ctx.Done():
 						s.MarkFailed(node.ID, ctx.Err())
@@ -268,7 +469,26 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		}
 	}
 
-	run.AppendEvent("", "RUN_STARTED", 0, "", nil)
+	run.AppendEvent("", RunStarted, 0, fmt.Sprintf("command=%s planned=%d", cmd, len(run.Nodes)), nil)
+
+	// Stack-level runOnce hooks (pre).
+	if err := runHookList(ctx, hookRunContext{
+		run:     run,
+		opts:    opts,
+		errOut:  errOut,
+		phase:   "pre-" + cmd,
+		status:  "success",
+		baseDir: run.Plan.StackRoot,
+	}, hooksForRunOnce(run.Plan, cmd, true)); err != nil {
+		firstErr = err
+		run.AppendEvent("", RunCompleted, 0, "failed", nil)
+		run.WriteSummarySnapshot(run.BuildSummary("failed", start, s.Snapshot()))
+		if run.store != nil {
+			_, _ = run.store.FinalizeRun(context.Background(), run.RunID, time.Now().UTC().UnixNano(), run.eventPrevHash)
+			_ = run.store.CheckpointPortable(context.Background())
+		}
+		return firstErr
+	}
 
 	// Seed the scheduler with already-completed nodes from a previous run.
 	// Emit NODE_SUCCEEDED events so the new run's sqlite summary matches the resumed state.
@@ -288,7 +508,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			if strings.TrimSpace(opts.ResumeFromRunID) != "" {
 				msg = fmt.Sprintf("resume: already succeeded in run %s", strings.TrimSpace(opts.ResumeFromRunID))
 			}
-			run.AppendEvent(n.ID, "NODE_SUCCEEDED", n.Attempt, msg, nil)
+			run.AppendEvent(n.ID, NodeSucceeded, n.Attempt, msg, nil)
 		}
 	}
 	run.WriteSummarySnapshot(run.BuildSummary("running", start, s.Snapshot()))
@@ -310,46 +530,46 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			if n := nodesByID[id]; n != nil {
 				attempt = n.Attempt
 			}
-			run.AppendEvent(id, "NODE_BLOCKED", attempt, blocked[id], nil)
+			run.AppendEvent(id, NodeBlocked, attempt, blocked[id], nil)
 		}
 	}
 	status := "succeeded"
 	if firstErr != nil {
 		status = "failed"
 	}
-	run.AppendEvent("", "RUN_COMPLETED", 0, status, nil)
+
+	// Stack-level runOnce hooks (post). If the run already failed, keep the original error but still emit hook events/output.
+	postStatus := "success"
+	if status == "failed" {
+		postStatus = "failure"
+	}
+	if err := runHookList(ctx, hookRunContext{
+		run:     run,
+		opts:    opts,
+		errOut:  errOut,
+		phase:   "post-" + cmd,
+		status:  postStatus,
+		baseDir: run.Plan.StackRoot,
+	}, hooksForRunOnce(run.Plan, cmd, false)); err != nil && firstErr == nil {
+		firstErr = err
+		status = "failed"
+	}
+	run.AppendEvent("", RunCompleted, 0, status, nil)
 	run.WriteSummarySnapshot(run.BuildSummary(status, start, s.Snapshot()))
 	if run.store != nil {
+		_, _ = run.store.FinalizeRun(context.Background(), run.RunID, time.Now().UTC().UnixNano(), run.eventPrevHash)
 		_ = run.store.CheckpointPortable(context.Background())
 	}
 
-	printRunSummary(errOut, run, start)
 	if firstErr != nil {
 		return firstErr
 	}
 	return nil
 }
 
-func printRunSummary(w io.Writer, run *runState, startedAt time.Time) {
-	summary := run.BuildSummary("final", startedAt, run.lastSnapshot)
-	sort.Strings(summary.Order)
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "RESULT\t%s\t(planned=%d succeeded=%d failed=%d blocked=%d)\n",
-		summary.Status, summary.Totals.Planned, summary.Totals.Succeeded, summary.Totals.Failed, summary.Totals.Blocked)
-	for _, id := range summary.Order {
-		ns := summary.Nodes[id]
-		note := ns.Error
-		if len(note) > 140 {
-			note = note[:140] + "…"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", id, strings.ToUpper(ns.Status), note)
-	}
-}
-
 type runState struct {
-	RunID   string
-	RunRoot string
-	store   *stackStateStore
+	RunID string
+	store *stackStateStore
 
 	Plan        *Plan
 	Command     string
@@ -357,12 +577,15 @@ type runState struct {
 	Concurrency int
 	FailMode    string
 	Selector    RunSelector
+	Kubeconfig  string
+	KubeContext string
 
 	mu sync.Mutex
 
 	lastSnapshot  schedulerSnapshot
 	eventSeq      int64
 	eventPrevHash string
+	observers     []RunEventObserver
 
 	lockOwner string
 	lockRunID string
@@ -380,7 +603,6 @@ func newRunState(p *Plan, command string) *runState {
 	runID := time.Now().UTC().Format("2006-01-02T15-04-05.000000000Z")
 	return &runState{
 		RunID:   runID,
-		RunRoot: filepath.Join(p.StackRoot, ".ktl", "stack", "runs", runID),
 		Plan:    p,
 		Command: command,
 		Nodes:   wrapRunNodes(p.Nodes),
@@ -396,7 +618,7 @@ func wrapRunNodes(nodes []*ResolvedRelease) []*runNode {
 }
 
 func (r *runState) InitFiles(lock bool, lockOwner string, lockTTL time.Duration, takeover bool) error {
-	// Prefer durable sqlite state store; keep legacy RunRoot only as a logical identifier.
+	// Use durable sqlite state store for all run artifacts.
 	s, err := openStackStateStore(r.Plan.StackRoot, false)
 	if err != nil {
 		return err
@@ -438,36 +660,51 @@ func (r *runState) WritePlan() error {
 	return r.store.CreateRun(context.Background(), r, r.Plan)
 }
 
-func (r *runState) AppendEvent(nodeID, typ string, attempt int, message string, runErr *RunError) {
+func (r *runState) AppendEvent(nodeID string, typ RunEventType, attempt int, message string, runErr *RunError) {
+	r.emitEvent(nodeID, typ, attempt, message, runErr, true)
+}
+
+func (r *runState) EmitEphemeralEvent(nodeID string, typ RunEventType, attempt int, message string) {
+	r.emitEvent(nodeID, typ, attempt, message, nil, false)
+}
+
+func (r *runState) emitEvent(nodeID string, typ RunEventType, attempt int, message string, runErr *RunError, persist bool) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.eventSeq++
 	ev := RunEvent{
 		Seq:     r.eventSeq,
 		TS:      time.Now().UTC().Format(time.RFC3339Nano),
 		RunID:   r.RunID,
 		NodeID:  nodeID,
-		Type:    typ,
+		Type:    string(typ),
 		Attempt: attempt,
 		Message: message,
 		Error:   runErr,
 	}
-	ev.PrevDigest = r.eventPrevHash
-	ev.Digest, ev.CRC32 = computeRunEventIntegrity(ev)
-	r.eventPrevHash = ev.Digest
-	if r.store != nil {
-		_ = r.store.AppendEvent(context.Background(), r.RunID, ev)
-		return
+	observers := append([]RunEventObserver(nil), r.observers...)
+	if persist {
+		ev.PrevDigest = r.eventPrevHash
+		ev.Digest, ev.CRC32 = computeRunEventIntegrity(ev)
+		r.eventPrevHash = ev.Digest
+		if r.store != nil {
+			_ = r.store.AppendEvent(context.Background(), r.RunID, ev)
+		}
 	}
-	_ = appendJSONLine(filepath.Join(r.RunRoot, "events.jsonl"), ev)
+	r.mu.Unlock()
+
+	for _, obs := range observers {
+		if obs == nil {
+			continue
+		}
+		obs.ObserveRunEvent(ev)
+	}
 }
 
 func (r *runState) WriteSummarySnapshot(s *RunSummary) {
-	if r.store != nil {
-		_ = r.store.WriteSummary(context.Background(), r.RunID, s)
+	if r.store == nil {
 		return
 	}
-	_ = writeJSONAtomic(filepath.Join(r.RunRoot, "summary.json"), s)
+	_ = r.store.WriteSummary(context.Background(), r.RunID, s)
 }
 
 func (r *runState) BuildSummary(status string, startedAt time.Time, snap schedulerSnapshot) *RunSummary {
@@ -516,7 +753,8 @@ type scheduler struct {
 	deps       map[string][]string
 	dependents map[string][]string
 
-	ready []string
+	ready      []string
+	newlyReady []string
 
 	status map[string]string // planned, running, succeeded, failed, blocked
 	errs   map[string]error
@@ -543,18 +781,21 @@ func newScheduler(nodes []*runNode, command string) *scheduler {
 		blockedBy:  map[string]string{},
 	}
 
-	byName := map[string]*runNode{}
+	byKey := map[string]*runNode{}
 	for _, n := range nodes {
 		s.nodes[n.ID] = n
 		s.order = append(s.order, n.ID)
 		s.status[n.ID] = "planned"
-		byName[n.Name] = n
+		byKey[schedulerKey(n.Cluster.Name, n.Name)] = n
 	}
 
 	if command == "apply" {
 		for _, n := range nodes {
 			for _, depName := range n.Needs {
-				dep := byName[depName]
+				dep := byKey[schedulerKey(n.Cluster.Name, depName)]
+				if dep == nil {
+					continue
+				}
 				s.deps[n.ID] = append(s.deps[n.ID], dep.ID)
 				s.dependents[dep.ID] = append(s.dependents[dep.ID], n.ID)
 			}
@@ -563,7 +804,10 @@ func newScheduler(nodes []*runNode, command string) *scheduler {
 		// delete: reverse edges, so that dependents run before dependencies.
 		for _, n := range nodes {
 			for _, depName := range n.Needs {
-				dep := byName[depName]
+				dep := byKey[schedulerKey(n.Cluster.Name, depName)]
+				if dep == nil {
+					continue
+				}
 				s.deps[dep.ID] = append(s.deps[dep.ID], n.ID)
 				s.dependents[n.ID] = append(s.dependents[n.ID], dep.ID)
 			}
@@ -574,9 +818,10 @@ func newScheduler(nodes []*runNode, command string) *scheduler {
 		s.inDegree[id] = len(s.deps[id])
 		if s.inDegree[id] == 0 {
 			s.ready = append(s.ready, id)
+			s.newlyReady = append(s.newlyReady, id)
 		}
 	}
-	sort.Strings(s.ready)
+	s.sortReady()
 	sort.Strings(s.order)
 	for id := range s.dependents {
 		sort.Strings(s.dependents[id])
@@ -585,6 +830,16 @@ func newScheduler(nodes []*runNode, command string) *scheduler {
 		sort.Strings(s.deps[id])
 	}
 	return s
+}
+
+func schedulerKey(cluster string, name string) string {
+	return strings.TrimSpace(cluster) + "\n" + strings.TrimSpace(name)
+}
+
+func (s *scheduler) sortReady() {
+	sort.Slice(s.ready, func(i, j int) bool {
+		return releaseReadyKey(s.nodes[s.ready[i]].ResolvedRelease) < releaseReadyKey(s.nodes[s.ready[j]].ResolvedRelease)
+	})
 }
 
 func (s *scheduler) Stop() {
@@ -625,6 +880,17 @@ func (s *scheduler) NextReady() *runNode {
 	return nil
 }
 
+func (s *scheduler) TakeNewlyReady() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.newlyReady) == 0 {
+		return nil
+	}
+	out := append([]string(nil), s.newlyReady...)
+	s.newlyReady = s.newlyReady[:0]
+	return out
+}
+
 func (s *scheduler) MarkSucceeded(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -636,9 +902,10 @@ func (s *scheduler) MarkSucceeded(id string) {
 		s.inDegree[depID]--
 		if s.inDegree[depID] == 0 {
 			s.ready = append(s.ready, depID)
+			s.newlyReady = append(s.newlyReady, depID)
 		}
 	}
-	sort.Strings(s.ready)
+	s.sortReady()
 }
 
 func (s *scheduler) SeedSucceeded(id string) {
@@ -661,9 +928,10 @@ func (s *scheduler) SeedSucceeded(id string) {
 		}
 		if s.inDegree[depID] == 0 && s.status[depID] == "planned" {
 			s.ready = append(s.ready, depID)
+			s.newlyReady = append(s.newlyReady, depID)
 		}
 	}
-	sort.Strings(s.ready)
+	s.sortReady()
 }
 
 func (s *scheduler) MarkFailed(id string, err error) {
@@ -680,9 +948,10 @@ func (s *scheduler) MarkFailed(id string, err error) {
 		s.inDegree[depID]--
 		if s.inDegree[depID] == 0 {
 			s.ready = append(s.ready, depID)
+			s.newlyReady = append(s.newlyReady, depID)
 		}
 	}
-	sort.Strings(s.ready)
+	s.sortReady()
 }
 
 func (s *scheduler) FinalizeBlocked() {

@@ -19,6 +19,9 @@ type Plan struct {
 	StackName string                        `json:"stackName"`
 	Profile   string                        `json:"profile"`
 	Nodes     []*ResolvedRelease            `json:"nodes"`
+	Order     []string                      `json:"order,omitempty"`
+	Runner    RunnerResolved                `json:"runner,omitempty"`
+	Hooks     StackHooksConfig              `json:"hooks,omitempty"`
 	ByID      map[string]*ResolvedRelease   `json:"-"`
 	ByCluster map[string][]*ResolvedRelease `json:"-"`
 }
@@ -27,6 +30,11 @@ func Compile(u *Universe, opts CompileOptions) (*Plan, error) {
 	profile := strings.TrimSpace(opts.Profile)
 	if profile == "" {
 		profile = strings.TrimSpace(u.DefaultProfile)
+	}
+
+	stackHooks, err := ResolveStackHooksConfig(u, profile)
+	if err != nil {
+		return nil, err
 	}
 
 	nodes := make([]*ResolvedRelease, 0, len(u.Releases))
@@ -70,12 +78,22 @@ func Compile(u *Universe, opts CompileOptions) (*Plan, error) {
 		StackName: u.StackName,
 		Profile:   profile,
 		Nodes:     nodes,
+		Hooks:     filterHooksRunOnce(stackHooks, true),
 		ByID:      byID,
 		ByCluster: byCluster,
 	}
 
+	if r, err := ResolveRunnerConfig(u, profile); err == nil {
+		p.Runner = r
+	} else {
+		return nil, err
+	}
+
 	if err := assignExecutionGroups(p); err != nil {
 		return nil, err
+	}
+	if order, err := ComputeExecutionOrder(p, "apply"); err == nil {
+		p.Order = order
 	}
 	return p, nil
 }
@@ -88,6 +106,9 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 			Name:         dr.FromFile.Name,
 			Chart:        dr.FromFile.Chart,
 			ChartVersion: dr.FromFile.ChartVersion,
+			Wave:         dr.FromFile.Wave,
+			Critical:     dr.FromFile.Critical,
+			Parallelism:  dr.FromFile.Parallelism,
 			Cluster:      dr.FromFile.Cluster,
 			Namespace:    dr.FromFile.Namespace,
 			Values:       dr.FromFile.Values,
@@ -96,6 +117,7 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 			Needs:        dr.FromFile.Needs,
 			Apply:        dr.FromFile.Apply,
 			Delete:       dr.FromFile.Delete,
+			Hooks:        dr.FromFile.Hooks,
 		}
 	case dr.FromInline != nil:
 		leaf = *dr.FromInline
@@ -126,11 +148,23 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 			continue
 		}
 		mergeDefaults(n, dir, sf.Defaults)
+		allowRunOnce := samePath(dir, u.RootDir)
+		if err := ValidateHooksConfig(sf.Hooks, allowRunOnce, fmt.Sprintf("%s hooks", dir)); err != nil {
+			return nil, err
+		}
+		mergeHooks(n, dir, sf.Hooks)
 		if profile != "" {
 			if sp, ok := sf.Profiles[profile]; ok {
 				mergeDefaults(n, dir, sp.Defaults)
+				if err := ValidateHooksConfig(sp.Hooks, allowRunOnce, fmt.Sprintf("%s profiles.%s.hooks", dir, profile)); err != nil {
+					return nil, err
+				}
+				mergeHooks(n, dir, sp.Hooks)
 			}
 		}
+	}
+	if err := ValidateHooksConfig(leaf.Hooks, false, fmt.Sprintf("%s release %s hooks", dr.Dir, leaf.Name)); err != nil {
+		return nil, err
 	}
 	mergeReleaseOverride(n, dr.Dir, leaf)
 

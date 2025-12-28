@@ -47,11 +47,11 @@ func TestLoadRun_SqliteOverridesStackRootAfterMove(t *testing.T) {
 	root2 := t.TempDir()
 	copyDir(t, root1, root2)
 
-	runRoot, err := LoadMostRecentRun(root2)
+	runID, err := LoadMostRecentRun(root2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadRun(runRoot)
+	loaded, err := LoadRun(root2, runID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,11 +85,10 @@ func TestLoadRun_RejectsTamperedEvents(t *testing.T) {
 		t.Fatalf("run: %v\nstderr:\n%s", err, errOut.String())
 	}
 
-	runRoot, err := LoadMostRecentRun(root)
+	runID, err := LoadMostRecentRun(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID := filepath.Base(runRoot)
 
 	// Tamper with the stored message without updating digest/crc.
 	s, err := openStackStateStore(root, false)
@@ -112,7 +111,7 @@ WHERE id = (
 		t.Fatal(err)
 	}
 
-	_, err = LoadRun(runRoot)
+	_, err = LoadRun(root, runID)
 	if err == nil {
 		t.Fatalf("expected integrity error, got nil")
 	}
@@ -153,9 +152,8 @@ func TestDisasterRecovery_KillAndReplayDoesNotCorruptSQLite(t *testing.T) {
 			_ = cmd.Wait()
 			t.Fatalf("timeout waiting for node running; stderr:\n%s", stderr.String())
 		}
-		runRoot, err := LoadMostRecentRun(root)
+		runID, err := LoadMostRecentRun(root)
 		if err == nil {
-			runID := filepath.Base(runRoot)
 			s, err := openStackStateStore(root, true)
 			if err == nil {
 				evs, _, _ := s.TailEvents(context.Background(), runID, 200)
@@ -175,11 +173,10 @@ kill:
 	_ = cmd.Wait()
 
 	// Verify sqlite is readable after an unclean stop.
-	runRoot, err := LoadMostRecentRun(root)
+	runID, err := LoadMostRecentRun(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runID := filepath.Base(runRoot)
 	s, err := openStackStateStore(root, true)
 	if err != nil {
 		t.Fatal(err)
@@ -247,9 +244,8 @@ func TestSQLite_ConcurrentReadDuringWrite(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		runRoot, err := LoadMostRecentRun(root)
+		runID, err := LoadMostRecentRun(root)
 		if err == nil {
-			runID := filepath.Base(runRoot)
 			s, err := openStackStateStore(root, true)
 			if err != nil {
 				t.Fatal(err)
@@ -295,11 +291,11 @@ func TestResume_SkipsPreviouslySucceededNodes(t *testing.T) {
 		t.Fatalf("expected error, got nil")
 	}
 
-	runRoot, err := LoadMostRecentRun(root)
+	runID, err := LoadMostRecentRun(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadRun(runRoot)
+	loaded, err := LoadRun(root, runID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +313,7 @@ func TestResume_SkipsPreviouslySucceededNodes(t *testing.T) {
 		FailFast:          true,
 		ResumeStatusByID:  loaded.StatusByID,
 		ResumeAttemptByID: loaded.AttemptByID,
-		ResumeFromRunID:   filepath.Base(runRoot),
+		ResumeFromRunID:   runID,
 	}, &out2, &errOut2); err != nil {
 		t.Fatalf("resume run: %v\nstderr:\n%s", err, errOut2.String())
 	}

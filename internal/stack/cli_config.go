@@ -3,6 +3,7 @@ package stack
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 type StackCLIResolved struct {
@@ -13,10 +14,22 @@ type StackCLIResolved struct {
 	InferConfigRefs bool
 	Output          string
 
-	ApplyDryRun *bool
-	ApplyDiff   *bool
+	ApplyDryRun    *bool
+	ApplyDiff      *bool
+	ApplyFailFast  *bool
+	ApplyRetry     *int
+	ApplyLock      *bool
+	ApplyTakeover  *bool
+	ApplyLockTTL   *time.Duration
+	ApplyLockOwner *string
 
 	DeleteConfirmThreshold *int
+	DeleteFailFast         *bool
+	DeleteRetry            *int
+	DeleteLock             *bool
+	DeleteTakeover         *bool
+	DeleteLockTTL          *time.Duration
+	DeleteLockOwner        *string
 
 	ResumeAllowDrift  *bool
 	ResumeRerunFailed *bool
@@ -84,7 +97,19 @@ func ResolveStackCLIConfig(u *Universe, profile string) (StackCLIResolved, error
 
 	out.ApplyDryRun = cfg.Apply.DryRun
 	out.ApplyDiff = cfg.Apply.Diff
+	out.ApplyFailFast = cfg.Apply.FailFast
+	out.ApplyRetry = cfg.Apply.Retry
+	out.ApplyLock = cfg.Apply.Lock.Enabled
+	out.ApplyTakeover = cfg.Apply.Lock.Takeover
+	out.ApplyLockTTL = cfg.Apply.Lock.TTL
+	out.ApplyLockOwner = cfg.Apply.Lock.Owner
 	out.DeleteConfirmThreshold = cfg.Delete.ConfirmThreshold
+	out.DeleteFailFast = cfg.Delete.FailFast
+	out.DeleteRetry = cfg.Delete.Retry
+	out.DeleteLock = cfg.Delete.Lock.Enabled
+	out.DeleteTakeover = cfg.Delete.Lock.Takeover
+	out.DeleteLockTTL = cfg.Delete.Lock.TTL
+	out.DeleteLockOwner = cfg.Delete.Lock.Owner
 	out.ResumeAllowDrift = cfg.Resume.AllowDrift
 	out.ResumeRerunFailed = cfg.Resume.RerunFailed
 
@@ -143,8 +168,44 @@ func mergeStackCLI(dst *StackCLIConfig, src StackCLIConfig) {
 	if src.Apply.Diff != nil {
 		dst.Apply.Diff = src.Apply.Diff
 	}
+	if src.Apply.FailFast != nil {
+		dst.Apply.FailFast = src.Apply.FailFast
+	}
+	if src.Apply.Retry != nil {
+		dst.Apply.Retry = src.Apply.Retry
+	}
+	if src.Apply.Lock.Enabled != nil {
+		dst.Apply.Lock.Enabled = src.Apply.Lock.Enabled
+	}
+	if src.Apply.Lock.Takeover != nil {
+		dst.Apply.Lock.Takeover = src.Apply.Lock.Takeover
+	}
+	if src.Apply.Lock.TTL != nil {
+		dst.Apply.Lock.TTL = src.Apply.Lock.TTL
+	}
+	if src.Apply.Lock.Owner != nil {
+		dst.Apply.Lock.Owner = src.Apply.Lock.Owner
+	}
 	if src.Delete.ConfirmThreshold != nil {
 		dst.Delete.ConfirmThreshold = src.Delete.ConfirmThreshold
+	}
+	if src.Delete.FailFast != nil {
+		dst.Delete.FailFast = src.Delete.FailFast
+	}
+	if src.Delete.Retry != nil {
+		dst.Delete.Retry = src.Delete.Retry
+	}
+	if src.Delete.Lock.Enabled != nil {
+		dst.Delete.Lock.Enabled = src.Delete.Lock.Enabled
+	}
+	if src.Delete.Lock.Takeover != nil {
+		dst.Delete.Lock.Takeover = src.Delete.Lock.Takeover
+	}
+	if src.Delete.Lock.TTL != nil {
+		dst.Delete.Lock.TTL = src.Delete.Lock.TTL
+	}
+	if src.Delete.Lock.Owner != nil {
+		dst.Delete.Lock.Owner = src.Delete.Lock.Owner
 	}
 	if src.Resume.AllowDrift != nil {
 		dst.Resume.AllowDrift = src.Resume.AllowDrift

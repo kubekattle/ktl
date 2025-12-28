@@ -27,7 +27,7 @@ func newStackStatusCommand(rootDir *string) *cobra.Command {
 			}, cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().StringVar(&runID, "run-id", "", "Run ID (directory name under .ktl/stack/runs); defaults to most recent")
+	cmd.Flags().StringVar(&runID, "run-id", "", "Run ID (stored in .ktl/stack/state.sqlite); defaults to most recent")
 	cmd.Flags().BoolVar(&follow, "follow", false, "Follow the events stream")
 	cmd.Flags().IntVar(&limit, "tail", 50, "How many recent event lines to show before following")
 	cmd.Flags().StringVar(&format, "format", "raw", "Output format: raw|table|json")

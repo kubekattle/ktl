@@ -33,7 +33,7 @@ type stackSealAttestation struct {
 	KtlGitCommit string `json:"ktlGitCommit,omitempty"`
 }
 
-func newStackSealCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
+func newStackSealCommand(rootDir, profile *string, clusters *[]string, inferDeps *bool, inferConfigRefs *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
 	var outDir string
 	var command string
 	var concurrency int
@@ -62,6 +62,16 @@ func newStackSealCommand(rootDir, profile *string, clusters *[]string, tags *[]s
 			p, err := stack.Compile(u, stack.CompileOptions{Profile: *profile})
 			if err != nil {
 				return err
+			}
+			if inferDeps != nil && *inferDeps {
+				kubeconfigPath, _ := cmd.Flags().GetString("kubeconfig")
+				kubeCtx, _ := cmd.Flags().GetString("context")
+				if err := stack.InferDependencies(cmd.Context(), p, kubeconfigPath, kubeCtx, stack.InferDepsOptions{IncludeConfigRefs: inferConfigRefs != nil && *inferConfigRefs}); err != nil {
+					return err
+				}
+				if err := stack.RecomputeExecutionGroups(p); err != nil {
+					return err
+				}
 			}
 			p, err = stack.Select(u, p, splitCSV(*clusters), stack.Selector{
 				Tags:                 *tags,
@@ -107,6 +117,14 @@ func newStackSealCommand(rootDir, profile *string, clusters *[]string, tags *[]s
 				n.EffectiveInput = input
 			}
 
+			runner := p.Runner
+			if concurrency > 0 {
+				runner.Concurrency = concurrency
+			}
+			if err := stack.ValidateRunnerResolved(runner); err != nil {
+				return err
+			}
+
 			gid, err := stack.GitIdentityForRoot(p.StackRoot)
 			if err != nil {
 				return err
@@ -123,7 +141,7 @@ func newStackSealCommand(rootDir, profile *string, clusters *[]string, tags *[]s
 				StackName:   p.StackName,
 				Command:     command,
 				Profile:     p.Profile,
-				Concurrency: concurrency,
+				Concurrency: runner.Concurrency,
 				FailMode:    failMode,
 				Selector: stack.RunSelector{
 					Clusters:             splitCSV(*clusters),
@@ -137,7 +155,8 @@ func newStackSealCommand(rootDir, profile *string, clusters *[]string, tags *[]s
 					IncludeDependents:    *includeDependents,
 					AllowMissingDeps:     *allowMissingDeps,
 				},
-				Nodes: p.Nodes,
+				Nodes:  p.Nodes,
+				Runner: runner,
 
 				StackGitCommit: gid.Commit,
 				StackGitDirty:  gid.Dirty,

@@ -5,7 +5,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
+func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, inferDeps *bool, inferConfigRefs *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var yes bool
 	var runID string
 	var allowDrift bool
@@ -29,17 +28,15 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 		Short: "Resume the most recent run and schedule only failed nodes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runRoot := ""
-			if strings.TrimSpace(runID) != "" {
-				runRoot = filepath.Join(*rootDir, ".ktl", "stack", "runs", strings.TrimSpace(runID))
-			} else {
+			resumeRunID := strings.TrimSpace(runID)
+			if resumeRunID == "" {
 				var err error
-				runRoot, err = stack.LoadMostRecentRun(*rootDir)
+				resumeRunID, err = stack.LoadMostRecentRun(*rootDir)
 				if err != nil {
 					return err
 				}
 			}
-			loaded, err := stack.LoadRun(runRoot)
+			loaded, err := stack.LoadRun(*rootDir, resumeRunID)
 			if err != nil {
 				return err
 			}
@@ -71,7 +68,6 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 				RemoteAgentAddr:        remoteAgent,
 				// Always create a new runId; --run-id selects which previous run to resume from.
 				RunID:           "",
-				RunRoot:         "",
 				FailMode:        chooseFailMode(true),
 				MaxAttempts:     maxAttemptsFromRetry(retry),
 				InitialAttempts: loaded.AttemptByID,
@@ -91,7 +87,7 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, ta
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip confirmation prompts")
-	cmd.Flags().StringVar(&runID, "run-id", "", "Resume a specific run ID (directory name under .ktl/stack/runs)")
+	cmd.Flags().StringVar(&runID, "run-id", "", "Resume a specific run ID (stored in .ktl/stack/state.sqlite)")
 	cmd.Flags().BoolVar(&allowDrift, "allow-drift", false, "Allow rerun even when inputs changed since the plan was written (unsafe)")
 	cmd.Flags().IntVar(&retry, "retry", 1, "Maximum attempts per release (includes the initial attempt)")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 1, "Maximum number of concurrent releases to run")

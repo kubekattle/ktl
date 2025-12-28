@@ -42,6 +42,20 @@ func GitIdentityForRoot(root string) (GitIdentity, error) {
 	}, nil
 }
 
+func gitAuthorForRoot(root string) string {
+	if strings.TrimSpace(root) == "" {
+		root = "."
+	}
+	if ok, _ := isGitWorkTree(root); !ok {
+		return ""
+	}
+	author, err := gitStdout(root, "log", "-1", "--pretty=format:%an <%ae>")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(author)
+}
+
 func isGitWorkTree(root string) (bool, error) {
 	out, err := gitStdout(root, "rev-parse", "--is-inside-work-tree")
 	if err != nil {
