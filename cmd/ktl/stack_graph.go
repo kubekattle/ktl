@@ -18,7 +18,7 @@ func newStackGraphCommand(common stackCommandCommon) *cobra.Command {
 		Short: "Render the selected stack DAG (dot or mermaid)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, p, err := compileInferSelect(cmd, common)
+			_, p, _, err := compileInferSelect(cmd, common)
 			if err != nil {
 				return err
 			}
@@ -43,7 +43,7 @@ func newStackExplainCommand(common stackCommandCommon) *cobra.Command {
 		Short: "Explain why a release was selected",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, p, err := compileInferSelect(cmd, common)
+			_, p, _, err := compileInferSelect(cmd, common)
 			if err != nil {
 				return err
 			}

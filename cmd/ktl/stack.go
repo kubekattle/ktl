@@ -56,6 +56,22 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.PersistentFlags().BoolVar(&inferDeps, "infer-deps", true, "Infer additional dependencies between releases by rendering manifests (client-side)")
 	cmd.PersistentFlags().BoolVar(&inferConfigRefs, "infer-config-refs", false, "When inferring deps, also add edges for ConfigMap/Secret references from workloads")
 
+	// Minimal-flag UX: most selection and output controls are intended to live in stack.yaml `cli:`
+	// and/or be provided via env vars. Flags remain supported (including `KTL_<FLAG>`), but are hidden.
+	_ = cmd.PersistentFlags().MarkHidden("cluster")
+	_ = cmd.PersistentFlags().MarkHidden("tag")
+	_ = cmd.PersistentFlags().MarkHidden("from-path")
+	_ = cmd.PersistentFlags().MarkHidden("release")
+	_ = cmd.PersistentFlags().MarkHidden("git-range")
+	_ = cmd.PersistentFlags().MarkHidden("git-include-deps")
+	_ = cmd.PersistentFlags().MarkHidden("git-include-dependents")
+	_ = cmd.PersistentFlags().MarkHidden("include-deps")
+	_ = cmd.PersistentFlags().MarkHidden("include-dependents")
+	_ = cmd.PersistentFlags().MarkHidden("allow-missing-deps")
+	_ = cmd.PersistentFlags().MarkHidden("output")
+	_ = cmd.PersistentFlags().MarkHidden("infer-deps")
+	_ = cmd.PersistentFlags().MarkHidden("infer-config-refs")
+
 	common := stackCommandCommon{
 		rootDir:              &rootDir,
 		profile:              &profile,
@@ -105,7 +121,7 @@ func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 		Short: "Compile stack configs into an execution plan",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, selected, err := compileInferSelect(cmd, common)
+			_, selected, effective, err := compileInferSelect(cmd, common)
 			if err != nil {
 				return err
 			}
@@ -231,7 +247,7 @@ func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "ktl stack plan: wrote bundle %s (planHash=%s)\n", wrote, planHash)
 				return nil
 			}
-			switch strings.ToLower(strings.TrimSpace(*common.output)) {
+			switch strings.ToLower(strings.TrimSpace(effective.Output)) {
 			case "json":
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -239,7 +255,7 @@ func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 			case "", "table":
 				return stack.PrintPlanTable(cmd.OutOrStdout(), selected)
 			default:
-				return fmt.Errorf("unknown --output %q (expected table|json)", *common.output)
+				return fmt.Errorf("unknown --output %q (expected table|json)", effective.Output)
 			}
 		},
 	}

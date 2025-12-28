@@ -168,5 +168,105 @@ func Catalog() []VarInfo {
 			Name:        "KTL_CAPTURE_FLUSH_MS",
 			Description: "Capture recorder flush interval in milliseconds.",
 		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_ROOT",
+			Description: "Default stack root for `ktl stack ...` when --root is not provided.",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_PROFILE",
+			Description: "Default stack profile overlay for `ktl stack ...` when --profile is not provided.",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_OUTPUT",
+			Description: "Default output format for `ktl stack` commands when --output is not provided (table|json).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_CLUSTER",
+			Description: "Default cluster filter for `ktl stack` selection (comma-separated).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_TAG",
+			Description: "Default tag selector for `ktl stack` selection (comma-separated).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_FROM_PATH",
+			Description: "Default from-path selector for `ktl stack` selection (comma-separated).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_RELEASE",
+			Description: "Default release selector for `ktl stack` selection (comma-separated).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_GIT_RANGE",
+			Description: "Default git diff range selector for `ktl stack` selection (example: origin/main...HEAD).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_GIT_INCLUDE_DEPS",
+			Description: "When using KTL_STACK_GIT_RANGE, include dependencies (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_GIT_INCLUDE_DEPENDENTS",
+			Description: "When using KTL_STACK_GIT_RANGE, include dependents (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_INCLUDE_DEPS",
+			Description: "Include dependencies in selection expansion (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_INCLUDE_DEPENDENTS",
+			Description: "Include dependents in selection expansion (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_ALLOW_MISSING_DEPS",
+			Description: "Allow missing dependencies when selecting a subset (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_INFER_DEPS",
+			Description: "Enable inferred dependencies when not explicitly set via flags (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_INFER_CONFIG_REFS",
+			Description: "Enable inferred ConfigMap/Secret reference edges when inferring deps (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_APPLY_DRY_RUN",
+			Description: "Default `ktl stack apply --dry-run` value when the flag is not provided (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_APPLY_DIFF",
+			Description: "Default `ktl stack apply --diff` value when the flag is not provided (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_DELETE_CONFIRM_THRESHOLD",
+			Description: "Default delete confirmation threshold for `ktl stack delete` when the flag is not provided.",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_RESUME_ALLOW_DRIFT",
+			Description: "Default `ktl stack --allow-drift` value when the flag is not provided (set to 1/true).",
+		},
+		{
+			Category:    "Stack",
+			Name:        "KTL_STACK_RESUME_RERUN_FAILED",
+			Description: "Default `ktl stack --rerun-failed` value when the flag is not provided (set to 1/true).",
+		},
 	}
 }

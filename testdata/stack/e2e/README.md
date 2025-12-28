@@ -7,3 +7,4 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `ktl stack` 
 
 All fixtures target a single namespace (`KTL_STACK_E2E_NAMESPACE`, default `ktl-stack-e2e`) and are safe (ConfigMaps only).
 
+These fixtures may also include `stack.yaml` `cli:` defaults so the real-cluster suite can exercise the “minimal flags” flow. See `docs/stack-cli-defaults.md`.

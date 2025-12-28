@@ -6,6 +6,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/example/ktl/internal/stack"
@@ -23,7 +24,26 @@ func newStackRunsCommand(rootDir *string, output *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			switch strings.ToLower(strings.TrimSpace(*output)) {
+			outFormat := strings.ToLower(strings.TrimSpace(*output))
+			// Allow stack.yaml/env to set a default output format even when --output is hidden.
+			if !cmd.Flags().Changed("output") {
+				if v := strings.TrimSpace(os.Getenv("KTL_STACK_OUTPUT")); v != "" {
+					outFormat = strings.ToLower(v)
+				} else if u, err := stack.Discover(*rootDir); err == nil {
+					profile := ""
+					if pf := cmd.Flag("profile"); pf != nil {
+						profile = strings.TrimSpace(pf.Value.String())
+					}
+					if strings.TrimSpace(profile) == "" {
+						profile = strings.TrimSpace(u.DefaultProfile)
+					}
+					if cfg, err := stack.ResolveStackCLIConfig(u, profile); err == nil {
+						outFormat = strings.ToLower(strings.TrimSpace(cfg.Output))
+					}
+				}
+			}
+
+			switch outFormat {
 			case "", "table":
 				return stack.PrintRunsTable(cmd.OutOrStdout(), runs)
 			case "json":
@@ -31,7 +51,7 @@ func newStackRunsCommand(rootDir *string, output *string) *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(runs)
 			default:
-				return fmt.Errorf("unknown --output %q (expected table|json)", *output)
+				return fmt.Errorf("unknown --output %q (expected table|json)", outFormat)
 			}
 		},
 	}
