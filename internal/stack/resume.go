@@ -127,14 +127,20 @@ func DriftReport(p *Plan) ([]string, error) {
 			}
 
 			if n.EffectiveInput.Apply.Digest != gotInput.Apply.Digest {
-				drift = append(drift, fmt.Sprintf("  apply options: atomic=%t wait=%t timeout=%s -> atomic=%t wait=%t timeout=%s",
-					n.EffectiveInput.Apply.Atomic, n.EffectiveInput.Apply.Wait, n.EffectiveInput.Apply.Timeout,
-					gotInput.Apply.Atomic, gotInput.Apply.Wait, gotInput.Apply.Timeout,
+				drift = append(drift, fmt.Sprintf("  apply options: atomic=%t wait=%t createNamespace=%t timeout=%s -> atomic=%t wait=%t createNamespace=%t timeout=%s",
+					n.EffectiveInput.Apply.Atomic, n.EffectiveInput.Apply.Wait, n.EffectiveInput.Apply.CreateNamespace, n.EffectiveInput.Apply.Timeout,
+					gotInput.Apply.Atomic, gotInput.Apply.Wait, gotInput.Apply.CreateNamespace, gotInput.Apply.Timeout,
 				))
 			}
 			if n.EffectiveInput.Delete.Digest != gotInput.Delete.Digest {
 				drift = append(drift, fmt.Sprintf("  delete options: timeout=%s -> timeout=%s",
 					n.EffectiveInput.Delete.Timeout, gotInput.Delete.Timeout,
+				))
+			}
+			if n.EffectiveInput.Verify.Digest != gotInput.Verify.Digest {
+				drift = append(drift, fmt.Sprintf("  verify: enabled=%t failOnWarnings=%t eventsWindow=%s -> enabled=%t failOnWarnings=%t eventsWindow=%s",
+					n.EffectiveInput.Verify.Enabled, n.EffectiveInput.Verify.FailOnWarnings, n.EffectiveInput.Verify.EventsWindow,
+					gotInput.Verify.Enabled, gotInput.Verify.FailOnWarnings, gotInput.Verify.EventsWindow,
 				))
 			}
 

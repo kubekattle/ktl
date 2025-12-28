@@ -1,0 +1,7 @@
+appName: demo
+serviceAccountName: runner
+pvcName: data
+configMapName: app-config
+secretName: app-secret
+dependsOn: ""
+widgetName: demo-widget

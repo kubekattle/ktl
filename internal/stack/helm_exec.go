@@ -30,8 +30,9 @@ type helmExecutor struct {
 	out    io.Writer
 	errOut io.Writer
 
-	dryRun bool
-	diff   bool
+	dryRun     bool
+	diff       bool
+	cacheApply bool
 
 	helmLogs bool
 
@@ -155,6 +156,93 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		if node.Apply.Atomic != nil {
 			atomic = *node.Apply.Atomic
 		}
+		createNamespace := false
+		if node.Apply.CreateNamespace != nil {
+			createNamespace = *node.Apply.CreateNamespace
+		}
+
+		if node.resume != nil && node.resume.VerifyOnly {
+			obs.PhaseCompleted(deploy.PhaseRender, "skipped", "Resume verify-only skipped")
+			obs.PhaseCompleted(deploy.PhaseDiff, "skipped", "Resume verify-only skipped")
+			obs.PhaseCompleted(deploy.PhaseUpgrade, "skipped", "Resume verify-only skipped")
+			obs.PhaseCompleted(deploy.PhaseInstall, "skipped", "Resume verify-only skipped")
+			obs.PhaseCompleted(deploy.PhaseWait, "skipped", "Resume verify-only skipped")
+			obs.PhaseCompleted(deploy.PhasePostHooks, "skipped", "Resume verify-only skipped")
+			manifest := ""
+			getAction := action.NewGet(actionCfg)
+			if rel, err := getAction.Run(node.Name); err == nil && rel != nil {
+				manifest = rel.Manifest
+			}
+			if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+				return wrapNodeErr(node.ResolvedRelease, err)
+			}
+			return nil
+		}
+
+		if e.cacheApply && !e.dryRun {
+			clusterKey := stackClusterCacheKey(node.Cluster.Name, kubeconfigPath, kubeCtx)
+			key, keyErr := applyCacheKeyForNode(clusterKey, node, command)
+			if keyErr == nil && e.run != nil && e.run.store != nil {
+				dec, decErr := CheckApplyCache(ctx, e.run.store, key, e.run.RunID,
+					func(ctx context.Context) (string, bool, error) {
+						res, err := deploy.RenderTemplate(ctx, actionCfg, settings, deploy.TemplateOptions{
+							Chart:       node.Chart,
+							Version:     node.ChartVersion,
+							ReleaseName: node.Name,
+							Namespace:   node.Namespace,
+							ValuesFiles: node.Values,
+							SetValues:   flattenSet(node.Set),
+							UseCluster:  true,
+						})
+						if err != nil {
+							return "", false, err
+						}
+						d, hasHooks, err := deploy.DigestNormalizedManifest(res.Manifest)
+						return d, hasHooks, err
+					},
+					func(ctx context.Context) (string, bool, error) {
+						getAction := action.NewGet(actionCfg)
+						rel, err := getAction.Run(node.Name)
+						if err != nil || rel == nil {
+							return "", false, nil
+						}
+						d, _, err := deploy.DigestNormalizedManifest(rel.Manifest)
+						return d, true, err
+					},
+				)
+				if decErr != nil {
+					return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("apply cache check: %w", decErr))
+				}
+				if dec.Skip {
+					obs.PhaseCompleted(deploy.PhaseRender, "skipped", "Apply cache: manifest digest match")
+					obs.PhaseCompleted(deploy.PhaseDiff, "skipped", "Apply cache: manifest digest match")
+					obs.PhaseCompleted(deploy.PhaseUpgrade, "skipped", "Apply cache: manifest digest match")
+					obs.PhaseCompleted(deploy.PhaseInstall, "skipped", "Apply cache: manifest digest match")
+					if wait {
+						obs.PhaseStarted(deploy.PhaseWait)
+						if node.resume != nil && node.resume.WaitOnly {
+							obs.PhaseCompleted(deploy.PhaseWait, "skipped", "Resume wait-only skipped")
+						} else {
+							if err := waitForReleaseReady(ctx, e.run, obs, kubeClient, actionCfg, node, timeout); err != nil {
+								return wrapNodeErr(node.ResolvedRelease, err)
+							}
+						}
+					} else {
+						obs.PhaseCompleted(deploy.PhaseWait, "skipped", "Helm --wait disabled")
+					}
+					getAction := action.NewGet(actionCfg)
+					manifest := ""
+					if rel, err := getAction.Run(node.Name); err == nil && rel != nil {
+						manifest = rel.Manifest
+					}
+					if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+						return wrapNodeErr(node.ResolvedRelease, err)
+					}
+					obs.PhaseCompleted(deploy.PhasePostHooks, "skipped", "Apply cache: no-op")
+					return nil
+				}
+			}
+		}
 
 		if node.resume != nil && node.resume.WaitOnly {
 			obs.PhaseStarted(deploy.PhaseWait)
@@ -181,6 +269,9 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 				lastRows = rows
 				if allReleaseResourcesReady(rows) {
 					obs.PhaseCompleted(deploy.PhaseWait, "succeeded", "Release resources ready")
+					if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+						return wrapNodeErr(node.ResolvedRelease, err)
+					}
 					obs.PhaseStarted(deploy.PhasePostHooks)
 					obs.PhaseCompleted(deploy.PhasePostHooks, "succeeded", "Helm post-upgrade hooks completed")
 					return nil
@@ -242,7 +333,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		if node.resume != nil && node.resume.SkipDiff {
 			diffEnabled = false
 		}
-		_, err := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
+		res, err := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
 			Chart:             node.Chart,
 			Version:           node.ChartVersion,
 			ReleaseName:       node.Name,
@@ -252,7 +343,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			Timeout:           timeout,
 			Wait:              wait,
 			Atomic:            atomic,
-			CreateNamespace:   false,
+			CreateNamespace:   createNamespace,
 			DryRun:            e.dryRun,
 			Diff:              diffEnabled,
 			UpgradeOnly:       false,
@@ -292,6 +383,33 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			}
 			return wrapNodeErr(node.ResolvedRelease, err)
 		}
+		manifest := ""
+		if res != nil && res.Release != nil {
+			manifest = res.Release.Manifest
+		}
+		if strings.TrimSpace(manifest) == "" {
+			getAction := action.NewGet(actionCfg)
+			if rel, err := getAction.Run(node.Name); err == nil && rel != nil {
+				manifest = rel.Manifest
+			}
+		}
+		if err := maybeVerify(ctx, kubeClient, obs, node, manifest, node.Verify, e.dryRun); err != nil {
+			return wrapNodeErr(node.ResolvedRelease, err)
+		}
+		if e.cacheApply && e.run != nil && e.run.store != nil && !e.dryRun {
+			if clusterKey := stackClusterCacheKey(node.Cluster.Name, kubeconfigPath, kubeCtx); clusterKey != "" {
+				key, _ := applyCacheKeyForNode(clusterKey, node, command)
+				getAction := action.NewGet(actionCfg)
+				rel, err := getAction.Run(node.Name)
+				if err == nil && rel != nil {
+					d, hasHooksInManifest, dErr := deploy.DigestNormalizedManifest(rel.Manifest)
+					if dErr == nil {
+						hasHooks := hasHooksInManifest || len(rel.Hooks) > 0
+						_ = e.run.store.UpsertApplyCache(ctx, key, d, hasHooks, e.run.RunID, time.Now().UTC().UnixNano())
+					}
+				}
+			}
+		}
 		return nil
 	case "delete":
 		if e.run != nil {
@@ -317,6 +435,99 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 	default:
 		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("unknown command %q", command))
 	}
+}
+
+func maybeVerify(ctx context.Context, kubeClient *kube.Client, obs *stackEventObserver, node *runNode, manifest string, v VerifyOptions, dryRun bool) error {
+	if dryRun || !verifyEnabled(v) {
+		return nil
+	}
+	if obs != nil {
+		obs.PhaseStarted("verify")
+	}
+	msg, err := verifyKubeRelease(ctx, kubeClient, node.Namespace, node.Name, manifest, v)
+	if err != nil {
+		if obs != nil {
+			obs.PhaseCompleted("verify", "failed", err.Error())
+		}
+		return err
+	}
+	if obs != nil {
+		obs.PhaseCompleted("verify", "succeeded", msg)
+	}
+	return nil
+}
+
+func waitForReleaseReady(ctx context.Context, run *runState, obs *stackEventObserver, kubeClient *kube.Client, actionCfg *action.Configuration, node *runNode, timeout time.Duration) error {
+	if kubeClient == nil || actionCfg == nil || node == nil {
+		return nil
+	}
+	manifest := ""
+	getAction := action.NewGet(actionCfg)
+	if rel, err := getAction.Run(node.Name); err == nil && rel != nil {
+		manifest = rel.Manifest
+	}
+	tracker := deploy.NewResourceTracker(kubeClient, node.Namespace, node.Name, manifest, nil)
+	deadline := time.Now().Add(timeout)
+	var lastRows []deploy.ResourceStatus
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		rows := tracker.Snapshot(ctx)
+		lastRows = rows
+		if allReleaseResourcesReady(rows) {
+			obs.PhaseCompleted(deploy.PhaseWait, "succeeded", "Release resources ready")
+			return nil
+		}
+		if time.Now().After(deadline) {
+			blockers := deploy.TopBlockers(lastRows, 6)
+			if len(blockers) > 0 && run != nil {
+				run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, "TOP BLOCKERS", map[string]any{"kind": "top-blockers"})
+				for _, b := range blockers {
+					reason := strings.TrimSpace(b.Reason)
+					if reason == "" {
+						reason = "-"
+					}
+					msg := strings.TrimSpace(b.Message)
+					if msg == "" {
+						msg = "-"
+					}
+					run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, fmt.Sprintf("%s/%s\t%s\t%s\t%s", b.Kind, b.Name, b.Status, reason, msg), map[string]any{
+						"kind":      "top-blocker",
+						"resource":  fmt.Sprintf("%s/%s", b.Kind, b.Name),
+						"status":    b.Status,
+						"reason":    reason,
+						"message":   msg,
+						"namespace": b.Namespace,
+					})
+				}
+			}
+			err := fmt.Errorf("wait: timeout after %s", timeout.String())
+			obs.PhaseCompleted(deploy.PhaseWait, "failed", err.Error())
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+func stackClusterCacheKey(clusterName, kubeconfigPath, kubeContext string) string {
+	clusterName = strings.TrimSpace(clusterName)
+	kubeconfigPath = strings.TrimSpace(kubeconfigPath)
+	kubeContext = strings.TrimSpace(kubeContext)
+	if clusterName == "" {
+		clusterName = "default"
+	}
+	if kubeconfigPath == "" {
+		kubeconfigPath = "default"
+	}
+	if kubeContext == "" {
+		kubeContext = "default"
+	}
+	return clusterName + "\n" + kubeconfigPath + "\n" + kubeContext
 }
 
 type stackEventObserver struct {

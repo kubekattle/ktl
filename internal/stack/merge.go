@@ -35,6 +35,7 @@ func mergeDefaults(dst *ResolvedRelease, baseDir string, d ReleaseDefaults) {
 
 	mergeApply(&dst.Apply, d.Apply)
 	mergeDelete(&dst.Delete, d.Delete)
+	mergeVerify(&dst.Verify, d.Verify)
 }
 
 func mergeApply(dst *ApplyOptions, src ApplyOptions) {
@@ -47,11 +48,26 @@ func mergeApply(dst *ApplyOptions, src ApplyOptions) {
 	if src.Wait != nil {
 		dst.Wait = src.Wait
 	}
+	if src.CreateNamespace != nil {
+		dst.CreateNamespace = src.CreateNamespace
+	}
 }
 
 func mergeDelete(dst *DeleteOptions, src DeleteOptions) {
 	if src.Timeout != nil {
 		dst.Timeout = src.Timeout
+	}
+}
+
+func mergeVerify(dst *VerifyOptions, src VerifyOptions) {
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+	}
+	if src.FailOnWarnings != nil {
+		dst.FailOnWarnings = src.FailOnWarnings
+	}
+	if src.EventsWindow != nil {
+		dst.EventsWindow = src.EventsWindow
 	}
 }
 
@@ -106,6 +122,7 @@ func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 	mergeHooks(dst, baseDir, r.Hooks)
 	mergeApply(&dst.Apply, r.Apply)
 	mergeDelete(&dst.Delete, r.Delete)
+	mergeVerify(&dst.Verify, r.Verify)
 }
 
 func resolvePaths(baseDir string, vals []string) []string {

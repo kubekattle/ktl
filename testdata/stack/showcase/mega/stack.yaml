@@ -1,0 +1,97 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: mega-showcase
+defaults:
+  cluster: { name: c1 }
+  namespace: platform
+  apply: { createNamespace: true }
+cli:
+  inferDeps: true
+  inferConfigRefs: true
+releases:
+  # Cluster c1: platform primitives.
+  - name: crds
+    chart: ./charts/platform-crd
+    tags: [core, crd]
+  - name: rbac
+    chart: ./charts/platform-rbac
+    set: { serviceAccountName: "runner" }
+    tags: [core, rbac]
+  - name: storage
+    chart: ./charts/platform-storage
+    set: { pvcName: "data" }
+    tags: [core, storage]
+    # Many clusters (e.g. local-path) default StorageClass to WaitForFirstConsumer.
+    # Waiting on PVC binding here can deadlock the DAG (no consumer pod exists yet).
+    apply: { wait: false, atomic: false }
+  - name: config
+    chart: ./charts/platform-config
+    set: { configMapName: "app-config", secretName: "app-secret" }
+    tags: [core, config]
+
+  # Cluster c1: workloads (no explicit needs; inferred from manifests).
+  - name: api
+    chart: ./charts/app
+    parallelismGroup: apps
+    set:
+      appName: "api"
+      serviceAccountName: "runner"
+      pvcName: "data"
+      configMapName: "app-config"
+      secretName: "app-secret"
+      widgetName: "api-widget"
+    tags: [apps]
+  - name: worker
+    chart: ./charts/app
+    parallelismGroup: apps
+    set:
+      appName: "worker"
+      serviceAccountName: "runner"
+      pvcName: "data"
+      configMapName: "app-config"
+      secretName: "app-secret"
+      widgetName: "worker-widget"
+      dependsOn: "api"
+    tags: [apps]
+  - name: frontend
+    chart: ./charts/app
+    parallelismGroup: front
+    set:
+      appName: "frontend"
+      serviceAccountName: "runner"
+      pvcName: "data"
+      configMapName: "app-config"
+      secretName: "app-secret"
+      widgetName: "frontend-widget"
+      dependsOn: "api\\,worker"
+    tags: [apps, front]
+
+  # Second namespace in the same cluster: environment-style isolation (same cluster, different namespace).
+  - name: rbac-c2
+    namespace: platform-c2
+    chart: ./charts/platform-rbac
+    set: { serviceAccountName: "runner" }
+    tags: [core, rbac, env-c2]
+  - name: storage-c2
+    namespace: platform-c2
+    chart: ./charts/platform-storage
+    set: { pvcName: "data" }
+    tags: [core, storage, env-c2]
+    apply: { wait: false, atomic: false }
+  - name: config-c2
+    namespace: platform-c2
+    chart: ./charts/platform-config
+    set: { configMapName: "app-config", secretName: "app-secret" }
+    tags: [core, config, env-c2]
+  - name: api-c2
+    namespace: platform-c2
+    chart: ./charts/app
+    parallelismGroup: apps
+    set:
+      appName: "api"
+      serviceAccountName: "runner"
+      pvcName: "data"
+      configMapName: "app-config"
+      secretName: "app-secret"
+      widgetName: "api-widget"
+    tags: [apps, env-c2]

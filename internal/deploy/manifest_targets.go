@@ -22,6 +22,17 @@ type resourceTarget struct {
 	Labels    map[string]string
 }
 
+// ManifestTarget is an object reference extracted from a rendered manifest.
+// It is intentionally lightweight (GVK + namespace + name + labels).
+type ManifestTarget struct {
+	Group     string
+	Version   string
+	Kind      string
+	Namespace string
+	Name      string
+	Labels    map[string]string
+}
+
 func targetsFromManifest(manifest string) []resourceTarget {
 	trimmed := strings.TrimSpace(manifest)
 	if trimmed == "" {
@@ -60,4 +71,30 @@ func targetsFromManifest(manifest string) []resourceTarget {
 		targets = append(targets, target)
 	}
 	return targets
+}
+
+// ManifestTargets extracts object targets from a rendered manifest.
+func ManifestTargets(manifest string) []ManifestTarget {
+	raw := targetsFromManifest(manifest)
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]ManifestTarget, 0, len(raw))
+	for _, t := range raw {
+		mt := ManifestTarget{
+			Group:     t.Group,
+			Version:   t.Version,
+			Kind:      t.Kind,
+			Namespace: t.Namespace,
+			Name:      t.Name,
+		}
+		if len(t.Labels) > 0 {
+			mt.Labels = make(map[string]string, len(t.Labels))
+			for k, v := range t.Labels {
+				mt.Labels[k] = v
+			}
+		}
+		out = append(out, mt)
+	}
+	return out
 }

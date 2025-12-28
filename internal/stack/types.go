@@ -17,13 +17,24 @@ type ClusterTarget struct {
 }
 
 type ApplyOptions struct {
-	Atomic  *bool          `yaml:"atomic,omitempty" json:"atomic,omitempty"`
-	Timeout *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Wait    *bool          `yaml:"wait,omitempty" json:"wait,omitempty"`
+	Atomic          *bool          `yaml:"atomic,omitempty" json:"atomic,omitempty"`
+	Timeout         *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Wait            *bool          `yaml:"wait,omitempty" json:"wait,omitempty"`
+	CreateNamespace *bool          `yaml:"createNamespace,omitempty" json:"createNamespace,omitempty"`
 }
 
 type DeleteOptions struct {
 	Timeout *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+}
+
+type VerifyOptions struct {
+	// Enabled toggles post-apply verification for this release.
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// FailOnWarnings fails the release when matching Warning events are observed.
+	FailOnWarnings *bool `yaml:"failOnWarnings,omitempty" json:"failOnWarnings,omitempty"`
+	// EventsWindow limits how far back to consider Warning events (prevents old noisy events
+	// from failing new runs). Defaults to 15m when enabled.
+	EventsWindow *time.Duration `yaml:"eventsWindow,omitempty" json:"eventsWindow,omitempty"`
 }
 
 type ReleaseDefaults struct {
@@ -33,6 +44,7 @@ type ReleaseDefaults struct {
 	Set        map[string]string `yaml:"set,omitempty" json:"set,omitempty"`
 	Apply      ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
 	Delete     DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Verify     VerifyOptions     `yaml:"verify,omitempty" json:"verify,omitempty"`
 	Tags       []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
 	Extra      map[string]any    `yaml:",inline" json:"-"`
 	RawIgnored map[string]any    `yaml:"-" json:"-"`
@@ -249,6 +261,7 @@ type ReleaseSpec struct {
 	Needs        []string          `yaml:"needs,omitempty" json:"needs,omitempty"`
 	Apply        ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
 	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Verify       VerifyOptions     `yaml:"verify,omitempty" json:"verify,omitempty"`
 	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 }
 
@@ -272,6 +285,7 @@ type ResolvedRelease struct {
 
 	Apply  ApplyOptions  `json:"apply"`
 	Delete DeleteOptions `json:"delete"`
+	Verify VerifyOptions `json:"verify,omitempty"`
 
 	Hooks StackHooksConfig `json:"hooks,omitempty"`
 
@@ -316,6 +330,7 @@ type EffectiveInput struct {
 
 	Apply  EffectiveApplyInput  `json:"apply"`
 	Delete EffectiveDeleteInput `json:"delete"`
+	Verify EffectiveVerifyInput `json:"verify"`
 }
 
 type EffectiveChartInput struct {
@@ -326,15 +341,23 @@ type EffectiveChartInput struct {
 }
 
 type EffectiveApplyInput struct {
-	Atomic  bool   `json:"atomic"`
-	Wait    bool   `json:"wait"`
-	Timeout string `json:"timeout"`
-	Digest  string `json:"digest,omitempty"`
+	Atomic          bool   `json:"atomic"`
+	Wait            bool   `json:"wait"`
+	CreateNamespace bool   `json:"createNamespace"`
+	Timeout         string `json:"timeout"`
+	Digest          string `json:"digest,omitempty"`
 }
 
 type EffectiveDeleteInput struct {
 	Timeout string `json:"timeout"`
 	Digest  string `json:"digest,omitempty"`
+}
+
+type EffectiveVerifyInput struct {
+	Enabled        bool   `json:"enabled"`
+	FailOnWarnings bool   `json:"failOnWarnings"`
+	EventsWindow   string `json:"eventsWindow"`
+	Digest         string `json:"digest,omitempty"`
 }
 
 type FileDigest struct {

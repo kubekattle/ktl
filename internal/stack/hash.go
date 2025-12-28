@@ -74,6 +74,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 	clusterDigest := digestCluster(n)
 	apply := digestApply(n)
 	deleteInput := digestDelete(n)
+	verify := digestVerify(n)
 
 	input := &EffectiveInput{
 		APIVersion: "ktl.dev/stack-effective-input/v1",
@@ -95,6 +96,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 
 		Apply:  apply,
 		Delete: deleteInput,
+		Verify: verify,
 	}
 
 	type effectiveInputHashV1 struct {
@@ -119,6 +121,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 
 		Apply  EffectiveApplyInput  `json:"apply"`
 		Delete EffectiveDeleteInput `json:"delete"`
+		Verify EffectiveVerifyInput `json:"verify"`
 	}
 
 	valuesDigests := make([]string, 0, len(input.Values))
@@ -148,6 +151,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 
 		Apply:  input.Apply,
 		Delete: input.Delete,
+		Verify: input.Verify,
 	}
 
 	raw, err := json.Marshal(hashInput)
@@ -299,6 +303,10 @@ func digestApply(n *ResolvedRelease) EffectiveApplyInput {
 	if n.Apply.Atomic != nil {
 		atomic = *n.Apply.Atomic
 	}
+	createNamespace := false
+	if n.Apply.CreateNamespace != nil {
+		createNamespace = *n.Apply.CreateNamespace
+	}
 
 	h := sha256.New()
 	write := func(s string) {
@@ -308,13 +316,15 @@ func digestApply(n *ResolvedRelease) EffectiveApplyInput {
 	write("ktl.stack-apply.v1")
 	write(fmt.Sprintf("atomic=%t", atomic))
 	write(fmt.Sprintf("wait=%t", wait))
+	write(fmt.Sprintf("createNamespace=%t", createNamespace))
 	write("timeout=" + timeout.String())
 
 	return EffectiveApplyInput{
-		Atomic:  atomic,
-		Wait:    wait,
-		Timeout: timeout.String(),
-		Digest:  "sha256:" + hex.EncodeToString(h.Sum(nil)),
+		Atomic:          atomic,
+		Wait:            wait,
+		CreateNamespace: createNamespace,
+		Timeout:         timeout.String(),
+		Digest:          "sha256:" + hex.EncodeToString(h.Sum(nil)),
 	}
 }
 
@@ -333,5 +343,37 @@ func digestDelete(n *ResolvedRelease) EffectiveDeleteInput {
 	return EffectiveDeleteInput{
 		Timeout: timeout.String(),
 		Digest:  "sha256:" + hex.EncodeToString(h.Sum(nil)),
+	}
+}
+
+func digestVerify(n *ResolvedRelease) EffectiveVerifyInput {
+	enabled := false
+	if n.Verify.Enabled != nil {
+		enabled = *n.Verify.Enabled
+	}
+	failOnWarnings := true
+	if n.Verify.FailOnWarnings != nil {
+		failOnWarnings = *n.Verify.FailOnWarnings
+	}
+	window := 15 * time.Minute
+	if n.Verify.EventsWindow != nil && *n.Verify.EventsWindow > 0 {
+		window = *n.Verify.EventsWindow
+	}
+
+	h := sha256.New()
+	write := func(s string) {
+		_, _ = h.Write([]byte(s))
+		_, _ = h.Write([]byte{0})
+	}
+	write("ktl.stack-verify.v1")
+	write(fmt.Sprintf("enabled=%t", enabled))
+	write(fmt.Sprintf("failOnWarnings=%t", failOnWarnings))
+	write("eventsWindow=" + window.String())
+
+	return EffectiveVerifyInput{
+		Enabled:        enabled,
+		FailOnWarnings: failOnWarnings,
+		EventsWindow:   window.String(),
+		Digest:         "sha256:" + hex.EncodeToString(h.Sum(nil)),
 	}
 }

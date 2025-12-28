@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.configMapName | quote }}
+data:
+  featureFlags: "demo=1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.secretName | quote }}
+type: Opaque
+stringData:
+  token: "demo"

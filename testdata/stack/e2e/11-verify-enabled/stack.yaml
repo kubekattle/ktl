@@ -1,0 +1,14 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-11-verify-enabled
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+  verify:
+    enabled: true
+    failOnWarnings: true
+    eventsWindow: 1m
+releases:
+  - name: e2e11-verify
+    chart: ./charts/cm
+    set: { fixture: "11-verify" }

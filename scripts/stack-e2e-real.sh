@@ -145,6 +145,11 @@ fixtures_ok=(
   "08-tags-selection"
   "09-from-path-selection"
   "10-large-graph"
+  "11-verify-enabled"
+)
+
+expected_fail_apply=(
+  "12-verify-warning-fail"
 )
 
 expected_fail_plan=(
@@ -222,7 +227,15 @@ run_ok_fixture() {
   fi
 
   echo ">> status raw (${root})"
-  ./bin/ktl "${ktl_args[@]}" stack status --root "${root}" --format raw --tail 5 >/dev/null
+  status_raw_out="${root}/.status.raw.jsonl"
+  rm -f "${status_raw_out}"
+  ./bin/ktl "${ktl_args[@]}" stack status --root "${root}" --format raw --tail 200 >"${status_raw_out}"
+  if [[ "$(basename "${root}")" == "11-verify-enabled" ]]; then
+    if ! rg -n "\"phase\"\\s*:\\s*\"verify\"" "${status_raw_out}" >/dev/null 2>&1; then
+      echo "expected verify phase events for ${root}" >&2
+      exit 1
+    fi
+  fi
   echo ">> status table (${root})"
   ./bin/ktl "${ktl_args[@]}" stack status --root "${root}" --format table >/dev/null
   echo ">> status json (${root})"
@@ -312,6 +325,33 @@ run_expected_fail_plan_fixture() {
   must_fail "plan should fail (${name})" ./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output table
 }
 
+run_expected_fail_apply_fixture() {
+  local root="$1"
+  local name="$2"
+
+  echo ">> plan table (${root})"
+  ./bin/ktl "${ktl_args[@]}" stack plan --root "${root}" --output table >/dev/null
+
+  echo ">> apply expect-fail (${root})"
+  must_fail "apply should fail (${name})" ./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --concurrency 2 --yes --retry 1 >/dev/null
+
+  echo ">> status raw contains verify failure (${root})"
+  status_raw_out="${root}/.status.raw.jsonl"
+  rm -f "${status_raw_out}"
+  ./bin/ktl "${ktl_args[@]}" stack status --root "${root}" --format raw --tail 200 >"${status_raw_out}"
+  if ! rg -n "\"phase\"\\s*:\\s*\"verify\"" "${status_raw_out}" >/dev/null 2>&1; then
+    echo "expected verify phase events for ${root}" >&2
+    exit 1
+  fi
+  if ! rg -n "\"status\"\\s*:\\s*\"failed\"" "${status_raw_out}" >/dev/null 2>&1; then
+    echo "expected verify failure status for ${root}" >&2
+    exit 1
+  fi
+
+  echo ">> delete cleanup (${root})"
+  ./bin/ktl "${ktl_args[@]}" stack delete --root "${root}" --concurrency 2 --yes --retry 2 >/dev/null
+}
+
 echo ">> staging fixtures into temp dir"
 work="${tmp_root}/fixtures"
 copy_fixture_tree "${work}"
@@ -334,6 +374,13 @@ for ((iter=1; iter<=ITERATIONS; iter++)); do
         run_ok_fixture "${root}"
         ;;
     esac
+    echo
+  done
+
+  for f in "${expected_fail_apply[@]}"; do
+    root="${work}/${f}"
+    echo "==== fixture ${f} (expected apply failure) ===="
+    run_expected_fail_apply_fixture "${root}" "${f}"
     echo
   done
 

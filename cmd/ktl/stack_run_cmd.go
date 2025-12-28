@@ -338,6 +338,7 @@ type stackRunCLIOptions struct {
 	Yes                    bool
 	DryRun                 bool
 	Diff                   bool
+	CacheApply             bool
 	HelmLogs               string
 	Resume                 bool
 	RunID                  string
@@ -398,6 +399,8 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	cmd.Flags().StringVar(&opts.HelmLogs, "helm-logs", opts.HelmLogs, "Helm log capture + TTY rendering mode: off|on|all (default off)")
 	cmd.Flags().Lookup("helm-logs").NoOptDefVal = "on"
 
+	cmd.Flags().BoolVar(&opts.CacheApply, "cache-apply", opts.CacheApply, "Skip Helm apply when the release manifest digest matches the cached desired digest (unsafe: does not detect live drift)")
+
 	cmd.Flags().BoolVar(&opts.Resume, "resume", opts.Resume, "Resume the most recent run (uses its frozen plan unless --replan is set)")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", opts.RunID, "With --resume: resume a specific run ID; otherwise: set the new run ID")
 	cmd.Flags().BoolVar(&opts.Replan, "replan", opts.Replan, "Recompute the plan from current config when resuming")
@@ -434,6 +437,7 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	_ = cmd.Flags().MarkHidden("lock-owner")
 	_ = cmd.Flags().MarkHidden("allow-drift")
 	_ = cmd.Flags().MarkHidden("rerun-failed")
+	_ = cmd.Flags().MarkHidden("cache-apply")
 	if kind == stackRunApply {
 		_ = cmd.Flags().MarkHidden("dry-run")
 		_ = cmd.Flags().MarkHidden("diff")
@@ -498,6 +502,7 @@ func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.P
 		AutoApprove:                opts.Yes,
 		DryRun:                     kind == stackRunApply && opts.DryRun,
 		Diff:                       kind == stackRunApply && opts.Diff,
+		CacheApply:                 kind == stackRunApply && opts.CacheApply,
 		HelmLogs:                   helmLogsMode != "off",
 		KubeQPS:                    effective.KubeQPS,
 		KubeBurst:                  effective.KubeBurst,

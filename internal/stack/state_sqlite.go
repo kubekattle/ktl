@@ -246,6 +246,20 @@ CREATE TABLE IF NOT EXISTS ktl_stack_runs (
   created_at_ns INTEGER NOT NULL,
   ttl_ns INTEGER NOT NULL
 );`,
+		`
+CREATE TABLE IF NOT EXISTS ktl_stack_apply_cache (
+  cluster_key TEXT NOT NULL,
+  namespace TEXT NOT NULL,
+  release_name TEXT NOT NULL,
+  command TEXT NOT NULL,
+  effective_input_hash TEXT NOT NULL,
+  desired_digest TEXT NOT NULL,
+  has_hooks INTEGER NOT NULL DEFAULT 0,
+  last_run_id TEXT NOT NULL DEFAULT '',
+  updated_at_ns INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (cluster_key, namespace, release_name, command, effective_input_hash)
+);`,
+		`CREATE INDEX IF NOT EXISTS idx_ktl_stack_apply_cache_lookup ON ktl_stack_apply_cache(cluster_key, namespace, release_name, command, effective_input_hash);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -262,6 +276,100 @@ CREATE TABLE IF NOT EXISTS ktl_stack_runs (
 		return err
 	}
 	return nil
+}
+
+type ApplyCacheKey struct {
+	ClusterKey         string
+	Namespace          string
+	ReleaseName        string
+	Command            string
+	EffectiveInputHash string
+}
+
+type ApplyCacheEntry struct {
+	DesiredDigest string
+	HasHooks      bool
+	LastRunID     string
+	UpdatedAtNS   int64
+}
+
+func (s *stackStateStore) GetApplyCache(ctx context.Context, key ApplyCacheKey) (ApplyCacheEntry, bool, error) {
+	if s == nil || s.db == nil {
+		return ApplyCacheEntry{}, false, nil
+	}
+	clusterKey := strings.TrimSpace(key.ClusterKey)
+	ns := strings.TrimSpace(key.Namespace)
+	if ns == "" {
+		ns = "default"
+	}
+	releaseName := strings.TrimSpace(key.ReleaseName)
+	command := strings.TrimSpace(key.Command)
+	effective := strings.TrimSpace(key.EffectiveInputHash)
+	if clusterKey == "" || releaseName == "" || command == "" || effective == "" {
+		return ApplyCacheEntry{}, false, nil
+	}
+
+	var desiredDigest, lastRunID string
+	var hasHooksInt int
+	var updatedAtNS int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT desired_digest, has_hooks, last_run_id, updated_at_ns
+FROM ktl_stack_apply_cache
+WHERE cluster_key = ? AND namespace = ? AND release_name = ? AND command = ? AND effective_input_hash = ?
+LIMIT 1
+`, clusterKey, ns, releaseName, command, effective).Scan(&desiredDigest, &hasHooksInt, &lastRunID, &updatedAtNS)
+	if err == sql.ErrNoRows {
+		return ApplyCacheEntry{}, false, nil
+	}
+	if err != nil {
+		return ApplyCacheEntry{}, false, err
+	}
+	return ApplyCacheEntry{
+		DesiredDigest: strings.TrimSpace(desiredDigest),
+		HasHooks:      hasHooksInt != 0,
+		LastRunID:     strings.TrimSpace(lastRunID),
+		UpdatedAtNS:   updatedAtNS,
+	}, true, nil
+}
+
+func (s *stackStateStore) UpsertApplyCache(ctx context.Context, key ApplyCacheKey, desiredDigest string, hasHooks bool, runID string, updatedAtNS int64) error {
+	if s == nil || s.db == nil || s.readOnly {
+		return nil
+	}
+	clusterKey := strings.TrimSpace(key.ClusterKey)
+	ns := strings.TrimSpace(key.Namespace)
+	if ns == "" {
+		ns = "default"
+	}
+	releaseName := strings.TrimSpace(key.ReleaseName)
+	command := strings.TrimSpace(key.Command)
+	effective := strings.TrimSpace(key.EffectiveInputHash)
+	desiredDigest = strings.TrimSpace(desiredDigest)
+	runID = strings.TrimSpace(runID)
+	if updatedAtNS <= 0 {
+		updatedAtNS = time.Now().UTC().UnixNano()
+	}
+	if clusterKey == "" || releaseName == "" || command == "" || effective == "" {
+		return nil
+	}
+
+	hasHooksInt := 0
+	if hasHooks {
+		hasHooksInt = 1
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO ktl_stack_apply_cache (
+  cluster_key, namespace, release_name, command, effective_input_hash,
+  desired_digest, has_hooks, last_run_id, updated_at_ns
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(cluster_key, namespace, release_name, command, effective_input_hash) DO UPDATE SET
+  desired_digest = excluded.desired_digest,
+  has_hooks = excluded.has_hooks,
+  last_run_id = excluded.last_run_id,
+  updated_at_ns = CASE WHEN excluded.updated_at_ns > ktl_stack_apply_cache.updated_at_ns THEN excluded.updated_at_ns ELSE ktl_stack_apply_cache.updated_at_ns END
+`, clusterKey, ns, releaseName, command, effective,
+		desiredDigest, hasHooksInt, runID, updatedAtNS)
+	return err
 }
 
 func (s *stackStateStore) ensureEventsIntegrityColumns(ctx context.Context) error {

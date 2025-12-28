@@ -25,6 +25,7 @@ type RunOptions struct {
 	AutoApprove bool
 	DryRun      bool
 	Diff        bool
+	CacheApply  bool
 	Executor    NodeExecutor
 
 	HelmLogs bool
@@ -135,6 +136,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			errOut:      errOut,
 			dryRun:      opts.DryRun,
 			diff:        opts.Diff,
+			cacheApply:  opts.CacheApply,
 			helmLogs:    opts.HelmLogs,
 			kubeQPS:     opts.KubeQPS,
 			kubeBurst:   opts.KubeBurst,
@@ -585,6 +587,15 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		}
 		return false
 	}
+	nodeVerifyOK := func(steps map[string]NodeStepCheckpoint) bool {
+		if steps == nil {
+			return false
+		}
+		if s, ok := steps["verify"]; ok && stepOK(s.Status) {
+			return true
+		}
+		return false
+	}
 
 	if len(opts.ResumeStatusByID) > 0 || len(opts.ResumeStepsByID) > 0 {
 		for _, n := range run.Nodes {
@@ -595,7 +606,8 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			}
 
 			steps := nodeSteps(n.ID, n.Attempt)
-			completeBySteps := cmd == "apply" && nodeAppliedOK(steps) && nodeWaitOK(steps) && nodePostOK(steps)
+			verifyOK := !verifyEnabled(n.Verify) || nodeVerifyOK(steps)
+			completeBySteps := cmd == "apply" && nodeAppliedOK(steps) && nodeWaitOK(steps) && nodePostOK(steps) && verifyOK
 
 			if strings.TrimSpace(opts.ResumeStatusByID[n.ID]) == "succeeded" || completeBySteps {
 				s.SeedSucceeded(n.ID)
@@ -608,6 +620,11 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 					msg = fmt.Sprintf("%s in run %s", msg, strings.TrimSpace(opts.ResumeFromRunID))
 				}
 				run.AppendEvent(n.ID, NodeSucceeded, n.Attempt, msg, nil, nil)
+				continue
+			}
+
+			if cmd == "apply" && verifyEnabled(n.Verify) && nodeAppliedOK(steps) && nodeWaitOK(steps) && nodePostOK(steps) && !nodeVerifyOK(steps) {
+				n.resume = &runNodeResume{VerifyOnly: true}
 				continue
 			}
 
@@ -723,8 +740,9 @@ type runNode struct {
 }
 
 type runNodeResume struct {
-	SkipDiff bool
-	WaitOnly bool
+	SkipDiff   bool
+	WaitOnly   bool
+	VerifyOnly bool
 }
 
 func newRunState(p *Plan, command string) *runState {

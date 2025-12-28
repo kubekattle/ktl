@@ -43,6 +43,7 @@ Notes:
 
 - `profiles.<name>.cli` merges on top of `cli` (so you can keep prod/stage/dev behaviors separate).
 - Runner controls (concurrency, limits, adaptive behavior) remain under `runner:` (not `cli:`).
+- Kubernetes-only health gates live under `defaults.verify` / `releases[].verify` (see `docs/stack-verify.md`).
 
 ## Recommended minimal invocation
 
@@ -64,4 +65,3 @@ ktl stack plan
 ## Environment variables
 
 Run `ktl env --match stack` to list the `KTL_STACK_*` variables and their descriptions.
-
