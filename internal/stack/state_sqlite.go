@@ -269,6 +269,8 @@ CREATE TABLE IF NOT EXISTS ktl_stack_verify_cache (
   last_checked_at_ns INTEGER NOT NULL DEFAULT 0,
   last_result TEXT NOT NULL DEFAULT '',
   last_message TEXT NOT NULL DEFAULT '',
+  last_event_rv_json TEXT NOT NULL DEFAULT '',
+  last_evidence_json TEXT NOT NULL DEFAULT '',
   updated_at_ns INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (cluster_key, namespace, release_name)
 );`,
@@ -287,6 +289,29 @@ CREATE TABLE IF NOT EXISTS ktl_stack_verify_cache (
 	}
 	if err := s.ensureNodeColumns(ctx); err != nil {
 		return err
+	}
+	if err := s.ensureVerifyCacheColumns(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *stackStateStore) ensureVerifyCacheColumns(ctx context.Context) error {
+	cols, err := s.tableColumns(ctx, "ktl_stack_verify_cache")
+	if err != nil {
+		return err
+	}
+	want := map[string]string{
+		"last_event_rv_json": "TEXT NOT NULL DEFAULT ''",
+		"last_evidence_json": "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, ddl := range want {
+		if _, ok := cols[name]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE ktl_stack_verify_cache ADD COLUMN %s %s;", name, ddl)); err != nil {
+			return fmt.Errorf("add column ktl_stack_verify_cache.%s: %w", name, err)
+		}
 	}
 	return nil
 }
@@ -396,6 +421,8 @@ type VerifyCacheEntry struct {
 	LastCheckedAtNS int64
 	LastResult      string
 	LastMessage     string
+	LastEventRVJSON string
+	LastEvidenceJSON string
 	UpdatedAtNS     int64
 }
 
@@ -413,13 +440,13 @@ func (s *stackStateStore) GetVerifyCache(ctx context.Context, key VerifyCacheKey
 		return VerifyCacheEntry{}, false, nil
 	}
 	var lastOK, lastChecked, updatedAt int64
-	var lastResult, lastMessage string
+	var lastResult, lastMessage, lastEventRVJSON, lastEvidenceJSON string
 	err := s.db.QueryRowContext(ctx, `
-SELECT last_ok_at_ns, last_checked_at_ns, last_result, last_message, updated_at_ns
+SELECT last_ok_at_ns, last_checked_at_ns, last_result, last_message, last_event_rv_json, last_evidence_json, updated_at_ns
 FROM ktl_stack_verify_cache
 WHERE cluster_key = ? AND namespace = ? AND release_name = ?
 LIMIT 1
-`, clusterKey, ns, releaseName).Scan(&lastOK, &lastChecked, &lastResult, &lastMessage, &updatedAt)
+`, clusterKey, ns, releaseName).Scan(&lastOK, &lastChecked, &lastResult, &lastMessage, &lastEventRVJSON, &lastEvidenceJSON, &updatedAt)
 	if err == sql.ErrNoRows {
 		return VerifyCacheEntry{}, false, nil
 	}
@@ -431,11 +458,13 @@ LIMIT 1
 		LastCheckedAtNS: lastChecked,
 		LastResult:      strings.TrimSpace(lastResult),
 		LastMessage:     strings.TrimSpace(lastMessage),
+		LastEventRVJSON: strings.TrimSpace(lastEventRVJSON),
+		LastEvidenceJSON: strings.TrimSpace(lastEvidenceJSON),
 		UpdatedAtNS:     updatedAt,
 	}, true, nil
 }
 
-func (s *stackStateStore) UpsertVerifyCache(ctx context.Context, key VerifyCacheKey, checkedAtNS int64, okAtNS int64, result string, message string) error {
+func (s *stackStateStore) UpsertVerifyCache(ctx context.Context, key VerifyCacheKey, checkedAtNS int64, okAtNS int64, result string, message string, lastEventRVJSON string, evidenceJSON string) error {
 	if s == nil || s.db == nil || s.readOnly {
 		return nil
 	}
@@ -458,17 +487,19 @@ func (s *stackStateStore) UpsertVerifyCache(ctx context.Context, key VerifyCache
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO ktl_stack_verify_cache (
   cluster_key, namespace, release_name,
-  last_ok_at_ns, last_checked_at_ns, last_result, last_message,
+  last_ok_at_ns, last_checked_at_ns, last_result, last_message, last_event_rv_json, last_evidence_json,
   updated_at_ns
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(cluster_key, namespace, release_name) DO UPDATE SET
   last_ok_at_ns = CASE WHEN excluded.last_ok_at_ns > 0 THEN excluded.last_ok_at_ns ELSE ktl_stack_verify_cache.last_ok_at_ns END,
   last_checked_at_ns = CASE WHEN excluded.last_checked_at_ns > 0 THEN excluded.last_checked_at_ns ELSE ktl_stack_verify_cache.last_checked_at_ns END,
   last_result = CASE WHEN excluded.last_result != '' THEN excluded.last_result ELSE ktl_stack_verify_cache.last_result END,
   last_message = CASE WHEN excluded.last_message != '' THEN excluded.last_message ELSE ktl_stack_verify_cache.last_message END,
+  last_event_rv_json = CASE WHEN excluded.last_event_rv_json != '' THEN excluded.last_event_rv_json ELSE ktl_stack_verify_cache.last_event_rv_json END,
+  last_evidence_json = CASE WHEN excluded.last_evidence_json != '' THEN excluded.last_evidence_json ELSE ktl_stack_verify_cache.last_evidence_json END,
   updated_at_ns = CASE WHEN excluded.updated_at_ns > ktl_stack_verify_cache.updated_at_ns THEN excluded.updated_at_ns ELSE ktl_stack_verify_cache.updated_at_ns END
 `, clusterKey, ns, releaseName,
-		okAtNS, checkedAtNS, strings.TrimSpace(result), strings.TrimSpace(message),
+		okAtNS, checkedAtNS, strings.TrimSpace(result), strings.TrimSpace(message), strings.TrimSpace(lastEventRVJSON), strings.TrimSpace(evidenceJSON),
 		now)
 	return err
 }

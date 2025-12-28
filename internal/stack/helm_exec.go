@@ -468,7 +468,7 @@ func maybeVerify(ctx context.Context, run *runState, clusterKey string, kubeClie
 			obs.PhaseCompleted("verify", "failed", err.Error())
 		}
 		if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
-			_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, time.Now().UTC().UnixNano(), 0, "failed", err.Error())
+			_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, time.Now().UTC().UnixNano(), 0, "failed", err.Error(), "", "")
 		}
 		if verifyWarnOnly(v) {
 			return nil
@@ -480,7 +480,7 @@ func maybeVerify(ctx context.Context, run *runState, clusterKey string, kubeClie
 	}
 	if run != nil && run.store != nil && strings.TrimSpace(clusterKey) != "" && node != nil {
 		now := time.Now().UTC().UnixNano()
-		_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, now, now, "succeeded", msg)
+		_ = run.store.UpsertVerifyCache(ctx, VerifyCacheKey{ClusterKey: clusterKey, Namespace: node.Namespace, ReleaseName: node.Name}, now, now, "succeeded", msg, "", "")
 	}
 	return nil
 }
