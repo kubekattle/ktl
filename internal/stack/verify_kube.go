@@ -91,9 +91,17 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 		if len(blockers) > 0 {
 			var parts []string
 			for _, b := range blockers {
-				parts = append(parts, fmt.Sprintf("%s/%s=%s", b.Kind, b.Name, b.Status))
+				reason := strings.TrimSpace(b.Reason)
+				msg := strings.TrimSpace(b.Message)
+				if reason == "" {
+					reason = "-"
+				}
+				if msg == "" {
+					msg = "-"
+				}
+				parts = append(parts, fmt.Sprintf("%s/%s status=%s reason=%s msg=%s", b.Kind, b.Name, b.Status, reason, msg))
 			}
-			return "", fmt.Errorf("verify: not ready (%s)", strings.Join(parts, ", "))
+			return "", fmt.Errorf("verify: not ready (top blockers: %s)", strings.Join(parts, " | "))
 		}
 		return "", fmt.Errorf("verify: not ready")
 	}
@@ -144,20 +152,34 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 		}
 		sort.Slice(warnings, func(i, j int) bool { return eventTimestamp(warnings[i]).Before(eventTimestamp(warnings[j])) })
 		if len(warnings) > 0 {
-			ev := warnings[len(warnings)-1]
-			reason := strings.TrimSpace(ev.Reason)
-			msg := strings.TrimSpace(ev.Message)
-			if reason == "" {
-				reason = "Warning"
-			}
-			if msg == "" {
-				msg = "-"
-			}
-			return "", fmt.Errorf("verify: warning events observed (count=%d latest=%s: %s)", len(warnings), reason, msg)
+			latest := warnings[len(warnings)-1]
+			return "", fmt.Errorf("verify: warning events observed (count=%d since=%s latest=%s)", len(warnings), since.Format(time.RFC3339), formatEventSummary(latest))
 		}
 	}
 
 	return "verified", nil
+}
+
+func formatEventSummary(ev corev1.Event) string {
+	kind := strings.TrimSpace(ev.InvolvedObject.Kind)
+	name := strings.TrimSpace(ev.InvolvedObject.Name)
+	ns := strings.TrimSpace(ev.InvolvedObject.Namespace)
+	reason := strings.TrimSpace(ev.Reason)
+	msg := strings.TrimSpace(ev.Message)
+	if kind == "" {
+		kind = "Object"
+	}
+	if reason == "" {
+		reason = "Warning"
+	}
+	if msg == "" {
+		msg = "-"
+	}
+	target := fmt.Sprintf("%s/%s", kind, name)
+	if ns != "" {
+		target = fmt.Sprintf("%s/%s", ns, target)
+	}
+	return fmt.Sprintf("%s %s: %s", target, reason, msg)
 }
 
 func verifyRequiredConditions(ctx context.Context, kubeClient *kube.Client, defaultNamespace string, targets []deploy.ManifestTarget, reqs []VerifyConditionRequirement) error {
