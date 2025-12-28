@@ -1,4 +1,4 @@
-package ui
+package stack
 
 import (
 	"fmt"
@@ -8,75 +8,81 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/stack"
 	"github.com/fatih/color"
 )
 
-type StackRunConsoleOptions struct {
+type RunConsoleOptions struct {
 	Enabled bool
 	Verbose bool
 	Width   int
 }
 
-type StackRunConsole struct {
+// RunConsole renders stack run events into a single in-place updating TTY view.
+// It is event-driven: callers should feed RunEvent values via ObserveRunEvent.
+type RunConsole struct {
 	out  io.Writer
-	opts StackRunConsoleOptions
+	opts RunConsoleOptions
 
 	mu         sync.Mutex
-	plan       *stack.Plan
+	plan       *Plan
 	nodeOrder  []string
-	nodes      map[string]*stackNodeState
-	failures   []stackFailure
+	nodes      map[string]*runConsoleNodeState
+	failures   []runConsoleFailure
 	logTail    []string
 	startedAt  time.Time
 	runID      string
 	command    string
 	concurrent string
-	sections   []consoleSection
+	sections   []runConsoleSection
 	totalLines int
 }
 
-type stackNodeState struct {
+type runConsoleNodeState struct {
 	id        string
 	status    string
 	attempt   int
 	phase     string
 	wait      string
-	lastError *stack.RunError
+	lastError *RunError
 
 	startedAt time.Time
 	updatedAt time.Time
 }
 
-type stackFailure struct {
+type runConsoleFailure struct {
 	nodeID  string
 	attempt int
-	err     *stack.RunError
+	err     *RunError
 	msg     string
 }
 
-func NewStackRunConsole(out io.Writer, plan *stack.Plan, command string, opts StackRunConsoleOptions) *StackRunConsole {
-	c := &StackRunConsole{
+type runConsoleSection struct {
+	name  string
+	lines []string
+}
+
+func NewRunConsole(out io.Writer, plan *Plan, command string, opts RunConsoleOptions) *RunConsole {
+	c := &RunConsole{
 		out:       out,
 		opts:      opts,
 		plan:      plan,
 		command:   strings.TrimSpace(command),
 		startedAt: time.Now(),
-		nodes:     map[string]*stackNodeState{},
+		nodes:     map[string]*runConsoleNodeState{},
 	}
 	if plan != nil {
-		c.nodeOrder = stackRunConsoleOrder(plan)
+		c.nodeOrder = runConsoleOrder(plan)
 		for _, n := range plan.Nodes {
 			if n == nil {
 				continue
 			}
-			c.nodes[n.ID] = &stackNodeState{id: n.ID, status: "planned"}
+			c.nodes[n.ID] = &runConsoleNodeState{id: n.ID, status: "planned"}
 		}
 	}
 	return c
 }
 
-func (c *StackRunConsole) ObserveRunEvent(ev stack.RunEvent) {
+func (c *RunConsole) ObserveRunEvent(ev RunEvent) {
 	if c == nil || !c.opts.Enabled {
 		return
 	}
@@ -86,7 +92,7 @@ func (c *StackRunConsole) ObserveRunEvent(ev stack.RunEvent) {
 	c.mu.Unlock()
 }
 
-func (c *StackRunConsole) Done() {
+func (c *RunConsole) Done() {
 	if c == nil || !c.opts.Enabled {
 		return
 	}
@@ -99,67 +105,66 @@ func (c *StackRunConsole) Done() {
 	c.mu.Unlock()
 }
 
-func (c *StackRunConsole) applyEventLocked(ev stack.RunEvent) {
+func (c *RunConsole) applyEventLocked(ev RunEvent) {
 	ts, ok := parseRFC3339(ev.TS)
 	if ok && c.startedAt.IsZero() {
 		c.startedAt = ts
 	}
-	if ev.Type == string(stack.RunStarted) && ok {
+	if ev.Type == string(RunStarted) && ok {
 		c.startedAt = ts
 	}
 	if strings.TrimSpace(ev.RunID) != "" {
 		c.runID = strings.TrimSpace(ev.RunID)
 	}
 	switch ev.Type {
-	case string(stack.RunConcurrency):
+	case string(RunConcurrency):
 		c.concurrent = strings.TrimSpace(ev.Message)
-	case string(stack.NodeQueued):
+	case string(NodeQueued):
 		c.setNodeLocked(ev.NodeID, "queued", ev.Attempt, "", "", nil, ts)
-	case string(stack.NodeRunning):
+	case string(NodeRunning):
 		c.setNodeLocked(ev.NodeID, "running", ev.Attempt, c.getPhase(ev.NodeID), "", nil, ts)
-	case string(stack.BudgetWait):
+	case string(BudgetWait):
 		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, c.getPhase(ev.NodeID), strings.TrimSpace(ev.Message), nil, ts)
-	case string(stack.PhaseStarted):
+	case string(PhaseStarted):
 		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, strings.TrimSpace(ev.Message), "", nil, ts)
-	case string(stack.PhaseCompleted):
-		// Keep the completed phase visible briefly; it will be overwritten by the next phase start.
+	case string(PhaseCompleted):
 		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, strings.TrimSpace(ev.Message), "", nil, ts)
-	case string(stack.HookFailed):
+	case string(HookFailed):
 		c.appendLogLocked(fmt.Sprintf("[%s] %s", ev.NodeID, strings.TrimSpace(ev.Message)), true)
-	case string(stack.HookStarted), string(stack.HookSucceeded):
+	case string(HookStarted), string(HookSucceeded):
 		if c.opts.Verbose {
 			c.appendLogLocked(fmt.Sprintf("[%s] %s", ev.NodeID, strings.TrimSpace(ev.Message)), false)
 		}
-	case string(stack.RetryScheduled):
+	case string(RetryScheduled):
 		c.setNodeLocked(ev.NodeID, "retrying", ev.Attempt, c.getPhase(ev.NodeID), strings.TrimSpace(ev.Message), ev.Error, ts)
 		c.appendLogLocked(fmt.Sprintf("[%s] retry scheduled: %s", ev.NodeID, strings.TrimSpace(ev.Message)), false)
-	case string(stack.NodeSucceeded):
+	case string(NodeSucceeded):
 		c.setNodeLocked(ev.NodeID, "succeeded", ev.Attempt, "", "", nil, ts)
-	case string(stack.NodeBlocked):
+	case string(NodeBlocked):
 		c.setNodeLocked(ev.NodeID, "blocked", ev.Attempt, "", strings.TrimSpace(ev.Message), nil, ts)
 		c.appendLogLocked(fmt.Sprintf("[%s] blocked: %s", ev.NodeID, strings.TrimSpace(ev.Message)), true)
-	case string(stack.NodeFailed):
+	case string(NodeFailed):
 		c.setNodeLocked(ev.NodeID, "failed", ev.Attempt, c.getPhase(ev.NodeID), "", ev.Error, ts)
-		c.addFailureLocked(stackFailure{nodeID: ev.NodeID, attempt: ev.Attempt, err: ev.Error, msg: strings.TrimSpace(ev.Message)})
-	case string(stack.NodeLog):
+		c.addFailureLocked(runConsoleFailure{nodeID: ev.NodeID, attempt: ev.Attempt, err: ev.Error, msg: strings.TrimSpace(ev.Message)})
+	case string(NodeLog):
 		if c.opts.Verbose {
 			c.appendLogLocked(fmt.Sprintf("[%s] %s", ev.NodeID, strings.TrimSpace(ev.Message)), false)
 		}
-	case string(stack.RunCompleted):
+	case string(RunCompleted):
 		if msg := strings.TrimSpace(ev.Message); msg != "" {
 			c.appendLogLocked(fmt.Sprintf("run completed: %s", msg), true)
 		}
 	}
 }
 
-func (c *StackRunConsole) setNodeLocked(id, status string, attempt int, phase string, wait string, runErr *stack.RunError, ts time.Time) {
+func (c *RunConsole) setNodeLocked(id, status string, attempt int, phase string, wait string, runErr *RunError, ts time.Time) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return
 	}
 	ns := c.nodes[id]
 	if ns == nil {
-		ns = &stackNodeState{id: id}
+		ns = &runConsoleNodeState{id: id}
 		c.nodes[id] = ns
 	}
 	if ns.startedAt.IsZero() && status == "running" {
@@ -185,7 +190,7 @@ func (c *StackRunConsole) setNodeLocked(id, status string, attempt int, phase st
 	}
 }
 
-func (c *StackRunConsole) addFailureLocked(f stackFailure) {
+func (c *RunConsole) addFailureLocked(f runConsoleFailure) {
 	for _, existing := range c.failures {
 		if existing.nodeID == f.nodeID && existing.attempt == f.attempt {
 			return
@@ -194,7 +199,7 @@ func (c *StackRunConsole) addFailureLocked(f stackFailure) {
 	c.failures = append(c.failures, f)
 }
 
-func (c *StackRunConsole) appendLogLocked(line string, important bool) {
+func (c *RunConsole) appendLogLocked(line string, important bool) {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return
@@ -209,21 +214,21 @@ func (c *StackRunConsole) appendLogLocked(line string, important bool) {
 	}
 }
 
-func (c *StackRunConsole) getStatus(id string) string {
+func (c *RunConsole) getStatus(id string) string {
 	if ns := c.nodes[strings.TrimSpace(id)]; ns != nil && ns.status != "" {
 		return ns.status
 	}
 	return "planned"
 }
 
-func (c *StackRunConsole) getPhase(id string) string {
+func (c *RunConsole) getPhase(id string) string {
 	if ns := c.nodes[strings.TrimSpace(id)]; ns != nil {
 		return ns.phase
 	}
 	return ""
 }
 
-func (c *StackRunConsole) renderLocked() {
+func (c *RunConsole) renderLocked() {
 	if !c.opts.Enabled || c.out == nil {
 		return
 	}
@@ -231,47 +236,46 @@ func (c *StackRunConsole) renderLocked() {
 	c.applyDiffLocked(newSections)
 }
 
-func (c *StackRunConsole) buildSectionsLocked() []consoleSection {
-	var sections []consoleSection
-	sections = append(sections, consoleSection{name: "header", lines: c.renderHeaderLocked()})
+func (c *RunConsole) buildSectionsLocked() []runConsoleSection {
+	var sections []runConsoleSection
+	sections = append(sections, runConsoleSection{name: "header", lines: c.renderHeaderLocked()})
 	if len(c.failures) > 0 {
-		sections = append(sections, consoleSection{name: "failures", lines: c.renderFailuresLocked()})
+		sections = append(sections, runConsoleSection{name: "failures", lines: c.renderFailuresLocked()})
 	}
-	sections = append(sections, consoleSection{name: "nodes", lines: c.renderNodesLocked()})
+	sections = append(sections, runConsoleSection{name: "nodes", lines: c.renderNodesLocked()})
 	if c.opts.Verbose || len(c.failures) > 0 {
-		sections = append(sections, consoleSection{name: "log", lines: c.renderLogLocked()})
+		sections = append(sections, runConsoleSection{name: "log", lines: c.renderLogLocked()})
 	}
-	sections = append(sections, consoleSection{name: "footer", lines: c.renderFooterLocked()})
 	return sections
 }
 
-func (c *StackRunConsole) applyDiffLocked(newSections []consoleSection) {
-	newTotal := countLines(newSections)
+func (c *RunConsole) applyDiffLocked(newSections []runConsoleSection) {
+	newTotal := runConsoleCountLines(newSections)
 	if len(c.sections) == 0 {
 		c.writeSections(newSections)
-		c.sections = cloneSections(newSections)
+		c.sections = runConsoleCloneSections(newSections)
 		c.totalLines = newTotal
 		return
 	}
-	idx := diffIndex(c.sections, newSections)
+	idx := runConsoleDiffIndex(c.sections, newSections)
 	if idx == -1 && newTotal == c.totalLines {
 		return
 	}
 	if idx == -1 {
 		idx = len(newSections)
 	}
-	startLine := sumLines(c.sections[:idx])
+	startLine := runConsoleSumLines(c.sections[:idx])
 	linesBelow := c.totalLines - startLine
 	if linesBelow > 0 {
 		fmt.Fprintf(c.out, "\x1b[%dF", linesBelow)
 	}
 	fmt.Fprint(c.out, "\x1b[J")
 	c.writeSections(newSections[idx:])
-	c.sections = cloneSections(newSections)
+	c.sections = runConsoleCloneSections(newSections)
 	c.totalLines = newTotal
 }
 
-func (c *StackRunConsole) writeSections(sections []consoleSection) {
+func (c *RunConsole) writeSections(sections []runConsoleSection) {
 	for _, section := range sections {
 		for _, line := range section.lines {
 			fmt.Fprintf(c.out, "%s\x1b[K\n", line)
@@ -282,7 +286,7 @@ func (c *StackRunConsole) writeSections(sections []consoleSection) {
 	}
 }
 
-func (c *StackRunConsole) renderHeaderLocked() []string {
+func (c *RunConsole) renderHeaderLocked() []string {
 	stackName := ""
 	stackRoot := ""
 	if c.plan != nil {
@@ -305,7 +309,7 @@ func (c *StackRunConsole) renderHeaderLocked() []string {
 	return lines
 }
 
-func (c *StackRunConsole) renderFailuresLocked() []string {
+func (c *RunConsole) renderFailuresLocked() []string {
 	lines := []string{color.New(color.FgRed, color.Bold).Sprint("FAILURES (sticky)")}
 	for _, f := range c.failures {
 		msg := f.msg
@@ -327,7 +331,7 @@ func (c *StackRunConsole) renderFailuresLocked() []string {
 	return lines
 }
 
-func (c *StackRunConsole) renderNodesLocked() []string {
+func (c *RunConsole) renderNodesLocked() []string {
 	order := c.nodeOrder
 	if len(order) == 0 {
 		for id := range c.nodes {
@@ -342,19 +346,16 @@ func (c *StackRunConsole) renderNodesLocked() []string {
 	}
 	lines := make([]string, 0, len(order)+3)
 	lines = append(lines, fmt.Sprintf("%-44s %-9s %-7s %-24s %s", "Release", "Status", "Attempt", "Phase", "Note"))
-	lines = append(lines, strings.Repeat("-", minInt(width, 110)))
+	lines = append(lines, strings.Repeat("-", runConsoleMinInt(width, 110)))
 	now := time.Now()
 	for _, id := range order {
 		ns := c.nodes[id]
 		if ns == nil {
-			ns = &stackNodeState{id: id, status: "planned"}
+			ns = &runConsoleNodeState{id: id, status: "planned"}
 		}
 		status := strings.ToUpper(ns.status)
-		status = colorizeStackStatus(status)
+		status = colorizeRunConsoleStatus(status)
 		attempt := ns.attempt
-		if attempt == 0 {
-			attempt = 0
-		}
 		phase := strings.TrimSpace(ns.phase)
 		if phase == "" {
 			phase = "-"
@@ -370,12 +371,12 @@ func (c *StackRunConsole) renderNodesLocked() []string {
 		if elapsed != "" {
 			phase = fmt.Sprintf("%s (%s)", phase, elapsed)
 		}
-		lines = append(lines, fmt.Sprintf("%-44s %-9s %-7d %-24s %s", trimTo(id, 44), status, attempt, trimTo(phase, 24), trimTo(note, maxInt(width-44-9-7-24-4, 0))))
+		lines = append(lines, fmt.Sprintf("%-44s %-9s %-7d %-24s %s", runConsoleTrimTo(id, 44), status, attempt, runConsoleTrimTo(phase, 24), runConsoleTrimTo(note, runConsoleMaxInt(width-44-9-7-24-4, 0))))
 	}
 	return lines
 }
 
-func (c *StackRunConsole) renderLogLocked() []string {
+func (c *RunConsole) renderLogLocked() []string {
 	if len(c.logTail) == 0 {
 		return []string{"LOG (tail) • (empty)"}
 	}
@@ -386,19 +387,7 @@ func (c *StackRunConsole) renderLogLocked() []string {
 	return lines
 }
 
-func (c *StackRunConsole) renderFooterLocked() []string {
-	if c.plan == nil || strings.TrimSpace(c.plan.StackRoot) == "" || strings.TrimSpace(c.runID) == "" {
-		return nil
-	}
-	root := strings.TrimSpace(c.plan.StackRoot)
-	runID := strings.TrimSpace(c.runID)
-	return []string{
-		fmt.Sprintf("AUDIT  ktl stack --root %s audit --run-id %s", root, runID),
-		fmt.Sprintf("FOLLOW ktl stack --root %s status --run-id %s --follow", root, runID),
-	}
-}
-
-func colorizeStackStatus(status string) string {
+func colorizeRunConsoleStatus(status string) string {
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "PLANNED":
 		return color.New(color.FgHiBlack).Sprint(status)
@@ -419,17 +408,17 @@ func colorizeStackStatus(status string) string {
 	}
 }
 
-func stackRunConsoleOrder(p *stack.Plan) []string {
+func runConsoleOrder(p *Plan) []string {
 	if p == nil || len(p.Nodes) == 0 {
 		return nil
 	}
-	critical := stackCriticalPathIDs(p)
+	critical := runConsoleCriticalPathIDs(p)
 	criticalSet := map[string]struct{}{}
 	for _, id := range critical {
 		criticalSet[id] = struct{}{}
 	}
 
-	var rest []*stack.ResolvedRelease
+	var rest []*ResolvedRelease
 	for _, n := range p.Nodes {
 		if n == nil {
 			continue
@@ -457,8 +446,7 @@ func stackRunConsoleOrder(p *stack.Plan) []string {
 	return out
 }
 
-func stackCriticalPathIDs(p *stack.Plan) []string {
-	// Map cluster+name -> id for needs resolution.
+func runConsoleCriticalPathIDs(p *Plan) []string {
 	byKey := map[string]string{}
 	for _, n := range p.Nodes {
 		if n == nil {
@@ -479,7 +467,7 @@ func stackCriticalPathIDs(p *stack.Plan) []string {
 	dist := map[string]int{}
 	prev := map[string]string{}
 	for _, id := range order {
-		n := (*stack.ResolvedRelease)(nil)
+		n := (*ResolvedRelease)(nil)
 		if p.ByID != nil {
 			n = p.ByID[id]
 		}
@@ -528,7 +516,6 @@ func stackCriticalPathIDs(p *stack.Plan) []string {
 		path = append(path, cur)
 		cur = prev[cur]
 	}
-	// Reverse to start->end.
 	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 		path[i], path[j] = path[j], path[i]
 	}
@@ -547,7 +534,7 @@ func parseRFC3339(raw string) (time.Time, bool) {
 	return ts, true
 }
 
-func trimTo(s string, n int) string {
+func runConsoleTrimTo(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if n <= 0 {
 		return ""
@@ -561,16 +548,65 @@ func trimTo(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
-func minInt(a, b int) int {
+func runConsoleMinInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-func maxInt(a, b int) int {
+func runConsoleMaxInt(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
+}
+
+func runConsoleCountLines(sections []runConsoleSection) int {
+	total := 0
+	for _, section := range sections {
+		total += len(section.lines)
+	}
+	return total
+}
+
+func runConsoleSumLines(sections []runConsoleSection) int {
+	total := 0
+	for _, section := range sections {
+		total += len(section.lines)
+	}
+	return total
+}
+
+func runConsoleDiffIndex(oldSections, newSections []runConsoleSection) int {
+	max := len(oldSections)
+	if len(newSections) < max {
+		max = len(newSections)
+	}
+	for i := 0; i < max; i++ {
+		if oldSections[i].name != newSections[i].name {
+			return i
+		}
+		if len(oldSections[i].lines) != len(newSections[i].lines) {
+			return i
+		}
+		for j := range oldSections[i].lines {
+			if oldSections[i].lines[j] != newSections[i].lines[j] {
+				return i
+			}
+		}
+	}
+	if len(oldSections) != len(newSections) {
+		return max
+	}
+	return -1
+}
+
+func runConsoleCloneSections(sections []runConsoleSection) []runConsoleSection {
+	out := make([]runConsoleSection, 0, len(sections))
+	for _, section := range sections {
+		lines := append([]string(nil), section.lines...)
+		out = append(out, runConsoleSection{name: section.name, lines: lines})
+	}
+	return out
 }

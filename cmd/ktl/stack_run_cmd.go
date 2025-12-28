@@ -116,7 +116,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				var observers []stack.RunEventObserver
 				var encMu sync.Mutex
 
-				var console *ui.StackRunConsole
+				var console *stack.RunConsole
 				if outFormat == "json" {
 					enc := json.NewEncoder(out)
 					enc.SetEscapeHTML(false)
@@ -127,7 +127,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 					}))
 				} else if isTerminalWriter(errOut) {
 					width, _ := ui.TerminalWidth(errOut)
-					console = ui.NewStackRunConsole(errOut, p, string(kind), ui.StackRunConsoleOptions{
+					console = stack.NewRunConsole(errOut, p, string(kind), stack.RunConsoleOptions{
 						Enabled: true,
 						Verbose: verbose,
 						Width:   width,
