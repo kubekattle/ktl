@@ -6,8 +6,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -81,9 +79,26 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 
 			runSelector := buildRunSelector(common)
 			planOutput := strings.ToLower(strings.TrimSpace(*common.output))
-			if resolvedSelector, resolvedOutput, ok := resolveStackRunDefaults(cmd, common, kind, &opts); ok {
-				runSelector = resolvedSelector
-				planOutput = resolvedOutput
+			cfg, cfgErr := resolveStackCommandConfig(cmd, common)
+			if cfgErr != nil && !isNoStackRootError(cfgErr) {
+				return cfgErr
+			}
+			if cfgErr == nil {
+				printStackConfigWarnings(cmd, cfg.Warnings)
+				applyStackRunDefaults(cmd, kind, cfg, &opts)
+				runSelector = stack.RunSelector{
+					Clusters:             cfg.Clusters,
+					Tags:                 cfg.Selector.Tags,
+					FromPaths:            cfg.Selector.FromPaths,
+					Releases:             cfg.Selector.Releases,
+					GitRange:             strings.TrimSpace(cfg.Selector.GitRange),
+					GitIncludeDeps:       cfg.Selector.GitIncludeDeps,
+					GitIncludeDependents: cfg.Selector.GitIncludeDependents,
+					IncludeDeps:          cfg.Selector.IncludeDeps,
+					IncludeDependents:    cfg.Selector.IncludeDependents,
+					AllowMissingDeps:     cfg.Selector.AllowMissingDeps,
+				}
+				planOutput = cfg.Output
 			}
 
 			if strings.TrimSpace(opts.SealedDir) != "" || strings.TrimSpace(opts.FromBundle) != "" {
@@ -154,24 +169,17 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				runOpts.Selector = runSelector
 				return stack.Run(cmd.Context(), runOpts, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			} else {
-				_, pp, effective, err := compileInferSelect(cmd, common)
+				var pp *stack.Plan
+				var err error
+				if cfgErr == nil {
+					_, pp, _, err = compileInferSelectWithConfig(cmd, common, cfg)
+				} else {
+					_, pp, _, err = compileInferSelect(cmd, common)
+				}
 				if err != nil {
 					return err
 				}
 				p = pp
-				runSelector = stack.RunSelector{
-					Clusters:             effective.Clusters,
-					Tags:                 effective.Selector.Tags,
-					FromPaths:            effective.Selector.FromPaths,
-					Releases:             effective.Selector.Releases,
-					GitRange:             strings.TrimSpace(effective.Selector.GitRange),
-					GitIncludeDeps:       effective.Selector.GitIncludeDeps,
-					GitIncludeDependents: effective.Selector.GitIncludeDependents,
-					IncludeDeps:          effective.Selector.IncludeDeps,
-					IncludeDependents:    effective.Selector.IncludeDependents,
-					AllowMissingDeps:     effective.Selector.AllowMissingDeps,
-				}
-				planOutput = strings.ToLower(strings.TrimSpace(effective.Output))
 			}
 
 			if common.planOnly != nil && *common.planOnly {
@@ -416,83 +424,4 @@ func buildRunSelector(common stackCommandCommon) stack.RunSelector {
 		IncludeDependents:    *common.includeDependents,
 		AllowMissingDeps:     *common.allowMissingDeps,
 	}
-}
-
-func resolveStackRunDefaults(cmd *cobra.Command, common stackCommandCommon, kind stackRunKind, opts *stackRunCLIOptions) (selector stack.RunSelector, output string, ok bool) {
-	effective, err := resolveStackEffectiveConfig(cmd, common)
-	if err != nil {
-		return stack.RunSelector{}, "", false
-	}
-	u, err := stack.Discover(effective.RootDir)
-	if err != nil {
-		return stack.RunSelector{}, "", false
-	}
-	profile := strings.TrimSpace(effective.Profile)
-	if profile == "" {
-		profile = strings.TrimSpace(u.DefaultProfile)
-	}
-	cfg, err := stack.ResolveStackCLIConfig(u, profile)
-	if err != nil {
-		return stack.RunSelector{}, "", false
-	}
-
-	// Defaults for selection + output.
-	clusters, sel, err := resolveSelectorDefaults(cmd, common, cfg)
-	if err != nil {
-		return stack.RunSelector{}, "", false
-	}
-	selector = stack.RunSelector{
-		Clusters:             clusters,
-		Tags:                 sel.Tags,
-		FromPaths:            sel.FromPaths,
-		Releases:             sel.Releases,
-		GitRange:             strings.TrimSpace(sel.GitRange),
-		GitIncludeDeps:       sel.GitIncludeDeps,
-		GitIncludeDependents: sel.GitIncludeDependents,
-		IncludeDeps:          sel.IncludeDeps,
-		IncludeDependents:    sel.IncludeDependents,
-		AllowMissingDeps:     sel.AllowMissingDeps,
-	}
-	output = resolveOutputDefault(cmd, common, cfg)
-
-	// Defaults for run behavior (env overrides stack.yaml when flag is not set).
-	if kind == stackRunApply && !cmd.Flags().Changed("dry-run") {
-		if v, ok, _ := envBool("KTL_STACK_APPLY_DRY_RUN"); ok {
-			opts.DryRun = v
-		} else if cfg.ApplyDryRun != nil {
-			opts.DryRun = *cfg.ApplyDryRun
-		}
-	}
-	if kind == stackRunApply && !cmd.Flags().Changed("diff") {
-		if v, ok, _ := envBool("KTL_STACK_APPLY_DIFF"); ok {
-			opts.Diff = v
-		} else if cfg.ApplyDiff != nil {
-			opts.Diff = *cfg.ApplyDiff
-		}
-	}
-	if kind == stackRunDelete && !cmd.Flags().Changed("delete-confirm-threshold") {
-		if v := strings.TrimSpace(os.Getenv("KTL_STACK_DELETE_CONFIRM_THRESHOLD")); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				opts.DeleteConfirmThreshold = n
-			}
-		} else if cfg.DeleteConfirmThreshold != nil {
-			opts.DeleteConfirmThreshold = *cfg.DeleteConfirmThreshold
-		}
-	}
-	if !cmd.Flags().Changed("allow-drift") {
-		if v, ok, _ := envBool("KTL_STACK_RESUME_ALLOW_DRIFT"); ok {
-			opts.AllowDrift = v
-		} else if cfg.ResumeAllowDrift != nil {
-			opts.AllowDrift = *cfg.ResumeAllowDrift
-		}
-	}
-	if !cmd.Flags().Changed("rerun-failed") {
-		if v, ok, _ := envBool("KTL_STACK_RESUME_RERUN_FAILED"); ok {
-			opts.RerunFailed = v
-		} else if cfg.ResumeRerunFailed != nil {
-			opts.RerunFailed = *cfg.ResumeRerunFailed
-		}
-	}
-
-	return selector, output, true
 }
