@@ -519,6 +519,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	}, nil)
 
 	// Stack-level runOnce hooks (pre).
+	run.AppendEvent("", StackHooksStarted, 0, "stack hooks: pre-"+cmd, map[string]any{"stage": "pre-" + cmd}, nil)
 	if err := runHookList(ctx, hookRunContext{
 		run:     run,
 		opts:    opts,
@@ -527,6 +528,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		status:  "success",
 		baseDir: run.Plan.StackRoot,
 	}, hooksForRunOnce(run.Plan, cmd, true)); err != nil {
+		run.AppendEvent("", StackHooksCompleted, 0, "stack hooks: pre-"+cmd+" failed", map[string]any{"stage": "pre-" + cmd, "status": "failed"}, nil)
 		firstErr = err
 		run.AppendEvent("", RunCompleted, 0, "failed", map[string]any{"status": "failed"}, nil)
 		run.WriteSummarySnapshot(run.BuildSummary("failed", start, s.Snapshot()))
@@ -536,6 +538,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		}
 		return firstErr
 	}
+	run.AppendEvent("", StackHooksCompleted, 0, "stack hooks: pre-"+cmd+" completed", map[string]any{"stage": "pre-" + cmd, "status": "succeeded"}, nil)
 
 	// Seed the scheduler with already-completed nodes from a previous run.
 	// Emit NODE_SUCCEEDED events so the new run's sqlite summary matches the resumed state.
@@ -683,6 +686,8 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	if status == "failed" {
 		postStatus = "failure"
 	}
+	run.AppendEvent("", RunFinalizing, 0, "finalizing", map[string]any{"stage": "finalizing"}, nil)
+	run.AppendEvent("", StackHooksStarted, 0, "stack hooks: post-"+cmd, map[string]any{"stage": "post-" + cmd, "status": postStatus}, nil)
 	if err := runHookList(ctx, hookRunContext{
 		run:     run,
 		opts:    opts,
@@ -694,6 +699,12 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		firstErr = err
 		status = "failed"
 	}
+	if status == "failed" {
+		run.AppendEvent("", StackHooksCompleted, 0, "stack hooks: post-"+cmd+" failed", map[string]any{"stage": "post-" + cmd, "status": "failed"}, nil)
+	} else {
+		run.AppendEvent("", StackHooksCompleted, 0, "stack hooks: post-"+cmd+" completed", map[string]any{"stage": "post-" + cmd, "status": "succeeded"}, nil)
+	}
+	run.AppendEvent("", RunFinalized, 0, "finalized", map[string]any{"stage": "finalized"}, nil)
 	run.AppendEvent("", RunCompleted, 0, status, map[string]any{"status": status}, nil)
 	run.WriteSummarySnapshot(run.BuildSummary(status, start, s.Snapshot()))
 	if run.store != nil {

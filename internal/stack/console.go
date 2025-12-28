@@ -72,6 +72,7 @@ type RunConsole struct {
 	runID      string
 	command    string
 	targetConc int
+	runStage   string
 	sections   []runConsoleSection
 	totalLines int
 }
@@ -266,7 +267,7 @@ func hookNoteFromEvent(ev RunEvent) string {
 
 	parts := []string{}
 	if phase != "" {
-		parts = append(parts, phase)
+		parts = append(parts, displayHookPhase(strings.TrimSpace(ev.NodeID), phase))
 	}
 	if hook != "" {
 		parts = append(parts, hook)
@@ -283,6 +284,26 @@ func hookNoteFromEvent(ev RunEvent) string {
 		parts = append(parts, summary)
 	}
 	return strings.Join(parts, " · ")
+}
+
+func displayHookPhase(nodeID string, phase string) string {
+	nodeID = strings.TrimSpace(nodeID)
+	phase = strings.ToLower(strings.TrimSpace(phase))
+	if nodeID == "" || nodeID == runConsoleStackNodeID {
+		switch phase {
+		case "pre-apply":
+			return "stack-pre-hooks"
+		case "post-apply":
+			return "stack-post-hooks"
+		case "pre-delete":
+			return "stack-pre-hooks"
+		case "post-delete":
+			return "stack-post-hooks"
+		default:
+			return phase
+		}
+	}
+	return phase
 }
 
 func (c *RunConsole) appendHookEventLocked(ev RunEvent, status string) {
@@ -313,6 +334,24 @@ func (c *RunConsole) appendHookEventLocked(ev RunEvent, status string) {
 		entry.phase = strings.TrimSpace(ev.Message)
 	}
 	c.hookEvents = append(c.hookEvents, entry)
+	if len(c.hookEvents) > tail {
+		c.hookEvents = c.hookEvents[len(c.hookEvents)-tail:]
+	}
+}
+
+func (c *RunConsole) appendMarkerLocked(ts time.Time, text string) {
+	if c == nil {
+		return
+	}
+	tail := c.opts.HookTail
+	if tail <= 0 {
+		tail = 24
+	}
+	c.hookEvents = append(c.hookEvents, runConsoleHookEntry{
+		ts:      ts,
+		status:  "marker",
+		summary: strings.TrimSpace(text),
+	})
 	if len(c.hookEvents) > tail {
 		c.hookEvents = c.hookEvents[len(c.hookEvents)-tail:]
 	}
@@ -509,6 +548,27 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 	case string(NodeLog):
 	case string(HelmLog):
 		c.appendHelmLogLocked(ev)
+	case string(StackHooksStarted):
+		stage := strings.TrimSpace(fieldString(ev.Fields, "stage"))
+		if stage == "" {
+			stage = strings.TrimSpace(ev.Message)
+		}
+		c.appendMarkerLocked(ts, fmt.Sprintf("stack hooks started: %s", stage))
+	case string(StackHooksCompleted):
+		stage := strings.TrimSpace(fieldString(ev.Fields, "stage"))
+		st := strings.TrimSpace(fieldString(ev.Fields, "status"))
+		if stage == "" {
+			stage = strings.TrimSpace(ev.Message)
+		}
+		if st == "" {
+			st = "completed"
+		}
+		c.appendMarkerLocked(ts, fmt.Sprintf("stack hooks %s: %s", st, stage))
+	case string(RunFinalizing):
+		c.runStage = "finalizing"
+		c.appendMarkerLocked(ts, "finalizing (post hooks)")
+	case string(RunFinalized):
+		c.runStage = ""
 	case string(RunCompleted):
 		if ns := c.nodes[runConsoleStackNodeID]; ns != nil {
 			if strings.ToLower(strings.TrimSpace(ns.status)) != "failed" {
@@ -841,6 +901,9 @@ func (c *RunConsole) renderHeaderLocked() []string {
 		"runId=" + runID,
 		totalsPart,
 		concPart,
+	}
+	if strings.TrimSpace(c.runStage) != "" {
+		parts = append(parts, "stage "+strings.TrimSpace(c.runStage))
 	}
 	parts = append(parts, "elapsed "+elapsed.String())
 	if c.opts.ShowHelmLogs {
@@ -1363,6 +1426,16 @@ func (c *RunConsole) renderHooksLocked() []string {
 		}
 		e := c.hookEvents[i]
 
+		if strings.ToLower(strings.TrimSpace(e.status)) == "marker" {
+			text := strings.TrimSpace(e.summary)
+			if text == "" {
+				text = "-"
+			}
+			lines = append(lines, runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth("─ "+text, width)))
+			shown++
+			continue
+		}
+
 		ts := "--:--:--.---"
 		if !e.ts.IsZero() {
 			ts = e.ts.UTC().Format("15:04:05.000")
@@ -1527,7 +1600,7 @@ func (c *RunConsole) renderDetailsLocked() []string {
 func hookLine(e runConsoleHookEntry) string {
 	parts := []string{}
 	if strings.TrimSpace(e.phase) != "" {
-		parts = append(parts, strings.TrimSpace(e.phase))
+		parts = append(parts, displayHookPhase(e.nodeID, strings.TrimSpace(e.phase)))
 	}
 	if strings.TrimSpace(e.hook) != "" {
 		parts = append(parts, strings.TrimSpace(e.hook))

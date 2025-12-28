@@ -10,6 +10,8 @@ const (
 	RunStarted     RunEventType = "RUN_STARTED"
 	RunCompleted   RunEventType = "RUN_COMPLETED"
 	RunConcurrency RunEventType = "RUN_CONCURRENCY"
+	RunFinalizing  RunEventType = "RUN_FINALIZING"
+	RunFinalized   RunEventType = "RUN_FINALIZED"
 
 	NodeMeta RunEventType = "NODE_META"
 
@@ -26,6 +28,9 @@ const (
 	HookSucceeded RunEventType = "HOOK_SUCCEEDED"
 	HookFailed    RunEventType = "HOOK_FAILED"
 	HookSkipped   RunEventType = "HOOK_SKIPPED"
+
+	StackHooksStarted   RunEventType = "STACK_HOOKS_STARTED"
+	StackHooksCompleted RunEventType = "STACK_HOOKS_COMPLETED"
 
 	BudgetWait     RunEventType = "BUDGET_WAIT"
 	RetryScheduled RunEventType = "RETRY_SCHEDULED"
