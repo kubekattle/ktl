@@ -88,8 +88,9 @@ type runConsoleNodeState struct {
 	hooksFailed  int
 	hooksSkipped int
 
-	lastHookNote string
-	lastHelmLine string
+	lastHookNote        string
+	lastHookSkippedNote string
+	lastHelmLine        string
 
 	phasesSeen map[string]bool
 	phasesDone map[string]bool
@@ -468,7 +469,7 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 			ns = &runConsoleNodeState{id: nodeID}
 			c.nodes[nodeID] = ns
 		}
-		ns.lastHookNote = note
+		ns.lastHookSkippedNote = note
 		if nodeID != runConsoleStackNodeID && strings.TrimSpace(ns.lastPhaseBeforeHook) != "" {
 			phase = strings.TrimSpace(ns.lastPhaseBeforeHook)
 			ns.lastPhaseBeforeHook = ""
@@ -1376,7 +1377,7 @@ func (c *RunConsole) renderHooksLocked() []string {
 		case "failed":
 			status = "failed"
 		case "skipped":
-			status = "planned"
+			status = "skipped"
 		default:
 			status = "-"
 		}
@@ -1664,6 +1665,8 @@ func runConsoleStatusCell(status string) runConsoleStatus {
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "PLANNED":
 		return runConsoleStatus{text: "· PLANNED", color: "dim", bold: false}
+	case "SKIPPED":
+		return runConsoleStatus{text: "↷ SKIPPED", color: "dim", bold: false}
 	case "QUEUED":
 		return runConsoleStatus{text: "⧗ QUEUED", color: "cyan", bold: false}
 	case "RUNNING":
