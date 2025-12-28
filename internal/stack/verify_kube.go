@@ -10,7 +10,10 @@ import (
 	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/kube"
 	corev1 "k8s.io/api/core/v1"
+	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func verifyEnabled(v VerifyOptions) bool {
@@ -95,6 +98,12 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 		return "", fmt.Errorf("verify: not ready")
 	}
 
+	if len(v.RequireConditions) > 0 {
+		if err := verifyRequiredConditions(ctx, kubeClient, defaultNamespace, targets, v.RequireConditions); err != nil {
+			return "", err
+		}
+	}
+
 	if verifyFailOnWarnings(v) {
 		window := verifyEventsWindow(v)
 		since := time.Now().Add(-window)
@@ -149,6 +158,127 @@ func verifyKubeRelease(ctx context.Context, kubeClient *kube.Client, defaultName
 	}
 
 	return "verified", nil
+}
+
+func verifyRequiredConditions(ctx context.Context, kubeClient *kube.Client, defaultNamespace string, targets []deploy.ManifestTarget, reqs []VerifyConditionRequirement) error {
+	if kubeClient == nil || kubeClient.Dynamic == nil || kubeClient.RESTMapper == nil {
+		return fmt.Errorf("verify: requireConditions requires dynamic client + rest mapper")
+	}
+	defaultNamespace = strings.TrimSpace(defaultNamespace)
+	if defaultNamespace == "" {
+		defaultNamespace = "default"
+	}
+
+	type reqKey struct {
+		group string
+		kind  string
+	}
+	byGK := map[reqKey][]VerifyConditionRequirement{}
+	for _, r := range reqs {
+		g := strings.ToLower(strings.TrimSpace(r.Group))
+		k := strings.ToLower(strings.TrimSpace(r.Kind))
+		if g == "" || k == "" {
+			continue
+		}
+		byGK[reqKey{group: g, kind: k}] = append(byGK[reqKey{group: g, kind: k}], r)
+	}
+	if len(byGK) == 0 {
+		return nil
+	}
+
+	for _, t := range targets {
+		g := strings.ToLower(strings.TrimSpace(t.Group))
+		k := strings.ToLower(strings.TrimSpace(t.Kind))
+		list := byGK[reqKey{group: g, kind: k}]
+		if len(list) == 0 {
+			continue
+		}
+		name := strings.TrimSpace(t.Name)
+		if name == "" {
+			continue
+		}
+		ns := strings.TrimSpace(t.Namespace)
+		if ns == "" {
+			ns = defaultNamespace
+		}
+
+		gvk := schema.GroupVersionKind{Group: strings.TrimSpace(t.Group), Version: strings.TrimSpace(t.Version), Kind: strings.TrimSpace(t.Kind)}
+		mapping, err := kubeClient.RESTMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			return fmt.Errorf("verify: map %s/%s: %w", strings.TrimSpace(t.Kind), name, err)
+		}
+		res := kubeClient.Dynamic.Resource(mapping.Resource)
+		var obj *unstructured.Unstructured
+		if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+			obj, err = res.Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+		} else {
+			obj, err = res.Get(ctx, name, metav1.GetOptions{})
+		}
+		if err != nil {
+			for _, r := range list {
+				if r.AllowMissing {
+					continue
+				}
+				return fmt.Errorf("verify: %s/%s missing (required condition %s)", strings.TrimSpace(t.Kind), name, strings.TrimSpace(r.ConditionType))
+			}
+			continue
+		}
+
+		for _, r := range list {
+			condType := strings.TrimSpace(r.ConditionType)
+			wantStatus := strings.TrimSpace(r.RequireStatus)
+			if wantStatus == "" {
+				wantStatus = "True"
+			}
+			gotStatus, gotReason, gotMsg, ok := findStatusCondition(obj, condType)
+			if !ok {
+				if r.AllowMissing {
+					continue
+				}
+				return fmt.Errorf("verify: %s/%s missing condition %q", strings.TrimSpace(t.Kind), name, condType)
+			}
+			if strings.ToLower(gotStatus) != strings.ToLower(wantStatus) {
+				detail := strings.TrimSpace(gotReason)
+				if detail == "" {
+					detail = strings.TrimSpace(gotMsg)
+				}
+				if detail != "" {
+					return fmt.Errorf("verify: %s/%s condition %s=%s (want %s): %s", strings.TrimSpace(t.Kind), name, condType, gotStatus, wantStatus, detail)
+				}
+				return fmt.Errorf("verify: %s/%s condition %s=%s (want %s)", strings.TrimSpace(t.Kind), name, condType, gotStatus, wantStatus)
+			}
+		}
+	}
+	return nil
+}
+
+func findStatusCondition(obj *unstructured.Unstructured, condType string) (status string, reason string, message string, ok bool) {
+	if obj == nil {
+		return "", "", "", false
+	}
+	condType = strings.TrimSpace(condType)
+	if condType == "" {
+		return "", "", "", false
+	}
+	raw, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if !found || len(raw) == 0 {
+		return "", "", "", false
+	}
+	for i := range raw {
+		m, ok := raw[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if strings.ToLower(strings.TrimSpace(t)) != strings.ToLower(condType) {
+			continue
+		}
+		s, _ := m["status"].(string)
+		r, _ := m["reason"].(string)
+		msg, _ := m["message"].(string)
+		return strings.TrimSpace(s), strings.TrimSpace(r), strings.TrimSpace(msg), true
+	}
+	return "", "", "", false
 }
 
 func verifyReasonAllowed(v VerifyOptions, reason string) bool {
