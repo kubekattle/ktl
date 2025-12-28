@@ -412,6 +412,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 								"from":     before,
 								"to":       adaptive.Target,
 								"reason":   reason,
+								"action":   "ramp-up",
 								"window":   len(adaptive.window),
 								"failRate": adaptive.failureRate(),
 							}, nil)
@@ -440,12 +441,13 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 					changed, reason := adaptive.OnFailure(class)
 					if changed {
 						targetWorkers = adaptive.Target
-						msg := fmt.Sprintf("concurrency: %d -> %d reason=%s window=%d failRate=%.2f", before, adaptive.Target, reason, len(adaptive.window), adaptive.failureRate())
+						msg := fmt.Sprintf("concurrency: %d -> %d reason=%s window=%d failRate=%.2f", before, adaptive.Target, class, len(adaptive.window), adaptive.failureRate())
 						run.AppendEvent("", RunConcurrency, 0, msg, map[string]any{
 							"from":     before,
 							"to":       adaptive.Target,
-							"reason":   reason,
+							"reason":   class,
 							"class":    class,
+							"action":   reason,
 							"window":   len(adaptive.window),
 							"failRate": adaptive.failureRate(),
 						}, nil)
