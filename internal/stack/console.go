@@ -333,10 +333,35 @@ func (c *RunConsole) appendHookEventLocked(ev RunEvent, status string) {
 	if entry.phase == "" {
 		entry.phase = strings.TrimSpace(ev.Message)
 	}
+
+	// Collapse: once a hook reaches a terminal state, drop the most recent matching
+	// "started" record so the HOOKS panel doesn't keep stale ▶ RUNNING lines.
+	switch strings.ToLower(strings.TrimSpace(entry.status)) {
+	case "succeeded", "failed", "skipped":
+		for i := len(c.hookEvents) - 1; i >= 0; i-- {
+			prev := c.hookEvents[i]
+			if strings.ToLower(strings.TrimSpace(prev.status)) != "started" {
+				continue
+			}
+			if !sameHookKey(prev, entry) {
+				continue
+			}
+			c.hookEvents = append(c.hookEvents[:i], c.hookEvents[i+1:]...)
+			break
+		}
+	}
+
 	c.hookEvents = append(c.hookEvents, entry)
 	if len(c.hookEvents) > tail {
 		c.hookEvents = c.hookEvents[len(c.hookEvents)-tail:]
 	}
+}
+
+func sameHookKey(a, b runConsoleHookEntry) bool {
+	return strings.TrimSpace(a.nodeID) == strings.TrimSpace(b.nodeID) &&
+		a.attempt == b.attempt &&
+		strings.TrimSpace(a.phase) == strings.TrimSpace(b.phase) &&
+		strings.TrimSpace(a.hook) == strings.TrimSpace(b.hook)
 }
 
 func (c *RunConsole) appendMarkerLocked(ts time.Time, text string) {
