@@ -25,6 +25,7 @@ const (
 	HookStarted   RunEventType = "HOOK_STARTED"
 	HookSucceeded RunEventType = "HOOK_SUCCEEDED"
 	HookFailed    RunEventType = "HOOK_FAILED"
+	HookSkipped   RunEventType = "HOOK_SKIPPED"
 
 	BudgetWait     RunEventType = "BUDGET_WAIT"
 	RetryScheduled RunEventType = "RETRY_SCHEDULED"

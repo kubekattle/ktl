@@ -90,6 +90,39 @@ func runHookList(ctx context.Context, hc hookRunContext, hooks []HookSpec) error
 	for i := range hooks {
 		hook := hooks[i]
 		if !shouldRunHook(hook, hc.status, hc.phase) {
+			if hc.run != nil {
+				nodeID := ""
+				attempt := 0
+				if hc.node != nil {
+					nodeID = hc.node.ID
+					attempt = hc.node.Attempt
+				}
+				name := strings.TrimSpace(hook.Name)
+				if name == "" {
+					name = strings.TrimSpace(hook.Type)
+					if name == "" {
+						name = "hook"
+					}
+				}
+
+				effectiveWhen := strings.ToLower(strings.TrimSpace(hook.When))
+				if effectiveWhen == "" {
+					effectiveWhen = "success"
+					if strings.HasPrefix(strings.ToLower(strings.TrimSpace(hc.phase)), "pre-") {
+						effectiveWhen = "always"
+					}
+				}
+				desc := fmt.Sprintf("%s %s skipped", strings.TrimSpace(hc.phase), name)
+				hc.run.AppendEvent(nodeID, HookSkipped, attempt, desc, map[string]any{
+					"hook":    strings.TrimSpace(name),
+					"phase":   strings.TrimSpace(hc.phase),
+					"when":    effectiveWhen,
+					"runOnce": hook.RunOnce,
+					"type":    strings.TrimSpace(hook.Type),
+					"summary": hookCommandSummary(hook),
+					"reason":  fmt.Sprintf("status=%s", strings.ToLower(strings.TrimSpace(hc.status))),
+				}, nil)
+			}
 			continue
 		}
 		if err := runOneHook(ctx, hc, hook); err != nil {
@@ -136,8 +169,25 @@ func runOneHook(ctx context.Context, hc hookRunContext, hook HookSpec) error {
 	}
 	desc := fmt.Sprintf("%s %s", strings.TrimSpace(hc.phase), name)
 
+	effectiveWhen := strings.ToLower(strings.TrimSpace(hook.When))
+	if effectiveWhen == "" {
+		effectiveWhen = "success"
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(hc.phase)), "pre-") {
+			effectiveWhen = "always"
+		}
+	}
+	summary := hookCommandSummary(hook)
+	hookType := strings.TrimSpace(hook.Type)
+
 	if hc.run != nil {
-		hc.run.AppendEvent(nodeID, HookStarted, attempt, desc, map[string]any{"hook": strings.TrimSpace(name), "phase": strings.TrimSpace(hc.phase)}, nil)
+		hc.run.AppendEvent(nodeID, HookStarted, attempt, desc, map[string]any{
+			"hook":    strings.TrimSpace(name),
+			"phase":   strings.TrimSpace(hc.phase),
+			"when":    effectiveWhen,
+			"runOnce": hook.RunOnce,
+			"type":    hookType,
+			"summary": summary,
+		}, nil)
 	}
 
 	maxAttempts := 1
@@ -164,7 +214,14 @@ func runOneHook(ctx context.Context, hc hookRunContext, hook HookSpec) error {
 		cancel()
 		if lastErr == nil {
 			if hc.run != nil {
-				hc.run.AppendEvent(nodeID, HookSucceeded, attempt, desc, map[string]any{"hook": strings.TrimSpace(name), "phase": strings.TrimSpace(hc.phase)}, nil)
+				hc.run.AppendEvent(nodeID, HookSucceeded, attempt, desc, map[string]any{
+					"hook":    strings.TrimSpace(name),
+					"phase":   strings.TrimSpace(hc.phase),
+					"when":    effectiveWhen,
+					"runOnce": hook.RunOnce,
+					"type":    hookType,
+					"summary": summary,
+				}, nil)
 			}
 			return nil
 		}
@@ -183,9 +240,59 @@ func runOneHook(ctx context.Context, hc hookRunContext, hook HookSpec) error {
 	}
 
 	if hc.run != nil {
-		hc.run.AppendEvent(nodeID, HookFailed, attempt, fmt.Sprintf("%s: %v", desc, lastErr), map[string]any{"hook": strings.TrimSpace(name), "phase": strings.TrimSpace(hc.phase)}, &RunError{Class: "HOOK_FAILED", Message: lastErr.Error(), Digest: computeRunErrorDigest("HOOK_FAILED", lastErr.Error())})
+		hc.run.AppendEvent(nodeID, HookFailed, attempt, fmt.Sprintf("%s: %v", desc, lastErr), map[string]any{
+			"hook":    strings.TrimSpace(name),
+			"phase":   strings.TrimSpace(hc.phase),
+			"when":    effectiveWhen,
+			"runOnce": hook.RunOnce,
+			"type":    hookType,
+			"summary": summary,
+		}, &RunError{Class: "HOOK_FAILED", Message: lastErr.Error(), Digest: computeRunErrorDigest("HOOK_FAILED", lastErr.Error())})
 	}
 	return lastErr
+}
+
+func hookCommandSummary(h HookSpec) string {
+	switch strings.ToLower(strings.TrimSpace(h.Type)) {
+	case "script":
+		if h.Script == nil || len(h.Script.Command) == 0 {
+			return ""
+		}
+		// Avoid extremely long lines; keep the first few args.
+		cmd := h.Script.Command
+		if len(cmd) > 8 {
+			cmd = append(append([]string(nil), cmd[:8]...), "…")
+		}
+		return strings.Join(cmd, " ")
+	case "kubectl":
+		if h.Kubectl == nil || len(h.Kubectl.Args) == 0 {
+			return ""
+		}
+		args := h.Kubectl.Args
+		if len(args) > 10 {
+			args = append(append([]string(nil), args[:10]...), "…")
+		}
+		return "kubectl " + strings.Join(args, " ")
+	case "http":
+		if h.HTTP == nil {
+			return ""
+		}
+		method := strings.TrimSpace(h.HTTP.Method)
+		if method == "" {
+			if strings.TrimSpace(h.HTTP.Body) != "" {
+				method = http.MethodPost
+			} else {
+				method = http.MethodGet
+			}
+		}
+		url := strings.TrimSpace(h.HTTP.URL)
+		if url == "" {
+			return ""
+		}
+		return method + " " + url
+	default:
+		return ""
+	}
 }
 
 func runOneHookAttempt(ctx context.Context, hc hookRunContext, hook HookSpec, desc string) error {

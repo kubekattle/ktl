@@ -1,0 +1,145 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: complex-hooks
+
+# NOTE: This file contains placeholder tokens that are replaced by integration tests.
+
+defaults:
+  cluster:
+    name: default
+
+hooks:
+  preApply:
+    - name: stack-pre-configmap
+      type: kubectl
+      runOnce: true
+      when: always
+      namespace: __KTL_TEST_NAMESPACE__
+      kubectl:
+        args: ["apply", "-f", "./hooks/preapply-configmap.yaml"]
+    - name: stack-pre-flaky
+      type: script
+      runOnce: true
+      retry: 2
+      timeout: 10s
+      script:
+        workDir: "./hooks"
+        command: ["sh", "flaky.sh"]
+        env:
+          HOOK_STATE_DIR: "__KTL_TEST_STATE_DIR__"
+    - name: stack-pre-http
+      type: http
+      runOnce: true
+      when: always
+      http:
+        method: POST
+        url: "__KTL_TEST_HOOK_SERVER__/stack-pre"
+        headers:
+          X-KTL-Test: stack-pre
+        body: "stack pre apply"
+  postApply:
+    - name: stack-post-http-success
+      type: http
+      runOnce: true
+      when: success
+      http:
+        url: "__KTL_TEST_HOOK_SERVER__/stack-post"
+    - name: stack-post-emit
+      type: script
+      runOnce: true
+      when: always
+      script:
+        command: ["sh", "./hooks/emit.sh", "stack-post-apply"]
+  preDelete:
+    - name: stack-predelete-emit
+      type: script
+      runOnce: true
+      when: always
+      script:
+        command: ["sh", "./hooks/emit.sh", "stack-pre-delete"]
+  postDelete:
+    - name: stack-postdelete-http
+      type: http
+      runOnce: true
+      when: always
+      http:
+        url: "__KTL_TEST_HOOK_SERVER__/stack-post-delete"
+
+releases:
+  - name: __KTL_TEST_RELEASE_A__
+    chart: "__KTL_TEST_CHART__"
+    namespace: __KTL_TEST_NAMESPACE__
+    apply:
+      wait: true
+      timeout: 2m
+    hooks:
+      preApply:
+        - name: rel-pre-script
+          type: script
+          timeout: 30s
+          script:
+            workDir: "./hooks"
+            command: ["sh", "rel-pre.sh"]
+            env:
+              HOOK_STATE_DIR: "__KTL_TEST_STATE_DIR__"
+      postApply:
+        - name: rel-post-http
+          type: http
+          when: success
+          http:
+            method: POST
+            url: "__KTL_TEST_HOOK_SERVER__/rel-post"
+            headers:
+              X-Release: "__KTL_TEST_RELEASE_A__"
+            body: "rel post apply"
+      preDelete:
+        - name: rel-predelete-emit
+          type: script
+          when: always
+          script:
+            command: ["sh", "./hooks/emit.sh", "rel-pre-delete"]
+      postDelete:
+        - name: rel-postdelete-http
+          type: http
+          when: always
+          http:
+            url: "__KTL_TEST_HOOK_SERVER__/rel-post-delete"
+  - name: __KTL_TEST_RELEASE_B__
+    chart: "__KTL_TEST_CHART__"
+    namespace: __KTL_TEST_NAMESPACE__
+    needs: ["__KTL_TEST_RELEASE_A__"]
+    apply:
+      wait: true
+      timeout: 2m
+    hooks:
+      preApply:
+        - name: rel-pre-script
+          type: script
+          timeout: 30s
+          script:
+            workDir: "./hooks"
+            command: ["sh", "rel-pre.sh"]
+            env:
+              HOOK_STATE_DIR: "__KTL_TEST_STATE_DIR__"
+      postApply:
+        - name: rel-post-http
+          type: http
+          when: success
+          http:
+            method: POST
+            url: "__KTL_TEST_HOOK_SERVER__/rel-post"
+            headers:
+              X-Release: "__KTL_TEST_RELEASE_B__"
+            body: "rel post apply"
+      preDelete:
+        - name: rel-predelete-emit
+          type: script
+          when: always
+          script:
+            command: ["sh", "./hooks/emit.sh", "rel-pre-delete"]
+      postDelete:
+        - name: rel-postdelete-http
+          type: http
+          when: always
+          http:
+            url: "__KTL_TEST_HOOK_SERVER__/rel-post-delete"

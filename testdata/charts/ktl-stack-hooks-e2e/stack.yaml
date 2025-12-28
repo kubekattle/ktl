@@ -1,0 +1,60 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: ktl-stack-hooks-e2e
+
+# Convenience stack wrapper for this chart directory.
+# Lets you run:
+#   ktl stack --config ./testdata/charts/ktl-stack-hooks-e2e apply ...
+#
+# This stack is intentionally minimal (no ktl hooks); the chart itself contains
+# Helm hooks in `templates/hooks.yaml`.
+
+defaults:
+  cluster:
+    name: default
+  namespace: ktl-test
+
+hooks:
+  preApply:
+    - name: stack-pre-apply-always
+      type: script
+      runOnce: true
+      when: always
+      timeout: 10s
+      script:
+        command: ["sh", "-c", "echo \"ktl-stack-hooks-e2e pre-apply (always)\""]
+  postApply:
+    - name: stack-post-apply-success
+      type: script
+      runOnce: true
+      when: success
+      timeout: 10s
+      script:
+        command: ["sh", "-c", "echo \"ktl-stack-hooks-e2e post-apply (success)\""]
+    - name: stack-post-apply-failure
+      type: script
+      runOnce: true
+      when: failure
+      timeout: 10s
+      script:
+        command: ["sh", "-c", "echo \"ktl-stack-hooks-e2e post-apply (failure)\""]
+  preDelete:
+    - name: stack-pre-delete-always
+      type: script
+      runOnce: true
+      when: always
+      timeout: 10s
+      script:
+        command: ["sh", "-c", "echo \"ktl-stack-hooks-e2e pre-delete (always)\""]
+  postDelete:
+    - name: stack-post-delete-always
+      type: script
+      runOnce: true
+      when: always
+      timeout: 10s
+      script:
+        command: ["sh", "-c", "echo \"ktl-stack-hooks-e2e post-delete (always)\""]
+
+releases:
+  - name: ktl-stack-hooks-e2e
+    chart: .

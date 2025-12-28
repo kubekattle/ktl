@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ktl-stack-hooks-e2e
+description: Minimal chart fixture for ktl stack hook e2e tests.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

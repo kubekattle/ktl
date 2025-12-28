@@ -1,0 +1,107 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-hook-pre-install
+  labels:
+    ktl.dev/e2e: "true"
+    ktl.dev/hook: pre-install
+  annotations:
+    helm.sh/hook: pre-install
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hook
+          image: busybox:1.36.1
+          command: ["sh", "-c", "echo pre-install release={{ .Release.Name }} revision={{ .Release.Revision }}"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-hook-post-install
+  labels:
+    ktl.dev/e2e: "true"
+    ktl.dev/hook: post-install
+  annotations:
+    helm.sh/hook: post-install
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hook
+          image: busybox:1.36.1
+          command: ["sh", "-c", "echo post-install release={{ .Release.Name }} revision={{ .Release.Revision }}"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-hook-pre-upgrade
+  labels:
+    ktl.dev/e2e: "true"
+    ktl.dev/hook: pre-upgrade
+  annotations:
+    helm.sh/hook: pre-upgrade
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hook
+          image: busybox:1.36.1
+          command: ["sh", "-c", "echo pre-upgrade release={{ .Release.Name }} revision={{ .Release.Revision }}"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-hook-post-upgrade
+  labels:
+    ktl.dev/e2e: "true"
+    ktl.dev/hook: post-upgrade
+  annotations:
+    helm.sh/hook: post-upgrade
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hook
+          image: busybox:1.36.1
+          command: ["sh", "-c", "echo post-upgrade release={{ .Release.Name }} revision={{ .Release.Revision }}"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-hook-pre-delete
+  labels:
+    ktl.dev/e2e: "true"
+    ktl.dev/hook: pre-delete
+  annotations:
+    helm.sh/hook: pre-delete
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hook
+          image: busybox:1.36.1
+          command: ["sh", "-c", "echo pre-delete release={{ .Release.Name }} revision={{ .Release.Revision }}"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-hook-post-delete
+  labels:
+    ktl.dev/e2e: "true"
+    ktl.dev/hook: post-delete
+  annotations:
+    helm.sh/hook: post-delete
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hook
+          image: busybox:1.36.1
+          command: ["sh", "-c", "echo post-delete release={{ .Release.Name }} revision={{ .Release.Revision }}"]
