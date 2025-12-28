@@ -128,9 +128,11 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				} else if isTerminalWriter(errOut) {
 					width, _ := ui.TerminalWidth(errOut)
 					console = stack.NewRunConsole(errOut, p, string(kind), stack.RunConsoleOptions{
-						Enabled: true,
-						Verbose: verbose,
-						Width:   width,
+						Enabled:      true,
+						Verbose:      verbose,
+						Width:        width,
+						Color:        true,
+						ShowHelmLogs: opts.HelmLogs,
 					})
 					observers = append(observers, console)
 				} else {
@@ -330,6 +332,7 @@ type stackRunCLIOptions struct {
 	Yes                    bool
 	DryRun                 bool
 	Diff                   bool
+	HelmLogs               bool
 	Resume                 bool
 	RunID                  string
 	Replan                 bool
@@ -385,6 +388,8 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	cmd.Flags().BoolVar(&opts.FailFast, "fail-fast", opts.FailFast, "Stop scheduling new releases on first error")
 	cmd.Flags().BoolVar(&opts.ContinueOnError, "continue-on-error", opts.ContinueOnError, "Continue scheduling independent releases after failures")
 	cmd.Flags().BoolVar(&opts.Yes, "yes", opts.Yes, "Skip confirmation prompts")
+
+	cmd.Flags().BoolVar(&opts.HelmLogs, "helm-logs", opts.HelmLogs, "Capture Helm debug logs per node and render them in a HELM LOGS section (TTY only)")
 
 	cmd.Flags().BoolVar(&opts.Resume, "resume", opts.Resume, "Resume the most recent run (uses its frozen plan unless --replan is set)")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", opts.RunID, "With --resume: resume a specific run ID; otherwise: set the new run ID")
@@ -479,6 +484,7 @@ func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.P
 		AutoApprove:                opts.Yes,
 		DryRun:                     kind == stackRunApply && opts.DryRun,
 		Diff:                       kind == stackRunApply && opts.Diff,
+		HelmLogs:                   opts.HelmLogs,
 		KubeQPS:                    effective.KubeQPS,
 		KubeBurst:                  effective.KubeBurst,
 		MaxConcurrencyPerNamespace: effective.Limits.MaxParallelPerNamespace,

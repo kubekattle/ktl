@@ -18,6 +18,7 @@ import (
 
 func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var rootDir string
+	var configPath string
 	var profile string
 	var clusters []string
 	var tags []string
@@ -39,7 +40,8 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 		Short: "Compile and orchestrate many Helm releases as a dependency graph",
 		Long:  "ktl stack discovers stack.yaml/release.yaml, compiles them with inheritance into a DAG, and runs ktl apply/delete per release.\n\nMinimal-flags workflow: put defaults into stack.yaml `cli:` and/or KTL_STACK_* env vars (see docs/stack-cli-defaults.md). Run `ktl env --match stack` to discover environment overrides.",
 	}
-	cmd.PersistentFlags().StringVar(&rootDir, "root", ".", "Stack root directory")
+	cmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to stack root directory or stack.yaml/release.yaml")
+	cmd.PersistentFlags().StringVar(&rootDir, "root", ".", "Stack root directory (deprecated: use --config)")
 	cmd.PersistentFlags().StringVar(&profile, "profile", "", "Profile overlay name (defaults to stack.yaml.defaultProfile when present)")
 	cmd.PersistentFlags().StringSliceVar(&clusters, "cluster", nil, "Filter the universe by cluster name (repeatable or comma-separated)")
 	cmd.PersistentFlags().StringSliceVar(&tags, "tag", nil, "Select releases by tag (repeatable or comma-separated)")
@@ -71,6 +73,8 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	_ = cmd.PersistentFlags().MarkHidden("output")
 	_ = cmd.PersistentFlags().MarkHidden("infer-deps")
 	_ = cmd.PersistentFlags().MarkHidden("infer-config-refs")
+	_ = cmd.PersistentFlags().MarkHidden("root")
+	_ = cmd.PersistentFlags().MarkDeprecated("root", "use --config (path to stack root directory or stack.yaml/release.yaml)")
 
 	common := stackCommandCommon{
 		rootDir:              &rootDir,
@@ -95,6 +99,62 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 		remoteAgent:          remoteAgent,
 	}
 
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		// Default UX: `ktl stack` behaves like `ktl stack plan` (safe, read-only).
+		out := cmd.OutOrStdout()
+		outFormat := strings.ToLower(strings.TrimSpace(output))
+		_, selected, _, err := compileInferSelect(cmd, common)
+		if err != nil {
+			if isNoStackRootError(err) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "error: no stack.yaml found (hint: pass --config /path/to/stack-root)")
+				return cmd.Help()
+			}
+			return err
+		}
+		if outFormat == "json" {
+			enc := json.NewEncoder(out)
+			enc.SetIndent("", "  ")
+			return enc.Encode(selected)
+		}
+		return stack.PrintPlanTable(out, selected)
+	}
+
+	// Ensure `ktl stack --help` shows the full command surface (and still includes global flags).
+	if cmd.Annotations == nil {
+		cmd.Annotations = make(map[string]string)
+	}
+	cmd.Annotations[showInheritedKey] = "true"
+	decorateCommandHelp(cmd, "Stack Flags")
+
+	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Important: the repo already uses KTL_CONFIG for the global config file path.
+		// The CLI env binding layer may set this flag from that env var even when the
+		// user did not intend to target `ktl stack`. Only honor --config when it was
+		// explicitly provided after the "stack" token in argv.
+		if !stackArgvHasFlagAfterStack("--config") {
+			return nil
+		}
+
+		cfg := strings.TrimSpace(configPath)
+		if cfg == "" {
+			return nil
+		}
+		info, err := os.Stat(cfg)
+		if err != nil {
+			return fmt.Errorf("stat --config %q: %w", cfg, err)
+		}
+		if info.IsDir() {
+			rootDir = cfg
+			return nil
+		}
+		base := strings.ToLower(filepath.Base(cfg))
+		if base != "stack.yaml" && base != "release.yaml" && base != "stack.yml" && base != "release.yml" {
+			return fmt.Errorf("--config must point to a stack root directory or stack.yaml/release.yaml (got %q)", cfg)
+		}
+		rootDir = filepath.Dir(cfg)
+		return nil
+	}
+
 	cmd.AddCommand(newStackPlanCommand(common))
 	cmd.AddCommand(newStackGraphCommand(common))
 	cmd.AddCommand(newStackExplainCommand(common))
@@ -111,6 +171,29 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.AddCommand(newStackDeleteCommand(common))
 	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &inferDeps, &inferConfigRefs, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
 	return cmd
+}
+
+func stackArgvHasFlagAfterStack(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	stackIdx := -1
+	for i, a := range os.Args {
+		if a == "stack" {
+			stackIdx = i
+			break
+		}
+	}
+	if stackIdx == -1 {
+		return false
+	}
+	for _, a := range os.Args[stackIdx+1:] {
+		if a == name || strings.HasPrefix(a, name+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func newStackPlanCommand(common stackCommandCommon) *cobra.Command {

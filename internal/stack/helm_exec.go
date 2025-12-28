@@ -33,6 +33,8 @@ type helmExecutor struct {
 	dryRun bool
 	diff   bool
 
+	helmLogs bool
+
 	kubeQPS   float32
 	kubeBurst int
 
@@ -96,6 +98,10 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		settings.SetNamespace(node.Namespace)
 	}
 
+	helmDebug := strings.TrimSpace(os.Getenv("KTL_STACK_HELM_DEBUG")) == "1"
+	helmLogEnabled := e.helmLogs || helmDebug
+	settings.Debug = helmLogEnabled
+
 	actionCfg := new(action.Configuration)
 	getter := settings.RESTClientGetter()
 	if cfgFlags, ok := getter.(*genericclioptions.ConfigFlags); ok && cfgFlags != nil {
@@ -116,12 +122,19 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			return cfg
 		}
 	}
-	helmDebug := strings.TrimSpace(os.Getenv("KTL_STACK_HELM_DEBUG")) == "1"
 	logFunc := func(format string, v ...interface{}) {
-		if !helmDebug {
+		if !helmLogEnabled {
 			return
 		}
-		fmt.Fprintf(e.errOut, "[helm] "+format+"\n", v...)
+		msg := strings.TrimSpace(fmt.Sprintf(format, v...))
+		if msg == "" {
+			return
+		}
+		if e.helmLogs && e.run != nil {
+			e.run.AppendEvent(node.ID, HelmLog, node.Attempt, msg, map[string]any{"source": "helm"}, nil)
+			return
+		}
+		fmt.Fprintf(e.errOut, "[helm] %s\n", msg)
 	}
 	if err := actionCfg.Init(getter, node.Namespace, os.Getenv("HELM_DRIVER"), logFunc); err != nil {
 		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("init helm action config: %w", err))

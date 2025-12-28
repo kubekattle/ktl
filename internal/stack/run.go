@@ -27,6 +27,8 @@ type RunOptions struct {
 	Diff        bool
 	Executor    NodeExecutor
 
+	HelmLogs bool
+
 	KubeQPS   float32
 	KubeBurst int
 
@@ -132,6 +134,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			errOut:      errOut,
 			dryRun:      opts.DryRun,
 			diff:        opts.Diff,
+			helmLogs:    opts.HelmLogs,
 			kubeQPS:     opts.KubeQPS,
 			kubeBurst:   opts.KubeBurst,
 		}
@@ -701,15 +704,15 @@ func (r *runState) WritePlan() error {
 	return r.store.CreateRun(context.Background(), r, r.Plan)
 }
 
-func (r *runState) AppendEvent(nodeID string, typ RunEventType, attempt int, message string, fields any, runErr *RunError) {
+func (r *runState) AppendEvent(nodeID string, typ RunEventType, attempt int, message string, fields map[string]any, runErr *RunError) {
 	r.emitEvent(nodeID, typ, attempt, message, fields, runErr, true)
 }
 
-func (r *runState) EmitEphemeralEvent(nodeID string, typ RunEventType, attempt int, message string, fields any) {
+func (r *runState) EmitEphemeralEvent(nodeID string, typ RunEventType, attempt int, message string, fields map[string]any) {
 	r.emitEvent(nodeID, typ, attempt, message, fields, nil, false)
 }
 
-func (r *runState) emitEvent(nodeID string, typ RunEventType, attempt int, message string, fields any, runErr *RunError, persist bool) {
+func (r *runState) emitEvent(nodeID string, typ RunEventType, attempt int, message string, fields map[string]any, runErr *RunError, persist bool) {
 	r.mu.Lock()
 	r.eventSeq++
 	ev := RunEvent{

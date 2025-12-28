@@ -21,6 +21,8 @@ type StatusOptions struct {
 	Follow  bool
 	Limit   int
 	Format  string // raw|table|json|tty
+
+	HelmLogs bool
 }
 
 func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
@@ -78,9 +80,11 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 		}
 		width, _ := ui.TerminalWidth(out)
 		console := NewRunConsole(out, plan, "", RunConsoleOptions{
-			Enabled: true,
-			Verbose: false,
-			Width:   width,
+			Enabled:      true,
+			Verbose:      false,
+			Width:        width,
+			Color:        true,
+			ShowHelmLogs: opts.HelmLogs,
 		})
 		defer console.Done()
 

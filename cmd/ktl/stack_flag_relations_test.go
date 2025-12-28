@@ -25,7 +25,7 @@ func TestStackApplyMutuallyExclusiveSealedAndBundle(t *testing.T) {
 	root.SetErr(&errOut)
 	root.SetArgs([]string{
 		"stack", "apply",
-		"--root", rootDir,
+		"--config", rootDir,
 		"--infer-deps=false",
 		"--plan-only",
 		"--sealed-dir", "x",
@@ -58,7 +58,7 @@ func TestStackApplyMutuallyExclusiveFailFastAndContinue(t *testing.T) {
 	root.SetErr(&errOut)
 	root.SetArgs([]string{
 		"stack", "apply",
-		"--root", rootDir,
+		"--config", rootDir,
 		"--infer-deps=false",
 		"--plan-only",
 		"--fail-fast=true",
@@ -83,6 +83,24 @@ func TestStackDeleteRejectsDryRunFlag(t *testing.T) {
 	}
 	if cmd.Flags().Lookup("dry-run") != nil {
 		t.Fatalf("expected ktl stack delete to not define --dry-run")
+	}
+}
+
+func TestStackConfigFlagExistsAndRootIsDeprecated(t *testing.T) {
+	root := newRootCommand()
+	cmd, _, err := root.Find([]string{"stack"})
+	if err != nil {
+		t.Fatalf("find command: %v", err)
+	}
+	if cmd.PersistentFlags().Lookup("config") == nil {
+		t.Fatalf("expected ktl stack to define --config")
+	}
+	rootFlag := cmd.PersistentFlags().Lookup("root")
+	if rootFlag == nil {
+		t.Fatalf("expected ktl stack to still accept --root")
+	}
+	if rootFlag.Deprecated == "" {
+		t.Fatalf("expected --root to be deprecated")
 	}
 }
 

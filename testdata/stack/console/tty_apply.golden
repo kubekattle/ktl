@@ -1,0 +1,8 @@
+\x1b[1mpayments • apply • runId=r-123 • totals ok=1 fail=1 blocked=0 running=1 • concurrency 4/1 • elapsed 12.3s\x1b[0m
+\x1b[31;1mFAILURES (1)\x1b[0m
+\x1b[31mdev/c • a1 • RATE_LIMIT • 0123456789ab… • helm upgrade failed: context deadline exceeded while waiting for resources\x1b[0m
+Node                                       Status       Att Phase                Note
+------------------------------------------------------------------------------------------------------------------------
+dev/a                                      \x1b[32;1m✓ SUCCEEDED \x1b[0m   1 upgrade
+dev/b                                      \x1b[34;1m▶ RUNNING   \x1b[0m   1 upgrade (8.9s)       budget wait: cluster/dev ns/ns-b limit…
+dev/c                                      \x1b[31;1m✖ FAILED    \x1b[0m   1 -                    RATE_LIMIT

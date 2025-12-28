@@ -99,11 +99,10 @@ func TestRun_AdaptiveConcurrency_EmitsEvents(t *testing.T) {
 			sawShrink = true
 			continue
 		}
-		if fields, ok := ev.Fields.(map[string]any); ok {
-			if v, ok := fields["class"].(string); ok && v == "RATE_LIMIT" {
-				if r, ok := fields["reason"].(string); ok && r == "RATE_LIMIT" {
-					sawShrink = true
-				}
+		fields := ev.Fields
+		if v, ok := fields["class"].(string); ok && v == "RATE_LIMIT" {
+			if r, ok := fields["reason"].(string); ok && r == "RATE_LIMIT" {
+				sawShrink = true
 			}
 		}
 	}

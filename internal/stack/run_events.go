@@ -32,6 +32,10 @@ const (
 	// NodeLog is an ephemeral, non-durable event used for verbose rendering.
 	// It is not expected to be stored in sqlite.
 	NodeLog RunEventType = "NODE_LOG"
+
+	// HelmLog is an optional, durable log stream captured from Helm operations.
+	// It is intended to be stored in sqlite when enabled by the caller.
+	HelmLog RunEventType = "HELM_LOG"
 )
 
 type RunEventObserver interface {

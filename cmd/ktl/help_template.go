@@ -119,15 +119,21 @@ func shouldShowInheritedFlags(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
 	}
+	if cmd.Annotations != nil {
+		// Allow specific commands to opt-in/out:
+		// - "false" always hides inherited flags
+		// - "true" always shows inherited flags (even for subcommands)
+		if strings.EqualFold(cmd.Annotations[showInheritedKey], "false") {
+			return false
+		}
+		if strings.EqualFold(cmd.Annotations[showInheritedKey], "true") {
+			return true
+		}
+	}
 	// Only show inherited global flags on the root help output to keep subcommand
 	// help focused and script-friendly.
 	if cmd.Parent() != nil {
 		return false
-	}
-	if cmd.Annotations != nil {
-		if strings.EqualFold(cmd.Annotations[showInheritedKey], "false") {
-			return false
-		}
 	}
 	return cmd.HasAvailableInheritedFlags()
 }

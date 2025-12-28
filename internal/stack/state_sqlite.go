@@ -406,10 +406,8 @@ func (s *stackStateStore) AppendEvent(ctx context.Context, runID string, ev RunE
 	}
 	msg := strings.TrimSpace(ev.Message)
 	fieldsJSON := ""
-	if ev.Fields != nil {
-		if raw, err := json.Marshal(ev.Fields); err == nil {
-			fieldsJSON = string(raw)
-		}
+	if raw, err := json.Marshal(ev.Fields); err == nil {
+		fieldsJSON = string(raw)
 	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO ktl_stack_events (run_id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
@@ -756,8 +754,9 @@ func sqliteRowToRunEvent(runID string, r sqliteEventRow) RunEvent {
 		CRC32:      strings.TrimSpace(r.crc32),
 	}
 	if strings.TrimSpace(r.fieldsJSON) != "" {
-		var fields any
-		if err := json.Unmarshal([]byte(r.fieldsJSON), &fields); err == nil {
+		var fields map[string]any
+		_ = json.Unmarshal([]byte(r.fieldsJSON), &fields)
+		if len(fields) > 0 {
 			ev.Fields = fields
 		}
 	}

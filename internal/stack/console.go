@@ -4,17 +4,30 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/fatih/color"
+	"github.com/mattn/go-runewidth"
 )
 
 type RunConsoleOptions struct {
 	Enabled bool
 	Verbose bool
 	Width   int
+
+	// Now returns the current time for elapsed calculations. Defaults to time.Now.
+	Now func() time.Time
+
+	// Color toggles ANSI styling for the TTY surface.
+	Color bool
+
+	// ShowHelmLogs renders HELM_LOG events under each node.
+	ShowHelmLogs bool
+
+	// HelmLogTail caps stored log lines per node (0 uses a default).
+	HelmLogTail int
 }
 
 // RunConsole renders stack run events into a single in-place updating TTY view.
@@ -28,12 +41,12 @@ type RunConsole struct {
 	nodeOrder  []string
 	nodes      map[string]*runConsoleNodeState
 	metaByID   map[string]runConsoleNodeMeta
+	helmLogs   map[string][]runConsoleHelmLogEntry
 	failures   []runConsoleFailure
-	logTail    []string
 	startedAt  time.Time
 	runID      string
 	command    string
-	concurrent string
+	targetConc int
 	sections   []runConsoleSection
 	totalLines int
 }
@@ -72,15 +85,27 @@ type runConsoleSection struct {
 	lines []string
 }
 
+type runConsoleHelmLogEntry struct {
+	seq     int64
+	offset  int
+	ts      time.Time
+	attempt int
+	line    string
+}
+
 func NewRunConsole(out io.Writer, plan *Plan, command string, opts RunConsoleOptions) *RunConsole {
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
 	c := &RunConsole{
 		out:       out,
 		opts:      opts,
 		plan:      plan,
 		command:   strings.TrimSpace(command),
-		startedAt: time.Now(),
+		startedAt: opts.Now(),
 		nodes:     map[string]*runConsoleNodeState{},
 		metaByID:  map[string]runConsoleNodeMeta{},
+		helmLogs:  map[string][]runConsoleHelmLogEntry{},
 	}
 	if plan != nil {
 		c.nodeOrder = runConsoleOrder(plan)
@@ -117,6 +142,29 @@ func (c *RunConsole) Done() {
 	c.mu.Unlock()
 }
 
+// SnapshotLines returns the current console surface as plain lines (no cursor movement).
+// It is intended for tests and debugging.
+func (c *RunConsole) SnapshotLines() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	sections := c.buildSectionsLocked()
+	out := make([]string, 0, runConsoleCountLines(sections))
+	for _, section := range sections {
+		out = append(out, section.lines...)
+	}
+	return out
+}
+
+func (c *RunConsole) now() time.Time {
+	if c == nil || c.opts.Now == nil {
+		return time.Now()
+	}
+	return c.opts.Now()
+}
+
 func (c *RunConsole) applyEventLocked(ev RunEvent) {
 	ts, ok := parseRFC3339(ev.TS)
 	if ok && c.startedAt.IsZero() {
@@ -132,7 +180,18 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 	case string(NodeMeta):
 		c.applyNodeMetaLocked(ev)
 	case string(RunConcurrency):
-		c.concurrent = strings.TrimSpace(ev.Message)
+		if to, ok := ev.Fields["to"]; ok {
+			switch v := to.(type) {
+			case float64:
+				c.targetConc = int(v)
+			case int:
+				c.targetConc = v
+			case string:
+				if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+					c.targetConc = n
+				}
+			}
+		}
 	case string(NodeQueued):
 		c.setNodeLocked(ev.NodeID, "queued", ev.Attempt, "", "", nil, ts)
 	case string(NodeRunning):
@@ -152,29 +211,75 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 		}
 		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, phase, "", nil, ts)
 	case string(HookFailed):
-		c.appendLogLocked(fmt.Sprintf("[%s] %s", ev.NodeID, strings.TrimSpace(ev.Message)), true)
 	case string(HookStarted), string(HookSucceeded):
-		if c.opts.Verbose {
-			c.appendLogLocked(fmt.Sprintf("[%s] %s", ev.NodeID, strings.TrimSpace(ev.Message)), false)
-		}
 	case string(RetryScheduled):
 		c.setNodeLocked(ev.NodeID, "retrying", ev.Attempt, c.getPhase(ev.NodeID), strings.TrimSpace(ev.Message), ev.Error, ts)
-		c.appendLogLocked(fmt.Sprintf("[%s] retry scheduled: %s", ev.NodeID, strings.TrimSpace(ev.Message)), false)
 	case string(NodeSucceeded):
 		c.setNodeLocked(ev.NodeID, "succeeded", ev.Attempt, "", "", nil, ts)
 	case string(NodeBlocked):
 		c.setNodeLocked(ev.NodeID, "blocked", ev.Attempt, "", strings.TrimSpace(ev.Message), nil, ts)
-		c.appendLogLocked(fmt.Sprintf("[%s] blocked: %s", ev.NodeID, strings.TrimSpace(ev.Message)), true)
 	case string(NodeFailed):
 		c.setNodeLocked(ev.NodeID, "failed", ev.Attempt, c.getPhase(ev.NodeID), "", ev.Error, ts)
 		c.addFailureLocked(runConsoleFailure{nodeID: ev.NodeID, attempt: ev.Attempt, err: ev.Error, msg: strings.TrimSpace(ev.Message)})
 	case string(NodeLog):
-		if c.opts.Verbose {
-			c.appendLogLocked(fmt.Sprintf("[%s] %s", ev.NodeID, strings.TrimSpace(ev.Message)), false)
-		}
+	case string(HelmLog):
+		c.appendHelmLogLocked(ev)
 	case string(RunCompleted):
-		if msg := strings.TrimSpace(ev.Message); msg != "" {
-			c.appendLogLocked(fmt.Sprintf("run completed: %s", msg), true)
+	case string(RunStarted):
+		if strings.TrimSpace(c.command) == "" {
+			if cmd := fieldString(ev.Fields, "command"); cmd != "" {
+				c.command = cmd
+			}
+		}
+		if c.targetConc <= 0 {
+			if conc, ok := ev.Fields["concurrency"]; ok {
+				switch v := conc.(type) {
+				case float64:
+					c.targetConc = int(v)
+				case int:
+					c.targetConc = v
+				case string:
+					if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+						c.targetConc = n
+					}
+				}
+			}
+		}
+	}
+}
+
+func (c *RunConsole) appendHelmLogLocked(ev RunEvent) {
+	if c == nil || !c.opts.ShowHelmLogs {
+		return
+	}
+	id := strings.TrimSpace(ev.NodeID)
+	if id == "" {
+		return
+	}
+	msg := strings.TrimSpace(ev.Message)
+	if msg == "" {
+		return
+	}
+	tail := c.opts.HelmLogTail
+	if tail <= 0 {
+		tail = 18
+	}
+	ts, _ := parseRFC3339(ev.TS)
+	lines := strings.Split(msg, "\n")
+	for i, line := range lines {
+		line = strings.TrimRight(line, "\r\t ")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		c.helmLogs[id] = append(c.helmLogs[id], runConsoleHelmLogEntry{
+			seq:     ev.Seq,
+			offset:  i,
+			ts:      ts,
+			attempt: ev.Attempt,
+			line:    line,
+		})
+		if len(c.helmLogs[id]) > tail {
+			c.helmLogs[id] = c.helmLogs[id][len(c.helmLogs[id])-tail:]
 		}
 	}
 }
@@ -264,21 +369,6 @@ func (c *RunConsole) addFailureLocked(f runConsoleFailure) {
 	c.failures = append(c.failures, f)
 }
 
-func (c *RunConsole) appendLogLocked(line string, important bool) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return
-	}
-	if !important && !c.opts.Verbose {
-		return
-	}
-	const max = 16
-	c.logTail = append(c.logTail, line)
-	if len(c.logTail) > max {
-		c.logTail = c.logTail[len(c.logTail)-max:]
-	}
-}
-
 func (c *RunConsole) getStatus(id string) string {
 	if ns := c.nodes[strings.TrimSpace(id)]; ns != nil && ns.status != "" {
 		return ns.status
@@ -308,8 +398,10 @@ func (c *RunConsole) buildSectionsLocked() []runConsoleSection {
 		sections = append(sections, runConsoleSection{name: "failures", lines: c.renderFailuresLocked()})
 	}
 	sections = append(sections, runConsoleSection{name: "nodes", lines: c.renderNodesLocked()})
-	if c.opts.Verbose || len(c.failures) > 0 {
-		sections = append(sections, runConsoleSection{name: "log", lines: c.renderLogLocked()})
+	if c.opts.ShowHelmLogs {
+		if lines := c.renderHelmLogsLocked(); len(lines) > 0 {
+			sections = append(sections, runConsoleSection{name: "helm-logs", lines: lines})
+		}
 	}
 	return sections
 }
@@ -353,110 +445,111 @@ func (c *RunConsole) writeSections(sections []runConsoleSection) {
 
 func (c *RunConsole) renderHeaderLocked() []string {
 	stackName := ""
-	stackRoot := ""
 	if c.plan != nil {
 		stackName = strings.TrimSpace(c.plan.StackName)
-		stackRoot = strings.TrimSpace(c.plan.StackRoot)
 	}
-	elapsed := time.Since(c.startedAt).Round(100 * time.Millisecond)
+	if stackName == "" {
+		stackName = "-"
+	}
+	elapsed := c.now().Sub(c.startedAt).Round(100 * time.Millisecond)
 	runID := c.runID
 	if runID == "" {
 		runID = "…"
 	}
-	title := fmt.Sprintf("ktl stack %s • %s • runId=%s • elapsed=%s", c.command, stackName, runID, elapsed)
-	if stackRoot != "" {
-		title += " • root=" + stackRoot
-	}
-	lines := []string{title}
-	if strings.TrimSpace(c.concurrent) != "" {
-		lines = append(lines, strings.TrimSpace(c.concurrent))
+	cmd := strings.TrimSpace(c.command)
+	if cmd == "" {
+		cmd = "-"
 	}
 
-	if focus := c.pickFocusLocked(); focus != "" {
-		meta := c.metaByID[focus]
-		ns := c.nodes[focus]
-		target := focus
-		if meta.cluster != "" || meta.namespace != "" || meta.name != "" {
-			target = fmt.Sprintf("%s/%s/%s", meta.cluster, meta.namespace, meta.name)
-		}
-		attempt := 0
-		phase := ""
-		nodeElapsed := ""
-		if ns != nil {
-			attempt = ns.attempt
-			phase = strings.TrimSpace(ns.phase)
-			if !ns.startedAt.IsZero() && (ns.status == "running" || ns.status == "retrying") {
-				nodeElapsed = time.Since(ns.startedAt).Round(100 * time.Millisecond).String()
-			}
-		}
-		if !c.opts.Verbose && isNoisyPhase(phase) && ns != nil && ns.status != "failed" {
-			phase = ""
-		}
-		focusLine := fmt.Sprintf("focus: %s attempt=%d", target, attempt)
-		if phase != "" {
-			focusLine += " phase=" + phase
-		}
-		if nodeElapsed != "" {
-			focusLine += " elapsed=" + nodeElapsed
-		}
-		lines = append(lines, focusLine)
-	}
-
-	return lines
-}
-
-func (c *RunConsole) pickFocusLocked() string {
-	// Prefer a running/retrying node (most recently updated), otherwise a failed node.
-	best := ""
-	bestTS := time.Time{}
-	for id, ns := range c.nodes {
+	ok, fail, blocked, running := 0, 0, 0, 0
+	active := 0
+	for _, ns := range c.nodes {
 		if ns == nil {
 			continue
 		}
-		if ns.status != "running" && ns.status != "retrying" {
-			continue
-		}
-		if best == "" || ns.updatedAt.After(bestTS) {
-			best = id
-			bestTS = ns.updatedAt
-		}
-	}
-	if best != "" {
-		return best
-	}
-	for id, ns := range c.nodes {
-		if ns == nil {
-			continue
-		}
-		if ns.status != "failed" {
-			continue
-		}
-		if best == "" || ns.updatedAt.After(bestTS) {
-			best = id
-			bestTS = ns.updatedAt
+		switch strings.ToLower(strings.TrimSpace(ns.status)) {
+		case "succeeded":
+			ok++
+		case "failed":
+			fail++
+		case "blocked":
+			blocked++
+		case "running", "retrying":
+			running++
+			active++
 		}
 	}
-	return best
+
+	target := c.targetConc
+	if target <= 0 {
+		target = active
+	}
+
+	width := c.opts.Width
+	if width <= 0 {
+		width = 120
+	}
+	title := strings.Join([]string{
+		stackName,
+		cmd,
+		"runId=" + runID,
+		fmt.Sprintf("totals ok=%d fail=%d blocked=%d running=%d", ok, fail, blocked, running),
+		fmt.Sprintf("concurrency %d/%d", target, active),
+		"elapsed " + elapsed.String(),
+	}, " • ")
+	title = runConsoleTrimToWidth(title, width)
+	return []string{runConsoleAnsiBold(c.opts.Color, title)}
 }
 
 func (c *RunConsole) renderFailuresLocked() []string {
-	lines := []string{color.New(color.FgRed, color.Bold).Sprint("FAILURES (sticky)")}
-	for _, f := range c.failures {
-		msg := f.msg
-		class := ""
-		digest := ""
+	width := c.opts.Width
+	if width <= 0 {
+		width = 120
+	}
+	const maxLines = 8
+
+	header := fmt.Sprintf("FAILURES (%d)", len(c.failures))
+	lines := []string{runConsoleAnsiRedBold(c.opts.Color, runConsoleTrimToWidth(header, width))}
+
+	// Most recent failures first for the sticky rail.
+	shown := 0
+	for i := len(c.failures) - 1; i >= 0; i-- {
+		if shown >= maxLines {
+			break
+		}
+		f := c.failures[i]
+
+		class := "-"
+		digest := "-"
 		if f.err != nil {
-			class = strings.TrimSpace(f.err.Class)
-			digest = strings.TrimSpace(f.err.Digest)
+			if v := strings.TrimSpace(f.err.Class); v != "" {
+				class = v
+			}
+			if v := strings.TrimSpace(f.err.Digest); v != "" {
+				digest = v
+			}
 		}
-		if len(digest) > 16 {
-			digest = digest[:16] + "…"
+		digestShort := runConsoleShortDigest(digest)
+		msg := strings.TrimSpace(f.msg)
+		if msg == "" && f.err != nil {
+			msg = strings.TrimSpace(f.err.Message)
 		}
-		if len(msg) > 140 {
-			msg = msg[:140] + "…"
+		if msg == "" {
+			msg = "-"
 		}
-		line := fmt.Sprintf("  %s attempt=%d class=%s digest=%s %s", f.nodeID, f.attempt, class, digest, msg)
-		lines = append(lines, color.New(color.FgRed).Sprint(line))
+
+		line := runConsoleBulletFit(width, []string{
+			runConsoleTrimToWidth(f.nodeID, 28),
+			fmt.Sprintf("a%d", f.attempt),
+			runConsoleTrimToWidth(class, 18),
+			digestShort,
+			msg,
+		})
+		lines = append(lines, runConsoleAnsiRed(c.opts.Color, line))
+		shown++
+	}
+	if extra := len(c.failures) - shown; extra > 0 {
+		lines = append(lines, runConsoleAnsiRed(c.opts.Color, runConsoleTrimToWidth(fmt.Sprintf("… +%d more", extra), width)))
 	}
 	return lines
 }
@@ -474,17 +567,25 @@ func (c *RunConsole) renderNodesLocked() []string {
 	if width <= 0 {
 		width = 120
 	}
+
+	col := runConsoleColumnWidths(width)
 	lines := make([]string, 0, len(order)+3)
-	lines = append(lines, fmt.Sprintf("%-44s %-9s %-7s %-24s %s", "Release", "Status", "Attempt", "Phase", "Note"))
-	lines = append(lines, strings.Repeat("-", runConsoleMinInt(width, 110)))
-	now := time.Now()
+	lines = append(lines, strings.TrimRight(runConsoleJoinRow(width,
+		runConsoleFormatCell("Node", col.node, runConsoleAlignLeft),
+		runConsoleFormatCell("Status", col.status, runConsoleAlignLeft),
+		runConsoleFormatCell("Att", col.attempt, runConsoleAlignRight),
+		runConsoleFormatCell("Phase", col.phase, runConsoleAlignLeft),
+		runConsoleFormatCell("Note", col.note, runConsoleAlignLeft),
+	), " "))
+	lines = append(lines, strings.Repeat("-", width))
+
+	now := c.now()
 	for _, id := range order {
 		ns := c.nodes[id]
 		if ns == nil {
 			ns = &runConsoleNodeState{id: id, status: "planned"}
 		}
-		status := strings.ToUpper(ns.status)
-		status = colorizeRunConsoleStatus(status)
+		statusCell := runConsoleStatusCell(strings.ToUpper(ns.status))
 		attempt := ns.attempt
 		phase := strings.TrimSpace(ns.phase)
 		if phase == "" {
@@ -504,8 +605,110 @@ func (c *RunConsole) renderNodesLocked() []string {
 		if elapsed != "" {
 			phase = fmt.Sprintf("%s (%s)", phase, elapsed)
 		}
-		lines = append(lines, fmt.Sprintf("%-44s %-9s %-7d %-24s %s", runConsoleTrimTo(id, 44), status, attempt, runConsoleTrimTo(phase, 24), runConsoleTrimTo(note, runConsoleMaxInt(width-44-9-7-24-4, 0))))
+
+		lines = append(lines, strings.TrimRight(runConsoleJoinRow(width,
+			runConsoleFormatCell(id, col.node, runConsoleAlignLeft),
+			runConsoleFormatStatusCell(c.opts.Color, col.status, statusCell),
+			runConsoleFormatCell(fmt.Sprintf("%d", attempt), col.attempt, runConsoleAlignRight),
+			runConsoleFormatCell(phase, col.phase, runConsoleAlignLeft),
+			runConsoleFormatCell(note, col.note, runConsoleAlignLeft),
+		), " "))
 	}
+	return lines
+}
+
+func (c *RunConsole) renderHelmLogsLocked() []string {
+	order := c.nodeOrder
+	if len(order) == 0 {
+		for id := range c.nodes {
+			order = append(order, id)
+		}
+		sort.Strings(order)
+	}
+
+	width := c.opts.Width
+	if width <= 0 {
+		width = 120
+	}
+
+	hasAny := false
+	for _, id := range order {
+		if len(c.helmLogs[id]) > 0 {
+			hasAny = true
+			break
+		}
+	}
+	if !hasAny {
+		return nil
+	}
+
+	lines := make([]string, 0, len(order)*6)
+	lines = append(lines, runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth("HELM LOGS", width)))
+
+	for _, id := range order {
+		entries := c.helmLogs[id]
+		if len(entries) == 0 {
+			continue
+		}
+		meta := c.metaByID[id]
+		headerParts := []string{}
+		if strings.TrimSpace(meta.cluster) != "" && strings.TrimSpace(meta.name) != "" {
+			if strings.TrimSpace(meta.namespace) != "" {
+				headerParts = append(headerParts, fmt.Sprintf("%s/ns/%s/%s", meta.cluster, meta.namespace, meta.name))
+			} else {
+				headerParts = append(headerParts, fmt.Sprintf("%s/%s", meta.cluster, meta.name))
+			}
+		} else {
+			headerParts = append(headerParts, id)
+			if strings.TrimSpace(meta.namespace) != "" {
+				headerParts = append(headerParts, "ns/"+meta.namespace)
+			}
+		}
+		var statusTag string
+		var statusPlain string
+		if ns := c.nodes[id]; ns != nil {
+			status := runConsoleStatusCell(strings.ToUpper(ns.status))
+			statusTag = runConsoleFormatStatusTag(c.opts.Color, status)
+			statusPlain = strings.TrimSpace(status.text)
+
+			if ns.attempt > 0 {
+				headerParts = append(headerParts, fmt.Sprintf("a%d", ns.attempt))
+			}
+			phase := strings.TrimSpace(ns.phase)
+			if phase != "" && (c.opts.Verbose || ns.status == "failed" || !isNoisyPhase(phase)) {
+				headerParts = append(headerParts, phase)
+			}
+		}
+		headerRest := strings.Join(headerParts, " · ")
+		if strings.TrimSpace(statusTag) == "" {
+			lines = append(lines, runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth(headerRest, width)))
+		} else {
+			prefixPlain := statusPlain + " "
+			remaining := width - runewidth.StringWidth(prefixPlain)
+			if remaining < 0 {
+				remaining = 0
+			}
+			rest := runConsoleTrimToWidth(headerRest, remaining)
+			lines = append(lines, statusTag+" "+runConsoleAnsiDimBold(c.opts.Color, rest))
+		}
+
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].seq != entries[j].seq {
+				return entries[i].seq < entries[j].seq
+			}
+			return entries[i].offset < entries[j].offset
+		})
+		for _, entry := range entries {
+			ts := "--:--:--.---"
+			if !entry.ts.IsZero() {
+				ts = entry.ts.UTC().Format("15:04:05.000")
+			}
+			line := fmt.Sprintf("  │ %s %s", ts, strings.TrimSpace(entry.line))
+			line = runConsoleTrimToWidthKeepLeft(line, width)
+			lines = append(lines, runConsoleAnsiDim(c.opts.Color, line))
+		}
+	}
+
 	return lines
 }
 
@@ -572,36 +775,230 @@ func fieldBool(fields any, key string) bool {
 	}
 }
 
-func (c *RunConsole) renderLogLocked() []string {
-	if len(c.logTail) == 0 {
-		return []string{"LOG (tail) • (empty)"}
-	}
-	lines := []string{"LOG (tail)"}
-	for _, line := range c.logTail {
-		lines = append(lines, "  "+line)
-	}
-	return lines
+type runConsoleAlign int
+
+const (
+	runConsoleAlignLeft runConsoleAlign = iota
+	runConsoleAlignRight
+)
+
+type runConsoleCols struct {
+	node    int
+	status  int
+	attempt int
+	phase   int
+	note    int
 }
 
-func colorizeRunConsoleStatus(status string) string {
+func runConsoleColumnWidths(total int) runConsoleCols {
+	// Fixed columns with a flexible Note says "no wrapping": always fit within total.
+	// Minimums are chosen to keep the surface readable in narrow terminals.
+	node := 42
+	status := 12
+	attempt := 3
+	phase := 20
+	minNote := 10
+
+	// 4 inter-column single spaces.
+	used := node + status + attempt + phase + 4
+	note := total - used
+	for note < minNote && node > 20 {
+		node--
+		used--
+		note = total - used
+	}
+	for note < minNote && phase > 10 {
+		phase--
+		used--
+		note = total - used
+	}
+	for note < minNote && status > 10 {
+		status--
+		used--
+		note = total - used
+	}
+	if note < 0 {
+		note = 0
+	}
+	return runConsoleCols{node: node, status: status, attempt: attempt, phase: phase, note: note}
+}
+
+type runConsoleStatus struct {
+	text  string
+	color string
+	bold  bool
+}
+
+func runConsoleStatusCell(status string) runConsoleStatus {
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "PLANNED":
-		return color.New(color.FgHiBlack).Sprint(status)
+		return runConsoleStatus{text: "· PLANNED", color: "dim", bold: false}
 	case "QUEUED":
-		return color.New(color.FgCyan).Sprint(status)
+		return runConsoleStatus{text: "⧗ QUEUED", color: "cyan", bold: false}
 	case "RUNNING":
-		return color.New(color.FgBlue, color.Bold).Sprint(status)
+		return runConsoleStatus{text: "▶ RUNNING", color: "blue", bold: true}
 	case "RETRYING":
-		return color.New(color.FgYellow, color.Bold).Sprint(status)
+		return runConsoleStatus{text: "↻ RETRYING", color: "yellow", bold: true}
 	case "SUCCEEDED":
-		return color.New(color.FgGreen, color.Bold).Sprint(status)
+		return runConsoleStatus{text: "✓ SUCCEEDED", color: "green", bold: true}
 	case "FAILED":
-		return color.New(color.FgRed, color.Bold).Sprint(status)
+		return runConsoleStatus{text: "✖ FAILED", color: "red", bold: true}
 	case "BLOCKED":
-		return color.New(color.FgYellow).Sprint(status)
+		return runConsoleStatus{text: "⏸ BLOCKED", color: "yellow", bold: false}
 	default:
-		return status
+		if strings.TrimSpace(status) == "" {
+			status = "-"
+		}
+		return runConsoleStatus{text: status, color: "", bold: false}
 	}
+}
+
+func runConsoleFormatStatusCell(colorEnabled bool, width int, s runConsoleStatus) string {
+	cell := runConsoleFormatCell(s.text, width, runConsoleAlignLeft)
+	switch s.color {
+	case "dim":
+		if s.bold {
+			return runConsoleAnsiDimBold(colorEnabled, cell)
+		}
+		return runConsoleAnsiDim(colorEnabled, cell)
+	case "cyan":
+		if s.bold {
+			return runConsoleAnsiCyanBold(colorEnabled, cell)
+		}
+		return runConsoleAnsiCyan(colorEnabled, cell)
+	case "blue":
+		if s.bold {
+			return runConsoleAnsiBlueBold(colorEnabled, cell)
+		}
+		return runConsoleAnsiBlue(colorEnabled, cell)
+	case "yellow":
+		if s.bold {
+			return runConsoleAnsiYellowBold(colorEnabled, cell)
+		}
+		return runConsoleAnsiYellow(colorEnabled, cell)
+	case "green":
+		if s.bold {
+			return runConsoleAnsiGreenBold(colorEnabled, cell)
+		}
+		return runConsoleAnsiGreen(colorEnabled, cell)
+	case "red":
+		if s.bold {
+			return runConsoleAnsiRedBold(colorEnabled, cell)
+		}
+		return runConsoleAnsiRed(colorEnabled, cell)
+	default:
+		if s.bold {
+			return runConsoleAnsiBold(colorEnabled, cell)
+		}
+		return cell
+	}
+}
+
+func runConsoleFormatStatusTag(colorEnabled bool, s runConsoleStatus) string {
+	text := strings.TrimSpace(s.text)
+	switch s.color {
+	case "dim":
+		if s.bold {
+			return runConsoleAnsiDimBold(colorEnabled, text)
+		}
+		return runConsoleAnsiDim(colorEnabled, text)
+	case "cyan":
+		if s.bold {
+			return runConsoleAnsiCyanBold(colorEnabled, text)
+		}
+		return runConsoleAnsiCyan(colorEnabled, text)
+	case "blue":
+		if s.bold {
+			return runConsoleAnsiBlueBold(colorEnabled, text)
+		}
+		return runConsoleAnsiBlue(colorEnabled, text)
+	case "yellow":
+		if s.bold {
+			return runConsoleAnsiYellowBold(colorEnabled, text)
+		}
+		return runConsoleAnsiYellow(colorEnabled, text)
+	case "green":
+		if s.bold {
+			return runConsoleAnsiGreenBold(colorEnabled, text)
+		}
+		return runConsoleAnsiGreen(colorEnabled, text)
+	case "red":
+		if s.bold {
+			return runConsoleAnsiRedBold(colorEnabled, text)
+		}
+		return runConsoleAnsiRed(colorEnabled, text)
+	default:
+		if s.bold {
+			return runConsoleAnsiBold(colorEnabled, text)
+		}
+		return text
+	}
+}
+
+func runConsoleJoinRow(totalWidth int, cells ...string) string {
+	_ = totalWidth
+	return strings.Join(cells, " ")
+}
+
+func runConsoleFormatCell(text string, width int, align runConsoleAlign) string {
+	if width <= 0 {
+		return ""
+	}
+	trimmed := runConsoleTrimToWidth(text, width)
+	pad := width - runewidth.StringWidth(trimmed)
+	if pad <= 0 {
+		return trimmed
+	}
+	switch align {
+	case runConsoleAlignRight:
+		return strings.Repeat(" ", pad) + trimmed
+	default:
+		return trimmed + strings.Repeat(" ", pad)
+	}
+}
+
+func runConsoleShortDigest(d string) string {
+	d = strings.TrimSpace(d)
+	if d == "" || d == "-" {
+		return "-"
+	}
+	const max = 12
+	if len(d) <= max {
+		return d
+	}
+	return d[:max] + "…"
+}
+
+func runConsoleBulletFit(width int, segments []string) string {
+	const sep = " • "
+	if width <= 0 {
+		width = 120
+	}
+	seg := append([]string(nil), segments...)
+	for i := range seg {
+		seg[i] = strings.TrimSpace(seg[i])
+		if seg[i] == "" {
+			seg[i] = "-"
+		}
+	}
+	base := strings.Join(seg, sep)
+	if runewidth.StringWidth(base) <= width {
+		return base
+	}
+	if len(seg) == 0 {
+		return ""
+	}
+	// Prefer truncating the last segment (message) to fit the line.
+	prefix := strings.Join(seg[:len(seg)-1], sep)
+	if prefix != "" {
+		prefix += sep
+	}
+	avail := width - runewidth.StringWidth(prefix)
+	if avail <= 0 {
+		return runConsoleTrimToWidth(prefix, width)
+	}
+	seg[len(seg)-1] = runConsoleTrimToWidth(seg[len(seg)-1], avail)
+	return runConsoleTrimToWidth(prefix+seg[len(seg)-1], width)
 }
 
 func runConsoleOrder(p *Plan) []string {
@@ -730,32 +1127,69 @@ func parseRFC3339(raw string) (time.Time, bool) {
 	return ts, true
 }
 
-func runConsoleTrimTo(s string, n int) string {
+func runConsoleTrimToWidth(s string, width int) string {
 	s = strings.TrimSpace(s)
-	if n <= 0 {
+	if width <= 0 {
 		return ""
 	}
-	if len(s) <= n {
+	if runewidth.StringWidth(s) <= width {
 		return s
 	}
-	if n <= 1 {
-		return s[:n]
+	if width <= 1 {
+		out := []rune(s)
+		if len(out) == 0 {
+			return ""
+		}
+		return string(out[:1])
 	}
-	return s[:n-1] + "…"
+	// Trim by rune width.
+	limit := width - 1
+	var out []rune
+	w := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if rw == 0 {
+			rw = 1
+		}
+		if w+rw > limit {
+			break
+		}
+		out = append(out, r)
+		w += rw
+	}
+	return string(out) + "…"
 }
 
-func runConsoleMinInt(a, b int) int {
-	if a < b {
-		return a
+func runConsoleTrimToWidthKeepLeft(s string, width int) string {
+	s = strings.TrimRight(s, " \t\r\n")
+	if width <= 0 {
+		return ""
 	}
-	return b
-}
-
-func runConsoleMaxInt(a, b int) int {
-	if a > b {
-		return a
+	if runewidth.StringWidth(s) <= width {
+		return s
 	}
-	return b
+	if width <= 1 {
+		out := []rune(s)
+		if len(out) == 0 {
+			return ""
+		}
+		return string(out[:1])
+	}
+	limit := width - 1
+	var out []rune
+	w := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if rw == 0 {
+			rw = 1
+		}
+		if w+rw > limit {
+			break
+		}
+		out = append(out, r)
+		w += rw
+	}
+	return string(out) + "…"
 }
 
 func runConsoleCountLines(sections []runConsoleSection) int {
@@ -806,3 +1240,28 @@ func runConsoleCloneSections(sections []runConsoleSection) []runConsoleSection {
 	}
 	return out
 }
+
+func runConsoleAnsi(enabled bool, code string, s string) string {
+	if !enabled {
+		return s
+	}
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
+}
+
+func runConsoleAnsiBold(enabled bool, s string) string    { return runConsoleAnsi(enabled, "1", s) }
+func runConsoleAnsiDim(enabled bool, s string) string     { return runConsoleAnsi(enabled, "2", s) }
+func runConsoleAnsiDimBold(enabled bool, s string) string { return runConsoleAnsi(enabled, "2;1", s) }
+func runConsoleAnsiRed(enabled bool, s string) string     { return runConsoleAnsi(enabled, "31", s) }
+func runConsoleAnsiRedBold(enabled bool, s string) string { return runConsoleAnsi(enabled, "31;1", s) }
+func runConsoleAnsiGreen(enabled bool, s string) string   { return runConsoleAnsi(enabled, "32", s) }
+func runConsoleAnsiGreenBold(enabled bool, s string) string {
+	return runConsoleAnsi(enabled, "32;1", s)
+}
+func runConsoleAnsiYellow(enabled bool, s string) string { return runConsoleAnsi(enabled, "33", s) }
+func runConsoleAnsiYellowBold(enabled bool, s string) string {
+	return runConsoleAnsi(enabled, "33;1", s)
+}
+func runConsoleAnsiBlue(enabled bool, s string) string     { return runConsoleAnsi(enabled, "34", s) }
+func runConsoleAnsiBlueBold(enabled bool, s string) string { return runConsoleAnsi(enabled, "34;1", s) }
+func runConsoleAnsiCyan(enabled bool, s string) string     { return runConsoleAnsi(enabled, "36", s) }
+func runConsoleAnsiCyanBold(enabled bool, s string) string { return runConsoleAnsi(enabled, "36;1", s) }
