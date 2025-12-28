@@ -259,7 +259,7 @@ func verifyRequiredConditions(ctx context.Context, kubeClient *kube.Client, defa
 				}
 				return fmt.Errorf("verify: %s/%s missing condition %q", strings.TrimSpace(t.Kind), name, condType)
 			}
-			if strings.ToLower(gotStatus) != strings.ToLower(wantStatus) {
+			if !strings.EqualFold(gotStatus, wantStatus) {
 				detail := strings.TrimSpace(gotReason)
 				if detail == "" {
 					detail = strings.TrimSpace(gotMsg)
@@ -292,7 +292,7 @@ func findStatusCondition(obj *unstructured.Unstructured, condType string) (statu
 			continue
 		}
 		t, _ := m["type"].(string)
-		if strings.ToLower(strings.TrimSpace(t)) != strings.ToLower(condType) {
+		if !strings.EqualFold(strings.TrimSpace(t), condType) {
 			continue
 		}
 		s, _ := m["status"].(string)
