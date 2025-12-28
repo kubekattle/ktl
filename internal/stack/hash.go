@@ -355,9 +355,17 @@ func digestVerify(n *ResolvedRelease) EffectiveVerifyInput {
 	if n.Verify.FailOnWarnings != nil {
 		failOnWarnings = *n.Verify.FailOnWarnings
 	}
+	warnOnly := false
+	if n.Verify.WarnOnly != nil {
+		warnOnly = *n.Verify.WarnOnly
+	}
 	window := 15 * time.Minute
 	if n.Verify.EventsWindow != nil && *n.Verify.EventsWindow > 0 {
 		window = *n.Verify.EventsWindow
+	}
+	timeout := 2 * time.Minute
+	if n.Verify.Timeout != nil && *n.Verify.Timeout > 0 {
+		timeout = *n.Verify.Timeout
 	}
 
 	h := sha256.New()
@@ -368,12 +376,51 @@ func digestVerify(n *ResolvedRelease) EffectiveVerifyInput {
 	write("ktl.stack-verify.v1")
 	write(fmt.Sprintf("enabled=%t", enabled))
 	write(fmt.Sprintf("failOnWarnings=%t", failOnWarnings))
+	write(fmt.Sprintf("warnOnly=%t", warnOnly))
 	write("eventsWindow=" + window.String())
+	write("timeout=" + timeout.String())
+	if len(n.Verify.DenyReasons) > 0 {
+		for _, r := range n.Verify.DenyReasons {
+			write("denyReason=" + strings.ToLower(strings.TrimSpace(r)))
+		}
+	}
+	if len(n.Verify.AllowReasons) > 0 {
+		for _, r := range n.Verify.AllowReasons {
+			write("allowReason=" + strings.ToLower(strings.TrimSpace(r)))
+		}
+	}
+	if len(n.Verify.RequireConditions) > 0 {
+		// Keep deterministic order.
+		reqs := append([]VerifyConditionRequirement(nil), n.Verify.RequireConditions...)
+		sort.Slice(reqs, func(i, j int) bool {
+			a := strings.ToLower(reqs[i].Group) + "/" + strings.ToLower(reqs[i].Kind) + "/" + strings.ToLower(reqs[i].ConditionType)
+			b := strings.ToLower(reqs[j].Group) + "/" + strings.ToLower(reqs[j].Kind) + "/" + strings.ToLower(reqs[j].ConditionType)
+			if a != b {
+				return a < b
+			}
+			return strings.ToLower(reqs[i].RequireStatus) < strings.ToLower(reqs[j].RequireStatus)
+		})
+		for _, r := range reqs {
+			write("req=" + strings.ToLower(strings.TrimSpace(r.Group)) + "/" + strings.ToLower(strings.TrimSpace(r.Kind)))
+			write("cond=" + strings.ToLower(strings.TrimSpace(r.ConditionType)) + "=" + strings.ToLower(strings.TrimSpace(r.RequireStatus)))
+			write(fmt.Sprintf("allowMissing=%t", r.AllowMissing))
+		}
+	}
 
 	return EffectiveVerifyInput{
 		Enabled:        enabled,
 		FailOnWarnings: failOnWarnings,
+		WarnOnly:       warnOnly,
 		EventsWindow:   window.String(),
-		Digest:         "sha256:" + hex.EncodeToString(h.Sum(nil)),
+		Timeout:        timeout.String(),
+		DenyReasons:    append([]string(nil), n.Verify.DenyReasons...),
+		AllowReasons:   append([]string(nil), n.Verify.AllowReasons...),
+		RequireConditions: func() []VerifyConditionRequirement {
+			if len(n.Verify.RequireConditions) == 0 {
+				return nil
+			}
+			return append([]VerifyConditionRequirement(nil), n.Verify.RequireConditions...)
+		}(),
+		Digest: "sha256:" + hex.EncodeToString(h.Sum(nil)),
 	}
 }

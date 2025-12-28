@@ -32,9 +32,30 @@ type VerifyOptions struct {
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	// FailOnWarnings fails the release when matching Warning events are observed.
 	FailOnWarnings *bool `yaml:"failOnWarnings,omitempty" json:"failOnWarnings,omitempty"`
+	// WarnOnly records verify findings but never fails the release.
+	WarnOnly *bool `yaml:"warnOnly,omitempty" json:"warnOnly,omitempty"`
 	// EventsWindow limits how far back to consider Warning events (prevents old noisy events
 	// from failing new runs). Defaults to 15m when enabled.
 	EventsWindow *time.Duration `yaml:"eventsWindow,omitempty" json:"eventsWindow,omitempty"`
+	// Timeout bounds how long verify may run for this release. Defaults to 2m when enabled.
+	Timeout *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+
+	// DenyReasons fails when a Warning event reason matches any entry (case-insensitive).
+	// When empty, all Warning reasons are considered.
+	DenyReasons []string `yaml:"denyReasons,omitempty" json:"denyReasons,omitempty"`
+	// AllowReasons allows only these Warning event reasons when non-empty (case-insensitive).
+	AllowReasons []string `yaml:"allowReasons,omitempty" json:"allowReasons,omitempty"`
+
+	// RequireConditions enforces status.conditions on matching custom resources (CRs).
+	RequireConditions []VerifyConditionRequirement `yaml:"requireConditions,omitempty" json:"requireConditions,omitempty"`
+}
+
+type VerifyConditionRequirement struct {
+	Group         string `yaml:"group,omitempty" json:"group,omitempty"`   // e.g. example.com
+	Kind          string `yaml:"kind,omitempty" json:"kind,omitempty"`     // e.g. Widget
+	ConditionType string `yaml:"type,omitempty" json:"type,omitempty"`     // e.g. Ready
+	RequireStatus string `yaml:"status,omitempty" json:"status,omitempty"` // True|False|Unknown
+	AllowMissing  bool   `yaml:"allowMissing,omitempty" json:"allowMissing,omitempty"`
 }
 
 type ReleaseDefaults struct {
@@ -354,10 +375,15 @@ type EffectiveDeleteInput struct {
 }
 
 type EffectiveVerifyInput struct {
-	Enabled        bool   `json:"enabled"`
-	FailOnWarnings bool   `json:"failOnWarnings"`
-	EventsWindow   string `json:"eventsWindow"`
-	Digest         string `json:"digest,omitempty"`
+	Enabled           bool                         `json:"enabled"`
+	FailOnWarnings    bool                         `json:"failOnWarnings"`
+	WarnOnly          bool                         `json:"warnOnly"`
+	EventsWindow      string                       `json:"eventsWindow"`
+	Timeout           string                       `json:"timeout"`
+	DenyReasons       []string                     `json:"denyReasons,omitempty"`
+	AllowReasons      []string                     `json:"allowReasons,omitempty"`
+	RequireConditions []VerifyConditionRequirement `json:"requireConditions,omitempty"`
+	Digest            string                       `json:"digest,omitempty"`
 }
 
 type FileDigest struct {

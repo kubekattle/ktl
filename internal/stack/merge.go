@@ -66,8 +66,23 @@ func mergeVerify(dst *VerifyOptions, src VerifyOptions) {
 	if src.FailOnWarnings != nil {
 		dst.FailOnWarnings = src.FailOnWarnings
 	}
+	if src.WarnOnly != nil {
+		dst.WarnOnly = src.WarnOnly
+	}
 	if src.EventsWindow != nil {
 		dst.EventsWindow = src.EventsWindow
+	}
+	if src.Timeout != nil {
+		dst.Timeout = src.Timeout
+	}
+	if len(src.DenyReasons) > 0 {
+		dst.DenyReasons = append([]string(nil), src.DenyReasons...)
+	}
+	if len(src.AllowReasons) > 0 {
+		dst.AllowReasons = append([]string(nil), src.AllowReasons...)
+	}
+	if len(src.RequireConditions) > 0 {
+		dst.RequireConditions = append([]VerifyConditionRequirement(nil), src.RequireConditions...)
 	}
 }
 
