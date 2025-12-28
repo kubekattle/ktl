@@ -11,32 +11,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackGraphCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
+func newStackGraphCommand(common stackCommandCommon) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{
 		Use:   "graph",
 		Short: "Render the selected stack DAG (dot or mermaid)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			u, err := stack.Discover(*rootDir)
-			if err != nil {
-				return err
-			}
-			p, err := stack.Compile(u, stack.CompileOptions{Profile: *profile})
-			if err != nil {
-				return err
-			}
-			p, err = stack.Select(u, p, splitCSV(*clusters), stack.Selector{
-				Tags:                 *tags,
-				FromPaths:            *fromPaths,
-				Releases:             *releases,
-				GitRange:             *gitRange,
-				GitIncludeDeps:       *gitIncludeDeps,
-				GitIncludeDependents: *gitIncludeDependents,
-				IncludeDeps:          *includeDeps,
-				IncludeDependents:    *includeDependents,
-				AllowMissingDeps:     *allowMissingDeps,
-			})
+			_, p, err := compileInferSelect(cmd, common)
 			if err != nil {
 				return err
 			}
@@ -54,32 +36,14 @@ func newStackGraphCommand(rootDir, profile *string, clusters *[]string, tags *[]
 	return cmd
 }
 
-func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
+func newStackExplainCommand(common stackCommandCommon) *cobra.Command {
 	var why bool
 	cmd := &cobra.Command{
 		Use:   "explain <id|name>",
 		Short: "Explain why a release was selected",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			u, err := stack.Discover(*rootDir)
-			if err != nil {
-				return err
-			}
-			p, err := stack.Compile(u, stack.CompileOptions{Profile: *profile})
-			if err != nil {
-				return err
-			}
-			p, err = stack.Select(u, p, splitCSV(*clusters), stack.Selector{
-				Tags:                 *tags,
-				FromPaths:            *fromPaths,
-				Releases:             *releases,
-				GitRange:             *gitRange,
-				GitIncludeDeps:       *gitIncludeDeps,
-				GitIncludeDependents: *gitIncludeDependents,
-				IncludeDeps:          *includeDeps,
-				IncludeDependents:    *includeDependents,
-				AllowMissingDeps:     *allowMissingDeps,
-			})
+			_, p, err := compileInferSelect(cmd, common)
 			if err != nil {
 				return err
 			}
@@ -116,6 +80,19 @@ func newStackExplainCommand(rootDir, profile *string, clusters *[]string, tags *
 			fmt.Fprintf(cmd.OutOrStdout(), "Values: %v\n", node.Values)
 			fmt.Fprintf(cmd.OutOrStdout(), "Tags: %v\n", node.Tags)
 			fmt.Fprintf(cmd.OutOrStdout(), "Needs: %v\n", node.Needs)
+			if len(node.InferredNeeds) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "InferredNeeds:")
+				for _, inf := range node.InferredNeeds {
+					fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", inf.Name)
+					for _, r := range inf.Reasons {
+						ev := strings.TrimSpace(r.Evidence)
+						if ev == "" {
+							ev = "-"
+						}
+						fmt.Fprintf(cmd.OutOrStdout(), "      * %s (%s)\n", r.Type, ev)
+					}
+				}
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "SelectedBy: %v\n", node.SelectedBy)
 			return nil
 		},

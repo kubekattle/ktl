@@ -4,8 +4,12 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/example/ktl/internal/stack"
@@ -27,6 +31,8 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	var allowMissingDeps bool
 	var output string
 	var planOnly bool
+	var inferDeps bool
+	var inferConfigRefs bool
 
 	cmd := &cobra.Command{
 		Use:   "stack",
@@ -47,48 +53,185 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.PersistentFlags().BoolVar(&allowMissingDeps, "allow-missing-deps", false, "Allow selected releases to run even if their declared needs are not selected (missing needs are ignored)")
 	cmd.PersistentFlags().StringVar(&output, "output", "table", "Output format: table|json")
 	cmd.PersistentFlags().BoolVar(&planOnly, "plan-only", false, "Compile and print the plan, but do not execute")
+	cmd.PersistentFlags().BoolVar(&inferDeps, "infer-deps", true, "Infer additional dependencies between releases by rendering manifests (client-side)")
+	cmd.PersistentFlags().BoolVar(&inferConfigRefs, "infer-config-refs", false, "When inferring deps, also add edges for ConfigMap/Secret references from workloads")
 
-	cmd.AddCommand(newStackPlanCommand(&rootDir, &profile, &clusters, &output, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
-	cmd.AddCommand(newStackGraphCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
-	cmd.AddCommand(newStackExplainCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
-	cmd.AddCommand(newStackSealCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
+	common := stackCommandCommon{
+		rootDir:              &rootDir,
+		profile:              &profile,
+		clusters:             &clusters,
+		output:               &output,
+		planOnly:             &planOnly,
+		inferDeps:            &inferDeps,
+		inferConfigRefs:      &inferConfigRefs,
+		tags:                 &tags,
+		fromPaths:            &fromPaths,
+		releases:             &releases,
+		gitRange:             &gitRange,
+		gitIncludeDeps:       &gitIncludeDeps,
+		gitIncludeDependents: &gitIncludeDependents,
+		includeDeps:          &includeDeps,
+		includeDependents:    &includeDependents,
+		allowMissingDeps:     &allowMissingDeps,
+		kubeconfig:           kubeconfig,
+		kubeContext:          kubeContext,
+		logLevel:             logLevel,
+		remoteAgent:          remoteAgent,
+	}
+
+	cmd.AddCommand(newStackPlanCommand(common))
+	cmd.AddCommand(newStackGraphCommand(common))
+	cmd.AddCommand(newStackExplainCommand(common))
+
+	cmd.AddCommand(newStackSealCommand(&rootDir, &profile, &clusters, &inferDeps, &inferConfigRefs, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps))
 	cmd.AddCommand(newStackStatusCommand(&rootDir))
-	cmd.AddCommand(newStackRunsCommand(&rootDir))
-	cmd.AddCommand(newStackApplyCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
-	cmd.AddCommand(newStackDeleteCommand(&rootDir, &profile, &clusters, &output, &planOnly, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
-	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
+	cmd.AddCommand(newStackRunsCommand(&rootDir, &output))
+	cmd.AddCommand(newStackAuditCommand(&rootDir))
+	cmd.AddCommand(newStackExportCommand(&rootDir))
+	cmd.AddCommand(newStackKeygenCommand(&rootDir))
+	cmd.AddCommand(newStackSignCommand(&rootDir))
+	cmd.AddCommand(newStackVerifyCommand(&rootDir))
+	cmd.AddCommand(newStackApplyCommand(common))
+	cmd.AddCommand(newStackDeleteCommand(common))
+	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &inferDeps, &inferConfigRefs, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
 	return cmd
 }
 
-func newStackPlanCommand(rootDir, profile *string, clusters *[]string, output *string, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool) *cobra.Command {
-	return &cobra.Command{
+func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
+	var bundlePath string
+	var bundleDiffSummary bool
+	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Compile stack configs into an execution plan",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			u, err := stack.Discover(*rootDir)
+			_, selected, err := compileInferSelect(cmd, common)
 			if err != nil {
 				return err
 			}
-			p, err := stack.Compile(u, stack.CompileOptions{Profile: *profile})
-			if err != nil {
-				return err
+			if strings.TrimSpace(bundlePath) != "" {
+				kubeconfigPath := derefString(common.kubeconfig)
+				kubeContext := derefString(common.kubeContext)
+
+				// Compute effective inputs so the plan artifact is self-verifying.
+				for _, n := range selected.Nodes {
+					hash, input, err := stack.ComputeEffectiveInputHash(selected.StackRoot, n, true)
+					if err != nil {
+						return err
+					}
+					n.EffectiveInputHash = hash
+					n.EffectiveInput = input
+				}
+
+				gid, err := stack.GitIdentityForRoot(selected.StackRoot)
+				if err != nil {
+					return err
+				}
+
+				rp := &stack.RunPlan{
+					APIVersion: "ktl.dev/stack-run/v1",
+					// Keep RunID empty so planHash is stable for identical inputs.
+					RunID:       "",
+					StackRoot:   selected.StackRoot,
+					StackName:   selected.StackName,
+					Command:     "apply",
+					Profile:     selected.Profile,
+					Concurrency: selected.Runner.Concurrency,
+					FailMode:    "fail-fast",
+					Selector: stack.RunSelector{
+						Clusters:             splitCSV(*common.clusters),
+						Tags:                 splitCSV(*common.tags),
+						FromPaths:            splitCSV(*common.fromPaths),
+						Releases:             splitCSV(*common.releases),
+						GitRange:             strings.TrimSpace(*common.gitRange),
+						GitIncludeDeps:       *common.gitIncludeDeps,
+						GitIncludeDependents: *common.gitIncludeDependents,
+						IncludeDeps:          *common.includeDeps,
+						IncludeDependents:    *common.includeDependents,
+						AllowMissingDeps:     *common.allowMissingDeps,
+					},
+					Nodes:  selected.Nodes,
+					Runner: selected.Runner,
+
+					StackGitCommit: gid.Commit,
+					StackGitDirty:  gid.Dirty,
+				}
+				planHash, err := stack.ComputeRunPlanHash(rp)
+				if err != nil {
+					return err
+				}
+				rp.PlanHash = planHash
+
+				planJSON, err := json.MarshalIndent(rp, "", "  ")
+				if err != nil {
+					return err
+				}
+
+				// Write inputs bundle to a temp dir, then pack everything into a deterministic tarball.
+				tmpDir, err := os.MkdirTemp("", "ktl-stack-plan-bundle-*")
+				if err != nil {
+					return err
+				}
+				defer os.RemoveAll(tmpDir)
+
+				inputsPath := filepath.Join(tmpDir, "inputs.tar.gz")
+				inputsManifest, _, err := stack.WriteInputBundle(cmd.Context(), inputsPath, planHash, selected.Nodes)
+				if err != nil {
+					return err
+				}
+				inputsManifestJSON, err := json.MarshalIndent(inputsManifest, "", "  ")
+				if err != nil {
+					return err
+				}
+
+				inputsSHA, err := sha256HexFile(inputsPath)
+				if err != nil {
+					return err
+				}
+
+				var diffSummaryJSON []byte
+				if bundleDiffSummary {
+					ds, err := stack.BuildStackDiffSummary(cmd.Context(), selected, kubeconfigPath, kubeContext, planHash)
+					if err != nil {
+						return err
+					}
+					diffSummaryJSON, err = json.MarshalIndent(ds, "", "  ")
+					if err != nil {
+						return err
+					}
+				}
+
+				att := map[string]any{
+					"apiVersion":         "ktl.dev/stack-seal-attestation/v1",
+					"planHash":           planHash,
+					"planFile":           "plan.json",
+					"inputsBundle":       "inputs.tar.gz",
+					"inputsBundleDigest": "sha256:" + inputsSHA,
+					"stackGitCommit":     gid.Commit,
+					"stackGitDirty":      gid.Dirty,
+				}
+				attJSON, err := json.MarshalIndent(att, "", "  ")
+				if err != nil {
+					return err
+				}
+
+				manifest := stack.StackPlanBundleManifest{
+					APIVersion:         "ktl.dev/stack-bundle/v1",
+					Kind:               "StackPlanBundle",
+					PlanHash:           planHash,
+					InputsBundleSha256: inputsSHA,
+					StackName:          selected.StackName,
+					Profile:            selected.Profile,
+				}
+
+				wrote, err := stack.WriteStackPlanBundle(strings.TrimSpace(bundlePath), planJSON, attJSON, inputsPath, inputsManifestJSON, diffSummaryJSON, manifest)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "ktl stack plan: wrote bundle %s (planHash=%s)\n", wrote, planHash)
+				return nil
 			}
-			selected, err := stack.Select(u, p, splitCSV(*clusters), stack.Selector{
-				Tags:                 *tags,
-				FromPaths:            *fromPaths,
-				Releases:             *releases,
-				GitRange:             *gitRange,
-				GitIncludeDeps:       *gitIncludeDeps,
-				GitIncludeDependents: *gitIncludeDependents,
-				IncludeDeps:          *includeDeps,
-				IncludeDependents:    *includeDependents,
-				AllowMissingDeps:     *allowMissingDeps,
-			})
-			if err != nil {
-				return err
-			}
-			switch strings.ToLower(strings.TrimSpace(*output)) {
+			switch strings.ToLower(strings.TrimSpace(*common.output)) {
 			case "json":
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -96,10 +239,13 @@ func newStackPlanCommand(rootDir, profile *string, clusters *[]string, output *s
 			case "", "table":
 				return stack.PrintPlanTable(cmd.OutOrStdout(), selected)
 			default:
-				return fmt.Errorf("unknown --output %q (expected table|json)", *output)
+				return fmt.Errorf("unknown --output %q (expected table|json)", *common.output)
 			}
 		},
 	}
+	cmd.Flags().StringVar(&bundlePath, "bundle", "", "Write a reproducible plan bundle (.tgz) instead of printing the plan")
+	cmd.Flags().BoolVar(&bundleDiffSummary, "bundle-diff-summary", false, "Compute and embed a diff summary against the live cluster (requires cluster access)")
+	return cmd
 }
 
 func splitCSV(vals []string) []string {
@@ -113,4 +259,17 @@ func splitCSV(vals []string) []string {
 		}
 	}
 	return out
+}
+
+func sha256HexFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }

@@ -99,6 +99,7 @@ export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 
 ### Before Opening A PR
 - Run `make fmt`, `make lint`, and at least the relevant `go test` packages (full `./...` preferred). Record the results in your PR description.
+- When feasible, prefer an end-to-end smoke test against a real cluster (with an explicit `--kubeconfig/--context/--namespace`) over fixture-only tests; record what you ran.
 - For integration changes, note whether the tagged suites ran and what kubeconfig/context you used.
 - Summarize user-facing impact, commands touched, and link issues/tickets. Mention build/log deltas with before/after snippets when output changes.
 - Keep commit subjects ≤ 70 chars, using `<type>: <imperative>` when adding features (e.g., `feat: add deploy timeline`).
