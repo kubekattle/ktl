@@ -132,7 +132,8 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 						Verbose:      verbose,
 						Width:        width,
 						Color:        true,
-						ShowHelmLogs: opts.HelmLogs,
+						ShowHelmLogs: strings.TrimSpace(opts.HelmLogs) != "" && strings.ToLower(strings.TrimSpace(opts.HelmLogs)) != "off",
+						HelmLogsMode: strings.TrimSpace(opts.HelmLogs),
 					})
 					observers = append(observers, console)
 				} else {
@@ -332,7 +333,7 @@ type stackRunCLIOptions struct {
 	Yes                    bool
 	DryRun                 bool
 	Diff                   bool
-	HelmLogs               bool
+	HelmLogs               string
 	Resume                 bool
 	RunID                  string
 	Replan                 bool
@@ -389,7 +390,8 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	cmd.Flags().BoolVar(&opts.ContinueOnError, "continue-on-error", opts.ContinueOnError, "Continue scheduling independent releases after failures")
 	cmd.Flags().BoolVar(&opts.Yes, "yes", opts.Yes, "Skip confirmation prompts")
 
-	cmd.Flags().BoolVar(&opts.HelmLogs, "helm-logs", opts.HelmLogs, "Capture Helm debug logs per node and render them in a HELM LOGS section (TTY only)")
+	cmd.Flags().StringVar(&opts.HelmLogs, "helm-logs", opts.HelmLogs, "Helm log capture + TTY rendering mode: off|on|all (default off)")
+	cmd.Flags().Lookup("helm-logs").NoOptDefVal = "on"
 
 	cmd.Flags().BoolVar(&opts.Resume, "resume", opts.Resume, "Resume the most recent run (uses its frozen plan unless --replan is set)")
 	cmd.Flags().StringVar(&opts.RunID, "run-id", opts.RunID, "With --resume: resume a specific run ID; otherwise: set the new run ID")
@@ -475,6 +477,13 @@ func addStackSealFlags(cmd *cobra.Command, opts *stackRunCLIOptions) {
 
 func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.Plan, opts stackRunCLIOptions, effective stack.RunnerResolved, adaptive *stack.AdaptiveConcurrencyOptions) stack.RunOptions {
 	failFast := opts.FailFast && !opts.ContinueOnError
+	helmLogsMode := strings.ToLower(strings.TrimSpace(opts.HelmLogs))
+	switch helmLogsMode {
+	case "", "false", "0":
+		helmLogsMode = "off"
+	case "true", "1":
+		helmLogsMode = "on"
+	}
 	return stack.RunOptions{
 		Command:                    string(kind),
 		Plan:                       plan,
@@ -484,7 +493,7 @@ func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.P
 		AutoApprove:                opts.Yes,
 		DryRun:                     kind == stackRunApply && opts.DryRun,
 		Diff:                       kind == stackRunApply && opts.Diff,
-		HelmLogs:                   opts.HelmLogs,
+		HelmLogs:                   helmLogsMode != "off",
 		KubeQPS:                    effective.KubeQPS,
 		KubeBurst:                  effective.KubeBurst,
 		MaxConcurrencyPerNamespace: effective.Limits.MaxParallelPerNamespace,

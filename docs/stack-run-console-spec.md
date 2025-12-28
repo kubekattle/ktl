@@ -73,3 +73,16 @@ Status glyph + color mapping:
 - `⏸ BLOCKED` (yellow)
 
 Failure rail lines are rendered in red; the header is rendered as a single bold line.
+
+### Helm Logs Section (optional)
+
+Rendered only when `--helm-logs` is enabled (TTY-only). This is a separate section below the main table.
+
+Rules:
+
+- The main node table remains unchanged; helm logs never replace it.
+- The header includes a compact `helmLogs nodes=<n> lines=<n> tail=<n>` segment when enabled.
+- Default mode (`--helm-logs` / `--helm-logs=on`) shows logs only for active/problematic nodes: `failed|running|retrying|blocked`.
+- `--helm-logs=all` shows logs for every node that has any captured lines.
+- Each node block starts with a single header line prefixed by a separator `─`, including `cluster/ns/<namespace>/<release>` when available.
+- Log lines are indented, prefixed by a gutter `│`, and include a dim timestamp (`HH:MM:SS.mmm`).

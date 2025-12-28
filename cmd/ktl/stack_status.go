@@ -4,6 +4,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/example/ktl/internal/stack"
 	"github.com/spf13/cobra"
 )
@@ -13,7 +15,7 @@ func newStackStatusCommand(rootDir *string) *cobra.Command {
 	var follow bool
 	var limit int
 	var format string
-	var helmLogs bool
+	var helmLogs string
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show status of the most recent (or selected) stack run",
@@ -25,7 +27,7 @@ func newStackStatusCommand(rootDir *string) *cobra.Command {
 				Follow:   follow,
 				Limit:    limit,
 				Format:   format,
-				HelmLogs: helmLogs,
+				HelmLogs: strings.TrimSpace(helmLogs),
 			}, cmd.OutOrStdout())
 		},
 	}
@@ -33,6 +35,7 @@ func newStackStatusCommand(rootDir *string) *cobra.Command {
 	cmd.Flags().BoolVar(&follow, "follow", false, "Follow the events stream")
 	cmd.Flags().IntVar(&limit, "tail", 50, "How many recent event lines to show before following")
 	cmd.Flags().StringVar(&format, "format", "table", "Output format: raw|table|json|tty")
-	cmd.Flags().BoolVar(&helmLogs, "helm-logs", false, "Render HELM_LOG events under each node in --format tty")
+	cmd.Flags().StringVar(&helmLogs, "helm-logs", "", "TTY helm logs mode: off|on|all (default off)")
+	cmd.Flags().Lookup("helm-logs").NoOptDefVal = "on"
 	return cmd
 }

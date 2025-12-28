@@ -26,6 +26,10 @@ type RunConsoleOptions struct {
 	// ShowHelmLogs renders HELM_LOG events under each node.
 	ShowHelmLogs bool
 
+	// HelmLogsMode controls which nodes are included in the HELM LOGS section.
+	// Supported values: off|on|all. "on" shows only non-succeeded nodes.
+	HelmLogsMode string
+
 	// HelmLogTail caps stored log lines per node (0 uses a default).
 	HelmLogTail int
 }
@@ -114,6 +118,15 @@ func NewRunConsole(out io.Writer, plan *Plan, command string, opts RunConsoleOpt
 				continue
 			}
 			c.nodes[n.ID] = &runConsoleNodeState{id: n.ID, status: "planned"}
+			c.metaByID[n.ID] = runConsoleNodeMeta{
+				cluster:          strings.TrimSpace(n.Cluster.Name),
+				namespace:        strings.TrimSpace(n.Namespace),
+				name:             strings.TrimSpace(n.Name),
+				executionGroup:   n.ExecutionGroup,
+				parallelismGroup: strings.TrimSpace(n.Parallelism),
+				primaryKind:      strings.TrimSpace(n.InferredPrimaryKind),
+				critical:         n.Critical,
+			}
 		}
 	}
 	return c
@@ -485,18 +498,54 @@ func (c *RunConsole) renderHeaderLocked() []string {
 		target = active
 	}
 
+	helmNodes, helmLines := 0, 0
+	if c.opts.ShowHelmLogs {
+		for _, id := range c.nodeOrder {
+			if len(c.helmLogs[id]) == 0 {
+				continue
+			}
+			helmNodes++
+			helmLines += len(c.helmLogs[id])
+		}
+		if helmNodes == 0 {
+			for id, logs := range c.helmLogs {
+				if len(logs) == 0 {
+					continue
+				}
+				helmNodes++
+				helmLines += len(logs)
+				_ = id
+			}
+		}
+	}
+
 	width := c.opts.Width
 	if width <= 0 {
 		width = 120
 	}
-	title := strings.Join([]string{
+	totalsPart := fmt.Sprintf("totals ok=%d fail=%d blocked=%d running=%d", ok, fail, blocked, running)
+	concPart := fmt.Sprintf("concurrency %d/%d", target, active)
+	if c.opts.ShowHelmLogs {
+		totalsPart = fmt.Sprintf("totals o=%d f=%d b=%d r=%d", ok, fail, blocked, running)
+		concPart = fmt.Sprintf("conc %d/%d", target, active)
+	}
+
+	parts := []string{
 		stackName,
 		cmd,
 		"runId=" + runID,
-		fmt.Sprintf("totals ok=%d fail=%d blocked=%d running=%d", ok, fail, blocked, running),
-		fmt.Sprintf("concurrency %d/%d", target, active),
-		"elapsed " + elapsed.String(),
-	}, " • ")
+		totalsPart,
+		concPart,
+	}
+	parts = append(parts, "elapsed "+elapsed.String())
+	if c.opts.ShowHelmLogs {
+		tail := c.opts.HelmLogTail
+		if tail <= 0 {
+			tail = 18
+		}
+		parts = append(parts, fmt.Sprintf("hl n=%d l=%d t=%d", helmNodes, helmLines, tail))
+	}
+	title := strings.Join(parts, " • ")
 	title = runConsoleTrimToWidth(title, width)
 	return []string{runConsoleAnsiBold(c.opts.Color, title)}
 }
@@ -632,7 +681,25 @@ func (c *RunConsole) renderHelmLogsLocked() []string {
 	}
 
 	hasAny := false
+	mode := strings.ToLower(strings.TrimSpace(c.opts.HelmLogsMode))
+	switch mode {
+	case "", "true", "1":
+		mode = "on"
+	case "false", "0":
+		mode = "off"
+	}
 	for _, id := range order {
+		if len(c.helmLogs[id]) == 0 {
+			continue
+		}
+		if mode != "all" {
+			status := strings.ToLower(strings.TrimSpace(c.getStatus(id)))
+			switch status {
+			case "failed", "running", "retrying", "blocked":
+			default:
+				continue
+			}
+		}
 		if len(c.helmLogs[id]) > 0 {
 			hasAny = true
 			break
@@ -649,6 +716,14 @@ func (c *RunConsole) renderHelmLogsLocked() []string {
 		entries := c.helmLogs[id]
 		if len(entries) == 0 {
 			continue
+		}
+		if mode != "all" {
+			status := strings.ToLower(strings.TrimSpace(c.getStatus(id)))
+			switch status {
+			case "failed", "running", "retrying", "blocked":
+			default:
+				continue
+			}
 		}
 		meta := c.metaByID[id]
 		headerParts := []string{}
@@ -681,14 +756,14 @@ func (c *RunConsole) renderHelmLogsLocked() []string {
 		}
 		headerRest := strings.Join(headerParts, " · ")
 		if strings.TrimSpace(statusTag) == "" {
-			lines = append(lines, runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth(headerRest, width)))
+			lines = append(lines, runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth("─ "+headerRest, width)))
 		} else {
 			prefixPlain := statusPlain + " "
 			remaining := width - runewidth.StringWidth(prefixPlain)
 			if remaining < 0 {
 				remaining = 0
 			}
-			rest := runConsoleTrimToWidth(headerRest, remaining)
+			rest := runConsoleTrimToWidth("─ "+headerRest, remaining)
 			lines = append(lines, statusTag+" "+runConsoleAnsiDimBold(c.opts.Color, rest))
 		}
 

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/example/ktl/internal/ui"
@@ -22,7 +23,7 @@ type StatusOptions struct {
 	Limit   int
 	Format  string // raw|table|json|tty
 
-	HelmLogs bool
+	HelmLogs string
 }
 
 func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
@@ -79,12 +80,20 @@ func RunStatus(ctx context.Context, opts StatusOptions, out io.Writer) error {
 			return err
 		}
 		width, _ := ui.TerminalWidth(out)
+		helmLogsMode := strings.ToLower(strings.TrimSpace(opts.HelmLogs))
+		switch helmLogsMode {
+		case "", "false", "0":
+			helmLogsMode = "off"
+		case "true", "1":
+			helmLogsMode = "on"
+		}
 		console := NewRunConsole(out, plan, "", RunConsoleOptions{
 			Enabled:      true,
 			Verbose:      false,
 			Width:        width,
 			Color:        true,
-			ShowHelmLogs: opts.HelmLogs,
+			ShowHelmLogs: helmLogsMode != "off",
+			HelmLogsMode: helmLogsMode,
 		})
 		defer console.Done()
 
