@@ -1124,6 +1124,10 @@ func (c *RunConsole) renderNodesLocked() []string {
 		if ns == nil {
 			ns = &runConsoleNodeState{id: id, status: "planned"}
 		}
+		nodeLabel := id
+		if col.node > 0 && runewidth.StringWidth(nodeLabel) > col.node {
+			nodeLabel = c.compactNodeLabelLocked(id)
+		}
 		statusCell := runConsoleStatusCell(strings.ToUpper(ns.status))
 		attempt := ns.attempt
 		phase := strings.TrimSpace(ns.phase)
@@ -1153,7 +1157,7 @@ func (c *RunConsole) renderNodesLocked() []string {
 		}
 
 		lines = append(lines, strings.TrimRight(runConsoleJoinRow(width,
-			runConsoleFormatCell(id, col.node, runConsoleAlignLeft),
+			runConsoleFormatCell(nodeLabel, col.node, runConsoleAlignLeft),
 			runConsoleFormatStatusCell(c.opts.Color, col.status, statusCell),
 			runConsoleFormatCell(fmt.Sprintf("%d", attempt), col.attempt, runConsoleAlignRight),
 			runConsoleFormatCell(phase, col.phase, runConsoleAlignLeft),
@@ -1161,6 +1165,30 @@ func (c *RunConsole) renderNodesLocked() []string {
 		), " "))
 	}
 	return lines
+}
+
+func (c *RunConsole) compactNodeLabelLocked(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return id
+	}
+	meta := c.metaByID[id]
+	name := strings.TrimSpace(meta.name)
+	ns := strings.TrimSpace(meta.namespace)
+	cluster := strings.TrimSpace(meta.cluster)
+	if name == "" {
+		return id
+	}
+	// Prefer short forms that still disambiguate.
+	switch {
+	case ns != "" && name != "" && cluster != "":
+		// Most common: cluster/ns/name
+		return fmt.Sprintf("%s/%s/%s", cluster, ns, name)
+	case ns != "" && name != "":
+		return fmt.Sprintf("%s/%s", ns, name)
+	default:
+		return name
+	}
 }
 
 func (c *RunConsole) filteredNodeOrderLocked() []string {

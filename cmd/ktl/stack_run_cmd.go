@@ -129,12 +129,18 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 					}))
 				} else if isTerminalWriter(errOut) {
 					width, _ := ui.TerminalWidth(errOut)
+					isNarrow := width > 0 && width <= 120
+
 					if opts.ConsoleWide || opts.ConsoleDetails {
 						if width < 160 {
 							width = 160
 						}
 					}
 					consoleHelm := strings.ToLower(strings.TrimSpace(opts.ConsoleHelm))
+					if !flagChanged(cmd, "console-helm") && isNarrow {
+						// In narrow mode, default the HELM LOGS panel off (still capture via --helm-logs).
+						consoleHelm = "off"
+					}
 					if consoleHelm == "" {
 						consoleHelm = strings.ToLower(strings.TrimSpace(opts.HelmLogs))
 						switch consoleHelm {
@@ -145,16 +151,33 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 						}
 					}
 					showHelmPanel := consoleHelm != "off" && strings.ToLower(strings.TrimSpace(opts.HelmLogs)) != "off"
+
+					showHooks := opts.ConsoleHooks
+					if !flagChanged(cmd, "console-hooks") {
+						showHooks = true
+					}
+					showDetails := opts.ConsoleDetails
+					if !flagChanged(cmd, "console-details") {
+						showDetails = isNarrow
+					}
+					showNoisyPhases := opts.ConsoleNoisyPhases
+					if !flagChanged(cmd, "console-noisy-phases") {
+						showNoisyPhases = false
+					}
+					nodeFilter := strings.TrimSpace(opts.ConsoleFilter)
+					if !flagChanged(cmd, "console-filter") {
+						nodeFilter = "all"
+					}
 					console = stack.NewRunConsole(errOut, p, string(kind), stack.RunConsoleOptions{
 						Enabled:         true,
 						Verbose:         verbose,
 						Width:           width,
 						Color:           true,
-						ShowNoisyPhases: opts.ConsoleNoisyPhases,
-						NodeFilter:      strings.TrimSpace(opts.ConsoleFilter),
-						ShowHooks:       opts.ConsoleHooks,
+						ShowNoisyPhases: showNoisyPhases,
+						NodeFilter:      nodeFilter,
+						ShowHooks:       showHooks,
 						HookTail:        opts.ConsoleHooksTail,
-						ShowDetails:     opts.ConsoleDetails,
+						ShowDetails:     showDetails,
 						DetailsTail:     opts.ConsoleDetailsTail,
 						ShowHelmLogs:    showHelmPanel,
 						HelmLogsMode:    consoleHelm,
@@ -528,6 +551,17 @@ func addStackConsoleFlags(cmd *cobra.Command, opts *stackRunCLIOptions) {
 	cmd.Flags().StringVar(&opts.ConsoleFilter, "console-filter", opts.ConsoleFilter, "Filter nodes shown in console table: all|running|failed")
 	cmd.Flags().StringVar(&opts.ConsoleHelm, "console-helm", opts.ConsoleHelm, "Console HELM LOGS panel mode: off|on|all (capture is controlled by --helm-logs)")
 	cmd.Flags().Lookup("console-helm").NoOptDefVal = "on"
+
+	// Auto-responsive defaults are preferred; keep these as escape hatches but
+	// hide them to avoid bloating the primary UX.
+	_ = cmd.Flags().MarkHidden("console-wide")
+	_ = cmd.Flags().MarkHidden("console-details")
+	_ = cmd.Flags().MarkHidden("console-details-tail")
+	_ = cmd.Flags().MarkHidden("console-hooks")
+	_ = cmd.Flags().MarkHidden("console-hooks-tail")
+	_ = cmd.Flags().MarkHidden("console-noisy-phases")
+	_ = cmd.Flags().MarkHidden("console-filter")
+	_ = cmd.Flags().MarkHidden("console-helm")
 }
 
 func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.Plan, opts stackRunCLIOptions, effective stack.RunnerResolved, adaptive *stack.AdaptiveConcurrencyOptions) stack.RunOptions {
