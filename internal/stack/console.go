@@ -17,6 +17,26 @@ type RunConsoleOptions struct {
 	Verbose bool
 	Width   int
 
+	// ShowNoisyPhases forces the Phase column to include phases that are normally
+	// suppressed in non-verbose mode (e.g. pre-apply/post-apply).
+	ShowNoisyPhases bool
+
+	// NodeFilter controls which nodes are shown in the node table.
+	// Supported values: all|running|failed.
+	NodeFilter string
+
+	// ShowHooks renders a recent-hook activity panel below the node table.
+	ShowHooks bool
+
+	// HookTail caps stored hook events in the HOOKS panel (0 uses a default).
+	HookTail int
+
+	// ShowDetails renders an expanded per-node details panel (hooks + helm tail).
+	ShowDetails bool
+
+	// DetailsTail caps lines shown per node in the details panel (0 uses a default).
+	DetailsTail int
+
 	// Now returns the current time for elapsed calculations. Defaults to time.Now.
 	Now func() time.Time
 
@@ -46,6 +66,7 @@ type RunConsole struct {
 	nodes      map[string]*runConsoleNodeState
 	metaByID   map[string]runConsoleNodeMeta
 	helmLogs   map[string][]runConsoleHelmLogEntry
+	hookEvents []runConsoleHookEntry
 	failures   []runConsoleFailure
 	startedAt  time.Time
 	runID      string
@@ -66,6 +87,14 @@ type runConsoleNodeState struct {
 	hooksOK      int
 	hooksFailed  int
 	hooksSkipped int
+
+	lastHookNote string
+	lastHelmLine string
+
+	phasesSeen map[string]bool
+	phasesDone map[string]bool
+
+	lastPhaseBeforeHook string
 
 	startedAt time.Time
 	updatedAt time.Time
@@ -88,6 +117,19 @@ type runConsoleFailure struct {
 	msg     string
 }
 
+type runConsoleHookEntry struct {
+	ts       time.Time
+	nodeID   string
+	attempt  int
+	phase    string
+	hook     string
+	when     string
+	runOnce  bool
+	hookType string
+	summary  string
+	status   string // started|succeeded|failed|skipped
+}
+
 type runConsoleSection struct {
 	name  string
 	lines []string
@@ -108,14 +150,15 @@ func NewRunConsole(out io.Writer, plan *Plan, command string, opts RunConsoleOpt
 		opts.Now = time.Now
 	}
 	c := &RunConsole{
-		out:       out,
-		opts:      opts,
-		plan:      plan,
-		command:   strings.TrimSpace(command),
-		startedAt: opts.Now(),
-		nodes:     map[string]*runConsoleNodeState{},
-		metaByID:  map[string]runConsoleNodeMeta{},
-		helmLogs:  map[string][]runConsoleHelmLogEntry{},
+		out:        out,
+		opts:       opts,
+		plan:       plan,
+		command:    strings.TrimSpace(command),
+		startedAt:  opts.Now(),
+		nodes:      map[string]*runConsoleNodeState{},
+		metaByID:   map[string]runConsoleNodeMeta{},
+		helmLogs:   map[string][]runConsoleHelmLogEntry{},
+		hookEvents: []runConsoleHookEntry{},
 	}
 	if plan != nil {
 		c.nodeOrder = runConsoleOrder(plan)
@@ -208,12 +251,6 @@ func (c *RunConsole) ensureStackNodeLocked() {
 			primaryKind: "Hooks",
 		}
 	}
-	for _, id := range c.nodeOrder {
-		if id == runConsoleStackNodeID {
-			return
-		}
-	}
-	c.nodeOrder = append([]string{runConsoleStackNodeID}, c.nodeOrder...)
 }
 
 func hookNoteFromEvent(ev RunEvent) string {
@@ -245,6 +282,39 @@ func hookNoteFromEvent(ev RunEvent) string {
 		parts = append(parts, summary)
 	}
 	return strings.Join(parts, " · ")
+}
+
+func (c *RunConsole) appendHookEventLocked(ev RunEvent, status string) {
+	if c == nil {
+		return
+	}
+	tail := c.opts.HookTail
+	if tail <= 0 {
+		tail = 24
+	}
+	ts, _ := parseRFC3339(ev.TS)
+	entry := runConsoleHookEntry{
+		ts:       ts,
+		nodeID:   strings.TrimSpace(ev.NodeID),
+		attempt:  ev.Attempt,
+		phase:    strings.TrimSpace(fieldString(ev.Fields, "phase")),
+		hook:     strings.TrimSpace(fieldString(ev.Fields, "hook")),
+		when:     strings.TrimSpace(fieldString(ev.Fields, "when")),
+		runOnce:  fieldBool(ev.Fields, "runOnce"),
+		hookType: strings.TrimSpace(fieldString(ev.Fields, "type")),
+		summary:  strings.TrimSpace(fieldString(ev.Fields, "summary")),
+		status:   strings.ToLower(strings.TrimSpace(status)),
+	}
+	if entry.nodeID == "" {
+		entry.nodeID = runConsoleStackNodeID
+	}
+	if entry.phase == "" {
+		entry.phase = strings.TrimSpace(ev.Message)
+	}
+	c.hookEvents = append(c.hookEvents, entry)
+	if len(c.hookEvents) > tail {
+		c.hookEvents = c.hookEvents[len(c.hookEvents)-tail:]
+	}
 }
 
 func (c *RunConsole) applyEventLocked(ev RunEvent) {
@@ -285,11 +355,40 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 		if v := fieldString(ev.Fields, "phase"); v != "" {
 			phase = v
 		}
+		id := strings.TrimSpace(ev.NodeID)
+		ns := c.nodes[id]
+		if ns == nil && id != "" {
+			ns = &runConsoleNodeState{id: id}
+			c.nodes[id] = ns
+		}
+		if ns != nil {
+			if ns.phasesSeen == nil {
+				ns.phasesSeen = map[string]bool{}
+			}
+			ns.phasesSeen[strings.TrimSpace(phase)] = true
+		}
 		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, phase, "", nil, ts)
 	case string(PhaseCompleted):
 		phase := fieldString(ev.Fields, "phase")
 		if phase == "" {
 			phase = strings.TrimSpace(ev.Message)
+		}
+		id := strings.TrimSpace(ev.NodeID)
+		ns := c.nodes[id]
+		if ns == nil && id != "" {
+			ns = &runConsoleNodeState{id: id}
+			c.nodes[id] = ns
+		}
+		if ns != nil {
+			if ns.phasesSeen == nil {
+				ns.phasesSeen = map[string]bool{}
+			}
+			if ns.phasesDone == nil {
+				ns.phasesDone = map[string]bool{}
+			}
+			p := strings.TrimSpace(phase)
+			ns.phasesSeen[p] = true
+			ns.phasesDone[p] = true
 		}
 		c.setNodeLocked(ev.NodeID, c.getStatus(ev.NodeID), ev.Attempt, phase, "", nil, ts)
 	case string(HookStarted), string(HookSucceeded):
@@ -300,16 +399,35 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 		}
 		phase := strings.TrimSpace(fieldString(ev.Fields, "phase"))
 		note := hookNoteFromEvent(ev)
-		if nodeID != runConsoleStackNodeID {
+		if ev.Type == string(HookStarted) {
+			c.appendHookEventLocked(ev, "started")
+		} else {
+			c.appendHookEventLocked(ev, "succeeded")
+		}
+
+		ns := c.nodes[nodeID]
+		if ns == nil {
+			ns = &runConsoleNodeState{id: nodeID}
+			c.nodes[nodeID] = ns
+		}
+		ns.lastHookNote = note
+		if nodeID != runConsoleStackNodeID && ev.Type == string(HookStarted) {
+			if strings.TrimSpace(ns.phase) != "" && strings.TrimSpace(ns.phase) != "hook" {
+				ns.lastPhaseBeforeHook = strings.TrimSpace(ns.phase)
+			}
 			phase = "hook"
 		}
+		if nodeID != runConsoleStackNodeID && ev.Type == string(HookSucceeded) && strings.TrimSpace(ns.lastPhaseBeforeHook) != "" {
+			phase = strings.TrimSpace(ns.lastPhaseBeforeHook)
+			ns.lastPhaseBeforeHook = ""
+		}
 		if ev.Type == string(HookStarted) {
-			c.setNodeLocked(nodeID, "running", ev.Attempt, strings.TrimSpace(phase), note, nil, ts)
+			c.setNodeLocked(nodeID, "running", ev.Attempt, strings.TrimSpace(phase), "", nil, ts)
 		} else {
 			if ns := c.nodes[nodeID]; ns != nil {
 				ns.hooksOK++
 			}
-			c.setNodeLocked(nodeID, c.getStatus(nodeID), ev.Attempt, strings.TrimSpace(phase), note, nil, ts)
+			c.setNodeLocked(nodeID, c.getStatus(nodeID), ev.Attempt, strings.TrimSpace(phase), "", nil, ts)
 		}
 	case string(HookFailed):
 		nodeID := strings.TrimSpace(ev.NodeID)
@@ -319,13 +437,21 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 		}
 		phase := strings.TrimSpace(fieldString(ev.Fields, "phase"))
 		note := hookNoteFromEvent(ev)
+		c.appendHookEventLocked(ev, "failed")
+
+		ns := c.nodes[nodeID]
+		if ns == nil {
+			ns = &runConsoleNodeState{id: nodeID}
+			c.nodes[nodeID] = ns
+		}
+		ns.lastHookNote = note
 		if nodeID != runConsoleStackNodeID {
 			phase = "hook"
 		}
 		if ns := c.nodes[nodeID]; ns != nil {
 			ns.hooksFailed++
 		}
-		c.setNodeLocked(nodeID, "failed", ev.Attempt, strings.TrimSpace(phase), note, ev.Error, ts)
+		c.setNodeLocked(nodeID, "failed", ev.Attempt, strings.TrimSpace(phase), "", ev.Error, ts)
 		c.addFailureLocked(runConsoleFailure{nodeID: nodeID, attempt: ev.Attempt, err: ev.Error, msg: note})
 	case string(HookSkipped):
 		nodeID := strings.TrimSpace(ev.NodeID)
@@ -335,16 +461,44 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 		}
 		phase := strings.TrimSpace(fieldString(ev.Fields, "phase"))
 		note := hookNoteFromEvent(ev)
-		if nodeID != runConsoleStackNodeID {
-			phase = "hook"
+		c.appendHookEventLocked(ev, "skipped")
+
+		ns := c.nodes[nodeID]
+		if ns == nil {
+			ns = &runConsoleNodeState{id: nodeID}
+			c.nodes[nodeID] = ns
+		}
+		ns.lastHookNote = note
+		if nodeID != runConsoleStackNodeID && strings.TrimSpace(ns.lastPhaseBeforeHook) != "" {
+			phase = strings.TrimSpace(ns.lastPhaseBeforeHook)
+			ns.lastPhaseBeforeHook = ""
 		}
 		if ns := c.nodes[nodeID]; ns != nil {
 			ns.hooksSkipped++
 		}
-		c.setNodeLocked(nodeID, c.getStatus(nodeID), ev.Attempt, strings.TrimSpace(phase), note, nil, ts)
+		c.setNodeLocked(nodeID, c.getStatus(nodeID), ev.Attempt, strings.TrimSpace(phase), "", nil, ts)
 	case string(RetryScheduled):
 		c.setNodeLocked(ev.NodeID, "retrying", ev.Attempt, c.getPhase(ev.NodeID), strings.TrimSpace(ev.Message), ev.Error, ts)
 	case string(NodeSucceeded):
+		id := strings.TrimSpace(ev.NodeID)
+		if id != "" {
+			ns := c.nodes[id]
+			if ns == nil {
+				ns = &runConsoleNodeState{id: id}
+				c.nodes[id] = ns
+			}
+			if strings.TrimSpace(ns.phase) != "" {
+				if ns.phasesSeen == nil {
+					ns.phasesSeen = map[string]bool{}
+				}
+				if ns.phasesDone == nil {
+					ns.phasesDone = map[string]bool{}
+				}
+				p := strings.TrimSpace(ns.phase)
+				ns.phasesSeen[p] = true
+				ns.phasesDone[p] = true
+			}
+		}
 		c.setNodeLocked(ev.NodeID, "succeeded", ev.Attempt, "", "", nil, ts)
 	case string(NodeBlocked):
 		c.setNodeLocked(ev.NodeID, "blocked", ev.Attempt, "", strings.TrimSpace(ev.Message), nil, ts)
@@ -406,6 +560,12 @@ func (c *RunConsole) appendHelmLogLocked(ev RunEvent) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		ns := c.nodes[id]
+		if ns == nil {
+			ns = &runConsoleNodeState{id: id}
+			c.nodes[id] = ns
+		}
+		ns.lastHelmLine = strings.TrimSpace(line)
 		c.helmLogs[id] = append(c.helmLogs[id], runConsoleHelmLogEntry{
 			seq:     ev.Seq,
 			offset:  i,
@@ -493,6 +653,12 @@ func (c *RunConsole) setNodeLocked(id, status string, attempt int, phase string,
 	if runErr != nil {
 		ns.lastError = runErr
 	}
+	if ns.phasesSeen == nil {
+		ns.phasesSeen = map[string]bool{}
+	}
+	if ns.phasesDone == nil {
+		ns.phasesDone = map[string]bool{}
+	}
 }
 
 func (c *RunConsole) addFailureLocked(f runConsoleFailure) {
@@ -529,10 +695,23 @@ func (c *RunConsole) renderLocked() {
 func (c *RunConsole) buildSectionsLocked() []runConsoleSection {
 	var sections []runConsoleSection
 	sections = append(sections, runConsoleSection{name: "header", lines: c.renderHeaderLocked()})
+	if lines := c.renderStackRailLocked(); len(lines) > 0 {
+		sections = append(sections, runConsoleSection{name: "stack-rail", lines: lines})
+	}
 	if len(c.failures) > 0 {
 		sections = append(sections, runConsoleSection{name: "failures", lines: c.renderFailuresLocked()})
 	}
 	sections = append(sections, runConsoleSection{name: "nodes", lines: c.renderNodesLocked()})
+	if c.opts.ShowHooks {
+		if lines := c.renderHooksLocked(); len(lines) > 0 {
+			sections = append(sections, runConsoleSection{name: "hooks", lines: lines})
+		}
+	}
+	if c.opts.ShowDetails {
+		if lines := c.renderDetailsLocked(); len(lines) > 0 {
+			sections = append(sections, runConsoleSection{name: "details", lines: lines})
+		}
+	}
 	if c.opts.ShowHelmLogs {
 		if lines := c.renderHelmLogsLocked(); len(lines) > 0 {
 			sections = append(sections, runConsoleSection{name: "helm-logs", lines: lines})
@@ -598,7 +777,10 @@ func (c *RunConsole) renderHeaderLocked() []string {
 
 	ok, fail, blocked, running := 0, 0, 0, 0
 	active := 0
-	for _, ns := range c.nodes {
+	for id, ns := range c.nodes {
+		if strings.TrimSpace(id) == runConsoleStackNodeID {
+			continue
+		}
 		if ns == nil {
 			continue
 		}
@@ -672,6 +854,64 @@ func (c *RunConsole) renderHeaderLocked() []string {
 	return []string{runConsoleAnsiBold(c.opts.Color, title)}
 }
 
+func (c *RunConsole) renderStackRailLocked() []string {
+	if c == nil || c.plan == nil || !planHasStackHooks(c.plan) {
+		return nil
+	}
+
+	width := c.opts.Width
+	if width <= 0 {
+		width = 120
+	}
+	ns := c.nodes[runConsoleStackNodeID]
+	if ns == nil {
+		return []string{runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth("STACK HOOKS", width))}
+	}
+
+	exp := expectedStackHooksForCommand(c.plan, c.command)
+	done := ns.hooksOK + ns.hooksFailed + ns.hooksSkipped
+	progress := "-"
+	if exp > 0 {
+		progress = fmt.Sprintf("%d/%d", done, exp)
+	}
+
+	status := strings.ToLower(strings.TrimSpace(ns.status))
+	if status == "" {
+		status = "planned"
+	}
+	phase := strings.TrimSpace(ns.phase)
+	if phase == "" {
+		phase = "-"
+	}
+
+	note := strings.TrimSpace(ns.lastHookNote)
+	if note == "" {
+		note = strings.TrimSpace(ns.wait)
+	}
+	if note == "" {
+		note = fmt.Sprintf("hooks %s (ok=%d failed=%d skipped=%d)", progress, ns.hooksOK, ns.hooksFailed, ns.hooksSkipped)
+	} else {
+		note = note + " · hooks " + progress
+	}
+
+	statusCell := runConsoleStatusCell(strings.ToUpper(status))
+	statusTag := runConsoleFormatStatusTag(c.opts.Color, statusCell)
+	statusPlain := strings.TrimSpace(statusCell.text)
+
+	prefixPlain := "stack " + statusPlain + " "
+	remaining := width - runewidth.StringWidth(prefixPlain)
+	if remaining < 0 {
+		remaining = 0
+	}
+	rest := runConsoleTrimToWidth(fmt.Sprintf("a%d · %s · %s", ns.attempt, phase, note), remaining)
+	line := "stack " + statusTag + " " + runConsoleAnsiDim(c.opts.Color, rest)
+
+	return []string{
+		runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth("STACK HOOKS", width)),
+		runConsoleTrimToWidth(line, width),
+	}
+}
+
 func (c *RunConsole) renderFailuresLocked() []string {
 	width := c.opts.Width
 	if width <= 0 {
@@ -709,6 +949,18 @@ func (c *RunConsole) renderFailuresLocked() []string {
 			msg = "-"
 		}
 
+		if ns := c.nodes[strings.TrimSpace(f.nodeID)]; ns != nil {
+			if strings.TrimSpace(ns.lastHookNote) != "" && !strings.Contains(msg, strings.TrimSpace(ns.lastHookNote)) {
+				msg = msg + " · hook " + strings.TrimSpace(ns.lastHookNote)
+			}
+			if strings.TrimSpace(ns.lastHelmLine) != "" {
+				msg = msg + " · helm " + strings.TrimSpace(ns.lastHelmLine)
+			}
+		}
+		if hint := remediationHint(class); hint != "" {
+			msg = msg + " · hint " + hint
+		}
+
 		line := runConsoleBulletFit(width, []string{
 			runConsoleTrimToWidth(f.nodeID, 28),
 			fmt.Sprintf("a%d", f.attempt),
@@ -725,13 +977,40 @@ func (c *RunConsole) renderFailuresLocked() []string {
 	return lines
 }
 
+func expectedStackHooksForCommand(plan *Plan, command string) int {
+	if plan == nil {
+		return 0
+	}
+	switch strings.ToLower(strings.TrimSpace(command)) {
+	case "apply":
+		return len(plan.Hooks.PreApply) + len(plan.Hooks.PostApply)
+	case "delete":
+		return len(plan.Hooks.PreDelete) + len(plan.Hooks.PostDelete)
+	default:
+		return len(plan.Hooks.PreApply) + len(plan.Hooks.PostApply) + len(plan.Hooks.PreDelete) + len(plan.Hooks.PostDelete)
+	}
+}
+
+func remediationHint(class string) string {
+	c := strings.ToUpper(strings.TrimSpace(class))
+	switch c {
+	case "HOOK_FAILED":
+		return "check hook summary/output (and when=)"
+	case "WAIT_TIMEOUT":
+		return "inspect blockers; consider increasing apply.timeout"
+	case "HELM_RATE_LIMIT", "KUBE_RATE_LIMIT":
+		return "try lower concurrency or rerun"
+	case "HELM_ERROR":
+		return "check helm logs; rerun with --helm-logs=all"
+	default:
+		return ""
+	}
+}
+
 func (c *RunConsole) renderNodesLocked() []string {
-	order := c.nodeOrder
+	order := c.filteredNodeOrderLocked()
 	if len(order) == 0 {
-		for id := range c.nodes {
-			order = append(order, id)
-		}
-		sort.Strings(order)
+		order = []string{}
 	}
 
 	width := c.opts.Width
@@ -762,19 +1041,18 @@ func (c *RunConsole) renderNodesLocked() []string {
 		if phase == "" {
 			phase = "-"
 		}
-		if id != runConsoleStackNodeID && !c.opts.Verbose && ns.status != "failed" && isNoisyPhase(phase) {
+		if id != runConsoleStackNodeID && !c.opts.Verbose && !c.opts.ShowNoisyPhases && ns.status != "failed" && isNoisyPhase(phase) {
 			phase = "-"
 		}
-		note := strings.TrimSpace(ns.wait)
-		if note == "" && ns.lastError != nil {
-			note = strings.TrimSpace(ns.lastError.Class)
-		}
-		if ns.hooksOK > 0 || ns.hooksFailed > 0 || ns.hooksSkipped > 0 {
-			sfx := fmt.Sprintf("hooks ok=%d failed=%d skipped=%d", ns.hooksOK, ns.hooksFailed, ns.hooksSkipped)
-			if note == "" {
-				note = sfx
+		note := c.nodeProgressNoteLocked(id, ns)
+		if strings.TrimSpace(ns.wait) != "" {
+			note = strings.TrimSpace(ns.wait)
+		} else if ns.lastError != nil && strings.TrimSpace(ns.lastError.Class) != "" {
+			cls := strings.TrimSpace(ns.lastError.Class)
+			if strings.TrimSpace(note) == "" {
+				note = cls
 			} else {
-				note = note + " · " + sfx
+				note = fmt.Sprintf("%s · %s", note, cls)
 			}
 		}
 		elapsed := ""
@@ -794,6 +1072,145 @@ func (c *RunConsole) renderNodesLocked() []string {
 		), " "))
 	}
 	return lines
+}
+
+func (c *RunConsole) filteredNodeOrderLocked() []string {
+	order := c.nodeOrder
+	if len(order) == 0 {
+		for id := range c.nodes {
+			order = append(order, id)
+		}
+		sort.Strings(order)
+	}
+
+	filter := strings.ToLower(strings.TrimSpace(c.opts.NodeFilter))
+	if filter == "" {
+		filter = "all"
+	}
+
+	out := make([]string, 0, len(order))
+	for _, id := range order {
+		if strings.TrimSpace(id) == "" || id == runConsoleStackNodeID {
+			continue
+		}
+		status := strings.ToLower(strings.TrimSpace(c.getStatus(id)))
+		switch filter {
+		case "all":
+		case "running":
+			switch status {
+			case "queued", "running", "retrying", "blocked":
+			default:
+				continue
+			}
+		case "failed":
+			if status != "failed" {
+				continue
+			}
+		default:
+			// Unknown filter: behave like "all".
+		}
+		out = append(out, id)
+	}
+	return out
+}
+
+func (c *RunConsole) nodeProgressNoteLocked(id string, ns *runConsoleNodeState) string {
+	status := strings.ToLower(strings.TrimSpace(ns.status))
+	switch status {
+	case "running", "retrying", "blocked", "failed":
+	default:
+		return ""
+	}
+
+	// Hooks progress.
+	hExp := expectedHooksForNodeLocked(c.plan, id, c.command)
+	hDone := ns.hooksOK + ns.hooksFailed + ns.hooksSkipped
+	hooksPart := ""
+	if hExp > 0 || hDone > 0 {
+		hProg := fmt.Sprintf("%d", hDone)
+		if hExp > 0 {
+			hProg = fmt.Sprintf("%d/%d", hDone, hExp)
+		}
+		hooksPart = "hooks " + hProg
+		if ns.hooksFailed > 0 {
+			hooksPart += fmt.Sprintf(" fail=%d", ns.hooksFailed)
+		}
+	}
+
+	// Phase progress.
+	pDone, pTotal := phaseProgressLocked(c.plan, id, c.command, ns)
+	phasePart := "-"
+	if pTotal > 0 {
+		phasePart = fmt.Sprintf("phases %d/%d", pDone, pTotal)
+	}
+
+	if phasePart == "-" && hooksPart == "" {
+		return ""
+	}
+	if phasePart == "-" {
+		return hooksPart
+	}
+	if hooksPart == "" {
+		return phasePart
+	}
+	return phasePart + " · " + hooksPart
+}
+
+func expectedHooksForNodeLocked(plan *Plan, nodeID string, command string) int {
+	if plan == nil || plan.ByID == nil {
+		return 0
+	}
+	n := plan.ByID[strings.TrimSpace(nodeID)]
+	if n == nil {
+		return 0
+	}
+	switch strings.ToLower(strings.TrimSpace(command)) {
+	case "apply":
+		return len(n.Hooks.PreApply) + len(n.Hooks.PostApply)
+	case "delete":
+		return len(n.Hooks.PreDelete) + len(n.Hooks.PostDelete)
+	default:
+		return len(n.Hooks.PreApply) + len(n.Hooks.PostApply) + len(n.Hooks.PreDelete) + len(n.Hooks.PostDelete)
+	}
+}
+
+func phaseProgressLocked(plan *Plan, nodeID string, command string, ns *runConsoleNodeState) (done int, total int) {
+	if ns == nil {
+		return 0, 0
+	}
+	var want []string
+	switch strings.ToLower(strings.TrimSpace(command)) {
+	case "apply":
+		want = []string{"render", "diff", "upgrade", "install", "wait", "post-hooks"}
+		if plan != nil && plan.ByID != nil {
+			if n := plan.ByID[strings.TrimSpace(nodeID)]; n != nil && verifyEnabled(n.Verify) {
+				want = append(want, "verify")
+			}
+		}
+	case "delete":
+		want = []string{"destroy"}
+	default:
+		want = []string{"render", "diff", "upgrade", "install", "wait", "post-hooks", "verify", "destroy"}
+	}
+
+	seen := ns.phasesSeen
+	doneMap := ns.phasesDone
+	if seen == nil {
+		seen = map[string]bool{}
+	}
+	if doneMap == nil {
+		doneMap = map[string]bool{}
+	}
+
+	for _, p := range want {
+		if seen[p] || doneMap[p] {
+			total++
+			if doneMap[p] {
+				done++
+			}
+		}
+	}
+	return done, total
 }
 
 func (c *RunConsole) renderHelmLogsLocked() []string {
@@ -915,6 +1332,215 @@ func (c *RunConsole) renderHelmLogsLocked() []string {
 	}
 
 	return lines
+}
+
+func (c *RunConsole) renderHooksLocked() []string {
+	if c == nil || len(c.hookEvents) == 0 {
+		return nil
+	}
+
+	width := c.opts.Width
+	if width <= 0 {
+		width = 120
+	}
+
+	lines := []string{runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth("HOOKS", width))}
+
+	maxLines := 14
+	tail := c.opts.HookTail
+	if tail <= 0 {
+		tail = 24
+	}
+	if tail < maxLines {
+		maxLines = tail
+	}
+
+	shown := 0
+	for i := len(c.hookEvents) - 1; i >= 0; i-- {
+		if shown >= maxLines {
+			break
+		}
+		e := c.hookEvents[i]
+
+		ts := "--:--:--.---"
+		if !e.ts.IsZero() {
+			ts = e.ts.UTC().Format("15:04:05.000")
+		}
+
+		status := strings.ToLower(strings.TrimSpace(e.status))
+		switch status {
+		case "started":
+			status = "running"
+		case "succeeded":
+			status = "succeeded"
+		case "failed":
+			status = "failed"
+		case "skipped":
+			status = "planned"
+		default:
+			status = "-"
+		}
+		statusCell := runConsoleStatusCell(strings.ToUpper(status))
+		statusTag := runConsoleFormatStatusTag(c.opts.Color, statusCell)
+
+		nodeLabel := e.nodeID
+		if e.nodeID == runConsoleStackNodeID {
+			nodeLabel = "stack"
+		} else if meta, ok := c.metaByID[e.nodeID]; ok && strings.TrimSpace(meta.name) != "" {
+			if strings.TrimSpace(meta.namespace) != "" && strings.TrimSpace(meta.cluster) != "" {
+				nodeLabel = fmt.Sprintf("%s/ns/%s/%s", meta.cluster, meta.namespace, meta.name)
+			} else if strings.TrimSpace(meta.namespace) != "" {
+				nodeLabel = fmt.Sprintf("ns/%s/%s", meta.namespace, meta.name)
+			} else {
+				nodeLabel = meta.name
+			}
+		}
+
+		parts := []string{
+			ts,
+			runConsoleTrimToWidth(nodeLabel, 34),
+			fmt.Sprintf("a%d", e.attempt),
+		}
+		phase := strings.TrimSpace(e.phase)
+		if phase != "" {
+			parts = append(parts, phase)
+		}
+		hook := strings.TrimSpace(e.hook)
+		if hook != "" {
+			parts = append(parts, hook)
+		}
+		if strings.TrimSpace(e.when) != "" {
+			parts = append(parts, "when="+strings.TrimSpace(e.when))
+		}
+		if e.runOnce {
+			parts = append(parts, "runOnce")
+		}
+		if strings.TrimSpace(e.summary) != "" {
+			parts = append(parts, strings.TrimSpace(e.summary))
+		}
+
+		line := strings.Join(parts, " · ")
+		line = runConsoleTrimToWidthKeepLeft(line, width-runewidth.StringWidth(statusCell.text)-1)
+		lines = append(lines, statusTag+" "+runConsoleAnsiDim(c.opts.Color, line))
+		shown++
+	}
+	return lines
+}
+
+func (c *RunConsole) renderDetailsLocked() []string {
+	if c == nil {
+		return nil
+	}
+	width := c.opts.Width
+	if width <= 0 {
+		width = 120
+	}
+
+	order := c.filteredNodeOrderLocked()
+	if len(order) == 0 {
+		return nil
+	}
+
+	detailTail := c.opts.DetailsTail
+	if detailTail <= 0 {
+		detailTail = 8
+	}
+
+	// Focus details on the most actionable nodes.
+	type target struct {
+		id     string
+		status string
+	}
+	var targets []target
+	for _, id := range order {
+		status := strings.ToLower(strings.TrimSpace(c.getStatus(id)))
+		switch status {
+		case "failed", "running", "retrying", "blocked":
+			targets = append(targets, target{id: id, status: status})
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	if len(targets) > 2 {
+		targets = targets[:2]
+	}
+
+	lines := []string{runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth("DETAILS", width))}
+	for _, t := range targets {
+		id := t.id
+		ns := c.nodes[id]
+		if ns == nil {
+			continue
+		}
+		meta := c.metaByID[id]
+		label := id
+		if strings.TrimSpace(meta.cluster) != "" && strings.TrimSpace(meta.namespace) != "" && strings.TrimSpace(meta.name) != "" {
+			label = fmt.Sprintf("%s/ns/%s/%s", meta.cluster, meta.namespace, meta.name)
+		}
+		title := fmt.Sprintf("─ %s · %s · phase=%s", label, strings.ToLower(strings.TrimSpace(ns.status)), strings.TrimSpace(ns.phase))
+		lines = append(lines, runConsoleAnsiDimBold(c.opts.Color, runConsoleTrimToWidth(title, width)))
+
+		if strings.TrimSpace(ns.lastHookNote) != "" {
+			lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidth("  hook: "+strings.TrimSpace(ns.lastHookNote), width)))
+		}
+
+		// Recent hook events for this node.
+		shownHooks := 0
+		for i := len(c.hookEvents) - 1; i >= 0 && shownHooks < detailTail; i-- {
+			e := c.hookEvents[i]
+			if e.nodeID != id {
+				continue
+			}
+			ts := "--:--:--.---"
+			if !e.ts.IsZero() {
+				ts = e.ts.UTC().Format("15:04:05.000")
+			}
+			msg := fmt.Sprintf("  hook[%s]: %s", strings.ToLower(e.status), hookLine(e))
+			lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidthKeepLeft(fmt.Sprintf("  │ %s %s", ts, msg), width)))
+			shownHooks++
+		}
+
+		// Helm tail (if captured).
+		if logs := c.helmLogs[id]; len(logs) > 0 {
+			lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidth("  helm:", width)))
+			start := 0
+			if len(logs) > detailTail {
+				start = len(logs) - detailTail
+			}
+			for _, entry := range logs[start:] {
+				ts := "--:--:--.---"
+				if !entry.ts.IsZero() {
+					ts = entry.ts.UTC().Format("15:04:05.000")
+				}
+				line := fmt.Sprintf("  │ %s %s", ts, strings.TrimSpace(entry.line))
+				lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidthKeepLeft(line, width)))
+			}
+		} else if strings.TrimSpace(ns.lastHelmLine) != "" {
+			lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidth("  helm: "+strings.TrimSpace(ns.lastHelmLine), width)))
+		}
+	}
+	return lines
+}
+
+func hookLine(e runConsoleHookEntry) string {
+	parts := []string{}
+	if strings.TrimSpace(e.phase) != "" {
+		parts = append(parts, strings.TrimSpace(e.phase))
+	}
+	if strings.TrimSpace(e.hook) != "" {
+		parts = append(parts, strings.TrimSpace(e.hook))
+	}
+	if strings.TrimSpace(e.when) != "" {
+		parts = append(parts, "when="+strings.TrimSpace(e.when))
+	}
+	if e.runOnce {
+		parts = append(parts, "runOnce")
+	}
+	if strings.TrimSpace(e.summary) != "" {
+		parts = append(parts, strings.TrimSpace(e.summary))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func isNoisyPhase(phase string) bool {
