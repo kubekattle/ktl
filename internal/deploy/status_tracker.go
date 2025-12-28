@@ -42,6 +42,14 @@ type ResourceTracker struct {
 	namespaces       []string
 }
 
+// Snapshot returns a point-in-time status listing without starting the tracker loop.
+func (t *ResourceTracker) Snapshot(ctx context.Context) []ResourceStatus {
+	if t == nil {
+		return nil
+	}
+	return t.collect(ctx)
+}
+
 // NewResourceTracker constructs a tracker for the given release.
 func NewResourceTracker(client *kube.Client, namespace, release, manifest string, update StatusUpdateFunc) *ResourceTracker {
 	targets := targetsFromManifest(manifest)

@@ -24,6 +24,63 @@ type stackStateStore struct {
 	readOnly bool
 }
 
+func (s *stackStateStore) GetNodeSteps(ctx context.Context, runID string) (map[string]map[int]map[string]NodeStepCheckpoint, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT node_id, attempt, step,
+  started_at_ns, completed_at_ns, status, message,
+  error_class, error_message, error_digest, cursor_json
+FROM ktl_stack_node_steps
+WHERE run_id = ?
+ORDER BY node_id ASC, attempt ASC, step ASC
+`, runID)
+	if err != nil {
+		// Backward compat for old DBs.
+		return nil, nil
+	}
+	defer rows.Close()
+
+	out := map[string]map[int]map[string]NodeStepCheckpoint{}
+	for rows.Next() {
+		var nodeID, step, status, message, errClass, errMsg, errDigest, cursorJSON string
+		var attempt int
+		var startedAtNS, completedAtNS int64
+		if err := rows.Scan(&nodeID, &attempt, &step, &startedAtNS, &completedAtNS, &status, &message, &errClass, &errMsg, &errDigest, &cursorJSON); err != nil {
+			return nil, err
+		}
+		nodeID = strings.TrimSpace(nodeID)
+		step = strings.TrimSpace(step)
+		if nodeID == "" || attempt <= 0 || step == "" {
+			continue
+		}
+		if out[nodeID] == nil {
+			out[nodeID] = map[int]map[string]NodeStepCheckpoint{}
+		}
+		if out[nodeID][attempt] == nil {
+			out[nodeID][attempt] = map[string]NodeStepCheckpoint{}
+		}
+		out[nodeID][attempt][step] = NodeStepCheckpoint{
+			Step:          step,
+			Attempt:       attempt,
+			StartedAtNS:   startedAtNS,
+			CompletedAtNS: completedAtNS,
+			Status:        strings.TrimSpace(status),
+			Message:       strings.TrimSpace(message),
+			ErrorClass:    strings.TrimSpace(errClass),
+			ErrorMessage:  strings.TrimSpace(errMsg),
+			ErrorDigest:   strings.TrimSpace(errDigest),
+			CursorJSON:    strings.TrimSpace(cursorJSON),
+		}
+	}
+	return out, rows.Err()
+}
+
 func openStackStateStore(root string, readOnly bool) (*stackStateStore, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {

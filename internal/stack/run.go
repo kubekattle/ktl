@@ -40,6 +40,7 @@ type RunOptions struct {
 	ResumeStatusByID  map[string]string
 	ResumeFromRunID   string
 	ResumeAttemptByID map[string]int
+	ResumeStepsByID   map[string]map[int]map[string]NodeStepCheckpoint
 
 	ProgressiveConcurrency bool
 	Lock                   bool
@@ -536,23 +537,101 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 
 	// Seed the scheduler with already-completed nodes from a previous run.
 	// Emit NODE_SUCCEEDED events so the new run's sqlite summary matches the resumed state.
-	if len(opts.ResumeStatusByID) > 0 {
+	stepOK := func(status string) bool {
+		switch strings.ToLower(strings.TrimSpace(status)) {
+		case "succeeded", "success", "skipped":
+			return true
+		default:
+			return false
+		}
+	}
+	nodeSteps := func(nodeID string, attempt int) map[string]NodeStepCheckpoint {
+		if opts.ResumeStepsByID == nil {
+			return nil
+		}
+		byAttempt := opts.ResumeStepsByID[strings.TrimSpace(nodeID)]
+		if byAttempt == nil {
+			return nil
+		}
+		return byAttempt[attempt]
+	}
+	nodeAppliedOK := func(steps map[string]NodeStepCheckpoint) bool {
+		if steps == nil {
+			return false
+		}
+		if s, ok := steps["upgrade"]; ok && stepOK(s.Status) {
+			return true
+		}
+		if s, ok := steps["install"]; ok && stepOK(s.Status) {
+			return true
+		}
+		return false
+	}
+	nodeWaitOK := func(steps map[string]NodeStepCheckpoint) bool {
+		if steps == nil {
+			return false
+		}
+		if s, ok := steps["wait"]; ok && stepOK(s.Status) {
+			return true
+		}
+		return false
+	}
+	nodePostOK := func(steps map[string]NodeStepCheckpoint) bool {
+		if steps == nil {
+			return false
+		}
+		if s, ok := steps["post-hooks"]; ok && stepOK(s.Status) {
+			return true
+		}
+		return false
+	}
+
+	if len(opts.ResumeStatusByID) > 0 || len(opts.ResumeStepsByID) > 0 {
 		for _, n := range run.Nodes {
-			if strings.TrimSpace(opts.ResumeStatusByID[n.ID]) != "succeeded" {
-				continue
-			}
 			if opts.ResumeAttemptByID != nil {
 				if a, ok := opts.ResumeAttemptByID[n.ID]; ok && a > n.Attempt {
 					n.Attempt = a
 				}
 			}
-			s.SeedSucceeded(n.ID)
 
-			msg := "resume: already succeeded"
-			if strings.TrimSpace(opts.ResumeFromRunID) != "" {
-				msg = fmt.Sprintf("resume: already succeeded in run %s", strings.TrimSpace(opts.ResumeFromRunID))
+			steps := nodeSteps(n.ID, n.Attempt)
+			completeBySteps := cmd == "apply" && nodeAppliedOK(steps) && nodeWaitOK(steps) && nodePostOK(steps)
+
+			if strings.TrimSpace(opts.ResumeStatusByID[n.ID]) == "succeeded" || completeBySteps {
+				s.SeedSucceeded(n.ID)
+
+				msg := "resume: already succeeded"
+				if completeBySteps && strings.TrimSpace(opts.ResumeStatusByID[n.ID]) != "succeeded" {
+					msg = "resume: steps already completed"
+				}
+				if strings.TrimSpace(opts.ResumeFromRunID) != "" {
+					msg = fmt.Sprintf("%s in run %s", msg, strings.TrimSpace(opts.ResumeFromRunID))
+				}
+				run.AppendEvent(n.ID, NodeSucceeded, n.Attempt, msg, nil, nil)
+				continue
 			}
-			run.AppendEvent(n.ID, NodeSucceeded, n.Attempt, msg, nil, nil)
+
+			if cmd == "apply" && nodeAppliedOK(steps) && !nodeWaitOK(steps) {
+				wait := true
+				if n.Apply.Wait != nil {
+					wait = *n.Apply.Wait
+				}
+				if wait {
+					n.resume = &runNodeResume{WaitOnly: true}
+					if steps != nil {
+						if s, ok := steps["diff"]; ok && stepOK(s.Status) {
+							n.resume.SkipDiff = true
+						}
+					}
+					continue
+				}
+			}
+
+			if cmd == "apply" && n.resume == nil && steps != nil {
+				if s, ok := steps["diff"]; ok && stepOK(s.Status) {
+					n.resume = &runNodeResume{SkipDiff: true}
+				}
+			}
 		}
 	}
 	run.WriteSummarySnapshot(run.BuildSummary("running", start, s.Snapshot()))
@@ -639,6 +718,13 @@ type runState struct {
 type runNode struct {
 	*ResolvedRelease
 	Attempt int
+
+	resume *runNodeResume
+}
+
+type runNodeResume struct {
+	SkipDiff bool
+	WaitOnly bool
 }
 
 func newRunState(p *Plan, command string) *runState {

@@ -156,6 +156,70 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			atomic = *node.Apply.Atomic
 		}
 
+		if node.resume != nil && node.resume.WaitOnly {
+			obs.PhaseStarted(deploy.PhaseWait)
+			if e.dryRun || !wait {
+				obs.PhaseCompleted(deploy.PhaseWait, "skipped", "Resume wait-only skipped")
+				obs.PhaseStarted(deploy.PhasePostHooks)
+				obs.PhaseCompleted(deploy.PhasePostHooks, "succeeded", "Helm post-upgrade hooks completed")
+				return nil
+			}
+			manifest := ""
+			getAction := action.NewGet(actionCfg)
+			if rel, err := getAction.Run(node.Name); err == nil && rel != nil {
+				manifest = rel.Manifest
+			}
+
+			tracker := deploy.NewResourceTracker(kubeClient, node.Namespace, node.Name, manifest, nil)
+			deadline := time.Now().Add(timeout)
+			var lastRows []deploy.ResourceStatus
+			for {
+				if ctx.Err() != nil {
+					return wrapNodeErr(node.ResolvedRelease, ctx.Err())
+				}
+				rows := tracker.Snapshot(ctx)
+				lastRows = rows
+				if allReleaseResourcesReady(rows) {
+					obs.PhaseCompleted(deploy.PhaseWait, "succeeded", "Release resources ready")
+					obs.PhaseStarted(deploy.PhasePostHooks)
+					obs.PhaseCompleted(deploy.PhasePostHooks, "succeeded", "Helm post-upgrade hooks completed")
+					return nil
+				}
+				if time.Now().After(deadline) {
+					blockers := deploy.TopBlockers(lastRows, 6)
+					if len(blockers) > 0 && e.run != nil {
+						e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, "TOP BLOCKERS", map[string]any{"kind": "top-blockers"})
+						for _, b := range blockers {
+							reason := strings.TrimSpace(b.Reason)
+							if reason == "" {
+								reason = "-"
+							}
+							msg := strings.TrimSpace(b.Message)
+							if msg == "" {
+								msg = "-"
+							}
+							e.run.EmitEphemeralEvent(node.ID, NodeLog, node.Attempt, fmt.Sprintf("%s/%s\t%s\t%s\t%s", b.Kind, b.Name, b.Status, reason, msg), map[string]any{
+								"kind":      "top-blocker",
+								"resource":  fmt.Sprintf("%s/%s", b.Kind, b.Name),
+								"status":    b.Status,
+								"reason":    reason,
+								"message":   msg,
+								"namespace": b.Namespace,
+							})
+						}
+					}
+					err := fmt.Errorf("resume wait: timeout after %s", timeout.String())
+					obs.PhaseCompleted(deploy.PhaseWait, "failed", err.Error())
+					return wrapNodeErr(node.ResolvedRelease, err)
+				}
+				select {
+				case <-ctx.Done():
+					return wrapNodeErr(node.ResolvedRelease, ctx.Err())
+				case <-time.After(2 * time.Second):
+				}
+			}
+		}
+
 		var (
 			trackCtx    context.Context
 			cancelTrack context.CancelFunc
@@ -174,6 +238,10 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 		}
 
 		setPairs := flattenSet(node.Set)
+		diffEnabled := e.diff
+		if node.resume != nil && node.resume.SkipDiff {
+			diffEnabled = false
+		}
 		_, err := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
 			Chart:             node.Chart,
 			Version:           node.ChartVersion,
@@ -186,7 +254,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			Atomic:            atomic,
 			CreateNamespace:   false,
 			DryRun:            e.dryRun,
-			Diff:              e.diff,
+			Diff:              diffEnabled,
 			UpgradeOnly:       false,
 			ProgressObservers: []deploy.ProgressObserver{obs},
 		})
@@ -321,6 +389,22 @@ func flattenSet(m map[string]string) []string {
 		out = append(out, fmt.Sprintf("%s=%s", k, m[k]))
 	}
 	return out
+}
+
+func allReleaseResourcesReady(rows []deploy.ResourceStatus) bool {
+	if len(rows) == 0 {
+		return true
+	}
+	for _, rs := range rows {
+		status := strings.ToLower(strings.TrimSpace(rs.Status))
+		switch status {
+		case "ready", "succeeded", "suspended":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func expandTilde(path string) string {

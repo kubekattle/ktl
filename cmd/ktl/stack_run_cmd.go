@@ -242,6 +242,10 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 					p = stack.FilterByNodeStatus(p, loaded.StatusByID, []string{"failed"})
 				}
 				initialAttempts := loaded.AttemptByID
+				stepsByID, err := stack.LoadRunNodeSteps(*common.rootDir, resumeFromRunID)
+				if err != nil {
+					return err
+				}
 
 				effective, adaptiveOpts, err := resolveRunnerFromFlags(cmd, p.Runner, opts.runnerOverrides())
 				if err != nil {
@@ -253,6 +257,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				runOpts.ResumeStatusByID = loaded.StatusByID
 				runOpts.ResumeAttemptByID = loaded.AttemptByID
 				runOpts.ResumeFromRunID = resumeFromRunID
+				runOpts.ResumeStepsByID = stepsByID
 				runOpts.InitialAttempts = initialAttempts
 				runOpts.Selector = runSelector
 				return runWithViews(p, runOpts)
