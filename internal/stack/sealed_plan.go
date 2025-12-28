@@ -9,6 +9,40 @@ import (
 	"strings"
 )
 
+type SealedPlanErrorKind string
+
+const (
+	SealedPlanErrAttestationPlanHashMismatch SealedPlanErrorKind = "attestation_plan_hash_mismatch"
+	SealedPlanErrBundleDigestMismatch        SealedPlanErrorKind = "bundle_digest_mismatch"
+	SealedPlanErrPlanHashMismatch            SealedPlanErrorKind = "plan_hash_mismatch"
+	SealedPlanErrBundlePlanHashMismatch      SealedPlanErrorKind = "bundle_plan_hash_mismatch"
+	SealedPlanErrInputHashMismatch           SealedPlanErrorKind = "input_hash_mismatch"
+)
+
+type SealedPlanError struct {
+	Kind   SealedPlanErrorKind
+	NodeID string
+	Want   string
+	Got    string
+}
+
+func (e *SealedPlanError) Error() string {
+	switch e.Kind {
+	case SealedPlanErrAttestationPlanHashMismatch:
+		return fmt.Sprintf("attestation planHash mismatch (%s != %s)", e.Got, e.Want)
+	case SealedPlanErrBundleDigestMismatch:
+		return fmt.Sprintf("attestation bundle digest mismatch (%s != %s)", e.Got, e.Want)
+	case SealedPlanErrPlanHashMismatch:
+		return fmt.Sprintf("sealed plan hash mismatch (%s != %s)", e.Got, e.Want)
+	case SealedPlanErrBundlePlanHashMismatch:
+		return fmt.Sprintf("bundle planHash mismatch (%s != %s)", e.Got, e.Want)
+	case SealedPlanErrInputHashMismatch:
+		return fmt.Sprintf("%s inputs mismatch (want %s got %s)", e.NodeID, e.Want, e.Got)
+	default:
+		return "sealed plan error"
+	}
+}
+
 type LoadSealedPlanOptions struct {
 	// StateStoreRoot is written into Plan.StackRoot so the run uses the current stack root
 	// for state storage, even when inputs are loaded from a sealed artifact.
@@ -74,7 +108,7 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 		}
 		if strings.TrimSpace(att.PlanHash) != "" {
 			if wantPlanHash != "" && att.PlanHash != wantPlanHash {
-				return nil, nil, fmt.Errorf("attestation planHash mismatch (%s != %s)", att.PlanHash, wantPlanHash)
+				return nil, nil, &SealedPlanError{Kind: SealedPlanErrAttestationPlanHashMismatch, Want: wantPlanHash, Got: att.PlanHash}
 			}
 			if wantPlanHash == "" {
 				wantPlanHash = att.PlanHash
@@ -90,7 +124,7 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 			}
 			got := "sha256:" + sum
 			if got != strings.TrimSpace(att.InputsBundleSH) {
-				return nil, nil, fmt.Errorf("attestation bundle digest mismatch (%s != %s)", got, strings.TrimSpace(att.InputsBundleSH))
+				return nil, nil, &SealedPlanError{Kind: SealedPlanErrBundleDigestMismatch, Want: strings.TrimSpace(att.InputsBundleSH), Got: got}
 			}
 		}
 	}
@@ -100,7 +134,7 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 		return nil, nil, err
 	}
 	if wantPlanHash != "" && gotPlanHash != wantPlanHash {
-		return nil, nil, fmt.Errorf("sealed plan hash mismatch (%s != %s)", gotPlanHash, wantPlanHash)
+		return nil, nil, &SealedPlanError{Kind: SealedPlanErrPlanHashMismatch, Want: wantPlanHash, Got: gotPlanHash}
 	}
 
 	p, err := PlanFromRunPlan(rp)
@@ -119,7 +153,7 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 		return nil, nil, err
 	}
 	if strings.TrimSpace(manifest.PlanHash) != "" && wantPlanHash != "" && manifest.PlanHash != wantPlanHash {
-		return nil, nil, fmt.Errorf("bundle planHash mismatch (%s != %s)", manifest.PlanHash, wantPlanHash)
+		return nil, nil, &SealedPlanError{Kind: SealedPlanErrBundlePlanHashMismatch, Want: wantPlanHash, Got: manifest.PlanHash}
 	}
 	if err := ApplyInputBundleToPlan(p, tmpDir, manifest); err != nil {
 		return nil, nil, err
@@ -137,7 +171,7 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 		}
 		want := strings.TrimSpace(n.EffectiveInputHash)
 		if want != "" && got != want {
-			return nil, nil, fmt.Errorf("%s inputs mismatch (want %s got %s)", n.ID, want, got)
+			return nil, nil, &SealedPlanError{Kind: SealedPlanErrInputHashMismatch, NodeID: n.ID, Want: want, Got: got}
 		}
 	}
 

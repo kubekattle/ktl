@@ -6,8 +6,10 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,8 +35,127 @@ func TestLoadSealedPlan_FromSealedDir_Success(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	sealedDir := t.TempDir()
+	sealedDir, _ := writeSealedDirFixture(t, sealedDirFixtureOptions{})
 
+	p, cleanup, err := LoadSealedPlan(ctx, LoadSealedPlanOptions{
+		StateStoreRoot: "state-root",
+		SealedDir:      sealedDir,
+	})
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		t.Fatalf("LoadSealedPlan: %v", err)
+	}
+	if p.StackRoot != "state-root" {
+		t.Fatalf("StackRoot: want %q got %q", "state-root", p.StackRoot)
+	}
+	if len(p.Nodes) != 1 || p.Nodes[0].ID != "demo" {
+		t.Fatalf("nodes: unexpected: %#v", p.Nodes)
+	}
+}
+
+func TestLoadSealedPlan_AttestationPlanHashMismatch(t *testing.T) {
+	t.Parallel()
+
+	sealedDir, planHash := writeSealedDirFixture(t, sealedDirFixtureOptions{
+		AttestationPlanHash: "sha256:deadbeef",
+		WriteAttestation:    true,
+	})
+
+	_, _, err := LoadSealedPlan(context.Background(), LoadSealedPlanOptions{SealedDir: sealedDir})
+	var sp *SealedPlanError
+	if err == nil || !errors.As(err, &sp) || sp.Kind != SealedPlanErrAttestationPlanHashMismatch || sp.Want != planHash {
+		t.Fatalf("expected attestation planHash mismatch for %s, got %T %v", planHash, err, err)
+	}
+}
+
+func TestLoadSealedPlan_AttestationDigestMismatch(t *testing.T) {
+	t.Parallel()
+
+	sealedDir, _ := writeSealedDirFixture(t, sealedDirFixtureOptions{
+		AttestationInputsDigest: "sha256:deadbeef",
+		WriteAttestation:        true,
+	})
+
+	_, _, err := LoadSealedPlan(context.Background(), LoadSealedPlanOptions{SealedDir: sealedDir})
+	var sp *SealedPlanError
+	if err == nil || !errors.As(err, &sp) || sp.Kind != SealedPlanErrBundleDigestMismatch {
+		t.Fatalf("expected bundle digest mismatch, got %T %v", err, err)
+	}
+}
+
+func TestLoadSealedPlan_PlanHashMismatch(t *testing.T) {
+	t.Parallel()
+
+	sealedDir, _ := writeSealedDirFixture(t, sealedDirFixtureOptions{
+		RunPlanHashOverride: "sha256:deadbeef",
+	})
+
+	_, _, err := LoadSealedPlan(context.Background(), LoadSealedPlanOptions{SealedDir: sealedDir})
+	var sp *SealedPlanError
+	if err == nil || !errors.As(err, &sp) || sp.Kind != SealedPlanErrPlanHashMismatch {
+		t.Fatalf("expected plan hash mismatch, got %T %v", err, err)
+	}
+}
+
+func TestLoadSealedPlan_BundlePlanHashMismatch(t *testing.T) {
+	t.Parallel()
+
+	sealedDir, planHash := writeSealedDirFixture(t, sealedDirFixtureOptions{
+		ManifestPlanHashOverride: "sha256:deadbeef",
+	})
+
+	_, _, err := LoadSealedPlan(context.Background(), LoadSealedPlanOptions{SealedDir: sealedDir})
+	var sp *SealedPlanError
+	if err == nil || !errors.As(err, &sp) || sp.Kind != SealedPlanErrBundlePlanHashMismatch || sp.Want != planHash {
+		t.Fatalf("expected bundle planHash mismatch for %s, got %T %v", planHash, err, err)
+	}
+}
+
+func TestLoadSealedPlan_InputHashMismatch(t *testing.T) {
+	t.Parallel()
+
+	sealedDir, _ := writeSealedDirFixture(t, sealedDirFixtureOptions{
+		EffectiveInputHashOverride: "sha256:deadbeef",
+	})
+
+	_, _, err := LoadSealedPlan(context.Background(), LoadSealedPlanOptions{SealedDir: sealedDir})
+	var sp *SealedPlanError
+	if err == nil || !errors.As(err, &sp) || sp.Kind != SealedPlanErrInputHashMismatch {
+		t.Fatalf("expected input hash mismatch, got %T %v", err, err)
+	}
+}
+
+func TestLoadSealedPlan_BundleMissingNode(t *testing.T) {
+	t.Parallel()
+
+	sealedDir, _ := writeSealedDirFixture(t, sealedDirFixtureOptions{
+		ManifestNodeIDOverride: "other",
+	})
+
+	_, _, err := LoadSealedPlan(context.Background(), LoadSealedPlanOptions{SealedDir: sealedDir})
+	var missing *BundleMissingNodeError
+	if err == nil || !errors.As(err, &missing) || missing.NodeID != "demo" {
+		t.Fatalf("expected BundleMissingNodeError for demo, got %T %v", err, err)
+	}
+}
+
+type sealedDirFixtureOptions struct {
+	RunPlanHashOverride        string
+	ManifestPlanHashOverride   string
+	ManifestNodeIDOverride     string
+	EffectiveInputHashOverride string
+
+	WriteAttestation        bool
+	AttestationPlanHash     string
+	AttestationInputsDigest string
+}
+
+func writeSealedDirFixture(t *testing.T, opts sealedDirFixtureOptions) (sealedDir string, planHash string) {
+	t.Helper()
+
+	sealedDir = t.TempDir()
 	chartDir := t.TempDir()
 	valuesDir := t.TempDir()
 
@@ -74,7 +195,11 @@ func TestLoadSealedPlan_FromSealedDir_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compute effective input hash: %v", err)
 	}
-	node.EffectiveInputHash = wantHash
+	if strings.TrimSpace(opts.EffectiveInputHashOverride) != "" {
+		node.EffectiveInputHash = strings.TrimSpace(opts.EffectiveInputHashOverride)
+	} else {
+		node.EffectiveInputHash = wantHash
+	}
 
 	rp := &RunPlan{
 		APIVersion: "ktl.dev/stack-run/v1",
@@ -103,11 +228,16 @@ func TestLoadSealedPlan_FromSealedDir_Success(t *testing.T) {
 		StackGitDirty:  gid.Dirty,
 	}
 
-	planHash, err := ComputeRunPlanHash(rp)
+	computedHash, err := ComputeRunPlanHash(rp)
 	if err != nil {
 		t.Fatalf("compute run plan hash: %v", err)
 	}
-	rp.PlanHash = planHash
+	planHash = computedHash
+	if strings.TrimSpace(opts.RunPlanHashOverride) != "" {
+		rp.PlanHash = strings.TrimSpace(opts.RunPlanHashOverride)
+	} else {
+		rp.PlanHash = computedHash
+	}
 
 	rawPlan, err := json.MarshalIndent(rp, "", "  ")
 	if err != nil {
@@ -117,13 +247,22 @@ func TestLoadSealedPlan_FromSealedDir_Success(t *testing.T) {
 		t.Fatalf("write plan.json: %v", err)
 	}
 
+	manifestPlanHash := computedHash
+	if strings.TrimSpace(opts.ManifestPlanHashOverride) != "" {
+		manifestPlanHash = strings.TrimSpace(opts.ManifestPlanHashOverride)
+	}
+	manifestNodeID := "demo"
+	if strings.TrimSpace(opts.ManifestNodeIDOverride) != "" {
+		manifestNodeID = strings.TrimSpace(opts.ManifestNodeIDOverride)
+	}
+
 	manifest := &InputBundleManifest{
 		APIVersion: "ktl.dev/stack-input-bundle/v1",
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
-		PlanHash:   planHash,
+		PlanHash:   manifestPlanHash,
 		Nodes: []InputBundleNode{
 			{
-				ID:       "demo",
+				ID:       manifestNodeID,
 				ChartDir: "nodes/demo/chart",
 				Values: []InputBundleValue{
 					{
@@ -169,24 +308,33 @@ func TestLoadSealedPlan_FromSealedDir_Success(t *testing.T) {
 	if err := gw.Close(); err != nil {
 		t.Fatalf("close gzip: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(sealedDir, "inputs.tar.gz"), bundle.Bytes(), 0o644); err != nil {
+
+	inputsPath := filepath.Join(sealedDir, "inputs.tar.gz")
+	if err := os.WriteFile(inputsPath, bundle.Bytes(), 0o644); err != nil {
 		t.Fatalf("write inputs.tar.gz: %v", err)
 	}
 
-	p, cleanup, err := LoadSealedPlan(ctx, LoadSealedPlanOptions{
-		StateStoreRoot: "state-root",
-		SealedDir:      sealedDir,
-	})
-	if cleanup != nil {
-		defer cleanup()
+	if opts.WriteAttestation {
+		attPlanHash := computedHash
+		if strings.TrimSpace(opts.AttestationPlanHash) != "" {
+			attPlanHash = strings.TrimSpace(opts.AttestationPlanHash)
+		}
+		attDigest := "sha256:deadbeef"
+		if strings.TrimSpace(opts.AttestationInputsDigest) != "" {
+			attDigest = strings.TrimSpace(opts.AttestationInputsDigest)
+		}
+		raw, err := json.MarshalIndent(map[string]any{
+			"planHash":           attPlanHash,
+			"inputsBundle":       "inputs.tar.gz",
+			"inputsBundleDigest": attDigest,
+		}, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal attestation: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(sealedDir, "attestation.json"), raw, 0o644); err != nil {
+			t.Fatalf("write attestation.json: %v", err)
+		}
 	}
-	if err != nil {
-		t.Fatalf("LoadSealedPlan: %v", err)
-	}
-	if p.StackRoot != "state-root" {
-		t.Fatalf("StackRoot: want %q got %q", "state-root", p.StackRoot)
-	}
-	if len(p.Nodes) != 1 || p.Nodes[0].ID != "demo" {
-		t.Fatalf("nodes: unexpected: %#v", p.Nodes)
-	}
+
+	return sealedDir, computedHash
 }

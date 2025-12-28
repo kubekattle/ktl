@@ -42,6 +42,14 @@ type InputBundleValue struct {
 	Digest       string `json:"digest,omitempty"`
 }
 
+type BundleMissingNodeError struct {
+	NodeID string
+}
+
+func (e *BundleMissingNodeError) Error() string {
+	return fmt.Sprintf("bundle missing node %s", e.NodeID)
+}
+
 // WriteInputBundle writes a portable .tar.gz containing the Helm chart contents and values files
 // required by the provided nodes. The returned digest is for the compressed bundle bytes.
 func WriteInputBundle(ctx context.Context, outPath string, planHash string, nodes []*ResolvedRelease) (*InputBundleManifest, string, error) {
@@ -277,7 +285,7 @@ func ApplyInputBundleToPlan(p *Plan, bundleRoot string, manifest *InputBundleMan
 	for _, n := range p.Nodes {
 		entry, ok := byID[n.ID]
 		if !ok {
-			return fmt.Errorf("bundle missing node %s", n.ID)
+			return &BundleMissingNodeError{NodeID: n.ID}
 		}
 		n.Chart = filepath.Join(bundleRoot, filepath.FromSlash(entry.ChartDir))
 		var vals []string

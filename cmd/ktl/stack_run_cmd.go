@@ -198,6 +198,9 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 	cmd.MarkFlagsMutuallyExclusive("from-bundle", "resume")
 	cmd.MarkFlagsMutuallyExclusive("sealed-dir", "replan")
 	cmd.MarkFlagsMutuallyExclusive("from-bundle", "replan")
+	cmd.MarkFlagsMutuallyExclusive("sealed-dir", "require-signed")
+	cmd.MarkFlagsMutuallyExclusive("sealed-dir", "bundle-pub")
+	cmd.MarkFlagsMutuallyExclusive("sealed-dir", "verify-bundle")
 
 	return cmd
 }
