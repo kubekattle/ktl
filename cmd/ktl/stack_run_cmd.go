@@ -313,6 +313,26 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	if kind == stackRunDelete {
 		cmd.Flags().IntVar(&opts.DeleteConfirmThreshold, "delete-confirm-threshold", opts.DeleteConfirmThreshold, "Prompt when deleting at least this many releases (0 disables)")
 	}
+
+	// Minimal-flag UX: keep knobs configurable via stack.yaml/env; hide overrides but keep them working.
+	_ = cmd.Flags().MarkHidden("fail-fast")
+	_ = cmd.Flags().MarkHidden("continue-on-error")
+	_ = cmd.Flags().MarkHidden("retry")
+	_ = cmd.Flags().MarkHidden("concurrency")
+	_ = cmd.Flags().MarkHidden("progressive-concurrency")
+	_ = cmd.Flags().MarkHidden("lock")
+	_ = cmd.Flags().MarkHidden("takeover")
+	_ = cmd.Flags().MarkHidden("lock-ttl")
+	_ = cmd.Flags().MarkHidden("lock-owner")
+	_ = cmd.Flags().MarkHidden("allow-drift")
+	_ = cmd.Flags().MarkHidden("rerun-failed")
+	if kind == stackRunApply {
+		_ = cmd.Flags().MarkHidden("dry-run")
+		_ = cmd.Flags().MarkHidden("diff")
+	}
+	if kind == stackRunDelete {
+		_ = cmd.Flags().MarkHidden("delete-confirm-threshold")
+	}
 }
 
 func addStackRunnerFlags(cmd *cobra.Command, opts *stackRunCLIOptions) {
@@ -345,6 +365,10 @@ func addStackSealFlags(cmd *cobra.Command, opts *stackRunCLIOptions) {
 	cmd.Flags().BoolVar(&opts.VerifyBundle, "verify-bundle", opts.VerifyBundle, "Verify bundle manifest digests before running")
 	cmd.Flags().BoolVar(&opts.RequireSigned, "require-signed", opts.RequireSigned, "Require a valid signature.json inside the bundle")
 	cmd.Flags().StringVar(&opts.BundlePub, "bundle-pub", opts.BundlePub, "Optional trusted public key (ed25519 key JSON) when verifying a signed bundle")
+
+	_ = cmd.Flags().MarkHidden("verify-bundle")
+	_ = cmd.Flags().MarkHidden("require-signed")
+	_ = cmd.Flags().MarkHidden("bundle-pub")
 }
 
 func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.Plan, opts stackRunCLIOptions, effective stack.RunnerResolved, adaptive *stack.AdaptiveConcurrencyOptions) stack.RunOptions {
