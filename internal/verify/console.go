@@ -250,6 +250,12 @@ func (c *Console) renderLocked() {
 		return
 	}
 	if width, ok := ui.TerminalWidth(c.out); ok && width > 0 {
+		// Avoid printing into the last terminal column: many terminals auto-wrap
+		// when the last column is filled, which breaks cursor-based repaints and
+		// results in duplicated frames.
+		if width > 1 {
+			width--
+		}
 		c.opts.Width = width
 	}
 	newSections := c.buildSectionsLocked()
@@ -423,8 +429,9 @@ func (c *Console) renderFindingsLocked(width int) []string {
 	lines = append(lines, ansiDimBold(c.opts.Color, trimToWidth("RECENT FINDINGS", width)))
 
 	sevW := 6
-	ruleW := clamp(24, width/3, 44)
-	subW := clamp(18, width/4, 34)
+	// Bias width towards MESSAGE for 100/120-col terminals.
+	ruleW := clamp(18, width/4, 36)
+	subW := clamp(14, width/5, 28)
 	gaps := 3
 	msgW := width - (sevW + ruleW + subW + gaps)
 	if msgW < 16 {
@@ -467,13 +474,8 @@ func (c *Console) renderFindingsLocked(width int) []string {
 		if loc == "" {
 			loc = strings.TrimSpace(f.Path)
 		}
-		// Only show location when the terminal is wide enough to keep the human message readable.
-		if loc != "" && width >= 160 && msgW >= 60 {
-			loc = trimToWidth(loc, min(42, msgW-3))
-			if loc != "" && !strings.HasSuffix(msg, "…") {
-				msg = msg + " · " + loc
-			}
-		}
+		// Default: keep MESSAGE clean (no long metadata path). Users can still
+		// see the full location in JSON/SARIF outputs.
 
 		sevCell := formatCell(sev, sevW, alignLeft)
 		switch f.Severity {
@@ -486,9 +488,9 @@ func (c *Console) renderFindingsLocked(width int) []string {
 		default:
 			sevCell = ansiDim(c.opts.Color, sevCell)
 		}
-		ruleCell := ansiDim(c.opts.Color, formatCell(rule, ruleW, alignLeft))
-		subCell := ansiDim(c.opts.Color, formatCell(sub, subW, alignLeft))
-		msgCell := ansiDim(c.opts.Color, formatCell(msg, max(0, msgW), alignLeft))
+		ruleCell := formatCell(rule, ruleW, alignLeft)
+		subCell := formatCell(sub, subW, alignLeft)
+		msgCell := formatCell(msg, max(0, msgW), alignLeft)
 		row := strings.Join([]string{sevCell, ruleCell, subCell, msgCell}, " ")
 		lines = append(lines, row)
 	}
