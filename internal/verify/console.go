@@ -486,12 +486,8 @@ func (c *Console) renderFindingsLocked(width int) []string {
 		if msg == "" {
 			msg = strings.TrimSpace(f.RuleID)
 		}
-		loc := strings.TrimSpace(f.Location)
-		if loc == "" {
-			loc = strings.TrimSpace(f.Path)
-		}
-		// Default: keep MESSAGE clean (no long metadata path). Users can still
-		// see the full location in JSON/SARIF outputs.
+		// Default: keep MESSAGE clean (no long metadata path). Users can still see
+		// the full location in JSON/SARIF outputs, and the message itself wraps.
 
 		sevCell := formatCell(sev, sevW, alignLeft)
 		switch f.Severity {
@@ -506,9 +502,21 @@ func (c *Console) renderFindingsLocked(width int) []string {
 		}
 		ruleCell := formatCell(rule, ruleW, alignLeft)
 		subCell := formatCell(sub, subW, alignLeft)
-		msgCell := formatCell(msg, max(0, msgW), alignLeft)
-		row := strings.Join([]string{sevCell, ruleCell, subCell, msgCell}, " ")
-		lines = append(lines, row)
+		msgLines := wrapText(msg, max(0, msgW))
+		if len(msgLines) == 0 {
+			msgLines = []string{""}
+		}
+		for i, m := range msgLines {
+			if i == 0 {
+				msgCell := formatCell(m, max(0, msgW), alignLeft)
+				lines = append(lines, strings.Join([]string{sevCell, ruleCell, subCell, msgCell}, " "))
+				continue
+			}
+			// Continuation: keep columns aligned, only show wrapped message.
+			prefix := strings.Repeat(" ", sevW) + " " + strings.Repeat(" ", ruleW) + " " + strings.Repeat(" ", subW) + " "
+			msgCell := formatCell(m, max(0, msgW), alignLeft)
+			lines = append(lines, prefix+msgCell)
+		}
 	}
 	return lines
 }
@@ -882,4 +890,78 @@ func dividerWidth(width int) int {
 		return 96
 	}
 	return width
+}
+
+func wrapText(text string, width int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	if width <= 0 {
+		return []string{text}
+	}
+	// Fast path
+	if runewidth.StringWidth(text) <= width {
+		return []string{text}
+	}
+
+	parts := strings.Fields(text)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	var lines []string
+	var current strings.Builder
+	currentWidth := 0
+
+	flush := func() {
+		s := strings.TrimSpace(current.String())
+		if s != "" {
+			lines = append(lines, s)
+		}
+		current.Reset()
+		currentWidth = 0
+	}
+
+	for _, word := range parts {
+		word = strings.TrimSpace(word)
+		if word == "" {
+			continue
+		}
+		wordW := runewidth.StringWidth(word)
+		spaceW := 1
+		if currentWidth == 0 {
+			spaceW = 0
+		}
+
+		// If the word doesn't fit on an empty line, hard-wrap it by rune width.
+		if currentWidth == 0 && wordW > width {
+			for _, r := range word {
+				rw := runewidth.RuneWidth(r)
+				if rw == 0 {
+					rw = 1
+				}
+				if currentWidth+rw > width {
+					flush()
+				}
+				current.WriteRune(r)
+				currentWidth += rw
+			}
+			flush()
+			continue
+		}
+
+		if currentWidth+spaceW+wordW > width {
+			flush()
+			spaceW = 0
+		}
+		if spaceW > 0 {
+			current.WriteByte(' ')
+			currentWidth++
+		}
+		current.WriteString(word)
+		currentWidth += wordW
+	}
+	flush()
+	return lines
 }
