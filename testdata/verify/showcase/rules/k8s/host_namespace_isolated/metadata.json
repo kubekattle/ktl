@@ -1,0 +1,9 @@
+{
+  "id": "showcase-hostns-1",
+  "queryName": "Host Namespace Isolation Disabled (hostNetwork/hostPID/hostIPC)",
+  "severity": "CRITICAL",
+  "category": "Insecure Configurations",
+  "descriptionText": "Pods should not use hostNetwork/hostPID/hostIPC. These settings reduce isolation and can allow privilege escalation paths.",
+  "descriptionUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/"
+}
+
