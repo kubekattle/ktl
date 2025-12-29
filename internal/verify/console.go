@@ -53,6 +53,11 @@ type Console struct {
 	blocked bool
 	done    bool
 
+	byRule    map[string]int
+	bySubject map[string]int
+
+	lastRenderAt time.Time
+
 	sections   []consoleSection
 	totalLines int
 }
@@ -79,6 +84,8 @@ func NewConsole(out io.Writer, meta ConsoleMeta, opts ConsoleOptions) *Console {
 		startedAt: opts.Now(),
 		counts:    map[Severity]int{},
 		phases:    phases,
+		byRule:    map[string]int{},
+		bySubject: map[string]int{},
 	}
 }
 
@@ -88,7 +95,7 @@ func (c *Console) Observe(ev Event) {
 	}
 	c.mu.Lock()
 	c.applyLocked(ev)
-	c.renderLocked()
+	c.renderMaybeLocked(ev)
 	c.mu.Unlock()
 }
 
@@ -133,6 +140,8 @@ func (c *Console) applyLocked(ev Event) {
 		c.findings = nil
 		c.counts = map[Severity]int{}
 		c.total = 0
+		c.byRule = map[string]int{}
+		c.bySubject = map[string]int{}
 	}
 	if strings.TrimSpace(ev.Target) != "" {
 		c.meta.Target = strings.TrimSpace(ev.Target)
@@ -155,6 +164,15 @@ func (c *Console) applyLocked(ev Event) {
 		c.findings = append(c.findings, f)
 		c.total++
 		c.counts[f.Severity]++
+		ruleID := strings.TrimSpace(f.RuleID)
+		if ruleID != "" {
+			c.byRule[ruleID]++
+		}
+		subKey := strings.TrimSpace(f.Subject.Kind) + "/" + strings.TrimSpace(f.Subject.Namespace) + "/" + strings.TrimSpace(f.Subject.Name)
+		subKey = strings.Trim(subKey, "/")
+		if subKey != "" {
+			c.bySubject[subKey]++
+		}
 	}
 	if ev.Summary != nil {
 		s := *ev.Summary
@@ -210,6 +228,23 @@ func (c *Console) setPhaseTerminalLocked(phase string) {
 	}
 }
 
+func (c *Console) renderMaybeLocked(ev Event) {
+	if !c.opts.Enabled || c.out == nil {
+		return
+	}
+	now := time.Now()
+	force := false
+	switch ev.Type {
+	case EventDone, EventSummary, EventReset:
+		force = true
+	}
+	if !force && !c.lastRenderAt.IsZero() && now.Sub(c.lastRenderAt) < 90*time.Millisecond {
+		return
+	}
+	c.renderLocked()
+	c.lastRenderAt = now
+}
+
 func (c *Console) renderLocked() {
 	if !c.opts.Enabled || c.out == nil {
 		return
@@ -232,6 +267,9 @@ func (c *Console) buildSectionsLocked() []consoleSection {
 	}
 	if counts := c.renderCountsLocked(width); counts != "" {
 		lines = append(lines, counts)
+	}
+	if tops := c.renderTopLocked(width); len(tops) > 0 {
+		lines = append(lines, tops...)
 	}
 	lines = append(lines, ansiDim(c.opts.Color, trimToWidth(strings.Repeat("─", max(0, width)), width)))
 	sections := []consoleSection{{name: "header", lines: lines}}
@@ -343,6 +381,32 @@ func (c *Console) renderCountsLocked(width int) string {
 	return trimToWidth(line, width)
 }
 
+func (c *Console) renderTopLocked(width int) []string {
+	if len(c.byRule) == 0 && len(c.bySubject) == 0 {
+		return nil
+	}
+	limit := 4
+	lines := []string{ansiDimBold(c.opts.Color, trimToWidth("TOP", width))}
+
+	if len(c.byRule) > 0 {
+		lines = append(lines, ansiDim(c.opts.Color, trimToWidth("top rules:", width)))
+		for _, item := range topN(c.byRule, limit) {
+			left := "• " + item.Key
+			right := fmt.Sprintf("%d", item.Count)
+			lines = append(lines, ansiDim(c.opts.Color, trimToWidth(joinLeftRight(left, right, width), width)))
+		}
+	}
+	if len(c.bySubject) > 0 {
+		lines = append(lines, ansiDim(c.opts.Color, trimToWidth("top subjects:", width)))
+		for _, item := range topN(c.bySubject, limit) {
+			left := "• " + item.Key
+			right := fmt.Sprintf("%d", item.Count)
+			lines = append(lines, ansiDim(c.opts.Color, trimToWidth(joinLeftRight(left, right, width), width)))
+		}
+	}
+	return lines
+}
+
 func (c *Console) renderFindingsLocked(width int) []string {
 	tail := c.opts.Tail
 	if tail <= 0 {
@@ -379,14 +443,10 @@ func (c *Console) renderFindingsLocked(width int) []string {
 		ansiDim(c.opts.Color, formatCell("SUBJECT", subW, alignLeft)),
 		ansiDim(c.opts.Color, formatCell("MESSAGE", max(0, msgW), alignLeft)),
 	}, " ")
-	lines = append(lines, trimToWidth(header, width))
+	lines = append(lines, header)
 
 	for _, f := range list {
 		sev := strings.ToUpper(string(f.Severity))
-		if len(sev) > 0 {
-			sev = sev[:1] + strings.ToLower(sev[1:])
-		}
-		sev = strings.ToUpper(sev)
 
 		rule := strings.TrimSpace(f.RuleID)
 		sub := strings.TrimSpace(f.Subject.Kind)
@@ -407,28 +467,30 @@ func (c *Console) renderFindingsLocked(width int) []string {
 		if loc == "" {
 			loc = strings.TrimSpace(f.Path)
 		}
-		if loc != "" && width >= 120 {
-			msg = msg + " · " + loc
+		// Only show location when the terminal is wide enough to keep the human message readable.
+		if loc != "" && width >= 160 && msgW >= 60 {
+			loc = trimToWidth(loc, min(42, msgW-3))
+			if loc != "" && !strings.HasSuffix(msg, "…") {
+				msg = msg + " · " + loc
+			}
 		}
 
-		row := strings.Join([]string{
-			formatCell(sev, sevW, alignLeft),
-			formatCell(rule, ruleW, alignLeft),
-			formatCell(sub, subW, alignLeft),
-			formatCell(msg, max(0, msgW), alignLeft),
-		}, " ")
-
+		sevCell := formatCell(sev, sevW, alignLeft)
 		switch f.Severity {
 		case SeverityCritical, SeverityHigh:
-			row = ansiRed(c.opts.Color, row)
+			sevCell = ansiRed(c.opts.Color, sevCell)
 		case SeverityMedium:
-			row = ansiYellow(c.opts.Color, row)
+			sevCell = ansiYellow(c.opts.Color, sevCell)
 		case SeverityLow:
-			row = ansiCyan(c.opts.Color, row)
+			sevCell = ansiCyan(c.opts.Color, sevCell)
 		default:
-			row = ansiDim(c.opts.Color, row)
+			sevCell = ansiDim(c.opts.Color, sevCell)
 		}
-		lines = append(lines, trimToWidth(row, width))
+		ruleCell := ansiDim(c.opts.Color, formatCell(rule, ruleW, alignLeft))
+		subCell := ansiDim(c.opts.Color, formatCell(sub, subW, alignLeft))
+		msgCell := ansiDim(c.opts.Color, formatCell(msg, max(0, msgW), alignLeft))
+		row := strings.Join([]string{sevCell, ruleCell, subCell, msgCell}, " ")
+		lines = append(lines, row)
 	}
 	return lines
 }
@@ -644,6 +706,37 @@ func stripANSILoosely(s string) string {
 		}
 	}
 	return out.String()
+}
+
+type topItem struct {
+	Key   string
+	Count int
+}
+
+func topN(m map[string]int, n int) []topItem {
+	if len(m) == 0 || n <= 0 {
+		return nil
+	}
+	out := make([]topItem, 0, len(m))
+	for k, v := range m {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		out = append(out, topItem{Key: k, Count: v})
+	}
+	// simple selection sort for small N; stable-ish and no extra deps.
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].Count > out[i].Count || (out[j].Count == out[i].Count && out[j].Key < out[i].Key) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
 }
 
 func clamp(minV, v, maxV int) int {

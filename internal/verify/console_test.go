@@ -61,6 +61,9 @@ func TestConsoleSnapshotLines(t *testing.T) {
 	if !strings.Contains(got, "severity:") {
 		t.Fatalf("expected severity breakdown, got:\n%s", got)
 	}
+	if !strings.Contains(got, "top rules:") {
+		t.Fatalf("expected top rules section, got:\n%s", got)
+	}
 	if !strings.Contains(got, "RECENT FINDINGS") {
 		t.Fatalf("expected findings header, got:\n%s", got)
 	}
