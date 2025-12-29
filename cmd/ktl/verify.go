@@ -91,6 +91,11 @@ The config file is a small schema; set target.kind to choose what you are verify
   - namespace: read live objects from the cluster
   - chart: render a Helm chart (optionally with cluster lookups enabled)
   - manifest: verify an already-rendered manifest YAML file
+
+Common patterns:
+  - Prefer kube.context over hardcoding kubeconfig paths (use --kubeconfig only when needed).
+  - Use output.format: sarif for CI (report: "-" prints to stdout).
+  - Use baseline.read/write to gate drift (and baseline.exitOnDelta to fail on changes).
 `),
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
@@ -312,61 +317,14 @@ The config file is a small schema; set target.kind to choose what you are verify
   # Run the bundled verify showcase (includes a CRITICAL rule)
   ktl verify testdata/verify/showcase/verify.yaml
 
-  # Config reference (all options; remove what you don't use)
-  cat > verify.yaml <<'YAML'
-  version: v1
-
-  target:
-    kind: chart # namespace|chart|manifest
-    # kind=namespace
-    namespace: default
-    # kind=manifest
-    manifest: ./rendered.yaml
-    # kind=chart
-    chart:
-      chart: ./chart
-      release: foo
-      namespace: default
-      values:
-        - values.yaml
-      set:
-        - image.tag=dev
-      useCluster: true
-      includeCRDs: false
-
-  kube:
-    kubeconfig: ~/.kube/config
-    context: ""
-
-  verify:
-    mode: warn # warn|block|off
-    failOn: high # info|low|medium|high|critical
-    rulesDir: "" # default: built-in rules
-    policy:
-      ref: "" # local path or URL
-      mode: warn # warn|enforce
-    baseline:
-      read: ""  # read report JSON
-      write: "" # write report JSON
-      exitOnDelta: false
-    exposure:
-      enabled: false
-      output: "" # write exposure JSON
-    fixPlan: false
-
-  output:
-    format: table # table|json|sarif
-    report: "-"   # path or "-"
-  YAML
-
-  ktl verify verify.yaml
-
-  # Verify a live namespace
+  # Verify a live namespace (cluster read)
   cat > verify-namespace.yaml <<'YAML'
   version: v1
   target:
     kind: namespace
     namespace: default
+  kube:
+    context: my-context
   verify:
     mode: warn
     failOn: high
@@ -377,8 +335,8 @@ The config file is a small schema; set target.kind to choose what you are verify
 
   ktl verify verify-namespace.yaml
 
-  # Verify a chart render
-  cat > verify-chart.yaml <<'YAML'
+  # Verify a chart render (pure render; deterministic)
+  cat > verify-chart-render.yaml <<'YAML'
   version: v1
   target:
     kind: chart
@@ -386,6 +344,8 @@ The config file is a small schema; set target.kind to choose what you are verify
       chart: ./chart
       release: foo
       namespace: default
+      useCluster: false
+      includeCRDs: false
   verify:
     mode: block
     failOn: high
@@ -394,7 +354,45 @@ The config file is a small schema; set target.kind to choose what you are verify
     report: "-"
   YAML
 
-  ktl verify verify-chart.yaml
+  ktl verify verify-chart-render.yaml
+
+  # Verify a chart render (with cluster lookups enabled)
+  cat > verify-chart-cluster.yaml <<'YAML'
+  version: v1
+  target:
+    kind: chart
+    chart:
+      chart: ./chart
+      release: foo
+      namespace: default
+      useCluster: true
+  kube:
+    context: my-context
+  verify:
+    mode: block
+    failOn: high
+  output:
+    format: table
+    report: "-"
+  YAML
+
+  ktl verify verify-chart-cluster.yaml
+
+  # Verify rendered manifests from a file (no cluster access)
+  cat > verify-manifest.yaml <<'YAML'
+  version: v1
+  target:
+    kind: manifest
+    manifest: ./rendered.yaml
+  verify:
+    mode: block
+    failOn: high
+  output:
+    format: table
+    report: "-"
+  YAML
+
+  ktl verify verify-manifest.yaml
 `)
 	return cmd
 }
