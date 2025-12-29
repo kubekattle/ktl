@@ -9,6 +9,7 @@ import (
 type EventType string
 
 const (
+	EventReset    EventType = "reset"
 	EventStarted  EventType = "started"
 	EventProgress EventType = "progress"
 	EventFinding  EventType = "finding"

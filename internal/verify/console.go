@@ -120,6 +120,11 @@ func (c *Console) now() time.Time {
 }
 
 func (c *Console) applyLocked(ev Event) {
+	if ev.Type == EventReset {
+		c.findings = nil
+		c.counts = map[Severity]int{}
+		c.total = 0
+	}
 	if strings.TrimSpace(ev.Target) != "" {
 		c.meta.Target = strings.TrimSpace(ev.Target)
 	}
@@ -381,4 +386,3 @@ func (c *Console) clip(s string, max int) string {
 	}
 	return runewidth.Truncate(s, max-3, "") + "..."
 }
-

@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/example/ktl/internal/appconfig"
 	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/kube"
+	"github.com/example/ktl/internal/ui"
 	"github.com/example/ktl/internal/verify"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/action"
@@ -154,6 +156,38 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 				return fmt.Errorf("--chart and --release are required")
 			}
 
+			modeValue := verify.Mode(strings.ToLower(strings.TrimSpace(mode)))
+			failOnValue := verify.Severity(strings.ToLower(strings.TrimSpace(failOn)))
+			target := fmt.Sprintf("chart %s (release=%s ns=%s)", strings.TrimSpace(chartRef), strings.TrimSpace(release), strings.TrimSpace(namespace))
+
+			errOut := cmd.ErrOrStderr()
+			var console *verify.Console
+			if isTerminalWriter(errOut) {
+				width, _ := ui.TerminalWidth(errOut)
+				noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
+				console = verify.NewConsole(errOut, verify.ConsoleMeta{
+					Target:     target,
+					Mode:       modeValue,
+					FailOn:     failOnValue,
+					PolicyRef:  strings.TrimSpace(policyRef),
+					PolicyMode: strings.TrimSpace(policyMode),
+				}, verify.ConsoleOptions{
+					Enabled: true,
+					Width:   width,
+					Color:   !noColor,
+					Now:     func() time.Time { return time.Now().UTC() },
+				})
+				defer console.Done()
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Target: target, Phase: "render"})
+			}
+			var emit verify.Emitter
+			if console != nil {
+				emit = func(ev verify.Event) error {
+					console.Observe(ev)
+					return nil
+				}
+			}
+
 			settings := cli.New()
 			settings.KubeConfig = strings.TrimSpace(deref(kubeconfigPath))
 			if settings.KubeConfig == "" {
@@ -184,6 +218,9 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			if err != nil {
 				return err
 			}
+			if console != nil {
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "decode"})
+			}
 			objs, err := verify.DecodeK8SYAML(result.Manifest)
 			if err != nil {
 				return err
@@ -191,12 +228,15 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			if strings.TrimSpace(rulesDir) == "" {
 				rulesDir = filepath.Join(appconfig.FindRepoRoot("."), "internal", "verify", "rules", "builtin")
 			}
-			rep, err := verify.VerifyObjects(ctx, objs, verify.Options{
-				Mode:     verify.Mode(strings.ToLower(strings.TrimSpace(mode))),
-				FailOn:   verify.Severity(strings.ToLower(strings.TrimSpace(failOn))),
+			if console != nil {
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "evaluate"})
+			}
+			rep, err := verify.VerifyObjectsWithEmitter(ctx, target, objs, verify.Options{
+				Mode:     modeValue,
+				FailOn:   failOnValue,
 				Format:   verify.OutputFormat(strings.ToLower(strings.TrimSpace(format))),
 				RulesDir: rulesDir,
-			})
+			}, emit)
 			if err != nil {
 				return err
 			}
@@ -210,11 +250,27 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			})
 
 			if strings.TrimSpace(policyRef) != "" {
+				if console != nil {
+					console.Observe(verify.Event{
+						Type:       verify.EventProgress,
+						When:       time.Now().UTC(),
+						Phase:      "policy",
+						PolicyRef:  strings.TrimSpace(policyRef),
+						PolicyMode: strings.TrimSpace(policyMode),
+					})
+				}
 				pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: policyRef, Mode: policyMode}, objs)
 				if err != nil {
 					return err
 				}
-				rep.Findings = append(rep.Findings, verify.PolicyReportToFindings(pol)...)
+				policyFindings := verify.PolicyReportToFindings(pol)
+				rep.Findings = append(rep.Findings, policyFindings...)
+				if console != nil {
+					for i := range policyFindings {
+						f := policyFindings[i]
+						console.Observe(verify.Event{Type: verify.EventFinding, When: time.Now().UTC(), Finding: &f})
+					}
+				}
 				if strings.EqualFold(strings.TrimSpace(policyMode), "enforce") && pol != nil && pol.DenyCount > 0 {
 					rep.Blocked = true
 					rep.Passed = false
@@ -222,6 +278,9 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			}
 
 			if strings.TrimSpace(baselinePath) != "" {
+				if console != nil {
+					console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "baseline"})
+				}
 				base, err := verify.LoadReport(baselinePath)
 				if err != nil {
 					return err
@@ -237,9 +296,21 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 				for _, f := range rep.Findings {
 					rep.Summary.BySev[f.Severity]++
 				}
+				if console != nil {
+					console.Observe(verify.Event{Type: verify.EventReset, When: time.Now().UTC()})
+					for i := range rep.Findings {
+						f := rep.Findings[i]
+						console.Observe(verify.Event{Type: verify.EventFinding, When: time.Now().UTC(), Finding: &f})
+					}
+					s := rep.Summary
+					console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
+				}
 			}
 
 			if exposure {
+				if console != nil {
+					console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "exposure"})
+				}
 				ex := verify.AnalyzeExposure(objs)
 				rep.Exposure = &ex
 				if strings.TrimSpace(exposureOutput) != "" {
@@ -263,6 +334,12 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 				}
 			}
 
+			if console != nil {
+				s := rep.Summary
+				console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
+				console.Observe(verify.Event{Type: verify.EventDone, When: time.Now().UTC(), Passed: rep.Passed, Blocked: rep.Blocked})
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "write"})
+			}
 			out, closer, err := openOutput(cmd.OutOrStdout(), outputPath)
 			if err != nil {
 				return err
@@ -345,6 +422,8 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			if ctx == nil {
 				ctx = context.Background()
 			}
+			modeValue := verify.Mode(strings.ToLower(strings.TrimSpace(mode)))
+			failOnValue := verify.Severity(strings.ToLower(strings.TrimSpace(failOn)))
 			client, err := kube.New(ctx, strings.TrimSpace(deref(kubeconfigPath)), strings.TrimSpace(deref(kubeContext)))
 			if err != nil {
 				return err
@@ -352,6 +431,35 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			namespace := strings.TrimSpace(args[0])
 			if namespace == "" {
 				return fmt.Errorf("namespace is required")
+			}
+			target := fmt.Sprintf("namespace %s", namespace)
+
+			errOut := cmd.ErrOrStderr()
+			var console *verify.Console
+			if isTerminalWriter(errOut) {
+				width, _ := ui.TerminalWidth(errOut)
+				noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
+				console = verify.NewConsole(errOut, verify.ConsoleMeta{
+					Target:     target,
+					Mode:       modeValue,
+					FailOn:     failOnValue,
+					PolicyRef:  strings.TrimSpace(policyRef),
+					PolicyMode: strings.TrimSpace(policyMode),
+				}, verify.ConsoleOptions{
+					Enabled: true,
+					Width:   width,
+					Color:   !noColor,
+					Now:     func() time.Time { return time.Now().UTC() },
+				})
+				defer console.Done()
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Target: target, Phase: "collect"})
+			}
+			var emit verify.Emitter
+			if console != nil {
+				emit = func(ev verify.Event) error {
+					console.Observe(ev)
+					return nil
+				}
 			}
 
 			objs, err := collectNamespacedObjects(ctx, client, namespace)
@@ -361,12 +469,15 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			if strings.TrimSpace(rulesDir) == "" {
 				rulesDir = filepath.Join(appconfig.FindRepoRoot("."), "internal", "verify", "rules", "builtin")
 			}
-			rep, err := verify.VerifyObjects(ctx, objs, verify.Options{
-				Mode:     verify.Mode(strings.ToLower(strings.TrimSpace(mode))),
-				FailOn:   verify.Severity(strings.ToLower(strings.TrimSpace(failOn))),
+			if console != nil {
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "evaluate"})
+			}
+			rep, err := verify.VerifyObjectsWithEmitter(ctx, target, objs, verify.Options{
+				Mode:     modeValue,
+				FailOn:   failOnValue,
 				Format:   verify.OutputFormat(strings.ToLower(strings.TrimSpace(format))),
 				RulesDir: rulesDir,
-			})
+			}, emit)
 			if err != nil {
 				return err
 			}
@@ -377,11 +488,27 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			})
 
 			if strings.TrimSpace(policyRef) != "" {
+				if console != nil {
+					console.Observe(verify.Event{
+						Type:       verify.EventProgress,
+						When:       time.Now().UTC(),
+						Phase:      "policy",
+						PolicyRef:  strings.TrimSpace(policyRef),
+						PolicyMode: strings.TrimSpace(policyMode),
+					})
+				}
 				pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: policyRef, Mode: policyMode}, objs)
 				if err != nil {
 					return err
 				}
-				rep.Findings = append(rep.Findings, verify.PolicyReportToFindings(pol)...)
+				policyFindings := verify.PolicyReportToFindings(pol)
+				rep.Findings = append(rep.Findings, policyFindings...)
+				if console != nil {
+					for i := range policyFindings {
+						f := policyFindings[i]
+						console.Observe(verify.Event{Type: verify.EventFinding, When: time.Now().UTC(), Finding: &f})
+					}
+				}
 				if strings.EqualFold(strings.TrimSpace(policyMode), "enforce") && pol != nil && pol.DenyCount > 0 {
 					rep.Blocked = true
 					rep.Passed = false
@@ -389,6 +516,9 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			}
 
 			if strings.TrimSpace(baselinePath) != "" {
+				if console != nil {
+					console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "baseline"})
+				}
 				base, err := verify.LoadReport(baselinePath)
 				if err != nil {
 					return err
@@ -403,9 +533,21 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 				for _, f := range rep.Findings {
 					rep.Summary.BySev[f.Severity]++
 				}
+				if console != nil {
+					console.Observe(verify.Event{Type: verify.EventReset, When: time.Now().UTC()})
+					for i := range rep.Findings {
+						f := rep.Findings[i]
+						console.Observe(verify.Event{Type: verify.EventFinding, When: time.Now().UTC(), Finding: &f})
+					}
+					s := rep.Summary
+					console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
+				}
 			}
 
 			if exposure {
+				if console != nil {
+					console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "exposure"})
+				}
 				ex := verify.AnalyzeExposure(objs)
 				rep.Exposure = &ex
 				if strings.TrimSpace(exposureOutput) != "" {
@@ -427,6 +569,12 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 				}
 			}
 
+			if console != nil {
+				s := rep.Summary
+				console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
+				console.Observe(verify.Event{Type: verify.EventDone, When: time.Now().UTC(), Passed: rep.Passed, Blocked: rep.Blocked})
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "write"})
+			}
 			out, closer, err := openOutput(cmd.OutOrStdout(), outputPath)
 			if err != nil {
 				return err
