@@ -340,6 +340,7 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			}
 
 			if console != nil {
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "write"})
 				s := rep.Summary
 				console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
 				console.Observe(verify.Event{Type: verify.EventDone, When: time.Now().UTC(), Passed: rep.Passed, Blocked: rep.Blocked})
@@ -582,6 +583,7 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			}
 
 			if console != nil {
+				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "write"})
 				s := rep.Summary
 				console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
 				console.Observe(verify.Event{Type: verify.EventDone, When: time.Now().UTC(), Passed: rep.Passed, Blocked: rep.Blocked})
