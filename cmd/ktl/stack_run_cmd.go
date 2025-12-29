@@ -151,6 +151,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 						}
 					}
 					showHelmPanel := consoleHelm != "off" && strings.ToLower(strings.TrimSpace(opts.HelmLogs)) != "off"
+					captureHelm := strings.ToLower(strings.TrimSpace(opts.HelmLogs)) != "" && strings.ToLower(strings.TrimSpace(opts.HelmLogs)) != "off"
 
 					showHooks := opts.ConsoleHooks
 					if !flagChanged(cmd, "console-hooks") {
@@ -195,6 +196,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 						ShowDetails:     showDetails,
 						DetailsTail:     opts.ConsoleDetailsTail,
 						ShowHelmLogs:    showHelmPanel,
+						CaptureHelmLogs: captureHelm,
 						HelmLogsMode:    consoleHelm,
 					})
 					observers = append(observers, console)

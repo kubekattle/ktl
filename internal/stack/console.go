@@ -46,6 +46,10 @@ type RunConsoleOptions struct {
 	// ShowHelmLogs renders HELM_LOG events under each node.
 	ShowHelmLogs bool
 
+	// CaptureHelmLogs stores HELM_LOG events for failure hints and the details
+	// panel even when ShowHelmLogs is false.
+	CaptureHelmLogs bool
+
 	// HelmLogsMode controls which nodes are included in the HELM LOGS section.
 	// Supported values: off|on|all. "on" shows only non-succeeded nodes.
 	HelmLogsMode string
@@ -97,6 +101,9 @@ type runConsoleNodeState struct {
 	phasesDone map[string]bool
 
 	lastPhaseBeforeHook string
+
+	lastBlocker string
+	blockers    []string
 
 	startedAt time.Time
 	updatedAt time.Time
@@ -571,6 +578,27 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 		c.setNodeLocked(ev.NodeID, "failed", ev.Attempt, c.getPhase(ev.NodeID), "", ev.Error, ts)
 		c.addFailureLocked(runConsoleFailure{nodeID: ev.NodeID, attempt: ev.Attempt, err: ev.Error, msg: strings.TrimSpace(ev.Message)})
 	case string(NodeLog):
+		id := strings.TrimSpace(ev.NodeID)
+		if id != "" {
+			kind := strings.TrimSpace(fieldString(ev.Fields, "kind"))
+			if kind == "top-blocker" {
+				res := strings.TrimSpace(fieldString(ev.Fields, "resource"))
+				status := strings.TrimSpace(fieldString(ev.Fields, "status"))
+				if res != "" && status != "" {
+					s := res + " " + status
+					ns := c.nodes[id]
+					if ns == nil {
+						ns = &runConsoleNodeState{id: id}
+						c.nodes[id] = ns
+					}
+					ns.lastBlocker = s
+					ns.blockers = append(ns.blockers, s)
+					if len(ns.blockers) > 6 {
+						ns.blockers = ns.blockers[len(ns.blockers)-6:]
+					}
+				}
+			}
+		}
 	case string(HelmLog):
 		c.appendHelmLogLocked(ev)
 	case string(StackHooksStarted):
@@ -624,7 +652,7 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 }
 
 func (c *RunConsole) appendHelmLogLocked(ev RunEvent) {
-	if c == nil || !c.opts.ShowHelmLogs {
+	if c == nil || (!c.opts.ShowHelmLogs && !c.opts.CaptureHelmLogs) {
 		return
 	}
 	id := strings.TrimSpace(ev.NodeID)
@@ -1118,6 +1146,11 @@ func (c *RunConsole) renderNodesLocked() []string {
 	), " "))
 	lines = append(lines, strings.Repeat("-", width))
 
+	labels := map[string]string{}
+	if width <= 100 {
+		labels = c.buildNodeLabelsLocked(order)
+	}
+
 	now := c.now()
 	for _, id := range order {
 		ns := c.nodes[id]
@@ -1125,7 +1158,11 @@ func (c *RunConsole) renderNodesLocked() []string {
 			ns = &runConsoleNodeState{id: id, status: "planned"}
 		}
 		nodeLabel := id
-		if col.node > 0 && runewidth.StringWidth(nodeLabel) > col.node {
+		if width <= 100 {
+			if v := strings.TrimSpace(labels[id]); v != "" {
+				nodeLabel = v
+			}
+		} else if col.node > 0 && runewidth.StringWidth(nodeLabel) > col.node {
 			nodeLabel = c.compactNodeLabelLocked(id)
 		}
 		statusCell := runConsoleStatusCell(strings.ToUpper(ns.status))
@@ -1137,7 +1174,7 @@ func (c *RunConsole) renderNodesLocked() []string {
 		if id != runConsoleStackNodeID && !c.opts.Verbose && !c.opts.ShowNoisyPhases && ns.status != "failed" && isNoisyPhase(phase) {
 			phase = "-"
 		}
-		note := c.nodeProgressNoteLocked(id, ns)
+		note := c.nodeProgressNoteLocked(id, ns, width)
 		if strings.TrimSpace(ns.wait) != "" {
 			note = strings.TrimSpace(ns.wait)
 		} else if ns.lastError != nil && strings.TrimSpace(ns.lastError.Class) != "" {
@@ -1146,6 +1183,14 @@ func (c *RunConsole) renderNodesLocked() []string {
 				note = cls
 			} else {
 				note = fmt.Sprintf("%s · %s", note, cls)
+			}
+		}
+		if width <= 100 && strings.TrimSpace(ns.lastBlocker) != "" {
+			blk := "blk " + strings.TrimSpace(ns.lastBlocker)
+			if strings.TrimSpace(note) == "" {
+				note = blk
+			} else {
+				note = note + " " + blk
 			}
 		}
 		elapsed := ""
@@ -1165,6 +1210,82 @@ func (c *RunConsole) renderNodesLocked() []string {
 		), " "))
 	}
 	return lines
+}
+
+func (c *RunConsole) buildNodeLabelsLocked(ids []string) map[string]string {
+	base := map[string]string{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || id == runConsoleStackNodeID {
+			continue
+		}
+		meta := c.metaByID[id]
+		name := strings.TrimSpace(meta.name)
+		if name == "" {
+			base[id] = id
+			continue
+		}
+		base[id] = name
+	}
+
+	dup := func(m map[string]string) map[string]int {
+		counts := map[string]int{}
+		for _, v := range m {
+			v = strings.TrimSpace(v)
+			if v == "" {
+				continue
+			}
+			counts[v]++
+		}
+		return counts
+	}
+
+	out := map[string]string{}
+	for k, v := range base {
+		out[k] = v
+	}
+	counts := dup(out)
+
+	// Disambiguate by namespace.
+	for id, v := range out {
+		if counts[v] <= 1 {
+			continue
+		}
+		meta := c.metaByID[id]
+		name := strings.TrimSpace(meta.name)
+		ns := strings.TrimSpace(meta.namespace)
+		if ns != "" && name != "" {
+			out[id] = ns + "/" + name
+		} else {
+			out[id] = v
+		}
+	}
+	counts = dup(out)
+
+	// Disambiguate by cluster + namespace.
+	for id, v := range out {
+		if counts[v] <= 1 {
+			continue
+		}
+		meta := c.metaByID[id]
+		name := strings.TrimSpace(meta.name)
+		ns := strings.TrimSpace(meta.namespace)
+		cluster := strings.TrimSpace(meta.cluster)
+		if cluster != "" && ns != "" && name != "" {
+			out[id] = cluster + "/" + ns + "/" + name
+		} else {
+			out[id] = v
+		}
+	}
+	counts = dup(out)
+
+	// Final fallback: full id.
+	for id, v := range out {
+		if counts[v] > 1 {
+			out[id] = id
+		}
+	}
+	return out
 }
 
 func (c *RunConsole) compactNodeLabelLocked(id string) string {
@@ -1231,7 +1352,7 @@ func (c *RunConsole) filteredNodeOrderLocked() []string {
 	return out
 }
 
-func (c *RunConsole) nodeProgressNoteLocked(id string, ns *runConsoleNodeState) string {
+func (c *RunConsole) nodeProgressNoteLocked(id string, ns *runConsoleNodeState, width int) string {
 	status := strings.ToLower(strings.TrimSpace(ns.status))
 	switch status {
 	case "running", "retrying", "blocked", "failed":
@@ -1248,9 +1369,16 @@ func (c *RunConsole) nodeProgressNoteLocked(id string, ns *runConsoleNodeState) 
 		if hExp > 0 {
 			hProg = fmt.Sprintf("%d/%d", hDone, hExp)
 		}
-		hooksPart = "hooks " + hProg
-		if ns.hooksFailed > 0 {
-			hooksPart += fmt.Sprintf(" fail=%d", ns.hooksFailed)
+		if width <= 100 {
+			hooksPart = "h" + hProg
+			if ns.hooksFailed > 0 {
+				hooksPart += fmt.Sprintf("!%d", ns.hooksFailed)
+			}
+		} else {
+			hooksPart = "hooks " + hProg
+			if ns.hooksFailed > 0 {
+				hooksPart += fmt.Sprintf(" fail=%d", ns.hooksFailed)
+			}
 		}
 	}
 
@@ -1258,7 +1386,11 @@ func (c *RunConsole) nodeProgressNoteLocked(id string, ns *runConsoleNodeState) 
 	pDone, pTotal := phaseProgressLocked(c.plan, id, c.command, ns)
 	phasePart := "-"
 	if pTotal > 0 {
-		phasePart = fmt.Sprintf("phases %d/%d", pDone, pTotal)
+		if width <= 100 {
+			phasePart = fmt.Sprintf("p%d/%d", pDone, pTotal)
+		} else {
+			phasePart = fmt.Sprintf("phases %d/%d", pDone, pTotal)
+		}
 	}
 
 	if phasePart == "-" && hooksPart == "" {
@@ -1270,7 +1402,11 @@ func (c *RunConsole) nodeProgressNoteLocked(id string, ns *runConsoleNodeState) 
 	if hooksPart == "" {
 		return phasePart
 	}
-	return phasePart + " · " + hooksPart
+	sep := " · "
+	if width <= 100 {
+		sep = " "
+	}
+	return phasePart + sep + hooksPart
 }
 
 func expectedHooksForNodeLocked(plan *Plan, nodeID string, command string) int {
@@ -1551,7 +1687,7 @@ func (c *RunConsole) renderHooksLocked() []string {
 		lines = append(lines, statusTag+" "+runConsoleAnsiDim(c.opts.Color, line))
 		shown++
 	}
-	return lines
+	return padConsoleSection(width, 100, lines, 1+6)
 }
 
 func (c *RunConsole) renderDetailsLocked() []string {
@@ -1589,7 +1725,9 @@ func (c *RunConsole) renderDetailsLocked() []string {
 	if len(targets) == 0 {
 		return nil
 	}
-	if len(targets) > 2 {
+	if width <= 100 && len(targets) > 1 {
+		targets = targets[:1]
+	} else if len(targets) > 2 {
 		targets = targets[:2]
 	}
 
@@ -1646,6 +1784,36 @@ func (c *RunConsole) renderDetailsLocked() []string {
 		} else if strings.TrimSpace(ns.lastHelmLine) != "" {
 			lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidth("  helm: "+strings.TrimSpace(ns.lastHelmLine), width)))
 		}
+	}
+	return padConsoleSection(width, 100, lines, 1+8)
+}
+
+func padConsoleSection(width int, narrowAt int, lines []string, target int) []string {
+	if width > narrowAt {
+		return lines
+	}
+	if target <= 0 {
+		return lines
+	}
+	if len(lines) > target {
+		// Keep the header and the most recent content.
+		if len(lines) <= 1 {
+			return lines[:target]
+		}
+		wantTail := target - 1
+		if wantTail < 0 {
+			wantTail = 0
+		}
+		if wantTail == 0 {
+			return lines[:1]
+		}
+		if len(lines)-1 > wantTail {
+			return append(lines[:1], lines[len(lines)-wantTail:]...)
+		}
+		return lines
+	}
+	for len(lines) < target {
+		lines = append(lines, "")
 	}
 	return lines
 }
