@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
-	"time"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -31,43 +29,12 @@ type Options struct {
 }
 
 func VerifyObjects(ctx context.Context, objects []map[string]any, opts Options) (*Report, error) {
-	if opts.Mode == ModeOff {
-		return &Report{Tool: "ktl-verify", Engine: EngineMeta{Name: "builtin"}, Mode: opts.Mode, Passed: true, EvaluatedAt: time.Now().UTC()}, nil
-	}
-	rules, err := LoadRuleset(opts.RulesDir)
-	if err != nil {
-		return nil, err
-	}
-	rulesetHash, _ := RulesetDigest(opts.RulesDir)
-	commonDir := strings.TrimSpace(opts.RulesDir)
-	commonDir = strings.TrimSuffix(commonDir, "/")
-	commonDir = strings.TrimSuffix(commonDir, "\\")
-	commonDir = strings.TrimSpace(commonDir)
-	commonDir = commonDir + "/lib"
+	return VerifyObjectsWithEmitter(ctx, "", objects, opts, nil)
+}
 
-	findings, err := EvaluateRules(ctx, rules, objects, commonDir)
-	if err != nil {
-		return nil, err
-	}
-	findings = filterNamespacedFindings(findings)
-	rep := &Report{
-		Tool:        "ktl-verify",
-		Engine:      EngineMeta{Name: "builtin", Ruleset: nonEmpty("builtin@"+rulesetHash, "builtin")},
-		Mode:        opts.Mode,
-		EvaluatedAt: time.Now().UTC(),
-		Findings:    findings,
-	}
-	rep.Summary.BySev = map[Severity]int{}
-	for _, f := range findings {
-		rep.Summary.Total++
-		rep.Summary.BySev[f.Severity]++
-	}
-	blocked := opts.Mode == ModeBlock && hasAtLeast(findings, opts.FailOn)
-	rep.Blocked = blocked
-	rep.Passed = !blocked
-	rep.Summary.Blocked = rep.Blocked
-	rep.Summary.Passed = rep.Passed
-	return rep, nil
+func VerifyObjectsWithEmitter(ctx context.Context, target string, objects []map[string]any, opts Options, emit Emitter) (*Report, error) {
+	runner := Runner{RulesDir: opts.RulesDir}
+	return runner.Verify(ctx, target, objects, opts, emit)
 }
 
 func DecodeK8SYAML(manifest string) ([]map[string]any, error) {
@@ -125,12 +92,6 @@ func writeTable(w io.Writer, rep *Report) error {
 		_, _ = w.Write(b.Bytes())
 		return nil
 	}
-	sort.Slice(rep.Findings, func(i, j int) bool {
-		if rep.Findings[i].Severity != rep.Findings[j].Severity {
-			return rep.Findings[i].Severity < rep.Findings[j].Severity
-		}
-		return rep.Findings[i].RuleID < rep.Findings[j].RuleID
-	})
 	for _, f := range rep.Findings {
 		fmt.Fprintf(&b, "- [%s] %s (%s/%s)\n", strings.ToUpper(string(f.Severity)), f.RuleID, f.Subject.Kind, f.Subject.Name)
 	}
