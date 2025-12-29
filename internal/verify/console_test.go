@@ -1,0 +1,64 @@
+package verify
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestConsoleSnapshotLines(t *testing.T) {
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	now := t0
+
+	buf := &bytes.Buffer{}
+	c := NewConsole(buf, ConsoleMeta{
+		Target: "chart ./chart (release=demo ns=default)",
+		Mode:   ModeWarn,
+		FailOn: SeverityHigh,
+	}, ConsoleOptions{
+		Enabled: true,
+		Width:   80,
+		Color:   true,
+		Now:     func() time.Time { return now },
+		Tail:    3,
+	})
+
+	c.Observe(Event{Type: EventProgress, When: t0, Phase: "evaluate"})
+	c.Observe(Event{Type: EventFinding, When: t0, Finding: &Finding{
+		RuleID:   "k8s/container_is_privileged",
+		Severity: SeverityHigh,
+		Message:  "Container should not run privileged",
+		Subject:  Subject{Kind: "Deployment", Namespace: "default", Name: "api"},
+		Location: "spec.template.spec.containers[0].securityContext.privileged",
+	}})
+	c.Observe(Event{Type: EventFinding, When: t0, Finding: &Finding{
+		RuleID:   "k8s/memory_limits_not_defined",
+		Severity: SeverityMedium,
+		Message:  "Memory limits should be set",
+		Subject:  Subject{Kind: "Deployment", Namespace: "default", Name: "api"},
+		Location: "spec.template.spec.containers[0].resources.limits.memory",
+	}})
+
+	now = t0.Add(2 * time.Second)
+	s := Summary{
+		Total:   2,
+		BySev:   map[Severity]int{SeverityHigh: 1, SeverityMedium: 1},
+		Passed:  true,
+		Blocked: false,
+	}
+	c.Observe(Event{Type: EventSummary, When: now, Summary: &s})
+	c.Observe(Event{Type: EventDone, When: now, Passed: true, Blocked: false})
+
+	got := strings.Join(c.SnapshotLines(), "\n") + "\n"
+	got = strings.ReplaceAll(got, "\x1b", "\\x1b")
+	if !strings.Contains(got, "ktl verify · chart ./chart") {
+		t.Fatalf("expected header, got:\n%s", got)
+	}
+	if !strings.Contains(got, "severity: critical=0 high=1 medium=1 low=0 info=0") {
+		t.Fatalf("expected severity breakdown, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Recent findings:") {
+		t.Fatalf("expected findings header, got:\n%s", got)
+	}
+}

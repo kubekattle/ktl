@@ -173,18 +173,22 @@ func (c *Console) renderLocked() {
 }
 
 func (c *Console) buildSectionsLocked() []consoleSection {
-	lines := []string{c.renderHeaderLocked()}
-	if detail := c.renderDetailLocked(); detail != "" {
-		lines = append(lines, detail)
+	width := c.opts.Width
+	lines := []string{c.renderHeaderLocked(width)}
+	if detail := c.renderDetailLocked(width); detail != "" {
+		lines = append(lines, ansiDim(c.opts.Color, detail))
+	}
+	if counts := c.renderCountsLocked(width); counts != "" {
+		lines = append(lines, ansiDim(c.opts.Color, counts))
 	}
 	sections := []consoleSection{{name: "header", lines: lines}}
-	if fl := c.renderFindingsLocked(); len(fl) > 0 {
+	if fl := c.renderFindingsLocked(width); len(fl) > 0 {
 		sections = append(sections, consoleSection{name: "findings", lines: fl})
 	}
 	return sections
 }
 
-func (c *Console) renderHeaderLocked() string {
+func (c *Console) renderHeaderLocked(width int) string {
 	target := strings.TrimSpace(c.meta.Target)
 	if target == "" {
 		target = "-"
@@ -204,10 +208,19 @@ func (c *Console) renderHeaderLocked() string {
 			state = "done"
 		}
 	}
-	return c.clip(fmt.Sprintf("ktl verify · %s · %s · phase=%s · findings=%d · %s", target, state, phase, c.total, elapsed), c.opts.Width)
+	line := trimToWidth(fmt.Sprintf("ktl verify · %s · %s · phase=%s · findings=%d · %s", target, state, phase, c.total, elapsed), width)
+	if c.opts.Color {
+		switch state {
+		case "blocked":
+			return ansiRedBold(true, line)
+		case "passed":
+			return ansiGreenBold(true, line)
+		}
+	}
+	return line
 }
 
-func (c *Console) renderDetailLocked() string {
+func (c *Console) renderDetailLocked(width int) string {
 	parts := []string{}
 	if m := strings.TrimSpace(string(c.meta.Mode)); m != "" {
 		parts = append(parts, "mode="+m)
@@ -228,10 +241,26 @@ func (c *Console) renderDetailLocked() string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return c.clip(strings.Join(parts, " · "), c.opts.Width)
+	return trimToWidth(strings.Join(parts, " · "), width)
 }
 
-func (c *Console) renderFindingsLocked() []string {
+func (c *Console) renderCountsLocked(width int) string {
+	total := c.total
+	if c.done {
+		total = c.total
+	}
+	if total == 0 && len(c.counts) == 0 {
+		return ""
+	}
+	crit := c.counts[SeverityCritical]
+	high := c.counts[SeverityHigh]
+	med := c.counts[SeverityMedium]
+	low := c.counts[SeverityLow]
+	info := c.counts[SeverityInfo]
+	return trimToWidth(fmt.Sprintf("severity: critical=%d high=%d medium=%d low=%d info=%d", crit, high, med, low, info), width)
+}
+
+func (c *Console) renderFindingsLocked(width int) []string {
 	tail := c.opts.Tail
 	if tail <= 0 {
 		tail = 8
@@ -244,7 +273,7 @@ func (c *Console) renderFindingsLocked() []string {
 		return nil
 	}
 	lines := make([]string, 0, len(list)+1)
-	lines = append(lines, c.clip("Recent findings:", c.opts.Width))
+	lines = append(lines, ansiBold(c.opts.Color, trimToWidth("Recent findings:", width)))
 	for _, f := range list {
 		sub := strings.TrimSpace(f.Subject.Kind)
 		if ns := strings.TrimSpace(f.Subject.Namespace); ns != "" {
@@ -271,7 +300,18 @@ func (c *Console) renderFindingsLocked() []string {
 		if msg != "" {
 			line += " · " + msg
 		}
-		lines = append(lines, c.clip(line, c.opts.Width))
+		line = trimToWidth(line, width)
+		switch f.Severity {
+		case SeverityCritical, SeverityHigh:
+			line = ansiRed(c.opts.Color, line)
+		case SeverityMedium:
+			line = ansiYellow(c.opts.Color, line)
+		case SeverityLow:
+			line = ansiCyan(c.opts.Color, line)
+		default:
+			line = ansiDim(c.opts.Color, line)
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }
@@ -373,16 +413,49 @@ func sameLines(a []string, b []string) bool {
 	return true
 }
 
-func (c *Console) clip(s string, max int) string {
+func trimToWidth(s string, width int) string {
 	s = strings.TrimSpace(s)
-	if max <= 0 {
+	if width <= 0 {
+		return ""
+	}
+	if runewidth.StringWidth(s) <= width {
 		return s
 	}
-	if runewidth.StringWidth(s) <= max {
-		return s
+	if width <= 1 {
+		out := []rune(s)
+		if len(out) == 0 {
+			return ""
+		}
+		return string(out[:1])
 	}
-	if max <= 3 {
-		return runewidth.Truncate(s, max, "")
+	limit := width - 1
+	var out []rune
+	w := 0
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if rw == 0 {
+			rw = 1
+		}
+		if w+rw > limit {
+			break
+		}
+		out = append(out, r)
+		w += rw
 	}
-	return runewidth.Truncate(s, max-3, "") + "..."
+	return string(out) + "…"
 }
+
+func ansi(enabled bool, code string, s string) string {
+	if !enabled {
+		return s
+	}
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
+}
+
+func ansiBold(enabled bool, s string) string      { return ansi(enabled, "1", s) }
+func ansiDim(enabled bool, s string) string       { return ansi(enabled, "2", s) }
+func ansiRed(enabled bool, s string) string       { return ansi(enabled, "31", s) }
+func ansiRedBold(enabled bool, s string) string   { return ansi(enabled, "31;1", s) }
+func ansiGreenBold(enabled bool, s string) string { return ansi(enabled, "32;1", s) }
+func ansiYellow(enabled bool, s string) string    { return ansi(enabled, "33", s) }
+func ansiCyan(enabled bool, s string) string      { return ansi(enabled, "36", s) }
