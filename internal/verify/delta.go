@@ -58,7 +58,7 @@ func ComputeDelta(current *Report, baseline *Report) Delta {
 	}
 	sort.Slice(changed, func(i, j int) bool {
 		if changed[i].Severity != changed[j].Severity {
-			return changed[i].Severity < changed[j].Severity
+			return severityRank(changed[i].Severity) < severityRank(changed[j].Severity)
 		}
 		return changed[i].RuleID < changed[j].RuleID
 	})

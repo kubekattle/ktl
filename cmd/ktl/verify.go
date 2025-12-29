@@ -324,8 +324,7 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 			}
 
 			if strings.TrimSpace(baselineWrite) != "" {
-				// Write the full report (pre-filtering) as a new baseline.
-				// Always JSON for stability.
+				// Write the current report JSON for use as a future baseline.
 				if w, c, err := openOutput(cmd.ErrOrStderr(), baselineWrite); err == nil {
 					_ = verify.WriteReport(w, rep, verify.OutputJSON)
 					if c != nil {
@@ -561,6 +560,7 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 			}
 
 			if strings.TrimSpace(baselineWrite) != "" {
+				// Write the current report JSON for use as a future baseline.
 				if w, c, err := openOutput(cmd.ErrOrStderr(), baselineWrite); err == nil {
 					_ = verify.WriteReport(w, rep, verify.OutputJSON)
 					if c != nil {

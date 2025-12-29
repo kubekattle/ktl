@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -92,11 +93,33 @@ func writeTable(w io.Writer, rep *Report) error {
 		_, _ = w.Write(b.Bytes())
 		return nil
 	}
+	sort.Slice(rep.Findings, func(i, j int) bool {
+		si, sj := rep.Findings[i].Severity, rep.Findings[j].Severity
+		if si != sj {
+			return severityRank(si) < severityRank(sj)
+		}
+		return rep.Findings[i].RuleID < rep.Findings[j].RuleID
+	})
 	for _, f := range rep.Findings {
 		fmt.Fprintf(&b, "- [%s] %s (%s/%s)\n", strings.ToUpper(string(f.Severity)), f.RuleID, f.Subject.Kind, f.Subject.Name)
 	}
 	_, _ = w.Write(b.Bytes())
 	return nil
+}
+
+func severityRank(sev Severity) int {
+	switch sev {
+	case SeverityCritical:
+		return 0
+	case SeverityHigh:
+		return 1
+	case SeverityMedium:
+		return 2
+	case SeverityLow:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func hasAtLeast(findings []Finding, min Severity) bool {

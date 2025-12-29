@@ -138,7 +138,7 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 			if v, ok := m["searchKey"]; ok && v != nil {
 				loc = strings.TrimSpace(fmt.Sprintf("%v", v))
 			}
-			fp := rule.ID + ":" + subj.Kind + ":" + subj.Name + ":" + loc
+			fp := rule.ID + ":" + subj.Kind + ":" + subj.Namespace + ":" + subj.Name + ":" + loc
 			findings = append(findings, Finding{
 				RuleID:      rule.ID,
 				Severity:    rule.Severity,
