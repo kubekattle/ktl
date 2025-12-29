@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/example/ktl/internal/ui"
 	"github.com/mattn/go-runewidth"
 )
 
@@ -168,6 +169,9 @@ func (c *Console) renderLocked() {
 	if !c.opts.Enabled || c.out == nil {
 		return
 	}
+	if width, ok := ui.TerminalWidth(c.out); ok && width > 0 {
+		c.opts.Width = width
+	}
 	newSections := c.buildSectionsLocked()
 	c.applyDiffLocked(newSections)
 }
@@ -294,11 +298,11 @@ func (c *Console) renderFindingsLocked(width int) []string {
 			msg = strings.TrimSpace(f.RuleID)
 		}
 		line := fmt.Sprintf("- [%s] %s · %s", strings.ToUpper(string(f.Severity)), strings.TrimSpace(f.RuleID), strings.TrimSpace(sub))
-		if loc != "" {
-			line += " · " + loc
-		}
 		if msg != "" {
 			line += " · " + msg
+		}
+		if loc != "" {
+			line += " · " + loc
 		}
 		line = trimToWidth(line, width)
 		switch f.Severity {

@@ -18,7 +18,7 @@ func TestConsoleSnapshotLines(t *testing.T) {
 		FailOn: SeverityHigh,
 	}, ConsoleOptions{
 		Enabled: true,
-		Width:   80,
+		Width:   200,
 		Color:   true,
 		Now:     func() time.Time { return now },
 		Tail:    3,
@@ -60,5 +60,8 @@ func TestConsoleSnapshotLines(t *testing.T) {
 	}
 	if !strings.Contains(got, "Recent findings:") {
 		t.Fatalf("expected findings header, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Container should not run privileged") {
+		t.Fatalf("expected finding message to be visible, got:\n%s", got)
 	}
 }
