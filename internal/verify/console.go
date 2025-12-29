@@ -3,6 +3,7 @@ package verify
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -434,10 +435,7 @@ func (c *Console) renderFindingsLocked(width int) []string {
 	if tail <= 0 {
 		tail = 8
 	}
-	list := c.findings
-	if len(list) > tail {
-		list = list[len(list)-tail:]
-	}
+	list := selectHighlightFindings(c.findings, tail)
 	if len(list) == 0 {
 		return nil
 	}
@@ -964,4 +962,84 @@ func wrapText(text string, width int) []string {
 	}
 	flush()
 	return lines
+}
+
+func selectHighlightFindings(all []Finding, limit int) []Finding {
+	if len(all) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(all) <= limit {
+		return all
+	}
+
+	seen := map[string]bool{}
+	add := func(out *[]Finding, f Finding) {
+		fp := strings.TrimSpace(f.Fingerprint)
+		if fp == "" {
+			fp = fallbackFingerprint(f)
+		}
+		if seen[fp] {
+			return
+		}
+		seen[fp] = true
+		*out = append(*out, f)
+	}
+
+	// 1) Always include critical/high findings when present (sorted by severity then id/subject).
+	high := make([]Finding, 0, len(all))
+	for _, f := range all {
+		switch f.Severity {
+		case SeverityCritical, SeverityHigh:
+			high = append(high, f)
+		}
+	}
+	sort.Slice(high, func(i, j int) bool {
+		if high[i].Severity != high[j].Severity {
+			return severityRank(high[i].Severity) < severityRank(high[j].Severity)
+		}
+		if high[i].RuleID != high[j].RuleID {
+			return high[i].RuleID < high[j].RuleID
+		}
+		si := subjectKey(high[i].Subject)
+		sj := subjectKey(high[j].Subject)
+		if si != sj {
+			return si < sj
+		}
+		return strings.TrimSpace(high[i].Location) < strings.TrimSpace(high[j].Location)
+	})
+
+	out := make([]Finding, 0, limit)
+	for _, f := range high {
+		if len(out) >= limit {
+			break
+		}
+		add(&out, f)
+	}
+	if len(out) >= limit {
+		return out
+	}
+
+	// 2) Fill remaining slots with the newest findings (by arrival), preserving order.
+	fill := make([]Finding, 0, limit-len(out))
+	for i := len(all) - 1; i >= 0 && len(fill) < cap(fill); i-- {
+		f := all[i]
+		fp := strings.TrimSpace(f.Fingerprint)
+		if fp == "" {
+			fp = fallbackFingerprint(f)
+		}
+		if seen[fp] {
+			continue
+		}
+		seen[fp] = true
+		fill = append(fill, f)
+	}
+	// Reverse to preserve original (older -> newer) order for the "recent" portion.
+	for i, j := 0, len(fill)-1; i < j; i, j = i+1, j-1 {
+		fill[i], fill[j] = fill[j], fill[i]
+	}
+	out = append(out, fill...)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
