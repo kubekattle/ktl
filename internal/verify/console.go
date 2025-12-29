@@ -308,7 +308,7 @@ func (c *Console) renderHeaderLocked(width int) string {
 	}
 	left := ansiBold(c.opts.Color, "KTL VERIFY") + " " + tag + " " + target
 	right := elapsed.String()
-	return trimToWidth(joinLeftRight(left, right, width), width)
+	return trimToWidthANSI(joinLeftRightANSI(left, right, width), width)
 }
 
 func (c *Console) renderPhaseRailLocked(width int) string {
@@ -329,7 +329,7 @@ func (c *Console) renderPhaseRailLocked(width int) string {
 		}
 		parts = append(parts, token)
 	}
-	return trimToWidth(strings.Join(parts, "  "), width)
+	return trimToWidthANSI(strings.Join(parts, "  "), width)
 }
 
 func (c *Console) renderDetailLocked(width int) string {
@@ -378,7 +378,7 @@ func (c *Console) renderCountsLocked(width int) string {
 		ansiDim(c.opts.Color, "INFO "+fmt.Sprintf("%d", info)),
 	}
 	line := "severity: " + strings.Join(chips, "  ")
-	return trimToWidth(line, width)
+	return trimToWidthANSI(line, width)
 }
 
 func (c *Console) renderTopLocked(width int) []string {
@@ -671,41 +671,134 @@ func joinLeftRight(left string, right string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	// Note: left/right may include ANSI sequences; this function is only used for
-	// the header line where truncation is applied afterwards.
 	gap := "  "
-	plain := stripANSILoosely(left) + stripANSILoosely(right)
-	if runewidth.StringWidth(plain)+runewidth.StringWidth(gap) >= width {
+	if runewidth.StringWidth(left)+runewidth.StringWidth(right)+runewidth.StringWidth(gap) >= width {
 		return left + gap + right
 	}
-	spaces := width - runewidth.StringWidth(stripANSILoosely(left)) - runewidth.StringWidth(stripANSILoosely(right))
+	spaces := width - runewidth.StringWidth(left) - runewidth.StringWidth(right)
 	if spaces < 1 {
 		spaces = 1
 	}
 	return left + strings.Repeat(" ", spaces) + right
 }
 
-func stripANSILoosely(s string) string {
-	// Best-effort: remove ESC[...]m sequences so width math is not wildly off.
-	out := strings.Builder{}
-	out.Grow(len(s))
-	inEsc := false
-	for i := 0; i < len(s); i++ {
-		ch := s[i]
-		if !inEsc {
-			if ch == 0x1b {
-				inEsc = true
-				continue
+func joinLeftRightANSI(left string, right string, width int) string {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if width <= 0 {
+		return ""
+	}
+	gap := "  "
+	if visibleWidthANSI(left)+visibleWidthANSI(right)+visibleWidthANSI(gap) >= width {
+		return left + gap + right
+	}
+	spaces := width - visibleWidthANSI(left) - visibleWidthANSI(right)
+	if spaces < 1 {
+		spaces = 1
+	}
+	return left + strings.Repeat(" ", spaces) + right
+}
+
+func trimToWidthANSI(s string, width int) string {
+	s = strings.TrimSpace(s)
+	if width <= 0 {
+		return ""
+	}
+	if visibleWidthANSI(s) <= width {
+		return s
+	}
+	if width <= 1 {
+		return "…"
+	}
+	limit := width - 1
+	var b strings.Builder
+	b.Grow(len(s))
+
+	seenANSI := false
+	visible := 0
+	for i := 0; i < len(s); {
+		// ESC [ ... m
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			seenANSI = true
+			j := i + 2
+			for j < len(s) && s[j] != 'm' {
+				j++
 			}
-			out.WriteByte(ch)
+			if j < len(s) {
+				j++
+			}
+			b.WriteString(s[i:j])
+			i = j
 			continue
 		}
-		// consume until 'm' or end
-		if ch == 'm' {
-			inEsc = false
+
+		r, size := rune(s[i]), 1
+		if r >= 0x80 {
+			r, size = decodeRune(s[i:])
 		}
+		rw := runewidth.RuneWidth(r)
+		if rw == 0 {
+			rw = 1
+		}
+		if visible+rw > limit {
+			break
+		}
+		b.WriteRune(r)
+		visible += rw
+		i += size
 	}
-	return out.String()
+	b.WriteRune('…')
+	if seenANSI {
+		// Ensure we don't leave the terminal in a styled state if we truncated mid-line.
+		b.WriteString("\x1b[0m")
+	}
+	return b.String()
+}
+
+func visibleWidthANSI(s string) int {
+	w := 0
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) {
+				j++
+			}
+			i = j
+			continue
+		}
+		r, size := rune(s[i]), 1
+		if r >= 0x80 {
+			r, size = decodeRune(s[i:])
+		}
+		rw := runewidth.RuneWidth(r)
+		if rw == 0 {
+			rw = 1
+		}
+		w += rw
+		i += size
+	}
+	return w
+}
+
+func decodeRune(s string) (rune, int) {
+	// Minimal UTF-8 decoder (avoids importing unicode/utf8 just for this file).
+	// Falls back to raw byte on invalid sequences.
+	b0 := s[0]
+	switch {
+	case b0 < 0x80:
+		return rune(b0), 1
+	case b0 < 0xE0 && len(s) >= 2:
+		return rune(b0&0x1F)<<6 | rune(s[1]&0x3F), 2
+	case b0 < 0xF0 && len(s) >= 3:
+		return rune(b0&0x0F)<<12 | rune(s[1]&0x3F)<<6 | rune(s[2]&0x3F), 3
+	case b0 < 0xF8 && len(s) >= 4:
+		return rune(b0&0x07)<<18 | rune(s[1]&0x3F)<<12 | rune(s[2]&0x3F)<<6 | rune(s[3]&0x3F), 4
+	default:
+		return rune(b0), 1
+	}
 }
 
 type topItem struct {
