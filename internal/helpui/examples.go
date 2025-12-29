@@ -32,4 +32,9 @@ var curatedExamples = map[string][]string{
 	"ktl version": {
 		"# Print version information\nktl version",
 	},
+	"ktl verify": {
+		"# Run the bundled verify showcase (includes a CRITICAL rule)\nktl verify testdata/verify/showcase/verify.yaml",
+		"# Verify a live namespace via YAML config\ncat > verify-namespace.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: namespace\n  namespace: default\n\nkube:\n  kubeconfig: $HOME/.kube/archimedes.yaml\n\nverify:\n  mode: warn\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-namespace.yaml",
+		"# Verify rendered manifests from a file\ncat > verify-manifest.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: manifest\n  manifest: ./rendered.yaml\n\nverify:\n  mode: block\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-manifest.yaml",
+	},
 }

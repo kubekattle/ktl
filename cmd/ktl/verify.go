@@ -519,6 +519,17 @@ func resolveRelPath(baseDir string, p string) string {
 	if p == "" || p == "-" {
 		return p
 	}
+	p = strings.TrimSpace(os.ExpandEnv(p))
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+			switch p {
+			case "~":
+				p = home
+			default:
+				p = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(p, "~/"), `~\`))
+			}
+		}
+	}
 	if filepath.IsAbs(p) {
 		return p
 	}
