@@ -58,8 +58,8 @@ func TestConsoleSnapshotLines(t *testing.T) {
 	if !strings.Contains(got, "[PASS]") {
 		t.Fatalf("expected pass status, got:\n%s", got)
 	}
-	if !strings.Contains(got, "severity:") {
-		t.Fatalf("expected severity breakdown, got:\n%s", got)
+	if !strings.Contains(got, "Findings 2") {
+		t.Fatalf("expected status rail, got:\n%s", got)
 	}
 	if !strings.Contains(got, "top rules:") {
 		t.Fatalf("expected top rules section, got:\n%s", got)

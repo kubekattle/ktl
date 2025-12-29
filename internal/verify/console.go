@@ -94,8 +94,24 @@ func (c *Console) Observe(ev Event) {
 		return
 	}
 	c.mu.Lock()
+	prevPhase := c.phase
+	prevTotal := c.total
+	prevBlocked := c.blocked
+	prevPassed := c.passed
+	prevDone := c.done
+
 	c.applyLocked(ev)
-	c.renderMaybeLocked(ev)
+
+	meaningful := false
+	switch ev.Type {
+	case EventFinding, EventSummary, EventDone, EventReset:
+		meaningful = true
+	default:
+		if c.phase != prevPhase || c.total != prevTotal || c.blocked != prevBlocked || c.passed != prevPassed || c.done != prevDone {
+			meaningful = true
+		}
+	}
+	c.renderMaybeLocked(ev, meaningful)
 	c.mu.Unlock()
 }
 
@@ -228,7 +244,7 @@ func (c *Console) setPhaseTerminalLocked(phase string) {
 	}
 }
 
-func (c *Console) renderMaybeLocked(ev Event) {
+func (c *Console) renderMaybeLocked(ev Event, meaningful bool) {
 	if !c.opts.Enabled || c.out == nil {
 		return
 	}
@@ -237,6 +253,9 @@ func (c *Console) renderMaybeLocked(ev Event) {
 	switch ev.Type {
 	case EventDone, EventSummary, EventReset:
 		force = true
+	}
+	if !force && !meaningful {
+		return
 	}
 	if !force && !c.lastRenderAt.IsZero() && now.Sub(c.lastRenderAt) < 90*time.Millisecond {
 		return
@@ -266,18 +285,18 @@ func (c *Console) buildSectionsLocked() []consoleSection {
 	width := c.opts.Width
 	lines := []string{
 		c.renderHeaderLocked(width),
+		c.renderStatusRailLocked(width),
 		c.renderPhaseRailLocked(width),
 	}
 	if detail := c.renderDetailLocked(width); detail != "" {
 		lines = append(lines, ansiDim(c.opts.Color, detail))
 	}
-	if counts := c.renderCountsLocked(width); counts != "" {
-		lines = append(lines, counts)
-	}
 	if tops := c.renderTopLocked(width); len(tops) > 0 {
+		lines = append(lines, "")
 		lines = append(lines, tops...)
 	}
-	lines = append(lines, ansiDim(c.opts.Color, trimToWidth(strings.Repeat("─", max(0, width)), width)))
+	lines = append(lines, "")
+	lines = append(lines, ansiDim(c.opts.Color, trimToWidth(strings.Repeat("─", dividerWidth(width)), dividerWidth(width))))
 	sections := []consoleSection{{name: "header", lines: lines}}
 	if fl := c.renderFindingsLocked(width); len(fl) > 0 {
 		sections = append(sections, consoleSection{name: "findings", lines: fl})
@@ -362,12 +381,8 @@ func (c *Console) renderDetailLocked(width int) string {
 	return trimToWidth(strings.Join(parts, " · "), width)
 }
 
-func (c *Console) renderCountsLocked(width int) string {
-	total := c.total
-	if c.done {
-		total = c.total
-	}
-	if total == 0 && len(c.counts) == 0 {
+func (c *Console) renderStatusRailLocked(width int) string {
+	if c.total == 0 && len(c.counts) == 0 {
 		return ""
 	}
 	crit := c.counts[SeverityCritical]
@@ -376,14 +391,15 @@ func (c *Console) renderCountsLocked(width int) string {
 	low := c.counts[SeverityLow]
 	info := c.counts[SeverityInfo]
 
+	findings := ansiBold(c.opts.Color, fmt.Sprintf("Findings %d", c.total))
 	chips := []string{
-		ansiRed(c.opts.Color, "CRIT "+fmt.Sprintf("%d", crit)),
-		ansiRed(c.opts.Color, "HIGH "+fmt.Sprintf("%d", high)),
-		ansiYellow(c.opts.Color, "MED "+fmt.Sprintf("%d", med)),
-		ansiCyan(c.opts.Color, "LOW "+fmt.Sprintf("%d", low)),
-		ansiDim(c.opts.Color, "INFO "+fmt.Sprintf("%d", info)),
+		ansiRed(c.opts.Color, fmt.Sprintf("CRIT %d", crit)),
+		ansiRed(c.opts.Color, fmt.Sprintf("HIGH %d", high)),
+		ansiYellow(c.opts.Color, fmt.Sprintf("MED %d", med)),
+		ansiCyan(c.opts.Color, fmt.Sprintf("LOW %d", low)),
+		ansiDim(c.opts.Color, fmt.Sprintf("INFO %d", info)),
 	}
-	line := "severity: " + strings.Join(chips, "  ")
+	line := findings + "  |  " + strings.Join(chips, "  |  ")
 	return trimToWidthANSI(line, width)
 }
 
@@ -856,4 +872,14 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func dividerWidth(width int) int {
+	if width <= 0 {
+		return 0
+	}
+	if width > 96 {
+		return 96
+	}
+	return width
 }
