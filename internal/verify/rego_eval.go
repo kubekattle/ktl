@@ -12,23 +12,6 @@ import (
 	"github.com/open-policy-agent/opa/rego"
 )
 
-type regoResult struct {
-	DocumentID       string `json:"documentId"`
-	ResourceType     string `json:"resourceType"`
-	ResourceName     string `json:"resourceName"`
-	SearchKey        string `json:"searchKey"`
-	IssueType        string `json:"issueType"`
-	KeyExpectedValue string `json:"keyExpectedValue"`
-	KeyActualValue   string `json:"keyActualValue"`
-	SearchLine       string `json:"searchLine"`
-	SearchValue      string `json:"searchValue"`
-	Description      string `json:"description"`
-	Platform         string `json:"platform"`
-	CloudProvider    string `json:"cloudProvider"`
-	Framework        string `json:"framework"`
-	FrameworkVersion string `json:"frameworkVersion"`
-}
-
 func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any, commonDir string) ([]Finding, error) {
 	if len(rules.Rules) == 0 || len(objects) == 0 {
 		return nil, nil
