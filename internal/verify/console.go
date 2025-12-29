@@ -42,6 +42,7 @@ type Console struct {
 	startedAt time.Time
 
 	phase   string
+	phases  map[string]string
 	ruleset string
 	counts  map[Severity]int
 	total   int
@@ -61,9 +62,15 @@ type consoleSection struct {
 	lines []string
 }
 
+var verifyPhaseOrder = []string{"collect", "render", "decode", "evaluate", "policy", "baseline", "exposure", "write"}
+
 func NewConsole(out io.Writer, meta ConsoleMeta, opts ConsoleOptions) *Console {
 	if opts.Now == nil {
 		opts.Now = time.Now
+	}
+	phases := make(map[string]string, len(verifyPhaseOrder))
+	for _, name := range verifyPhaseOrder {
+		phases[name] = "pending"
 	}
 	return &Console{
 		out:       out,
@@ -71,6 +78,7 @@ func NewConsole(out io.Writer, meta ConsoleMeta, opts ConsoleOptions) *Console {
 		meta:      meta,
 		startedAt: opts.Now(),
 		counts:    map[Severity]int{},
+		phases:    phases,
 	}
 }
 
@@ -133,7 +141,8 @@ func (c *Console) applyLocked(ev Event) {
 		c.ruleset = strings.TrimSpace(ev.Ruleset)
 	}
 	if strings.TrimSpace(ev.Phase) != "" {
-		c.phase = strings.TrimSpace(ev.Phase)
+		c.phase = strings.ToLower(strings.TrimSpace(ev.Phase))
+		c.setPhaseLocked(c.phase)
 	}
 	if strings.TrimSpace(ev.PolicyRef) != "" {
 		c.meta.PolicyRef = strings.TrimSpace(ev.PolicyRef)
@@ -162,6 +171,42 @@ func (c *Console) applyLocked(ev Event) {
 		c.done = true
 		c.passed = ev.Passed
 		c.blocked = ev.Blocked
+		if strings.TrimSpace(c.phase) != "" {
+			c.setPhaseTerminalLocked(c.phase)
+		}
+	}
+}
+
+func (c *Console) setPhaseLocked(phase string) {
+	phase = strings.ToLower(strings.TrimSpace(phase))
+	if phase == "" || c.phases == nil {
+		return
+	}
+	for k, v := range c.phases {
+		if v == "running" && k != phase {
+			c.phases[k] = "done"
+		}
+	}
+	for i, name := range verifyPhaseOrder {
+		if name == phase {
+			for j := 0; j < i; j++ {
+				if c.phases[verifyPhaseOrder[j]] == "pending" {
+					c.phases[verifyPhaseOrder[j]] = "done"
+				}
+			}
+			c.phases[name] = "running"
+			return
+		}
+	}
+}
+
+func (c *Console) setPhaseTerminalLocked(phase string) {
+	phase = strings.ToLower(strings.TrimSpace(phase))
+	if phase == "" || c.phases == nil {
+		return
+	}
+	if _, ok := c.phases[phase]; ok {
+		c.phases[phase] = "done"
 	}
 }
 
@@ -178,13 +223,17 @@ func (c *Console) renderLocked() {
 
 func (c *Console) buildSectionsLocked() []consoleSection {
 	width := c.opts.Width
-	lines := []string{c.renderHeaderLocked(width)}
+	lines := []string{
+		c.renderHeaderLocked(width),
+		c.renderPhaseRailLocked(width),
+	}
 	if detail := c.renderDetailLocked(width); detail != "" {
 		lines = append(lines, ansiDim(c.opts.Color, detail))
 	}
 	if counts := c.renderCountsLocked(width); counts != "" {
-		lines = append(lines, ansiDim(c.opts.Color, counts))
+		lines = append(lines, counts)
 	}
+	lines = append(lines, ansiDim(c.opts.Color, trimToWidth(strings.Repeat("─", max(0, width)), width)))
 	sections := []consoleSection{{name: "header", lines: lines}}
 	if fl := c.renderFindingsLocked(width); len(fl) > 0 {
 		sections = append(sections, consoleSection{name: "findings", lines: fl})
@@ -198,30 +247,51 @@ func (c *Console) renderHeaderLocked(width int) string {
 		target = "-"
 	}
 	elapsed := c.now().Sub(c.startedAt).Round(100 * time.Millisecond)
-	phase := strings.TrimSpace(c.phase)
-	if phase == "" {
-		phase = "idle"
-	}
-	state := "running"
+	state := "RUN"
 	if c.done {
 		if c.blocked {
-			state = "blocked"
+			state = "BLOCK"
 		} else if c.passed {
-			state = "passed"
+			state = "PASS"
 		} else {
-			state = "done"
+			state = "DONE"
 		}
 	}
-	line := trimToWidth(fmt.Sprintf("ktl verify · %s · %s · phase=%s · findings=%d · %s", target, state, phase, c.total, elapsed), width)
-	if c.opts.Color {
+	tag := "[" + state + "]"
+	switch state {
+	case "BLOCK":
+		tag = ansiRedBold(c.opts.Color, tag)
+	case "PASS":
+		tag = ansiGreenBold(c.opts.Color, tag)
+	case "RUN":
+		tag = ansiCyan(c.opts.Color, tag)
+	default:
+		tag = ansiDim(c.opts.Color, tag)
+	}
+	left := ansiBold(c.opts.Color, "KTL VERIFY") + " " + tag + " " + target
+	right := elapsed.String()
+	return trimToWidth(joinLeftRight(left, right, width), width)
+}
+
+func (c *Console) renderPhaseRailLocked(width int) string {
+	if c.phases == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(verifyPhaseOrder))
+	for _, name := range verifyPhaseOrder {
+		state := strings.ToLower(strings.TrimSpace(c.phases[name]))
+		token := strings.ToUpper(name)
 		switch state {
-		case "blocked":
-			return ansiRedBold(true, line)
-		case "passed":
-			return ansiGreenBold(true, line)
+		case "running":
+			token = ansiCyan(c.opts.Color, "▶ "+token)
+		case "done":
+			token = ansiGreenBold(c.opts.Color, "✓ "+token)
+		default:
+			token = ansiDim(c.opts.Color, "· "+token)
 		}
+		parts = append(parts, token)
 	}
-	return line
+	return trimToWidth(strings.Join(parts, "  "), width)
 }
 
 func (c *Console) renderDetailLocked(width int) string {
@@ -261,7 +331,16 @@ func (c *Console) renderCountsLocked(width int) string {
 	med := c.counts[SeverityMedium]
 	low := c.counts[SeverityLow]
 	info := c.counts[SeverityInfo]
-	return trimToWidth(fmt.Sprintf("severity: critical=%d high=%d medium=%d low=%d info=%d", crit, high, med, low, info), width)
+
+	chips := []string{
+		ansiRed(c.opts.Color, "CRIT "+fmt.Sprintf("%d", crit)),
+		ansiRed(c.opts.Color, "HIGH "+fmt.Sprintf("%d", high)),
+		ansiYellow(c.opts.Color, "MED "+fmt.Sprintf("%d", med)),
+		ansiCyan(c.opts.Color, "LOW "+fmt.Sprintf("%d", low)),
+		ansiDim(c.opts.Color, "INFO "+fmt.Sprintf("%d", info)),
+	}
+	line := "severity: " + strings.Join(chips, "  ")
+	return trimToWidth(line, width)
 }
 
 func (c *Console) renderFindingsLocked(width int) []string {
@@ -276,9 +355,40 @@ func (c *Console) renderFindingsLocked(width int) []string {
 	if len(list) == 0 {
 		return nil
 	}
-	lines := make([]string, 0, len(list)+1)
-	lines = append(lines, ansiBold(c.opts.Color, trimToWidth("Recent findings:", width)))
+	lines := make([]string, 0, len(list)+4)
+	lines = append(lines, ansiDimBold(c.opts.Color, trimToWidth("RECENT FINDINGS", width)))
+
+	sevW := 6
+	ruleW := clamp(24, width/3, 44)
+	subW := clamp(18, width/4, 34)
+	gaps := 3
+	msgW := width - (sevW + ruleW + subW + gaps)
+	if msgW < 16 {
+		need := 16 - msgW
+		shrink := min(need, max(0, subW-10))
+		subW -= shrink
+		need -= shrink
+		shrink = min(need, max(0, ruleW-16))
+		ruleW -= shrink
+		msgW = width - (sevW + ruleW + subW + gaps)
+	}
+
+	header := strings.Join([]string{
+		ansiDim(c.opts.Color, formatCell("SEV", sevW, alignLeft)),
+		ansiDim(c.opts.Color, formatCell("RULE", ruleW, alignLeft)),
+		ansiDim(c.opts.Color, formatCell("SUBJECT", subW, alignLeft)),
+		ansiDim(c.opts.Color, formatCell("MESSAGE", max(0, msgW), alignLeft)),
+	}, " ")
+	lines = append(lines, trimToWidth(header, width))
+
 	for _, f := range list {
+		sev := strings.ToUpper(string(f.Severity))
+		if len(sev) > 0 {
+			sev = sev[:1] + strings.ToLower(sev[1:])
+		}
+		sev = strings.ToUpper(sev)
+
+		rule := strings.TrimSpace(f.RuleID)
 		sub := strings.TrimSpace(f.Subject.Kind)
 		if ns := strings.TrimSpace(f.Subject.Namespace); ns != "" {
 			sub += "/" + ns
@@ -289,33 +399,36 @@ func (c *Console) renderFindingsLocked(width int) []string {
 			}
 			sub += name
 		}
-		loc := strings.TrimSpace(f.Location)
-		if loc == "" {
-			loc = strings.TrimSpace(f.Path)
-		}
 		msg := strings.TrimSpace(f.Message)
 		if msg == "" {
 			msg = strings.TrimSpace(f.RuleID)
 		}
-		line := fmt.Sprintf("- [%s] %s · %s", strings.ToUpper(string(f.Severity)), strings.TrimSpace(f.RuleID), strings.TrimSpace(sub))
-		if msg != "" {
-			line += " · " + msg
+		loc := strings.TrimSpace(f.Location)
+		if loc == "" {
+			loc = strings.TrimSpace(f.Path)
 		}
-		if loc != "" {
-			line += " · " + loc
+		if loc != "" && width >= 120 {
+			msg = msg + " · " + loc
 		}
-		line = trimToWidth(line, width)
+
+		row := strings.Join([]string{
+			formatCell(sev, sevW, alignLeft),
+			formatCell(rule, ruleW, alignLeft),
+			formatCell(sub, subW, alignLeft),
+			formatCell(msg, max(0, msgW), alignLeft),
+		}, " ")
+
 		switch f.Severity {
 		case SeverityCritical, SeverityHigh:
-			line = ansiRed(c.opts.Color, line)
+			row = ansiRed(c.opts.Color, row)
 		case SeverityMedium:
-			line = ansiYellow(c.opts.Color, line)
+			row = ansiYellow(c.opts.Color, row)
 		case SeverityLow:
-			line = ansiCyan(c.opts.Color, line)
+			row = ansiCyan(c.opts.Color, row)
 		default:
-			line = ansiDim(c.opts.Color, line)
+			row = ansiDim(c.opts.Color, row)
 		}
-		lines = append(lines, line)
+		lines = append(lines, trimToWidth(row, width))
 	}
 	return lines
 }
@@ -458,8 +571,101 @@ func ansi(enabled bool, code string, s string) string {
 
 func ansiBold(enabled bool, s string) string      { return ansi(enabled, "1", s) }
 func ansiDim(enabled bool, s string) string       { return ansi(enabled, "2", s) }
+func ansiDimBold(enabled bool, s string) string   { return ansi(enabled, "2;1", s) }
 func ansiRed(enabled bool, s string) string       { return ansi(enabled, "31", s) }
 func ansiRedBold(enabled bool, s string) string   { return ansi(enabled, "31;1", s) }
 func ansiGreenBold(enabled bool, s string) string { return ansi(enabled, "32;1", s) }
 func ansiYellow(enabled bool, s string) string    { return ansi(enabled, "33", s) }
 func ansiCyan(enabled bool, s string) string      { return ansi(enabled, "36", s) }
+
+type cellAlign int
+
+const (
+	alignLeft cellAlign = iota
+	alignRight
+)
+
+func formatCell(text string, width int, align cellAlign) string {
+	text = strings.TrimSpace(text)
+	if width <= 0 {
+		return ""
+	}
+	out := trimToWidth(text, width)
+	pad := width - runewidth.StringWidth(out)
+	if pad <= 0 {
+		return out
+	}
+	switch align {
+	case alignRight:
+		return strings.Repeat(" ", pad) + out
+	default:
+		return out + strings.Repeat(" ", pad)
+	}
+}
+
+func joinLeftRight(left string, right string, width int) string {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if width <= 0 {
+		return ""
+	}
+	// Note: left/right may include ANSI sequences; this function is only used for
+	// the header line where truncation is applied afterwards.
+	gap := "  "
+	plain := stripANSILoosely(left) + stripANSILoosely(right)
+	if runewidth.StringWidth(plain)+runewidth.StringWidth(gap) >= width {
+		return left + gap + right
+	}
+	spaces := width - runewidth.StringWidth(stripANSILoosely(left)) - runewidth.StringWidth(stripANSILoosely(right))
+	if spaces < 1 {
+		spaces = 1
+	}
+	return left + strings.Repeat(" ", spaces) + right
+}
+
+func stripANSILoosely(s string) string {
+	// Best-effort: remove ESC[...]m sequences so width math is not wildly off.
+	out := strings.Builder{}
+	out.Grow(len(s))
+	inEsc := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if !inEsc {
+			if ch == 0x1b {
+				inEsc = true
+				continue
+			}
+			out.WriteByte(ch)
+			continue
+		}
+		// consume until 'm' or end
+		if ch == 'm' {
+			inEsc = false
+		}
+	}
+	return out.String()
+}
+
+func clamp(minV, v, maxV int) int {
+	if v < minV {
+		return minV
+	}
+	if v > maxV {
+		return maxV
+	}
+	return v
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

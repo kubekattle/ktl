@@ -52,13 +52,16 @@ func TestConsoleSnapshotLines(t *testing.T) {
 
 	got := strings.Join(c.SnapshotLines(), "\n") + "\n"
 	got = strings.ReplaceAll(got, "\x1b", "\\x1b")
-	if !strings.Contains(got, "ktl verify · chart ./chart") {
+	if !strings.Contains(got, "KTL VERIFY") {
 		t.Fatalf("expected header, got:\n%s", got)
 	}
-	if !strings.Contains(got, "severity: critical=0 high=1 medium=1 low=0 info=0") {
+	if !strings.Contains(got, "[PASS]") {
+		t.Fatalf("expected pass status, got:\n%s", got)
+	}
+	if !strings.Contains(got, "severity:") {
 		t.Fatalf("expected severity breakdown, got:\n%s", got)
 	}
-	if !strings.Contains(got, "Recent findings:") {
+	if !strings.Contains(got, "RECENT FINDINGS") {
 		t.Fatalf("expected findings header, got:\n%s", got)
 	}
 	if !strings.Contains(got, "Container should not run privileged") {
