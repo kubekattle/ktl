@@ -129,7 +129,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 					}))
 				} else if isTerminalWriter(errOut) {
 					width, _ := ui.TerminalWidth(errOut)
-					isNarrow := width > 0 && width <= 120
+					isNarrow := width > 0 && width <= 100
 
 					if opts.ConsoleWide || opts.ConsoleDetails {
 						if width < 160 {
@@ -154,7 +154,22 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 
 					showHooks := opts.ConsoleHooks
 					if !flagChanged(cmd, "console-hooks") {
-						showHooks = true
+						showHooks = false
+						if p != nil {
+							if len(p.Hooks.PreApply) > 0 || len(p.Hooks.PostApply) > 0 || len(p.Hooks.PreDelete) > 0 || len(p.Hooks.PostDelete) > 0 {
+								showHooks = true
+							} else {
+								for _, n := range p.Nodes {
+									if n == nil {
+										continue
+									}
+									if len(n.Hooks.PreApply) > 0 || len(n.Hooks.PostApply) > 0 || len(n.Hooks.PreDelete) > 0 || len(n.Hooks.PostDelete) > 0 {
+										showHooks = true
+										break
+									}
+								}
+							}
+						}
 					}
 					showDetails := opts.ConsoleDetails
 					if !flagChanged(cmd, "console-details") {
