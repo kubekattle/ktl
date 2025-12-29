@@ -162,6 +162,13 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 
 			errOut := cmd.ErrOrStderr()
 			var console *verify.Console
+			finishConsole := func() {
+				if console == nil {
+					return
+				}
+				console.Done()
+				console = nil
+			}
 			if isTerminalWriter(errOut) {
 				width, _ := ui.TerminalWidth(errOut)
 				noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
@@ -177,7 +184,6 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 					Color:   !noColor,
 					Now:     func() time.Time { return time.Now().UTC() },
 				})
-				defer console.Done()
 				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Target: target, Phase: "render"})
 			}
 			var emit verify.Emitter
@@ -337,8 +343,8 @@ func newVerifyChartCommand(kubeconfigPath *string, kubeContext *string, logLevel
 				s := rep.Summary
 				console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
 				console.Observe(verify.Event{Type: verify.EventDone, When: time.Now().UTC(), Passed: rep.Passed, Blocked: rep.Blocked})
-				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "write"})
 			}
+			finishConsole()
 			out, closer, err := openOutput(cmd.OutOrStdout(), outputPath)
 			if err != nil {
 				return err
@@ -435,6 +441,13 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 
 			errOut := cmd.ErrOrStderr()
 			var console *verify.Console
+			finishConsole := func() {
+				if console == nil {
+					return
+				}
+				console.Done()
+				console = nil
+			}
 			if isTerminalWriter(errOut) {
 				width, _ := ui.TerminalWidth(errOut)
 				noColor, _ := cmd.Root().PersistentFlags().GetBool("no-color")
@@ -450,7 +463,6 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 					Color:   !noColor,
 					Now:     func() time.Time { return time.Now().UTC() },
 				})
-				defer console.Done()
 				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Target: target, Phase: "collect"})
 			}
 			var emit verify.Emitter
@@ -573,8 +585,8 @@ func newVerifyNamespaceCommand(kubeconfigPath *string, kubeContext *string, logL
 				s := rep.Summary
 				console.Observe(verify.Event{Type: verify.EventSummary, When: time.Now().UTC(), Summary: &s})
 				console.Observe(verify.Event{Type: verify.EventDone, When: time.Now().UTC(), Passed: rep.Passed, Blocked: rep.Blocked})
-				console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "write"})
 			}
+			finishConsole()
 			out, closer, err := openOutput(cmd.OutOrStdout(), outputPath)
 			if err != nil {
 				return err
