@@ -34,7 +34,8 @@ var curatedExamples = map[string][]string{
 	},
 	"ktl verify": {
 		"# Run the bundled verify showcase (includes a CRITICAL rule)\nktl verify testdata/verify/showcase/verify.yaml",
-		"# Verify a live namespace via YAML config\ncat > verify-namespace.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: namespace\n  namespace: default\n\nkube:\n  kubeconfig: $HOME/.kube/archimedes.yaml\n\nverify:\n  mode: warn\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-namespace.yaml",
+		"# Verify a live namespace via YAML config\ncat > verify-namespace.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: namespace\n  namespace: default\n\nkube:\n  kubeconfig: $HOME/.kube/config\n\nverify:\n  mode: warn\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-namespace.yaml",
+		"# Verify a chart render via YAML config\ncat > verify-chart.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: chart\n  chart:\n    chart: ./chart\n    release: foo\n    namespace: default\n    values:\n      - values.yaml\n    set:\n      - image.tag=dev\n    useCluster: true\n    includeCRDs: false\n\nkube:\n  kubeconfig: $HOME/.kube/config\n\nverify:\n  mode: block\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-chart.yaml",
 		"# Verify rendered manifests from a file\ncat > verify-manifest.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: manifest\n  manifest: ./rendered.yaml\n\nverify:\n  mode: block\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-manifest.yaml",
 	},
 }

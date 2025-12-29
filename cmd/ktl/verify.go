@@ -82,8 +82,16 @@ type verifyConfigKube struct {
 
 func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "verify <config.yaml>",
-		Short:         "Verify Kubernetes configuration using a YAML config file",
+		Use:   "verify <config.yaml>",
+		Short: "Verify Kubernetes configuration using a YAML config file",
+		Long: strings.TrimSpace(`
+Verify renders and/or collects Kubernetes objects and evaluates them against the built-in verify rules.
+
+The config file is a small schema; set target.kind to choose what you are verifying:
+  - namespace: read live objects from the cluster
+  - chart: render a Helm chart (optionally with cluster lookups enabled)
+  - manifest: verify an already-rendered manifest YAML file
+`),
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -301,8 +309,92 @@ func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *str
 
 	decorateCommandHelp(cmd, "Verify Flags")
 	cmd.Example = strings.TrimSpace(`
-  # Verify using a YAML config file
-  ktl verify ./verify.yaml
+  # Run the bundled verify showcase (includes a CRITICAL rule)
+  ktl verify testdata/verify/showcase/verify.yaml
+
+  # Config reference (all options; remove what you don't use)
+  cat > verify.yaml <<'YAML'
+  version: v1
+
+  target:
+    kind: chart # namespace|chart|manifest
+    # kind=namespace
+    namespace: default
+    # kind=manifest
+    manifest: ./rendered.yaml
+    # kind=chart
+    chart:
+      chart: ./chart
+      release: foo
+      namespace: default
+      values:
+        - values.yaml
+      set:
+        - image.tag=dev
+      useCluster: true
+      includeCRDs: false
+
+  kube:
+    kubeconfig: ~/.kube/config
+    context: ""
+
+  verify:
+    mode: warn # warn|block|off
+    failOn: high # info|low|medium|high|critical
+    rulesDir: "" # default: built-in rules
+    policy:
+      ref: "" # local path or URL
+      mode: warn # warn|enforce
+    baseline:
+      read: ""  # read report JSON
+      write: "" # write report JSON
+      exitOnDelta: false
+    exposure:
+      enabled: false
+      output: "" # write exposure JSON
+    fixPlan: false
+
+  output:
+    format: table # table|json|sarif
+    report: "-"   # path or "-"
+  YAML
+
+  ktl verify verify.yaml
+
+  # Verify a live namespace
+  cat > verify-namespace.yaml <<'YAML'
+  version: v1
+  target:
+    kind: namespace
+    namespace: default
+  verify:
+    mode: warn
+    failOn: high
+  output:
+    format: table
+    report: "-"
+  YAML
+
+  ktl verify verify-namespace.yaml
+
+  # Verify a chart render
+  cat > verify-chart.yaml <<'YAML'
+  version: v1
+  target:
+    kind: chart
+    chart:
+      chart: ./chart
+      release: foo
+      namespace: default
+  verify:
+    mode: block
+    failOn: high
+  output:
+    format: table
+    report: "-"
+  YAML
+
+  ktl verify verify-chart.yaml
 `)
 	return cmd
 }
