@@ -32,7 +32,6 @@ func TestBuildIndex_IncludesCommandsFlagsAndEnv(t *testing.T) {
 	assertHas("command", "ktl")
 	assertHas("command", "ktl apply")
 	assertHas("env", "KTL_CONFIG")
-	assertHas("doc", "Internals")
 
 	foundFlag := false
 	for _, e := range index.Entries {

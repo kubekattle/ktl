@@ -199,18 +199,6 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		})
 	}
 
-	if doc, links := internalsIndexDoc(); strings.TrimSpace(doc) != "" {
-		entries = append(entries, Entry{
-			ID:       "doc:internals",
-			Kind:     "doc",
-			Title:    "Internals",
-			Subtitle: "Key modules and ownership map",
-			Content:  strings.TrimSpace(doc),
-			Links:    links,
-			Tags:     []string{"doc", "internals", "modules", "ownership"},
-		})
-	}
-
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].Kind != entries[j].Kind {
 			return entries[i].Kind < entries[j].Kind
