@@ -747,7 +747,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().BoolVar(&upgrade, "upgrade", upgrade, "Only perform the upgrade path (skip install fallback)")
 	cmd.Flags().BoolVar(&createNamespace, "create-namespace", false, "Create the release namespace if it does not exist")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render the chart without applying it")
-	cmd.Flags().StringVar(&requireVerified, "require-verified", "", "Require a matching ktl verify report (JSON) for this exact render before applying")
+	cmd.Flags().StringVar(&requireVerified, "require-verified", "", "Require a matching verify report (JSON) for this exact render before applying")
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive confirmation prompts")
 	_ = cmd.Flags().MarkHidden("auto-approve")
 	cmd.Flags().BoolVar(&autoApprove, "yes", false, "Alias for --auto-approve")

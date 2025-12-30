@@ -71,11 +71,11 @@ Notes:
 - Profile overlays: use `profiles.<name>.cli` and `profiles.<name>.defaults` to override per environment (dev/stage/prod).
 - For CLI schema details, see `docs/stack-cli-defaults.md`.
 
-## `ktl verify` YAML (chart render + live checks)
+## `verify` YAML (chart render + live checks)
 
-`ktl verify` supports multiple targets. Two common ones:
+`verify` supports multiple targets. Two common ones:
 
-Tip: generate a starter config with `ktl verify init chart|namespace` and then customize it.
+Tip: generate a starter config with `verify init chart|namespace` and then customize it.
 
 ### Verify a chart render (no cluster access)
 

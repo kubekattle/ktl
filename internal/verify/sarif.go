@@ -150,7 +150,7 @@ func ToSARIF(rep *Report) ([]byte, error) {
 			{
 				Tool: sarifTool{
 					Driver: sarifDriver{
-						Name:           "ktl verify",
+						Name:           "verify",
 						Version:        rep.Engine.Version,
 						InformationURI: "https://github.com/avkcode/ktl",
 						Rules:          rules,

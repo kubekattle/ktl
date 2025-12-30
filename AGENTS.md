@@ -24,6 +24,14 @@ If you’re an AI agent (or using one), start with:
 - `docs/agent-playbook.md`: common workflows (“golden paths”) + validation commands.
 - `docs/deps.md`: generated package-level dependency map (`make deps`).
 
+### Golden Paths (condensed)
+- Make minimal, targeted changes and run the narrowest relevant tests; prefer `make fmt && make lint` plus scoped `go test` before full `./...`.
+- Add a CLI flag: define it in `cmd/ktl/*`, thread through an options struct in `internal/*`, and add/extend a unit test nearby.
+- Add a subcommand: keep Cobra wiring in `cmd/ktl/*`; put logic in `internal/*`; test with `go test ./cmd/ktl`.
+- Profiles/app config: global `~/.ktl/config.yaml`, repo `.ktl.yaml`; validate with `go test ./cmd/ktl -run TestBuildProfile`.
+- Update fixtures: edit `testdata/...`, refresh goldens, and rerun the closest tests.
+- UI work: follow the Frontend Design System (below); extend tokens/components first.
+
 ## Repository Structure
 - `cmd/ktl`: Cobra entrypoint; add flags, top-level wiring, and CLI UX only.
 - `internal/*`: reusable packages (e.g., `internal/tailer`, `internal/workflows/buildsvc`). Keep scopes tight; long-running diagnostics live where they already exist.

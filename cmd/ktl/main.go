@@ -187,13 +187,11 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	buildCmd := newBuildCommandWithService(buildService, &globalProfile, &logLevel)
 	listCmd := newListCommand(&kubeconfigPath, &kubeContext)
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
-	packageCmd := newPackageCommand()
 	envCmd := newEnvCommand()
 	versionCmd := newVersionCommand()
 	revertCmd := newRevertCommand(&kubeconfigPath, &kubeContext, &logLevel)
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
-	verifyCmd := newVerifyCommand(&kubeconfigPath, &kubeContext, &logLevel)
 	stackCmd := newStackCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	cmd.AddCommand(
 		buildCmd,
@@ -201,11 +199,9 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		applyCmd,
 		deleteCmd,
 		stackCmd,
-		verifyCmd,
 		listCmd,
 		lintCmd,
 		logsCmd,
-		packageCmd,
 		envCmd,
 		versionCmd,
 	)
@@ -222,7 +218,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
   # Apply chart changes
   ktl apply --chart ./chart --release foo --namespace prod`
 	decorateCommandHelp(cmd, "Global Flags")
-	bindViper(cmd, logsCmd, buildCmd, listCmd, lintCmd, packageCmd, applyCmd, deleteCmd, stackCmd)
+	bindViper(cmd, logsCmd, buildCmd, listCmd, lintCmd, applyCmd, deleteCmd, stackCmd)
 
 	_ = cmd.RegisterFlagCompletionFunc("profile", cobra.FixedCompletions([]string{"dev", "ci", "secure", "remote"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions([]string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp))
@@ -242,7 +238,7 @@ Usage:
   {{.UseLine}}
 
 Subcommands:
-{{- range $i, $n := (list "build" "apply" "delete" "stack" "verify" "revert" "list" "lint" "logs" "package" "env" "version") }}
+{{- range $i, $n := (list "build" "apply" "delete" "stack" "revert" "list" "lint" "logs" "env" "version") }}
 {{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
 {{- end }}

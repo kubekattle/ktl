@@ -180,7 +180,6 @@ func TestRootHelpSubcommandOrder(t *testing.T) {
 		"  list",
 		"  lint",
 		"  logs",
-		"  package",
 		"  env",
 	}
 	last := -1
@@ -262,17 +261,4 @@ func TestRootIncludesLintCommand(t *testing.T) {
 }
 
 func TestRootIncludesPackageCommand(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	t.Setenv("KTL_CONFIG", cfgPath)
-
-	root := newRootCommand()
-	for _, cmd := range root.Commands() {
-		if cmd.Name() == "package" {
-			return
-		}
-	}
-	t.Fatalf("expected root to include package command")
 }

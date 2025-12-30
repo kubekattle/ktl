@@ -80,13 +80,11 @@ var curatedExamples = map[string][]string{
 	"ktl stack rerun-failed": {
 		"# Resume the most recent run and schedule only failed nodes\nktl stack rerun-failed --config ./stacks/prod --yes",
 	},
-	"ktl verify": {
-		"# Generate a starter config (chart render)\nktl verify init chart --chart ./chart --release foo -n default > verify.yaml\nktl verify verify.yaml",
-		"# Generate a starter config (live namespace)\nktl verify init namespace -n default --context my-context > verify.yaml\nktl verify verify.yaml",
-		"# Run the bundled verify showcase (includes a CRITICAL rule)\nktl verify testdata/verify/showcase/verify.yaml",
-		"# Verify a live namespace via YAML config\ncat > verify-namespace.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: namespace\n  namespace: default\n\nkube:\n  context: my-context\n\nverify:\n  mode: warn\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-namespace.yaml",
-		"# Verify a chart render via YAML config (pure render)\ncat > verify-chart-render.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: chart\n  chart:\n    chart: ./chart\n    release: foo\n    namespace: default\n    values:\n      - values.yaml\n    set:\n      - image.tag=dev\n    useCluster: false\n    includeCRDs: false\n\nverify:\n  mode: block\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-chart-render.yaml",
-		"# Verify a chart render via YAML config (with cluster lookups)\ncat > verify-chart-cluster.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: chart\n  chart:\n    chart: ./chart\n    release: foo\n    namespace: default\n    useCluster: true\n\nkube:\n  context: my-context\n\nverify:\n  mode: block\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-chart-cluster.yaml",
-		"# Verify rendered manifests from a file\ncat > verify-manifest.yaml <<'YAML'\nversion: v1\n\ntarget:\n  kind: manifest\n  manifest: ./rendered.yaml\n\nverify:\n  mode: block\n  failOn: high\n\noutput:\n  format: table\n  report: \"-\"\nYAML\n\nktl verify verify-manifest.yaml",
+	"verify": {
+		"# Verify a chart render (inline)\nverify --chart ./chart --release foo -n default",
+		"# Verify a chart render with cluster lookups\nverify --chart ./chart --release foo -n default --use-cluster --context my-context",
+		"# Verify a live namespace\nverify --namespace default --context my-context",
+		"# Generate a starter config for scripting\nverify init --chart ./chart --release foo -n default --write verify.yaml\nverify verify.yaml",
+		"# Run the bundled verify showcase (includes a CRITICAL rule)\nverify testdata/verify/showcase/verify.yaml",
 	},
 }

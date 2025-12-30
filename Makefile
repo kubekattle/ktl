@@ -40,10 +40,14 @@ PREVIOUS_TAG ?= $(shell git describe --tags --abbrev=0 HEAD~1 2>/dev/null)
 
 CAPTURE_BINARY ?= capture
 CAPTURE_PKG ?= ./cmd/capture
+VERIFY_BINARY ?= verify
+VERIFY_PKG ?= ./cmd/verify
+PACKAGECLI_BINARY ?= package
+PACKAGECLI_PKG ?= ./cmd/package
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% install release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-%
+.PHONY: help build build-% build-capture build-verify build-packagecli install install-capture install-verify install-packagecli release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-%
  
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
@@ -62,6 +66,16 @@ build-capture: ## Build capture for the current platform into ./bin/capture
 	@echo ">> building $(CAPTURE_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
 	@mkdir -p $(BIN_DIR)
 	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(CAPTURE_BINARY) $(CAPTURE_PKG)
+
+build-verify: ## Build verify for the current platform into ./bin/verify
+	@echo ">> building $(VERIFY_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
+	@mkdir -p $(BIN_DIR)
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(VERIFY_BINARY) $(VERIFY_PKG)
+
+build-packagecli: ## Build package CLI for the current platform into ./bin/package
+	@echo ">> building $(PACKAGECLI_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
+	@mkdir -p $(BIN_DIR)
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(PACKAGECLI_BINARY) $(PACKAGECLI_PKG)
 
 build-%: ## Build ktl for <os>-<arch> into ./bin/ktl-<os>-<arch>[.exe]
 	@mkdir -p $(BIN_DIR)
@@ -82,6 +96,14 @@ install: ## Install ktl into GOPATH/bin or GOBIN
 install-capture: ## Install capture into GOPATH/bin or GOBIN
 	@echo ">> installing $(CAPTURE_BINARY) ($(VERSION))"
 	$(GO) install $(GOFLAGS) -ldflags '$(LDFLAGS)' $(CAPTURE_PKG)
+
+install-verify: ## Install verify into GOPATH/bin or GOBIN
+	@echo ">> installing $(VERIFY_BINARY) ($(VERSION))"
+	$(GO) install $(GOFLAGS) -ldflags '$(LDFLAGS)' $(VERIFY_PKG)
+
+install-packagecli: ## Install package CLI into GOPATH/bin or GOBIN
+	@echo ">> installing $(PACKAGECLI_BINARY) ($(VERSION))"
+	$(GO) install $(GOFLAGS) -ldflags '$(LDFLAGS)' $(PACKAGECLI_PKG)
 
 release: ## Cross-build release artifacts into ./dist
 	@echo ">> building release artifacts for: $(RELEASE_PLATFORMS)"

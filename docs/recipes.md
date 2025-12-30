@@ -84,6 +84,5 @@ output:
   report: "-"
 YAML
 
-ktl verify verify-chart-render.yaml
+verify verify-chart-render.yaml
 ```
-
