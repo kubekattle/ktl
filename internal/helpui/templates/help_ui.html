@@ -209,6 +209,14 @@
         gap: 8px;
       }
       .detailLinks .chip { text-transform: none; letter-spacing: normal; font-size: 0.8rem; }
+      .detailSectionTitle {
+        margin-top: 14px;
+        font-size: 0.78rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-weight: 700;
+        color: rgba(15,23,42,0.62);
+      }
       .tile {
         border-radius: 999px;
         background: rgba(255,255,255,0.72);
@@ -553,6 +561,10 @@
         if (entry.content) {
           const hasNewlines = entry.content.indexOf("\n") >= 0;
           if (hasNewlines) {
+            const title = document.createElement("div");
+            title.className = "detailSectionTitle";
+            title.textContent = "Details";
+            wrap.appendChild(title);
             const pre = document.createElement("pre");
             pre.textContent = entry.content;
             pre.addEventListener("click", (e) => e.stopPropagation());
@@ -566,6 +578,10 @@
           }
         }
         if (entry.examples && entry.examples.length) {
+          const title = document.createElement("div");
+          title.className = "detailSectionTitle";
+          title.textContent = "Examples";
+          wrap.appendChild(title);
           const pre = document.createElement("pre");
           pre.textContent = entry.examples.join("\n\n");
           pre.addEventListener("click", (e) => e.stopPropagation());
