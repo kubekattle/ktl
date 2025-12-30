@@ -44,12 +44,12 @@ jobs:
             GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 \
               go build -ldflags "${LDFLAGS}" -o "${outdir}/${tool}" "./cmd/${tool}"
             cat > "${outdir}/README.txt" <<'TXT'
-This archive contains a single binary built from https://github.com/example/ktl
-Install:
-  chmod +x ./<tool> && mv ./<tool> /usr/local/bin/<tool>
-Check version:
-  <tool> --version
-TXT
+            This archive contains a single binary built from https://github.com/example/ktl
+            Install:
+              chmod +x ./<tool> && mv ./<tool> /usr/local/bin/<tool>
+            Check version:
+              <tool> --version
+            TXT
             tarball="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz"
             tar -C "${outdir}" -czf "${tarball}" .
             sha256sum "${tarball}" > "${tarball}.sha256"
