@@ -14,6 +14,7 @@ One-page guardrails for anyone touching `ktl`: start here before coding, keep it
 3. Keep generated binaries under `bin/`/`dist/` locally only—never stage them.
 4. Document any new build, lint, or Pandoc steps inside this file and in `docs/pandoc-build.md` if relevant.
 5. When touching HTML/CSS, align with the Frontend Design System below and update tokens/components there first.
+6. When introducing user-facing CLI features (new commands, flags, env vars, feature flags, or output modes), update `ktl help --ui` (search index + curated examples in `internal/helpui/`) so the new surface is discoverable.
 
 ## AI-Agent Guide (Repo Conventions)
 
