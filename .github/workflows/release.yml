@@ -31,6 +31,9 @@ jobs:
           go-version: '1.25.x'
           cache: true
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
       - name: Build binaries
         run: |
           set -euo pipefail
@@ -53,6 +56,15 @@ TXT
           done
           cat dist/*.sha256 > dist/checksums.txt
 
+      - name: Sign artifacts (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          for f in dist/*.tar.gz dist/checksums.txt; do
+            cosign sign-blob --yes "$f" --output-signature "$f.sig"
+          done
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -60,5 +72,6 @@ TXT
             dist/*.tar.gz
             dist/*.tar.gz.sha256
             dist/checksums.txt
+            dist/*.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
