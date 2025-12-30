@@ -175,6 +175,17 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		})
 	}
 
+	if doc := strings.TrimSpace(featureFlagsDoc()); doc != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:feature-flags",
+			Kind:     "doc",
+			Title:    "Feature flags",
+			Subtitle: "Registered flags and enablement",
+			Content:  doc,
+			Tags:     []string{"doc", "internals", "feature", "featureflags"},
+		})
+	}
+
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].Kind != entries[j].Kind {
 			return entries[i].Kind < entries[j].Kind
