@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	ktldocs "github.com/example/ktl/docs"
 	"github.com/example/ktl/internal/envcatalog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -149,6 +150,28 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 			Subtitle: env.Category,
 			Content:  env.Description,
 			Tags:     []string{"env", env.Category},
+		})
+	}
+
+	if md := strings.TrimSpace(ktldocs.ArchitectureMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:architecture",
+			Kind:     "doc",
+			Title:    "Architecture",
+			Subtitle: "Repo layout and core packages",
+			Content:  md,
+			Tags:     []string{"doc", "internals", "architecture"},
+		})
+	}
+
+	if md := strings.TrimSpace(ktldocs.DepsMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:deps",
+			Kind:     "doc",
+			Title:    "Deps",
+			Subtitle: "Package dependency map (generated)",
+			Content:  md,
+			Tags:     []string{"doc", "internals", "deps", "dependency"},
 		})
 	}
 
