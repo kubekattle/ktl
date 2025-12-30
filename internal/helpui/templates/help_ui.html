@@ -378,6 +378,7 @@
               <button class="chip" data-kind="command" type="button">Commands</button>
               <button class="chip" data-kind="flag" type="button">Flags</button>
               <button class="chip" data-kind="env" type="button">Env</button>
+              <button class="chip" data-kind="doc" type="button">Docs</button>
             </div>
             <div class="helpMeta">{{.Version}}</div>
           </div>
@@ -420,10 +421,10 @@
       function parseQuery(raw) {
         let q = (raw || "").trim();
         let kind = "all";
-        const m = q.match(/(?:^|\\s)kind:(all|cmd|command|flag|env)(?:\\s|$)/i);
+        const m = q.match(/(?:^|\\s)kind:(all|cmd|command|flag|env|doc)(?:\\s|$)/i);
         if (m) {
           const v = (m[1] || "").toLowerCase();
-          if (v === "flag" || v === "env" || v === "command" || v === "cmd" || v === "all") {
+          if (v === "flag" || v === "env" || v === "doc" || v === "command" || v === "cmd" || v === "all") {
             kind = (v === "cmd") ? "command" : v;
           }
           q = q.replace(m[0], " ").trim();
