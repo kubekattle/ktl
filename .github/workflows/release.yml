@@ -36,16 +36,27 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           for tool in ktl verify package; do
-            outdir="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}"
+            outdir="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}"
             mkdir -p "${outdir}"
             GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 \
               go build -ldflags "${LDFLAGS}" -o "${outdir}/${tool}" "./cmd/${tool}"
-            tar -C "${outdir}" -czf "dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" "${tool}"
+            cat > "${outdir}/README.txt" <<'TXT'
+This archive contains a single binary built from https://github.com/example/ktl
+Install:
+  chmod +x ./<tool> && mv ./<tool> /usr/local/bin/<tool>
+Check version:
+  <tool> --version
+TXT
+            tarball="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz"
+            tar -C "${outdir}" -czf "${tarball}" .
+            sha256sum "${tarball}" > "${tarball}.sha256"
           done
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tar.gz
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

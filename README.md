@@ -32,6 +32,7 @@ make release   # cross-build archives into ./dist
 ### Binaries (standalone CLIs)
 - `verify`: `go install ./cmd/verify` or `make build-verify` (writes `./bin/verify`). Uses the same version string as ktl; run `verify --version`.
 - `package`: `go install ./cmd/package` or `make build-packagecli` (writes `./bin/package`). Uses the same version string; run `package --version`.
+Both binaries are also published as release assets (see Releases).
 
 ## Examples
 See `docs/recipes.md` for copy/paste workflows, or run `ktl help --ui` for searchable command examples.
@@ -45,6 +46,9 @@ See `docs/recipes.md` for copy/paste workflows, or run `ktl help --ui` for searc
 - CI should run at least `make fmt lint test` on PRs; add a smoke test that packages a sample chart then verifies the archive to catch CLI regressions.
 - Cache Go modules in CI to speed builds.
 - Protect `main`/`dev`: require PRs and checks; prune stale remote branches regularly (policy noted in `AGENTS.md`).
+
+## Standalone CLIs in recipes
+`docs/recipes.md` includes copy/paste examples for `verify` and `package`; help-ui search also covers both commands.
 
 ## Profiles and config (build defaults)
 `ktl` supports execution profiles to apply sensible defaults.

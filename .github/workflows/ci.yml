@@ -8,7 +8,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  ci:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: gofmt (check)
+        run: |
+          set -euo pipefail
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "gofmt needed on:"
+            echo "$files"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -23,19 +43,6 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
-      - name: Format (check)
-        run: |
-          set -euo pipefail
-          files=$(gofmt -l .)
-          if [ -n "$files" ]; then
-            echo "gofmt needed on:"
-            echo "$files"
-            exit 1
-          fi
-
-      - name: Vet
-        run: go vet ./...
-
       - name: Unit tests
         run: go test ./...
 
@@ -45,3 +52,34 @@ jobs:
           out=/tmp/chart.sqlite
           go run ./cmd/package --output "${out}" ./testdata/charts/drift-guard
           go run ./cmd/package --verify "${out}"
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Race tests (selected)
+        run: go test -race ./cmd/... ./internal/verify/...
+
+  matrix-test:
+    strategy:
+      matrix:
+        go: ['1.24.x', '1.25.x']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - name: go test (matrix)
+        run: go test ./...
+
+  all:
+    runs-on: ubuntu-latest
+    needs: [lint, test, race, matrix-test]
+    steps:
+      - run: echo "all checks passed"

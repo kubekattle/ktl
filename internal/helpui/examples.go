@@ -87,4 +87,9 @@ var curatedExamples = map[string][]string{
 		"# Generate a starter config for scripting\nverify init --chart ./chart --release foo -n default --write verify.yaml\nverify verify.yaml",
 		"# Run the bundled verify showcase (includes a CRITICAL rule)\nverify testdata/verify/showcase/verify.yaml",
 	},
+	"package": {
+		"# Package a chart directory\npackage ./chart --output dist/chart.sqlite",
+		"# Verify an existing archive\npackage --verify dist/chart.sqlite",
+		"# Package then verify (quiet with SHA)\npackage ./chart --output dist/chart.sqlite --print-sha --quiet && package --verify dist/chart.sqlite",
+	},
 }

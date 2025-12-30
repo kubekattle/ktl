@@ -85,4 +85,8 @@ output:
 YAML
 
 verify verify-chart-render.yaml
+
+# Package a chart then verify the archive
+package ./chart --output dist/chart.sqlite
+package --verify dist/chart.sqlite
 ```
