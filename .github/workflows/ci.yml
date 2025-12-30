@@ -2,13 +2,13 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "dev"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "dev"]
   workflow_dispatch:
 
 jobs:
-  build:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -23,5 +23,25 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
-      - name: Build ktl
-        run: go build ./cmd/ktl
+      - name: Format (check)
+        run: |
+          set -euo pipefail
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            echo "gofmt needed on:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Smoke test package/verify
+        run: |
+          set -euo pipefail
+          out=/tmp/chart.sqlite
+          go run ./cmd/package --output "${out}" ./testdata/charts/drift-guard
+          go run ./cmd/package --verify "${out}"
