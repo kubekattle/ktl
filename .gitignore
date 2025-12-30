@@ -19,3 +19,5 @@ dist/
 *.out
 # ktl local state
 .ktl/
+
+.bin/
