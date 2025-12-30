@@ -188,6 +188,39 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		})
 	}
 
+	if md := strings.TrimSpace(ktldocs.ConfigAtlasMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:config-atlas",
+			Kind:     "doc",
+			Title:    "Config atlas",
+			Subtitle: "stack.yaml, verify YAML, sandbox profiles",
+			Content:  md,
+			Tags:     []string{"doc", "config", "stack", "verify", "sandbox"},
+		})
+	}
+
+	if md := strings.TrimSpace(ktldocs.RecipesMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:recipes",
+			Kind:     "doc",
+			Title:    "Recipes",
+			Subtitle: "Golden paths (copy/paste workflows)",
+			Content:  md,
+			Tags:     []string{"doc", "recipes", "golden-paths"},
+		})
+	}
+
+	if md := strings.TrimSpace(ktldocs.TroubleshootingMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:troubleshooting",
+			Kind:     "doc",
+			Title:    "Troubleshooting",
+			Subtitle: "Symptom → why → what to run next",
+			Content:  md,
+			Tags:     []string{"doc", "troubleshooting", "debug"},
+		})
+	}
+
 	if doc := strings.TrimSpace(featureFlagsDoc()); doc != "" {
 		entries = append(entries, Entry{
 			ID:       "doc:feature-flags",
