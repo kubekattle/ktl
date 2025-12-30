@@ -487,6 +487,12 @@
           title.textContent = entry.title;
           row.appendChild(title);
           li.appendChild(row);
+          if (entry.subtitle) {
+            const sub = document.createElement("div");
+            sub.className = "s";
+            sub.textContent = entry.subtitle;
+            li.appendChild(sub);
+          }
           if (entry.id === state.activeId) {
             const detail = renderDetailInline(entry);
             if (detail) li.appendChild(detail);
@@ -510,6 +516,16 @@
         // Allow selecting/copying text inside the detail panel without triggering the parent
         // list item's click handler (which would re-render and drop the selection).
         wrap.addEventListener("click", (e) => e.stopPropagation());
+        const metaParts = [];
+        if (entry.sources && entry.sources.length) {
+          metaParts.push("Owned by: " + entry.sources.join(", "));
+        }
+        if (metaParts.length) {
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = metaParts.join(" · ");
+          wrap.appendChild(meta);
+        }
         if (entry.content) {
           const hasNewlines = entry.content.indexOf("\n") >= 0;
           if (hasNewlines) {
