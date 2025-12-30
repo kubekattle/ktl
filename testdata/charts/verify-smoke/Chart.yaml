@@ -1,0 +1,6 @@
+apiVersion: v2
+name: verify-smoke
+description: Minimal chart for verify smoke tests
+type: application
+version: 0.1.0
+appVersion: "1.0"

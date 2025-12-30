@@ -12,7 +12,6 @@ import (
 	"github.com/example/ktl/internal/verify"
 	cfgpkg "github.com/example/ktl/internal/verify/config"
 	"github.com/example/ktl/internal/verify/engine"
-	"github.com/example/ktl/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -35,28 +34,15 @@ func newRootCommand() *cobra.Command {
 	var noColor bool
 	var showVersion bool
 
-	cmd := &cobra.Command{
-		Use:           "verify",
-		Short:         "Verify Kubernetes configuration",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if showVersion {
-				fmt.Fprintf(cmd.OutOrStdout(), "verify %s\n", version.Version)
-				return nil
-			}
-			return cmd.Help()
-		},
-	}
-
+	cmd := newVerifyCommand(&kubeconfigPath, &kubeContext, &logLevel, &noColor)
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = false
+	cmd.CompletionOptions.DisableDefaultCmd = true
 	cmd.PersistentFlags().StringVarP(&kubeconfigPath, "kubeconfig", "k", "", "Path to the kubeconfig file to use for CLI requests")
 	cmd.PersistentFlags().StringVarP(&kubeContext, "context", "c", "", "Name of the kubeconfig context to use")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", logLevel, "Log level for output (debug, info, warn, error)")
 	cmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	cmd.PersistentFlags().BoolVar(&showVersion, "version", false, "Print version and exit")
-
-	verifyCmd := newVerifyCommand(&kubeconfigPath, &kubeContext, &logLevel, &noColor)
-	cmd.AddCommand(verifyCmd)
 	cmd.SetHelpCommand(newHelpCommand(cmd))
 	return cmd
 }
