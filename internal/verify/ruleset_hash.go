@@ -11,34 +11,40 @@ import (
 	"strings"
 )
 
-func RulesetDigest(dir string) (string, error) {
-	dir = strings.TrimSpace(dir)
-	if dir == "" {
+func RulesetDigest(dir string) (string, error) { return RulesetDigestMulti([]string{dir}) }
+
+func RulesetDigestMulti(dirs []string) (string, error) {
+	dirs = dedupeStrings(dirs)
+	if len(dirs) == 0 {
 		return "", nil
 	}
 	var files []string
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
+	for _, dir := range dirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
 		}
-		if d.IsDir() {
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			name := strings.ToLower(d.Name())
+			if strings.HasSuffix(name, ".rego") || strings.HasSuffix(name, ".json") {
+				files = append(files, path)
+			}
 			return nil
-		}
-		name := strings.ToLower(d.Name())
-		if strings.HasSuffix(name, ".rego") || strings.HasSuffix(name, ".json") {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
+		})
+	}
+	if len(files) == 0 {
+		return "", fmt.Errorf("empty ruleset digest")
 	}
 	sort.Strings(files)
 	h := sha256.New()
 	for _, path := range files {
-		rel := filepath.ToSlash(strings.TrimPrefix(path, dir))
-		rel = strings.TrimPrefix(rel, "/")
-		if _, err := io.WriteString(h, rel+"\n"); err != nil {
+		if _, err := io.WriteString(h, path+"\n"); err != nil {
 			return "", err
 		}
 		raw, err := os.ReadFile(path)

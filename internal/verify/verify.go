@@ -25,6 +25,7 @@ type Options struct {
 	FailOn     Severity
 	Format     OutputFormat
 	RulesDir   string
+	ExtraRules []string
 	AttestDir  string
 	ReportPath string
 }
@@ -164,4 +165,34 @@ func nonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func splitList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	// Support both comma and colon as list separators.
+	fields := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ':' })
+	var out []string
+	for _, f := range fields {
+		if s := strings.TrimSpace(f); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func dedupeStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }

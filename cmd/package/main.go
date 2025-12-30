@@ -15,8 +15,7 @@ func main() {
 
 func newRootCommand() *cobra.Command {
 	cmd := newPackageCommand()
-	cmd.SilenceUsage = true
-	cmd.SilenceErrors = true
-	cmd.SetArgs([]string{"--help"})
+	cmd.CompletionOptions.DisableDefaultCmd = true
+	cmd.SetHelpCommand(newHelpCommand(cmd))
 	return cmd
 }

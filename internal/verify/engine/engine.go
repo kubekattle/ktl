@@ -20,6 +20,7 @@ type Options struct {
 	Console     *verify.Console
 	ErrOut      io.Writer
 	Out         io.Writer
+	RulesPath   []string
 }
 
 func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) error {
@@ -88,11 +89,14 @@ func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) 
 	if rulesDir == "" {
 		rulesDir = filepath.Join(appconfig.FindRepoRoot("."), "internal", "verify", "rules", "builtin")
 	}
+	extraRules := append([]string{}, cfg.Verify.RulesPath...)
+	extraRules = append(extraRules, opts.RulesPath...)
 	options := verify.Options{
-		Mode:     modeValue,
-		FailOn:   failOnValue,
-		Format:   verify.OutputFormat(strings.ToLower(strings.TrimSpace(cfg.Output.Format))),
-		RulesDir: rulesDir,
+		Mode:       modeValue,
+		FailOn:     failOnValue,
+		Format:     verify.OutputFormat(strings.ToLower(strings.TrimSpace(cfg.Output.Format))),
+		RulesDir:   rulesDir,
+		ExtraRules: extraRules,
 	}
 	if console != nil {
 		console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "evaluate"})

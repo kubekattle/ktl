@@ -33,8 +33,9 @@ func newRootCommand() *cobra.Command {
 	logLevel := "info"
 	var noColor bool
 	var showVersion bool
+	var rulesPath string
 
-	cmd := newVerifyCommand(&kubeconfigPath, &kubeContext, &logLevel, &noColor)
+	cmd := newVerifyCommand(&kubeconfigPath, &kubeContext, &logLevel, &noColor, &rulesPath)
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = false
 	cmd.CompletionOptions.DisableDefaultCmd = true
@@ -43,11 +44,12 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", logLevel, "Log level for output (debug, info, warn, error)")
 	cmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	cmd.PersistentFlags().BoolVar(&showVersion, "version", false, "Print version and exit")
+	cmd.PersistentFlags().StringVar(&rulesPath, "rules-path", "", "Extra rules.d search paths (comma/colon-separated)")
 	cmd.SetHelpCommand(newHelpCommand(cmd))
 	return cmd
 }
 
-func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *string, noColor *bool) *cobra.Command {
+func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *string, noColor *bool, rulesPath *string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "verify <config.yaml>",
@@ -136,6 +138,7 @@ Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|
 				Console:     console,
 				ErrOut:      cmd.ErrOrStderr(),
 				Out:         out,
+				RulesPath:   splitListLocal(*rulesPath),
 			})
 			return err
 		},
@@ -157,4 +160,19 @@ Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|
 	cmd.AddCommand(newVerifyInitCommand())
 
 	return cmd
+}
+
+func splitListLocal(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ':' })
+	var out []string
+	for _, f := range fields {
+		if s := strings.TrimSpace(f); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

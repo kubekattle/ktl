@@ -8,11 +8,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/open-policy-agent/opa/rego"
 )
 
-func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any, commonDir string) ([]Finding, error) {
+func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any, commonDirs []string) ([]Finding, error) {
 	if len(rules.Rules) == 0 || len(objects) == 0 {
 		return nil, nil
 	}
@@ -50,7 +51,7 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 	}
 	input := map[string]any{"document": inputDocs}
 
-	modules, err := loadRegoModules(commonDir)
+	modules, err := loadRegoModulesDirs(commonDirs)
 	if err != nil {
 		return nil, err
 	}
@@ -137,40 +138,55 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 	return findings, nil
 }
 
-func loadRegoModules(dir string) (map[string]string, error) {
-	dir = strings.TrimSpace(dir)
-	if dir == "" {
+var regoModuleCache sync.Map // key -> map[string]string
+
+func loadRegoModulesDirs(dirs []string) (map[string]string, error) {
+	if len(dirs) == 0 {
 		return nil, errors.New("rego module dir is required")
 	}
-	var modules []string
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if strings.HasSuffix(strings.ToLower(d.Name()), ".rego") {
-			modules = append(modules, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
+	normalized := dedupeStrings(dirs)
+	if len(normalized) == 0 {
+		return nil, errors.New("rego module dir is required")
 	}
-	sort.Strings(modules)
+	key := strings.Join(normalized, "|")
+	if cached, ok := regoModuleCache.Load(key); ok {
+		// modules maps are treated read-only by callers.
+		return cached.(map[string]string), nil
+	}
+
 	out := map[string]string{}
-	for _, path := range modules {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
+	for _, dir := range normalized {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
 		}
-		name := filepath.ToSlash(strings.TrimPrefix(path, dir))
-		name = strings.TrimPrefix(name, "/")
-		out[name] = string(raw)
+		var modules []string
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if strings.HasSuffix(strings.ToLower(d.Name()), ".rego") {
+				modules = append(modules, path)
+			}
+			return nil
+		})
+		sort.Strings(modules)
+		for _, path := range modules {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			name := filepath.ToSlash(strings.TrimPrefix(path, dir))
+			name = strings.TrimPrefix(name, "/")
+			out[name] = string(raw)
+		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("no .rego modules found under %s", dir)
+		return nil, fmt.Errorf("no .rego modules found under %s", strings.Join(normalized, ","))
 	}
+	regoModuleCache.Store(key, out)
 	return out, nil
 }

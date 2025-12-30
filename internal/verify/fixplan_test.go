@@ -39,7 +39,7 @@ func TestEvaluateRules_UsesDocumentMetadataForSubject(t *testing.T) {
 			},
 		},
 	}
-	findings, err := EvaluateRules(t.Context(), rules, []map[string]any{obj}, verifyTestdata("internal", "verify", "rules", "builtin", "lib"))
+	findings, err := EvaluateRules(t.Context(), rules, []map[string]any{obj}, []string{verifyTestdata("internal", "verify", "rules", "builtin", "lib")})
 	if err != nil {
 		t.Fatalf("EvaluateRules: %v", err)
 	}

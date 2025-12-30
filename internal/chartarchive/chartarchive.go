@@ -95,11 +95,10 @@ func PackageDir(ctx context.Context, chartDir string, opts PackageOptions) (*Pac
 	if strings.TrimSpace(outputPath) == "" {
 		return nil, errors.New("resolved output path is empty")
 	}
-	if strings.TrimSpace(outputPath) == "-" {
-		return nil, errors.New("output path cannot be '-' for sqlite archives")
-	}
 
-	if !opts.Force {
+	streamToStdout := strings.TrimSpace(outputPath) == "-"
+
+	if !opts.Force && !streamToStdout {
 		if _, err := os.Stat(outputPath); err == nil {
 			return nil, fmt.Errorf("output already exists: %s (rerun with --force to overwrite)", outputPath)
 		}
@@ -124,6 +123,11 @@ func PackageDir(ctx context.Context, chartDir string, opts PackageOptions) (*Pac
 	if err != nil {
 		cleanupTmp()
 		return nil, err
+	}
+
+	if streamToStdout {
+		result.ArchivePath = tmpPath
+		return result, nil
 	}
 
 	if opts.Force {

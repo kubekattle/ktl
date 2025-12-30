@@ -47,9 +47,10 @@ type Chart struct {
 }
 
 type Rules struct {
-	Mode     string `yaml:"mode,omitempty"`   // warn|block|off
-	FailOn   string `yaml:"failOn,omitempty"` // info|low|medium|high|critical
-	RulesDir string `yaml:"rulesDir,omitempty"`
+	Mode      string   `yaml:"mode,omitempty"`   // warn|block|off
+	FailOn    string   `yaml:"failOn,omitempty"` // info|low|medium|high|critical
+	RulesDir  string   `yaml:"rulesDir,omitempty"`
+	RulesPath []string `yaml:"rulesPath,omitempty"`
 
 	Policy struct {
 		Ref  string `yaml:"ref,omitempty"`
@@ -121,6 +122,9 @@ func (c *Config) ResolvePaths(baseDir string) {
 	}
 	c.Target.Manifest = resolveRelPath(baseDir, c.Target.Manifest)
 	c.Verify.RulesDir = resolveRelPath(baseDir, c.Verify.RulesDir)
+	for i := range c.Verify.RulesPath {
+		c.Verify.RulesPath[i] = resolveRelPath(baseDir, c.Verify.RulesPath[i])
+	}
 	c.Verify.Policy.Ref = resolveRelMaybeURL(baseDir, c.Verify.Policy.Ref)
 	c.Verify.Baseline.Read = resolveRelPath(baseDir, c.Verify.Baseline.Read)
 	c.Verify.Baseline.Write = resolveRelPath(baseDir, c.Verify.Baseline.Write)

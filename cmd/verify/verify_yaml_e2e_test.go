@@ -17,7 +17,8 @@ func TestVerifyInlineManifest_Shortcut(t *testing.T) {
 	kubeContext := ""
 	logLevel := "info"
 	noColor := false
-	cmd := newVerifyCommand(&kubeconfig, &kubeContext, &logLevel, &noColor)
+	rulesPath := ""
+	cmd := newVerifyCommand(&kubeconfig, &kubeContext, &logLevel, &noColor, &rulesPath)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(stdout)

@@ -2,6 +2,8 @@ package verify
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -50,13 +52,28 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		}
 		return rep, nil
 	}
-	rulesDir := strings.TrimSpace(opts.RulesDir)
-	if rulesDir == "" {
-		rulesDir = strings.TrimSpace(r.RulesDir)
+	baseDir := strings.TrimSpace(opts.RulesDir)
+	if baseDir == "" {
+		baseDir = strings.TrimSpace(r.RulesDir)
 	}
-	opts.RulesDir = rulesDir
+	paths := []string{baseDir}
+	for _, p := range opts.ExtraRules {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	if env := strings.TrimSpace(os.Getenv("KTL_VERIFY_RULES_PATH")); env != "" {
+		for _, p := range splitList(env) {
+			if p != "" {
+				paths = append(paths, p)
+			}
+		}
+	}
+	paths = dedupeStrings(paths)
+	opts.RulesDir = baseDir
 
-	rulesetHash, _ := RulesetDigest(rulesDir)
+	rulesetHash, _ := RulesetDigestMulti(paths)
 	rulesetLabel := nonEmpty("builtin@"+rulesetHash, "builtin")
 	if emit != nil {
 		_ = emit(Event{
@@ -67,15 +84,21 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		})
 	}
 
-	rules, err := LoadRuleset(rulesDir)
+	rules, err := LoadRuleset(paths...)
 	if err != nil {
 		return nil, err
 	}
-	commonDir := strings.TrimSpace(rulesDir)
-	commonDir = strings.TrimSuffix(commonDir, "/")
-	commonDir = strings.TrimSuffix(commonDir, "\\")
-	commonDir = strings.TrimSpace(commonDir)
-	commonDir = commonDir + "/lib"
+	commonDirs := make([]string, 0, len(paths))
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		p = strings.TrimSuffix(p, "/")
+		p = strings.TrimSuffix(p, "\\")
+		p = strings.TrimSpace(p)
+		commonDirs = append(commonDirs, filepath.Join(p, "lib"))
+	}
 
 	rep := &Report{
 		Tool:        "ktl-verify",
@@ -100,7 +123,7 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		_ = emit(Event{Type: EventProgress, When: time.Now().UTC(), Phase: "evaluate"})
 	}
 
-	ruleFindings, err := EvaluateRules(ctx, rules, objects, commonDir)
+	ruleFindings, err := EvaluateRules(ctx, rules, objects, commonDirs)
 	if err != nil {
 		return nil, err
 	}

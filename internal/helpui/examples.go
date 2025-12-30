@@ -91,5 +91,7 @@ var curatedExamples = map[string][]string{
 		"# Package a chart directory\npackage ./chart --output dist/chart.sqlite",
 		"# Verify an existing archive\npackage --verify dist/chart.sqlite",
 		"# Package then verify (quiet with SHA)\npackage ./chart --output dist/chart.sqlite --print-sha --quiet && package --verify dist/chart.sqlite",
+		"# Stream an archive over ssh\npackage ./chart --output - | ssh host \"cat > chart.sqlite\"",
+		"# Unpack an archive into a directory\npackage --unpack dist/chart.sqlite --destination ./chart-unpacked",
 	},
 }
