@@ -47,7 +47,7 @@ PACKAGECLI_PKG ?= ./cmd/package
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% build-capture build-verify build-packagecli build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify
+.PHONY: help build build-% build-capture build-verify build-packagecli build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e
  
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
@@ -236,6 +236,9 @@ test-ci: ## Run fmt, lint, test, and package/verify smoke (CI parity)
 	$(MAKE) lint
 	$(MAKE) test
 	$(MAKE) smoke-package-verify
+
+verify-charts-e2e: ## Run verify across all charts in testdata/charts (requires verify binary)
+	VERIFY_BIN="$(BIN_DIR)/verify" ./integration/verify_charts_e2e.sh
 
 fmt: ## Format all Go files in the module
 	@echo ">> go fmt ./..."
