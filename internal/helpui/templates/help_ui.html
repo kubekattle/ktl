@@ -202,6 +202,13 @@
         overflow-x: auto;
         padding: 2px 2px;
       }
+      .detailLinks {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .detailLinks .chip { text-transform: none; letter-spacing: normal; font-size: 0.8rem; }
       .tile {
         border-radius: 999px;
         background: rgba(255,255,255,0.72);
@@ -526,6 +533,23 @@
           meta.textContent = metaParts.join(" · ");
           wrap.appendChild(meta);
         }
+        if (entry.links && entry.links.length) {
+          const linkWrap = document.createElement("div");
+          linkWrap.className = "detailLinks";
+          for (const link of entry.links) {
+            if (!link || !link.id) continue;
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "chip";
+            btn.textContent = link.title || link.id;
+            btn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              select(link.id);
+            });
+            linkWrap.appendChild(btn);
+          }
+          if (linkWrap.childNodes.length) wrap.appendChild(linkWrap);
+        }
         if (entry.content) {
           const hasNewlines = entry.content.indexOf("\n") >= 0;
           if (hasNewlines) {
@@ -552,6 +576,10 @@
 
       function select(id) {
         state.activeId = id;
+        if (state.activeId && state.index && state.index.entries) {
+          const match = state.index.entries.find(e => e && e.id === state.activeId);
+          if (match && match.kind) setKind(match.kind);
+        }
         renderResults();
       }
 

@@ -17,12 +17,18 @@ type Index struct {
 	Entries     []Entry `json:"entries"`
 }
 
+type Link struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
 type Entry struct {
 	ID       string   `json:"id"`
 	Kind     string   `json:"kind"` // command|flag|env
 	Title    string   `json:"title"`
 	Subtitle string   `json:"subtitle,omitempty"`
 	Sources  []string `json:"sources,omitempty"`
+	Links    []Link   `json:"links,omitempty"`
 	Content  string   `json:"content,omitempty"`
 	Examples []string `json:"examples,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
@@ -190,6 +196,18 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 			Subtitle: "Registered flags and enablement",
 			Content:  doc,
 			Tags:     []string{"doc", "internals", "feature", "featureflags"},
+		})
+	}
+
+	if doc, links := internalsIndexDoc(); strings.TrimSpace(doc) != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:internals",
+			Kind:     "doc",
+			Title:    "Internals",
+			Subtitle: "Key modules and ownership map",
+			Content:  strings.TrimSpace(doc),
+			Links:    links,
+			Tags:     []string{"doc", "internals", "modules", "ownership"},
 		})
 	}
 
