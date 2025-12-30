@@ -32,6 +32,7 @@ If you’re an AI agent (or using one), start with:
 - Update fixtures: edit `testdata/...`, refresh goldens, and rerun the closest tests.
 - UI work: follow the Frontend Design System (below); extend tokens/components first.
 - Tags & GitHub Releases: create annotated tags (`git tag -a vX.Y.Z -m "vX.Y.Z"`), push them (`git push origin vX.Y.Z`), then publish a matching GitHub Release (e.g., `gh release create vX.Y.Z --title "vX.Y.Z" --notes "<summary>" [assets...]`) so tags and releases stay in sync.
+- When adding a new CLI surface, update `internal/helpui/examples.go` so help-ui search stays aligned with README/recipes.
 
 ## Repository Structure
 - `cmd/ktl`: Cobra entrypoint; add flags, top-level wiring, and CLI UX only.

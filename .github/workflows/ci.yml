@@ -16,6 +16,15 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: gofmt (check)
         run: |
           set -euo pipefail
@@ -39,12 +48,31 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Verify dependencies
         run: go mod verify
 
       - name: Unit tests
-        run: go test ./...
+        run: |
+          set -euo pipefail
+          go test -json ./... > /tmp/go-test.json
+          # On failure, upload the log
+        shell: bash
+      - name: Upload test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-json
+          path: /tmp/go-test.json
 
       - name: Smoke test package/verify
         run: |
@@ -61,6 +89,15 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Race tests (selected)
         run: go test -race ./cmd/... ./internal/verify/...
 
@@ -75,6 +112,15 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           cache: true
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: go test (matrix)
         run: go test ./...
 

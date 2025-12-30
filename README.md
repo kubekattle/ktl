@@ -42,6 +42,16 @@ See `docs/recipes.md` for copy/paste workflows, or run `ktl help --ui` for searc
 2) Create a matching GitHub Release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes "<summary>" [assets...]`.
 3) Attach build artifacts (ktl/verify/package binaries or archives) or explicitly note when none are attached.
 
+### Install from releases
+1) Download the tarball for your OS/ARCH (ktl/verify/package) from the Releases page.
+2) Verify checksum: `sha256sum -c checksums.txt` (or the matching `.sha256` file).
+3) Install: `chmod +x ./<tool> && sudo mv ./<tool> /usr/local/bin/<tool>`.
+
+Sample versions:
+- `ktl --version`
+- `verify --version`
+- `package --version`
+
 ## CI / Branch hygiene
 - CI should run at least `make fmt lint test` on PRs; add a smoke test that packages a sample chart then verifies the archive to catch CLI regressions.
 - Cache Go modules in CI to speed builds.

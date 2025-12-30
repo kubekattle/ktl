@@ -51,6 +51,7 @@ TXT
             tar -C "${outdir}" -czf "${tarball}" .
             sha256sum "${tarball}" > "${tarball}.sha256"
           done
+          cat dist/*.sha256 > dist/checksums.txt
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -58,5 +59,6 @@ TXT
           files: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
+            dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
