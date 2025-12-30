@@ -47,7 +47,7 @@ PACKAGECLI_PKG ?= ./cmd/package
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% build-capture build-verify build-packagecli install install-capture install-verify install-packagecli release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-%
+.PHONY: help build build-% build-capture build-verify build-packagecli build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify
  
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
@@ -77,6 +77,11 @@ build-packagecli: ## Build package CLI for the current platform into ./bin/packa
 	@mkdir -p $(BIN_DIR)
 	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(PACKAGECLI_BINARY) $(PACKAGECLI_PKG)
 
+build-all: ## Build ktl, verify, and package for the current platform into ./bin/
+	$(MAKE) build
+	$(MAKE) build-verify
+	$(MAKE) build-packagecli
+
 build-%: ## Build ktl for <os>-<arch> into ./bin/ktl-<os>-<arch>[.exe]
 	@mkdir -p $(BIN_DIR)
 	@target="$*"; os="$${target%-*}"; arch="$${target#*-}"; \
@@ -105,6 +110,11 @@ install-packagecli: ## Install package CLI into GOPATH/bin or GOBIN
 	@echo ">> installing $(PACKAGECLI_BINARY) ($(VERSION))"
 	$(GO) install $(GOFLAGS) -ldflags '$(LDFLAGS)' $(PACKAGECLI_PKG)
 
+install-all: ## Install ktl, verify, and package
+	$(MAKE) install
+	$(MAKE) install-verify
+	$(MAKE) install-packagecli
+
 release: ## Cross-build release artifacts into ./dist
 	@echo ">> building release artifacts for: $(RELEASE_PLATFORMS)"
 	@mkdir -p $(DIST_DIR)
@@ -114,6 +124,12 @@ release: ## Cross-build release artifacts into ./dist
 		if [ "$$os" = "windows" ]; then out="$$out.exe"; fi; \
 		echo "   - $$os/$$arch -> $$out"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $$out $(PKG); \
+		for tool in verify package; do \
+			out2="$(DIST_DIR)/$$tool-$$os-$$arch"; \
+			if [ "$$os" = "windows" ]; then out2="$$out2.exe"; fi; \
+			echo "   - $$os/$$arch -> $$out2"; \
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $$out2 ./cmd/$$tool; \
+		done; \
 	done
 
 gh-release: release ## Publish release artifacts to GitHub via gh CLI
@@ -209,6 +225,17 @@ test-short: ## Run Go tests with -short
 
 test-integration: ## Run integration tests (requires cluster access)
 	$(GOTEST) $(GO_TEST_FLAGS) ./integration/...
+
+smoke-package-verify: ## Package a sample chart and verify the archive (local smoke)
+	@mkdir -p $(DIST_DIR)
+	go run ./cmd/package --output $(DIST_DIR)/smoke-chart.sqlite ./testdata/charts/drift-guard
+	go run ./cmd/package --verify $(DIST_DIR)/smoke-chart.sqlite
+
+test-ci: ## Run fmt, lint, test, and package/verify smoke (CI parity)
+	$(MAKE) fmt
+	$(MAKE) lint
+	$(MAKE) test
+	$(MAKE) smoke-package-verify
 
 fmt: ## Format all Go files in the module
 	@echo ">> go fmt ./..."
