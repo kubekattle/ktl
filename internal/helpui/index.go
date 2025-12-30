@@ -22,6 +22,7 @@ type Entry struct {
 	Kind     string   `json:"kind"` // command|flag|env
 	Title    string   `json:"title"`
 	Subtitle string   `json:"subtitle,omitempty"`
+	Sources  []string `json:"sources,omitempty"`
 	Content  string   `json:"content,omitempty"`
 	Examples []string `json:"examples,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
@@ -56,14 +57,20 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		if curated, ok := curatedExamples[path]; ok {
 			examples = append(examples, curated...)
 		}
+		sources := ownersForCommand(path)
+		tags := []string{"command"}
+		if len(sources) > 0 {
+			tags = append(tags, sources...)
+		}
 		entries = append(entries, Entry{
 			ID:       "cmd:" + path,
 			Kind:     "command",
 			Title:    path,
 			Subtitle: strings.TrimSpace(cmd.Short),
+			Sources:  sources,
 			Content:  strings.Join(contentParts, "\n\n"),
 			Examples: examples,
-			Tags:     []string{"command"},
+			Tags:     tags,
 		})
 
 		addLocalFlags := func(fs *pflag.FlagSet) {
