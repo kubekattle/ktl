@@ -31,6 +31,7 @@ If you’re an AI agent (or using one), start with:
 - Profiles/app config: global `~/.ktl/config.yaml`, repo `.ktl.yaml`; validate with `go test ./cmd/ktl -run TestBuildProfile`.
 - Update fixtures: edit `testdata/...`, refresh goldens, and rerun the closest tests.
 - UI work: follow the Frontend Design System (below); extend tokens/components first.
+- Tags & GitHub Releases: create annotated tags (`git tag -a vX.Y.Z -m "vX.Y.Z"`), push them (`git push origin vX.Y.Z`), then publish a matching GitHub Release (e.g., `gh release create vX.Y.Z --title "vX.Y.Z" --notes "<summary>" [assets...]`) so tags and releases stay in sync.
 
 ## Repository Structure
 - `cmd/ktl`: Cobra entrypoint; add flags, top-level wiring, and CLI UX only.
