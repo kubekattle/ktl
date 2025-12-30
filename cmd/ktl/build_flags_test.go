@@ -79,7 +79,7 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 		"--compose-parallelism=5",
 		"--output=logs",
 		"--authfile=" + authFile,
-		"--sandbox-config=testdata/sandbox/linux-ci.cfg",
+		"--sandbox-config=sandbox/linux-ci.cfg",
 		"--sandbox-bin=/usr/local/bin/nsjail",
 		"--sandbox-bind=/tmp:/tmp",
 		"--sandbox-workdir=/work",
@@ -179,7 +179,7 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 	if opts.AuthFile != authFile {
 		t.Fatalf("authfile not propagated: %q", opts.AuthFile)
 	}
-	if opts.SandboxConfig != "testdata/sandbox/linux-ci.cfg" {
+	if opts.SandboxConfig != "sandbox/linux-ci.cfg" {
 		t.Fatalf("sandbox-config not propagated: %q", opts.SandboxConfig)
 	}
 	if opts.SandboxBin != "/usr/local/bin/nsjail" {

@@ -94,11 +94,10 @@ Why:
 
 What to run:
 ```bash
-export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
+export KTL_SANDBOX_CONFIG="$(pwd)/sandbox/linux-ci.cfg"
 ktl build --context . --tag ghcr.io/acme/app:dev --sandbox-logs
 ```
 
 Next steps:
 - Inspect `[sandbox]` diagnostics.
-- If you need tighter security, start from `testdata/sandbox/linux-strict.cfg` and add only the required mounts.
-
+- If you need tighter security, start from `sandbox/linux-strict.cfg` and add only the required mounts.

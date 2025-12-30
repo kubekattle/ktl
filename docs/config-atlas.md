@@ -125,14 +125,14 @@ output:
   report: "-"
 ```
 
-## Sandbox profiles (`testdata/sandbox/*.cfg`)
+## Sandbox profiles (`sandbox/*.cfg`)
 
-Sandbox policies live under `testdata/sandbox/` and are selected via `KTL_SANDBOX_CONFIG` (or `--sandbox-config`).
+Sandbox policies live under `sandbox/` and are selected via `KTL_SANDBOX_CONFIG` (or `--sandbox-config`).
 
 Example (CI-like policy):
 
 ```bash
-export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
+export KTL_SANDBOX_CONFIG="$(pwd)/sandbox/linux-ci.cfg"
 ktl build --context . --tag ghcr.io/acme/app:dev
 ```
 
@@ -143,4 +143,3 @@ What matters most in a policy:
 - `mount` blocks (what is visible in the sandbox).
 
 For threat model + guidance, see `docs/sandbox-security.md`.
-

@@ -1,12 +1,12 @@
 # sandbox-strict build fixture
 
 This context is used to smoke-test `ktl build` while running under a stricter
-nsjail policy (`testdata/sandbox/linux-strict.cfg`).
+nsjail policy (`sandbox/linux-strict.cfg`).
 
 Run:
 
 ```bash
-export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-strict.cfg"
+export KTL_SANDBOX_CONFIG="$(pwd)/sandbox/linux-strict.cfg"
 ktl build ./testdata/build/dockerfiles/sandbox-strict --no-cache --tag ktl.local/sandbox-strict:dev
 ```
 
@@ -20,4 +20,3 @@ To demonstrate host-path isolation directly, run:
 ```bash
 go test -tags=integration ./cmd/ktl -run TestSandboxBlocksUnboundHostPaths
 ```
-

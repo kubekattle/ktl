@@ -82,7 +82,7 @@ say "6) Sandbox build demo (Linux-only)"
 if [[ "$os" != "linux" ]]; then
   echo "SKIP: sandbox runtime demo requires Linux + nsjail (see scripts/remote-sandbox-demo.sh)"
 else
-  export KTL_SANDBOX_CONFIG="${KTL_SANDBOX_CONFIG:-$repo_root/testdata/sandbox/linux-ci.cfg}"
+  export KTL_SANDBOX_CONFIG="${KTL_SANDBOX_CONFIG:-$repo_root/sandbox/linux-ci.cfg}"
   "$ktl" build testdata/build/dockerfiles/sandbox-strict --sandbox --sandbox-logs
 fi
 pause 2

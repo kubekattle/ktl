@@ -3,7 +3,7 @@ set -euo pipefail
 
 host="${KTL_SANDBOX_DEMO_HOST:-root@188.124.37.233}"
 remote_dir="${KTL_SANDBOX_DEMO_REMOTE_DIR:-}"
-policy_rel="${KTL_SANDBOX_DEMO_POLICY_REL:-testdata/sandbox/linux-ci.cfg}"
+policy_rel="${KTL_SANDBOX_DEMO_POLICY_REL:-sandbox/linux-ci.cfg}"
 
 red() { printf "\033[31m%s\033[0m\n" "$*"; }
 yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
@@ -46,4 +46,3 @@ echo ">> running sandbox demo on remote"
 ssh "$host" "cd '$remote_dir' && export KTL_BIN='./bin/ktl' && export KTL_SANDBOX_CONFIG='$remote_dir/$policy_rel' && ./scripts/sandbox-demo.sh"
 
 yellow "Note: remote repo directory left at $remote_dir (set KTL_SANDBOX_DEMO_REMOTE_DIR to reuse/cleanup)."
-

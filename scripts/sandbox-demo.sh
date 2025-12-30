@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 ktl_bin="${KTL_BIN:-./bin/ktl}"
-policy="${KTL_SANDBOX_CONFIG:-$repo_root/testdata/sandbox/linux-ci.cfg}"
+policy="${KTL_SANDBOX_CONFIG:-$repo_root/sandbox/linux-ci.cfg}"
 
 baseline_ctx="$repo_root/testdata/sandbox-demo/baseline"
 probe_host_root_file="${PROBE_HOST_ROOT_FILE:-$repo_root/.ktl-sandbox-demo-host-only.txt}"
@@ -217,7 +217,7 @@ else
 fi
 
 printf "\n[Тест 5] Если песочница не стартует — это должно быть видно через --sandbox-logs\n" >&2
-bad_policy="$repo_root/testdata/sandbox/does-not-exist.cfg"
+bad_policy="$repo_root/sandbox/does-not-exist.cfg"
 logs_out="$("$ktl_bin" build "$baseline_ctx" --sandbox-config "$bad_policy" --sandbox-logs 2>&1 || true)"
 if printf "%s" "$logs_out" | contains "sandbox config:" ; then
   note_pass "ошибка политики видна (нет 'тихого' выхода без сообщений)"

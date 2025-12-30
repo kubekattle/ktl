@@ -38,7 +38,7 @@ command -v nsjail
 2) Возьмите политику песочницы (для демо достаточно `linux-ci`):
 
 ```bash
-export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
+export KTL_SANDBOX_CONFIG="$(pwd)/sandbox/linux-ci.cfg"
 ```
 
 Если на хосте нет Go toolchain, демо всё равно можно прогнать с уже собранным бинарником:
@@ -90,4 +90,4 @@ export KTL_SANDBOX_CONFIG="$(pwd)/testdata/sandbox/linux-ci.cfg"
 
 - `KTL_SANDBOX_DISABLE=1` — это флаг повышенного риска (включать только для отладки и только на доверенном коде).
 - Недоверенные репозитории (PR/форки) — всегда собирать в песочнице.
-- Если легитимной сборке нужны дополнительные бинды, добавляйте их явно и проверяемо (`--sandbox-bind` или политика в `testdata/sandbox/*.cfg`).
+- Если легитимной сборке нужны дополнительные бинды, добавляйте их явно и проверяемо (`--sandbox-bind` или политика в `sandbox/*.cfg`).

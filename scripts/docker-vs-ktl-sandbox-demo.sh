@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 ktl_bin="${KTL_BIN:-./bin/ktl}"
-policy="${KTL_SANDBOX_CONFIG:-$repo_root/testdata/sandbox/linux-ci.cfg}"
+policy="${KTL_SANDBOX_CONFIG:-$repo_root/sandbox/linux-ci.cfg}"
 marker_ctx="$repo_root/testdata/sandbox-demo/host-marker"
 marker_path="${MARKER_PATH:-/tmp/ktl-sandbox-demo-host-marker.txt}"
 
