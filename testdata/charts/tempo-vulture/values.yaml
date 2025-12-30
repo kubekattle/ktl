@@ -80,6 +80,6 @@ podMonitor:
 
 tempoAddress:
   # -- the url towards your Tempo distributor, e.g. http://distributor
-  push:
+  push: http://tempo-distributor
   # -- the url towards your Tempo query-frontend, e.g. http://query-frontend:3200
-  query:
+  query: http://tempo-query-frontend:3200

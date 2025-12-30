@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ktl-applyplan-e2e.fullname" . }}
+data:
+  enabled: {{ ternary "true" "false" .Values.config.enabled | quote }}
+  text: {{ .Values.config.text | quote }}
+  extra: {{ .Values.config.extra | quote }}
+  fileBlob: {{ .Values.fileBlob | quote }}
+

@@ -1,0 +1,7 @@
+apiVersion: v2
+name: ktl-applyplan-e2e
+description: Minimal chart used for ktl apply plan e2e coverage.
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+

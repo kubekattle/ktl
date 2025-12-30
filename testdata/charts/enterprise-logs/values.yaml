@@ -604,6 +604,14 @@ minio:
   enabled: true
   accessKey: enterprise-logs
   secretKey: supersecret
+  service:
+    port: 9000
+  mcImage:
+    repository: minio/mc
+    tag: latest
+    pullPolicy: IfNotPresent
+  tls:
+    enabled: false
   buckets:
     - name: enterprise-logs-tsdb
       policy: none

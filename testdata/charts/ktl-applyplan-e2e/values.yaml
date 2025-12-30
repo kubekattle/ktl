@@ -1,0 +1,14 @@
+replicaCount: 1
+
+createNamespace: false
+
+config:
+  enabled: true
+  text: default
+  extra: ""
+
+fileBlob: ""
+
+rbac:
+  clusterWide: false
+

@@ -60,13 +60,13 @@ debug: false
 
 # For these values, see https://grafana.com/docs/grafana-cloud/connect-externally-hosted/private-data-source-connect/configure-pdc/#pdc-connection-steps
 # -- The cluster where your Hosted Grafana stack is running
-cluster: ""
+cluster: "e2e"
 # -- The numeric ID of your Hosted Grafana stack
-hostedGrafanaId: ""
+hostedGrafanaId: "1"
 # -- secretName Expects a secret with key `token` which contains the Access Policy token you generated
 tokenSecretName: ""
 # -- insecureTokenValue is used to set the token value directly in the deployment.yaml file. This is useful for testing purposes.
-insecureTokenValue: ""
+insecureTokenValue: "dummy"
 
 # extra arguments for the pdc-agent can be found in:
 # https://github.com/grafana/pdc-agent/blob/main/pkg/ssh/ssh.go/

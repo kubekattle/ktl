@@ -84,3 +84,27 @@ Create the service endpoint including port for MinIO.
 {{- printf "%s-%s.%s.svc:%s" .Release.Name "minio" .Release.Namespace (.Values.minio.service.port | toString) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Upstream GEL charts reference loki-distributed helper templates (e.g. "loki.serviceAccountName").
+Our fixture copy is intentionally dependency-free, so provide minimal shims to keep templating working.
+*/}}
+{{- define "loki.serviceAccountName" -}}
+{{- include "enterprise-logs.fullname" . -}}
+{{- end -}}
+
+{{- define "loki.fullname" -}}
+{{- include "enterprise-logs.fullname" . -}}
+{{- end -}}
+
+{{- define "loki.querierFullname" -}}
+{{- printf "%s-querier" (include "enterprise-logs.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "loki.queryFrontendFullname" -}}
+{{- printf "%s-query-frontend" (include "enterprise-logs.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "loki.indexGatewayFullname" -}}
+{{- printf "%s-index-gateway" (include "enterprise-logs.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
