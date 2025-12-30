@@ -32,4 +32,3 @@ func ownersForCommand(path string) []string {
 	}
 	return nil
 }
-

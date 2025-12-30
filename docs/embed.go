@@ -9,4 +9,3 @@ var (
 	//go:embed deps.md
 	DepsMD string
 )
-
