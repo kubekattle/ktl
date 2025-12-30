@@ -109,7 +109,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	cmd := &cobra.Command{
 		Use:           "ktl <command>",
 		Short:         "High-performance multi-pod Kubernetes log tailer",
-		Long:          "ktl is the Kubernetes Swiss Army Knife with blazing fast startup and advanced filtering.",
+		Long:          "ktl is the Kubernetes Swiss Army Knife.",
 		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
