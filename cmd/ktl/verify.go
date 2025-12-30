@@ -83,7 +83,7 @@ type verifyConfigKube struct {
 func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify <config.yaml>",
-		Short: "Verify Kubernetes configuration using a YAML config file",
+		Short: "Verify Kubernetes configuration",
 		Long: strings.TrimSpace(`
 Verify renders and/or collects Kubernetes objects and evaluates them against the built-in verify rules.
 
