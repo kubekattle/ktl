@@ -30,7 +30,7 @@ make release   # cross-build archives into ./dist
 ```
 
 ## Examples
-See `examples.md` for up-to-date CLI examples.
+See `docs/recipes.md` for copy/paste workflows, or run `ktl help --ui` for searchable command examples.
 
 ## Profiles and config (build defaults)
 `ktl` supports execution profiles to apply sensible defaults.
@@ -45,7 +45,7 @@ CLI flags always win over profile/config defaults.
 ## Build policy gate (OPA/Rego)
 `ktl build` supports a fast “policy gate” so security can codify what’s allowed and developers get actionable failures locally and in CI.
 
-- `--policy <dir|https-url>` points at an OPA/Rego bundle (see `examples/policy/demo`).
+- `--policy <dir|https-url>` points at an OPA/Rego bundle.
 - `--policy-mode warn|enforce` starts in warn mode and ratchets to enforcement.
 - `--policy-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-policy-report.json` when `--attest-dir` is set).
 
@@ -56,7 +56,7 @@ CLI flags always win over profile/config defaults.
 - `--secrets-config <file|https-url>` loads a YAML/JSON rule set (regex-based), similar to Trivy’s configurable checks.
 - `--secrets-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-secrets-report.json` when `--attest-dir` is set).
 
-Try the demo at `examples/secrets/demo`.
+See `docs/recipes.md` for practical examples.
 
 ## Cache intelligence (ktl build)
 `ktl build` prints a post-build cache summary by default:

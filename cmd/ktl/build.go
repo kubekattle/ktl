@@ -142,7 +142,7 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string,
   ktl build .
 
   # Enforce an OPA/Rego policy bundle (writes JSON evidence to dist/attest)
-  ktl build . --attest-dir dist/attest --policy ./examples/policy/demo --policy-mode enforce
+  ktl build . --attest-dir dist/attest --policy /path/to/policy --policy-mode enforce
 
   # Auto-detect a compose project and build all services
   ktl build ./testdata/build/compose
