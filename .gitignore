@@ -11,5 +11,11 @@ dist/
 
 # ktl local state
 .ktl/
+# temp verify binaries/logs
+/tmp/verify_*.tmp
+/tmp/v.yaml
+# go build caches (local)
+*.test
+*.out
 # ktl local state
 .ktl/
