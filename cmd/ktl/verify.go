@@ -87,15 +87,10 @@ func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *str
 		Long: strings.TrimSpace(`
 Verify renders and/or collects Kubernetes objects and evaluates them against the built-in verify rules.
 
-The config file is a small schema; set target.kind to choose what you are verifying:
-  - namespace: read live objects from the cluster
-  - chart: render a Helm chart (optionally with cluster lookups enabled)
-  - manifest: verify an already-rendered manifest YAML file
-
-Common patterns:
-  - Prefer kube.context over hardcoding kubeconfig paths (use --kubeconfig only when needed).
-  - Use output.format: sarif for CI (report: "-" prints to stdout).
-  - Use baseline.read/write to gate drift (and baseline.exitOnDelta to fail on changes).
+Quick start:
+  - Generate a starter config:  ktl verify init chart|namespace
+  - See practical examples:     ktl help --ui  (search: "ktl verify")
+  - See docs:                  docs/config-atlas.md
 `),
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
@@ -394,6 +389,7 @@ Common patterns:
 
   ktl verify verify-manifest.yaml
 `)
+	cmd.AddCommand(newVerifyInitCommand())
 	return cmd
 }
 

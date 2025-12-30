@@ -75,6 +75,8 @@ Notes:
 
 `ktl verify` supports multiple targets. Two common ones:
 
+Tip: generate a starter config with `ktl verify init chart|namespace` and then customize it.
+
 ### Verify a chart render (no cluster access)
 
 ```yaml
