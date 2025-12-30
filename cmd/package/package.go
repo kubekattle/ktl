@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/example/ktl/internal/chartarchive"
+	"github.com/example/ktl/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -17,6 +18,7 @@ func newPackageCommand() *cobra.Command {
 	var verifyPath string
 	var printSHA bool
 	logLevel := "info"
+	var showVersion bool
 
 	cmd := &cobra.Command{
 		Use:           "package [CHART_DIR]",
@@ -25,6 +27,10 @@ func newPackageCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if showVersion {
+				fmt.Fprintf(cmd.OutOrStdout(), "package %s\n", version.Version)
+				return nil
+			}
 			if quiet && jsonOut {
 				return fmt.Errorf("--quiet and --json are mutually exclusive")
 			}
@@ -112,6 +118,7 @@ func newPackageCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&printSHA, "print-sha", false, "Print archive SHA256 (with --quiet: emits '<sha> <path>')")
 	cmd.Flags().StringVar(&verifyPath, "verify", "", "Verify an existing sqlite chart archive (PATH)")
 	cmd.Flags().StringVar(&logLevel, "log-level", logLevel, "Log level: debug|info|warn|error (debug prints extra diagnostics)")
+	cmd.Flags().BoolVar(&showVersion, "version", false, "Print version and exit")
 	cmd.Example = `  # Package a chart directory (defaults to current directory)
   package ./chart
 
