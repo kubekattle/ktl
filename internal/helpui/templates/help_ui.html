@@ -227,6 +227,7 @@
         border: 0;
         cursor: pointer;
         position: relative;
+        max-width: 100%;
       }
       .resultItem:last-child { margin-bottom: 0; }
       .resultItem.active {
@@ -249,13 +250,16 @@
         outline-offset: 2px;
       }
       .k {
-        display: inline-flex;
+        display: flex;
         align-items: center;
         gap: 8px;
+        min-width: 0;
       }
       .t {
         font-weight: 650;
         letter-spacing: -0.01em;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
       .s {
         color: var(--muted);
@@ -271,6 +275,7 @@
         background: rgba(255,255,255,0.65);
         border: 0;
         padding: 14px 14px;
+        max-width: 100%;
       }
       .detail.detailFlag {
         background: rgba(15, 23, 42, 0.06);
@@ -285,6 +290,10 @@
         border-radius: 16px;
         padding: 12px 12px;
         overflow: auto;
+        max-width: 100%;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
         font-size: 0.92rem;
         line-height: 1.35;
         margin: 12px 0 0 0;
