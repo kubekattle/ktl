@@ -147,6 +147,9 @@ func writeHTML(w io.Writer, rep *Report) error {
 	b.WriteString(".drawer{position:fixed;top:0;right:0;height:100%;width:min(520px, 92vw);background:rgba(255,255,255,0.96);border-left:1px solid rgba(11,31,42,0.10);box-shadow:0 40px 90px rgba(11,31,42,0.22);transform:translateX(100%);transition:transform 220ms var(--ease);padding:20px 18px 24px;overflow:auto;} .drawer.on{transform:translateX(0);} \n")
 	b.WriteString(".drawer h2{margin-top:0.25rem;} \n")
 	b.WriteString(".btn{border-radius:999px;padding:9px 12px;border:1px solid rgba(11,31,42,0.16);background:rgba(255,255,255,0.70);cursor:pointer;font-weight:650;} .btn:hover{border-color:rgba(176,141,87,0.60);} \n")
+	b.WriteString(".delta-tag{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 9px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.16em;font-weight:750;border:1px solid rgba(176,141,87,0.45);background:rgba(176,141,87,0.12);color:rgba(11,31,42,0.90);} \n")
+	b.WriteString(".changes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 6px;} .change{border-radius:999px;padding:6px 10px;border:1px solid rgba(11,31,42,0.10);background:rgba(255,255,255,0.55);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;color:rgba(11,31,42,0.80);} \n")
+	b.WriteString(".baseline-box{margin-top:12px;padding:12px 12px;border:1px solid rgba(11,31,42,0.10);border-radius:18px;background:rgba(255,255,255,0.65);} \n")
 	b.WriteString("pre{white-space:pre-wrap;margin:10px 0 0;background:rgba(11,31,42,0.04);border:1px solid rgba(11,31,42,0.08);border-radius:16px;padding:12px 14px;overflow-wrap:anywhere;word-break:break-word;} \n")
 	b.WriteString("body.print .toolbar,body.print aside,body.print .drawer,body.print .drawer-backdrop,body.print .toast{display:none !important;} body.print .layout{display:block;} body.print .panel{box-shadow:none;} \n")
 	b.WriteString("@media (max-width:1100px){body{padding:26px 16px 48px;} aside{position:relative;top:auto;flex:1 1 100%;} .layout{flex-direction:column;} } \n")
@@ -189,6 +192,8 @@ const verifyHTMLJS = `
   var namespaces = (data && data.namespaces) || [];
   var topRules = (data && data.topRules) || [];
   var topResources = (data && data.topResources) || [];
+  var deltaDetailsNew = (rep && rep.delta && rep.delta.newOrChangedDetails) ? rep.delta.newOrChangedDetails : [];
+  var deltaDetailsFixed = (rep && rep.delta && rep.delta.fixedDetails) ? rep.delta.fixedDetails : [];
 
   function qs(sel){ return document.querySelector(sel); }
   function ce(tag, cls){ var el=document.createElement(tag); if(cls){ el.className=cls; } return el; }
@@ -225,6 +230,24 @@ const verifyHTMLJS = `
     return base;
   }
   function isPolicy(f){ return String(f.ruleId||'').indexOf('policy/')===0; }
+  function fpForFinding(f){
+    // Prefer engine-computed fingerprint.
+    var fp = String(f.fingerprint || '').trim();
+    if(fp){ return fp; }
+    // Fallback aligns with server-side fallbackFingerprint/identityKey.
+    var subj = f.subject || {};
+    var loc = (f.location || '').trim();
+    var fieldPath = (f.fieldPath || '').trim();
+    var base = fieldPath || loc;
+    return [String(f.ruleId||''), String(subj.kind||''), String(subj.namespace||''), String(subj.name||''), base].join('|');
+  }
+  function idForFinding(f){
+    var subj = f.subject || {};
+    var loc = (f.location || '').trim();
+    var fieldPath = (f.fieldPath || '').trim();
+    var base = fieldPath || loc;
+    return [String(f.ruleId||''), String(subj.kind||''), String(subj.namespace||''), String(subj.name||''), base].join('|');
+  }
   function toast(msg){
     var t = qs('#toast');
     if(!t) return;
@@ -266,9 +289,46 @@ const verifyHTMLJS = `
       out._src = isPolicy(out) ? 'policy' : 'rules';
       out._fp = String(out.fingerprint || (out._rule + ':' + out._res + ':' + out._field)).trim();
       out._search = (out._rule + ' ' + out._res + ' ' + (out.message||'') + ' ' + (out.category||'') + ' ' + out._field).toLowerCase();
+      // Delta narrative (new/changed/fixed) is keyed by engine fingerprint where possible.
+      var dfp = fpForFinding(out);
+      var did = idForFinding(out);
+      var det = normalizeFindings._deltaByFP && normalizeFindings._deltaByFP[dfp] ? normalizeFindings._deltaByFP[dfp] : null;
+      if(!det && normalizeFindings._deltaByID && normalizeFindings._deltaByID[did]){ det = normalizeFindings._deltaByID[did]; }
+      if(det){
+        out._deltaKind = String(det.kind||'').trim();
+        out._deltaChanges = det.changes || [];
+        out._baseline = (out._deltaKind === 'changed') ? (det.baseline || null) : null;
+      }else{
+        out._deltaKind = '';
+        out._deltaChanges = [];
+        out._baseline = null;
+      }
       return out;
     });
   }
+  // Precompute delta lookup maps so the UI can show a change narrative.
+  (function(){
+    var byFP = {};
+    var byID = {};
+    (deltaDetailsNew||[]).forEach(function(d){
+      var cur = d.current || null;
+      if(!cur) return;
+      var fp = fpForFinding(cur);
+      var id = idForFinding(cur);
+      byFP[fp] = d;
+      byID[id] = d;
+    });
+    (deltaDetailsFixed||[]).forEach(function(d){
+      var base = d.baseline || null;
+      if(!base) return;
+      var fp = fpForFinding(base);
+      var id = idForFinding(base);
+      byFP[fp] = d;
+      byID[id] = d;
+    });
+    normalizeFindings._deltaByFP = byFP;
+    normalizeFindings._deltaByID = byID;
+  })();
   var allFindings = normalizeFindings(rep.findings || []);
   var delta = rep.delta || null;
   var deltaNew = delta && delta.newOrChanged ? normalizeFindings(delta.newOrChanged) : null;
@@ -374,6 +434,46 @@ const verifyHTMLJS = `
       });
       sb.appendChild(uli);
     }
+
+    if(delta){
+      sb.appendChild(text(ce('h2'), 'Review Checklist'));
+      var p = ce('p','muted');
+      var fixedCount = (delta.fixed && delta.fixed.length) ? delta.fixed.length : 0;
+      var newCount = (delta.newOrChanged && delta.newOrChanged.length) ? delta.newOrChanged.length : 0;
+      p.textContent = 'New/Changed: ' + newCount + ' · Fixed: ' + fixedCount + ' · Unchanged: ' + String(delta.unchanged || 0);
+      sb.appendChild(p);
+
+      var btn = ce('button','btn'); btn.type='button'; btn.textContent='Copy PR Summary';
+      btn.onclick = function(){
+        var lines = [];
+        lines.push('### ktl verify');
+        lines.push('');
+        lines.push('- New/Changed: ' + newCount);
+        lines.push('- Fixed: ' + fixedCount);
+        lines.push('- Unchanged: ' + String(delta.unchanged || 0));
+        if((topRules||[]).length){
+          lines.push('');
+          lines.push('Top rules:');
+          (topRules||[]).slice(0,5).forEach(function(it){ lines.push('- ' + it.key + ' (' + it.count + ')'); });
+        }
+        // Surface template sources when available.
+        var srcSet = {};
+        (delta.newOrChanged||[]).forEach(function(f){
+          var ev = f.evidence || {};
+          var src = String(ev.templateSource || f.path || '').trim();
+          if(src){ srcSet[src]=1; }
+        });
+        var srcs = Object.keys(srcSet).sort();
+        if(srcs.length){
+          lines.push('');
+          lines.push('Touched templates/files:');
+          srcs.slice(0,10).forEach(function(s){ lines.push('- ' + s); });
+          if(srcs.length>10){ lines.push('- …'); }
+        }
+        copyText(lines.join('\\n'));
+      };
+      sb.appendChild(btn);
+    }
   }
   function findingsForState(){
     var list = null;
@@ -433,10 +533,35 @@ const verifyHTMLJS = `
     dr.appendChild(top);
 
     var sev = ce('p'); sev.appendChild(badgeFor(f._sev)); dr.appendChild(sev);
+    if(f._deltaKind){
+      var tag = ce('span','delta-tag');
+      tag.textContent = (f._deltaKind || '').toUpperCase();
+      dr.appendChild(tag);
+    }
+    if(f._deltaChanges && f._deltaChanges.length){
+      var ch = ce('div','changes');
+      (f._deltaChanges||[]).forEach(function(c){
+        var it = ce('span','change'); it.textContent = String(c).toUpperCase(); ch.appendChild(it);
+      });
+      dr.appendChild(ch);
+    }
     if(f.message){ dr.appendChild(text(ce('p'), f.message)); }
     if(f.expected){ dr.appendChild(text(ce('div','muted'), 'Expected')); var pre=ce('pre','mono'); pre.textContent=String(f.expected); dr.appendChild(pre); }
     if(f.observed){ dr.appendChild(text(ce('div','muted'), 'Observed')); var pre2=ce('pre','mono'); pre2.textContent=String(f.observed); dr.appendChild(pre2); }
     if(f.helpUrl){ var p=ce('p'); var a=ce('a'); a.href=f.helpUrl; a.target='_blank'; a.rel='noreferrer'; a.textContent='Docs'; p.appendChild(a); dr.appendChild(p); }
+    if(f._baseline){
+      var box = ce('div','baseline-box');
+      box.appendChild(text(ce('div','muted'), 'Baseline'));
+      var bmsg = String(f._baseline.message || '').trim();
+      if(bmsg){ box.appendChild(text(ce('p'), bmsg)); }
+      var bexp = String(f._baseline.expected || '').trim();
+      var bob = String(f._baseline.observed || '').trim();
+      if(bexp){ box.appendChild(text(ce('div','muted'), 'Expected')); var preB=ce('pre','mono'); preB.textContent=bexp; box.appendChild(preB); }
+      if(bob){ box.appendChild(text(ce('div','muted'), 'Observed')); var preB2=ce('pre','mono'); preB2.textContent=bob; box.appendChild(preB2); }
+      var bsrc = String(f._baseline.path || '').trim();
+      if(bsrc){ box.appendChild(text(ce('div','muted'), 'Source')); box.appendChild(text(ce('p','mono'), bsrc + (f._baseline.line ? (':' + f._baseline.line) : ''))); }
+      dr.appendChild(box);
+    }
     if(f.evidence){
       dr.appendChild(text(ce('div','muted'), 'Evidence'));
       var preE=ce('pre','mono');
@@ -534,7 +659,15 @@ const verifyHTMLJS = `
         var td0=ce('td'); td0.appendChild(badgeFor(f._sev)); tr.appendChild(td0);
         tr.appendChild(text(ce('td','mono'), f._rule));
         tr.appendChild(text(ce('td','mono'), f._res));
-        tr.appendChild(text(ce('td'), f.message || ''));
+        var msgCell = ce('td');
+        if(f._deltaKind){
+          var dt = ce('span','delta-tag');
+          dt.textContent = (f._deltaKind || '').toUpperCase();
+          msgCell.appendChild(dt);
+          msgCell.appendChild(document.createTextNode(' '));
+        }
+        msgCell.appendChild(document.createTextNode(String(f.message || '')));
+        tr.appendChild(msgCell);
         tr.appendChild(text(ce('td','mono'), f._field || ''));
         var td5=ce('td');
         if(f.helpUrl){ var a=ce('a'); a.href=f.helpUrl; a.target='_blank'; a.rel='noreferrer'; a.textContent='docs'; td5.appendChild(a); }

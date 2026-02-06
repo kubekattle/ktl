@@ -71,10 +71,19 @@ type Input struct {
 }
 
 type DeltaReport struct {
-	BaselineTotal int       `json:"baselineTotal,omitempty"`
-	Unchanged     int       `json:"unchanged,omitempty"`
-	NewOrChanged  []Finding `json:"newOrChanged,omitempty"`
-	Fixed         []Finding `json:"fixed,omitempty"`
+	BaselineTotal int `json:"baselineTotal,omitempty"`
+	Unchanged     int `json:"unchanged,omitempty"`
+
+	// NewOrChanged and Fixed are kept for backwards compatibility with older
+	// reports/consumers.
+	NewOrChanged []Finding `json:"newOrChanged,omitempty"`
+	Fixed        []Finding `json:"fixed,omitempty"`
+
+	// NewOrChangedDetails and FixedDetails provide a change narrative for compare-to:
+	// what changed (message/observed/expected/severity/etc) and a snapshot of the
+	// baseline finding.
+	NewOrChangedDetails []DeltaDetail `json:"newOrChangedDetails,omitempty"`
+	FixedDetails        []DeltaDetail `json:"fixedDetails,omitempty"`
 }
 
 type Report struct {

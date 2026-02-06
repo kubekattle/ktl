@@ -178,10 +178,12 @@ func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) 
 			}
 			delta := verify.ComputeDelta(rep, base)
 			rep.Delta = &verify.DeltaReport{
-				BaselineTotal: 0,
-				Unchanged:     delta.Unchanged,
-				NewOrChanged:  append([]verify.Finding(nil), delta.NewOrChanged...),
-				Fixed:         append([]verify.Finding(nil), delta.Fixed...),
+				BaselineTotal:       0,
+				Unchanged:           delta.Unchanged,
+				NewOrChanged:        append([]verify.Finding(nil), delta.NewOrChanged...),
+				Fixed:               append([]verify.Finding(nil), delta.Fixed...),
+				NewOrChangedDetails: append([]verify.DeltaDetail(nil), delta.NewOrChangedDetails...),
+				FixedDetails:        append([]verify.DeltaDetail(nil), delta.FixedDetails...),
 			}
 			if base != nil {
 				rep.Delta.BaselineTotal = base.Summary.Total
