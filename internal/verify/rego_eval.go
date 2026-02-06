@@ -132,9 +132,11 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 			}
 			subj := Subject{}
 			docID := strings.TrimSpace(firstString(m, "documentId"))
+			var obj map[string]any
 			if docID != "" {
 				if base, ok := docIndex[docID]; ok {
 					subj = base.subject
+					obj = base.obj
 				}
 			}
 			if v := firstString(m, "resourceType"); v != "" {
@@ -172,6 +174,7 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 				Subject:     subj,
 				Fingerprint: fp,
 				HelpURL:     rule.HelpURL,
+				Evidence:    buildEvidence(obj, fieldPath),
 			})
 		}
 	}

@@ -27,21 +27,22 @@ type Subject struct {
 }
 
 type Finding struct {
-	RuleID      string   `json:"ruleId"`
-	Severity    Severity `json:"severity"`
-	Category    string   `json:"category,omitempty"`
-	Message     string   `json:"message"`
-	FieldPath   string   `json:"fieldPath,omitempty"`
-	Path        string   `json:"path,omitempty"`
-	Line        int      `json:"line,omitempty"`
-	Location    string   `json:"location,omitempty"`
-	ResourceKey string   `json:"resourceKey,omitempty"`
-	Expected    string   `json:"expected,omitempty"`
-	Observed    string   `json:"observed,omitempty"`
-	Subject     Subject  `json:"subject,omitempty"`
-	Fingerprint string   `json:"fingerprint,omitempty"`
-	HelpURL     string   `json:"helpUrl,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
+	RuleID      string         `json:"ruleId"`
+	Severity    Severity       `json:"severity"`
+	Category    string         `json:"category,omitempty"`
+	Message     string         `json:"message"`
+	FieldPath   string         `json:"fieldPath,omitempty"`
+	Path        string         `json:"path,omitempty"`
+	Line        int            `json:"line,omitempty"`
+	Location    string         `json:"location,omitempty"`
+	ResourceKey string         `json:"resourceKey,omitempty"`
+	Expected    string         `json:"expected,omitempty"`
+	Observed    string         `json:"observed,omitempty"`
+	Subject     Subject        `json:"subject,omitempty"`
+	Fingerprint string         `json:"fingerprint,omitempty"`
+	HelpURL     string         `json:"helpUrl,omitempty"`
+	Tags        []string       `json:"tags,omitempty"`
+	Evidence    map[string]any `json:"evidence,omitempty"`
 }
 
 type Summary struct {

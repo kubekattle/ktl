@@ -465,6 +465,14 @@ const verifyHTMLJS = `
     if(f.observed){ dr.appendChild(text(ce('div','muted'), 'Observed')); var pre2=ce('pre','mono'); pre2.textContent=String(f.observed); dr.appendChild(pre2); }
     if(f.helpUrl){ var p=ce('p'); var a=ce('a'); a.href=f.helpUrl; a.target='_blank'; a.rel='noreferrer'; a.textContent='Docs'; p.appendChild(a); dr.appendChild(p); }
 
+    if(f.evidence){
+      dr.appendChild(text(ce('div','muted'), 'Evidence'));
+      var preE=ce('pre','mono');
+      try{ preE.textContent = JSON.stringify(f.evidence, null, 2); }catch(e){ preE.textContent = String(f.evidence); }
+      dr.appendChild(preE);
+      var be=ce('button','btn'); text(be,'Copy Evidence JSON'); be.onclick=function(){ copyText(preE.textContent); }; dr.appendChild(be);
+    }
+
     // Fix plan match (best effort).
     var fixes = fixPlan.filter(function(x){
       var rk = (String(x.ruleId||'').trim() === String(f.ruleId||'').trim());
