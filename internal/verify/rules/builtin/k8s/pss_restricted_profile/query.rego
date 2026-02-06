@@ -16,7 +16,15 @@ is_unconfined(t) {
   lower(t) == "unconfined"
 }
 
-missing_ape(document) {
+ignore_check(document, code) {
+  ktl := object.get(document, "ktl", {})
+  list := object.get(ktl, "ignoreChecks", [])
+  some i
+  lower(list[i]) == lower(code)
+}
+
+fail_ape(document) {
+  not ignore_check(document, "ape")
   specInfo := k8sLib.getSpecInfo(document)
   container := specInfo.spec[types[t]][_]
   sc := object.get(container, "securityContext", {})
@@ -24,7 +32,8 @@ missing_ape(document) {
   ape != false
 }
 
-missing_drop_all(document) {
+fail_drop_all(document) {
+  not ignore_check(document, "drop_all")
   specInfo := k8sLib.getSpecInfo(document)
   container := specInfo.spec[types[t]][_]
   sc := object.get(container, "securityContext", {})
@@ -33,7 +42,18 @@ missing_drop_all(document) {
   not common_lib.inArray(drop, "ALL")
 }
 
-missing_run_as_non_root(document) {
+fail_no_add_caps(document) {
+  not ignore_check(document, "no_add_caps")
+  specInfo := k8sLib.getSpecInfo(document)
+  container := specInfo.spec[types[t]][_]
+  sc := object.get(container, "securityContext", {})
+  caps := object.get(sc, "capabilities", {})
+  add := object.get(caps, "add", [])
+  count(add) > 0
+}
+
+fail_run_as_non_root(document) {
+  not ignore_check(document, "run_as_non_root")
   specInfo := k8sLib.getSpecInfo(document)
   container := specInfo.spec[types[t]][_]
   sc := object.get(container, "securityContext", {})
@@ -41,15 +61,8 @@ missing_run_as_non_root(document) {
   r != true
 }
 
-missing_read_only_rootfs(document) {
-  specInfo := k8sLib.getSpecInfo(document)
-  container := specInfo.spec[types[t]][_]
-  sc := object.get(container, "securityContext", {})
-  ro := object.get(sc, "readOnlyRootFilesystem", false)
-  ro != true
-}
-
-missing_seccomp_runtime_default(document) {
+fail_seccomp(document) {
+  not ignore_check(document, "seccomp")
   specInfo := k8sLib.getSpecInfo(document)
   spec := specInfo.spec
   podSC := object.get(spec, "securityContext", {})
@@ -63,7 +76,8 @@ missing_seccomp_runtime_default(document) {
   not allowed_seccomp(ct)
 }
 
-has_unconfined(document) {
+fail_no_unconfined(document) {
+  not ignore_check(document, "no_unconfined")
   specInfo := k8sLib.getSpecInfo(document)
   spec := specInfo.spec
   podSC := object.get(spec, "securityContext", {})
@@ -72,7 +86,8 @@ has_unconfined(document) {
   is_unconfined(podType)
 }
 
-has_unconfined(document) {
+fail_no_unconfined(document) {
+  not ignore_check(document, "no_unconfined")
   specInfo := k8sLib.getSpecInfo(document)
   container := specInfo.spec[types[t]][_]
   sc := object.get(container, "securityContext", {})
@@ -81,15 +96,45 @@ has_unconfined(document) {
   is_unconfined(ct)
 }
 
-missing_checks(document) = parts {
-  p1 := [x | x := "allowPrivilegeEscalation=false"; missing_ape(document)]
-  p2 := [x | x := "capabilities.drop includes ALL"; missing_drop_all(document)]
-  p3 := [x | x := "runAsNonRoot=true"; missing_run_as_non_root(document)]
-  p4 := [x | x := "readOnlyRootFilesystem=true"; missing_read_only_rootfs(document)]
-  p5 := [x | x := "seccompProfile.type=RuntimeDefault"; missing_seccomp_runtime_default(document)]
-  p6 := [x | x := "seccompProfile.type must not be Unconfined"; has_unconfined(document)]
+fail_not_privileged(document) {
+  not ignore_check(document, "not_privileged")
+  specInfo := k8sLib.getSpecInfo(document)
+  container := specInfo.spec[types[t]][_]
+  sc := object.get(container, "securityContext", {})
+  priv := object.get(sc, "privileged", false)
+  priv == true
+}
 
-  parts := array.concat(array.concat(array.concat(array.concat(array.concat(p1, p2), p3), p4), p5), p6)
+fail_host_namespaces(document) {
+  not ignore_check(document, "host_namespaces")
+  specInfo := k8sLib.getSpecInfo(document)
+  spec := specInfo.spec
+  object.get(spec, "hostNetwork", false) == true
+}
+fail_host_namespaces(document) {
+  not ignore_check(document, "host_namespaces")
+  specInfo := k8sLib.getSpecInfo(document)
+  spec := specInfo.spec
+  object.get(spec, "hostPID", false) == true
+}
+fail_host_namespaces(document) {
+  not ignore_check(document, "host_namespaces")
+  specInfo := k8sLib.getSpecInfo(document)
+  spec := specInfo.spec
+  object.get(spec, "hostIPC", false) == true
+}
+
+checks_failed(document) = parts {
+  p1 := [x | x := "ape"; fail_ape(document)]
+  p2 := [x | x := "drop_all"; fail_drop_all(document)]
+  p3 := [x | x := "no_add_caps"; fail_no_add_caps(document)]
+  p4 := [x | x := "run_as_non_root"; fail_run_as_non_root(document)]
+  p5 := [x | x := "seccomp"; fail_seccomp(document)]
+  p6 := [x | x := "no_unconfined"; fail_no_unconfined(document)]
+  p7 := [x | x := "not_privileged"; fail_not_privileged(document)]
+  p8 := [x | x := "host_namespaces"; fail_host_namespaces(document)]
+
+  parts := array.concat(array.concat(array.concat(array.concat(array.concat(array.concat(array.concat(p1, p2), p3), p4), p5), p6), p7), p8)
 }
 
 CxPolicy[result] {
@@ -97,7 +142,7 @@ CxPolicy[result] {
   metadata := document.metadata
 
   specInfo := k8sLib.getSpecInfo(document)
-  checks := missing_checks(document)
+  checks := checks_failed(document)
   count(checks) > 0
 
   msg := sprintf("PSS restricted profile failed: %s", [concat(", ", checks)])
@@ -111,6 +156,8 @@ CxPolicy[result] {
     "searchKey": sprintf("metadata.name={{%s}}.%s", [metadata.name, specInfo.path]),
     "keyExpectedValue": "restricted profile requirements met",
     "keyActualValue": msg,
-    "searchLine": common_lib.build_search_line(split(specInfo.path, "."), [])
+    "searchLine": common_lib.build_search_line(split(specInfo.path, "."), []),
+    "ktlChecksFailed": checks
   }
 }
+

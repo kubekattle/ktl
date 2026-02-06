@@ -59,6 +59,22 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 	var findings []Finding
 	for _, rule := range rules.Rules {
 		ruleInfos := eligible
+
+		// Resource-level suppression:
+		// - ktl.verify/ignore: "*" or comma/space-separated rule ids (e.g. "k8s/pss_restricted_profile")
+		// This is checked per rule so users can suppress one noisy rule without disabling verify.
+		filteredByIgnore := ruleInfos[:0]
+		for _, info := range ruleInfos {
+			if shouldIgnoreRule(info, rule.ID) {
+				continue
+			}
+			filteredByIgnore = append(filteredByIgnore, info)
+		}
+		ruleInfos = filteredByIgnore
+		if len(ruleInfos) == 0 {
+			continue
+		}
+
 		if len(ruleFilters) > 0 {
 			var matched []compiledRuleSelector
 			for _, sel := range ruleFilters {
@@ -174,11 +190,45 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 				Subject:     subj,
 				Fingerprint: fp,
 				HelpURL:     rule.HelpURL,
-				Evidence:    buildEvidence(obj, fieldPath),
+				Evidence:    buildEvidenceWithExtras(obj, fieldPath, m),
 			})
 		}
 	}
 	return findings, nil
+}
+
+func buildEvidenceWithExtras(obj map[string]any, fieldPath string, result map[string]any) map[string]any {
+	ev := buildEvidence(obj, fieldPath)
+	if ev == nil {
+		ev = map[string]any{}
+	}
+	if result == nil {
+		return ev
+	}
+	// Bundle rules can attach structured metadata to improve UX.
+	if v, ok := result["ktlChecksFailed"]; ok && v != nil {
+		switch typed := v.(type) {
+		case []string:
+			ev["checksFailed"] = typed
+		case []any:
+			var out []string
+			for _, it := range typed {
+				s := strings.TrimSpace(fmt.Sprintf("%v", it))
+				if s != "" {
+					out = append(out, s)
+				}
+			}
+			if len(out) > 0 {
+				ev["checksFailed"] = out
+			}
+		default:
+			ev["checksFailed"] = fmt.Sprintf("%v", v)
+		}
+	}
+	if v, ok := result["ktlContainerFailures"]; ok && v != nil {
+		ev["containerFailures"] = v
+	}
+	return ev
 }
 
 func selectorMatchesAll(info objectInfo, selectors []compiledRuleSelector) bool {
@@ -199,11 +249,18 @@ func buildInputDocs(infos []objectInfo) ([]map[string]any, map[string]objectInfo
 	for i, info := range infos {
 		docID := fmt.Sprintf("doc-%d", i+1)
 		obj := info.obj
+		ktl := map[string]any{}
+		if len(info.annotations) > 0 {
+			if raw := strings.TrimSpace(info.annotations["ktl.verify/ignore-checks"]); raw != "" {
+				ktl["ignoreChecks"] = splitCSV(raw)
+			}
+		}
 		doc := map[string]any{
 			"id":       docID,
 			"kind":     obj["kind"],
 			"metadata": obj["metadata"],
 			"spec":     obj["spec"],
+			"ktl":      ktl,
 		}
 		// Some queries expect arbitrary keys under the document; keep the full object too.
 		for k, v := range obj {
@@ -216,6 +273,36 @@ func buildInputDocs(infos []objectInfo) ([]map[string]any, map[string]objectInfo
 		inputDocs = append(inputDocs, doc)
 	}
 	return inputDocs, docIndex
+}
+
+func splitCSV(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' })
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if s := strings.TrimSpace(f); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func shouldIgnoreRule(info objectInfo, ruleID string) bool {
+	if len(info.annotations) == 0 {
+		return false
+	}
+	raw := strings.TrimSpace(info.annotations["ktl.verify/ignore"])
+	if raw == "" {
+		return false
+	}
+	for _, tok := range splitCSV(raw) {
+		if tok == "*" {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(tok), strings.TrimSpace(ruleID)) {
+			return true
+		}
+	}
+	return false
 }
 
 func firstString(m map[string]any, keys ...string) string {

@@ -3,6 +3,7 @@ kind: Pod
 metadata:
   name: bad
 spec:
+  hostNetwork: true
   containers:
     - name: app
       image: nginx:1.25
