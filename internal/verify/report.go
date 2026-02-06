@@ -59,7 +59,8 @@ type EngineMeta struct {
 }
 
 type Input struct {
-	Kind            string `json:"kind,omitempty"` // chart|namespace
+	Kind            string `json:"kind,omitempty"` // chart|namespace|manifest
+	Source          string `json:"source,omitempty"`
 	Chart           string `json:"chart,omitempty"`
 	Release         string `json:"release,omitempty"`
 	Namespace       string `json:"namespace,omitempty"`
@@ -67,15 +68,24 @@ type Input struct {
 	CollectedAtHint string `json:"collectedAtHint,omitempty"`
 }
 
+type DeltaReport struct {
+	BaselineTotal int       `json:"baselineTotal,omitempty"`
+	Unchanged     int       `json:"unchanged,omitempty"`
+	NewOrChanged  []Finding `json:"newOrChanged,omitempty"`
+	Fixed         []Finding `json:"fixed,omitempty"`
+}
+
 type Report struct {
 	Tool        string          `json:"tool"`
 	Engine      EngineMeta      `json:"engine"`
 	Mode        Mode            `json:"mode"`
+	FailOn      Severity        `json:"failOn,omitempty"`
 	Passed      bool            `json:"passed"`
 	Blocked     bool            `json:"blocked"`
 	EvaluatedAt time.Time       `json:"evaluatedAt"`
 	Inputs      []Input         `json:"inputs,omitempty"`
 	Summary     Summary         `json:"summary"`
 	Findings    []Finding       `json:"findings,omitempty"`
+	Delta       *DeltaReport    `json:"delta,omitempty"`
 	Exposure    *ExposureReport `json:"exposure,omitempty"`
 }

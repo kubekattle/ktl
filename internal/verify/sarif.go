@@ -119,9 +119,6 @@ func ToSARIF(rep *Report) ([]byte, error) {
 			Message: sarifMessage{Text: firstNonEmpty(f.Message, f.RuleID)},
 		}
 		path := strings.TrimSpace(f.Path)
-		if path == "" {
-			path = strings.TrimSpace(f.Location)
-		}
 		if path != "" {
 			artifacts[path] = true
 			loc := sarifLocWrap{

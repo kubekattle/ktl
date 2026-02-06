@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -53,17 +55,44 @@ func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *str
 	var baselineWrite string
 	var compareTo string
 	var compareExit bool
+	var fixPlan bool
+	var openReport bool
+
+	// Shortcut flags (no YAML required).
+	var chartPath string
+	var release string
+	var namespace string
+	var manifestPath string
+	var valuesFiles []string
+	var setValues []string
+	var useCluster bool
+	var includeCRDs bool
+	var mode string
+	var failOn string
+	var format string
+	var reportPath string
+	var policyRef string
+	var policyMode string
+	var exposure bool
 
 	cmd := &cobra.Command{
-		Use:   "verify <config.yaml>",
+		Use:   "verify [config.yaml]",
 		Short: "Verify Kubernetes configuration",
 		Long: strings.TrimSpace(`
-Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|namespace), then run:
+Verify can run from a YAML config file, or directly from flags.
+
+YAML config (recommended for CI):
+  verify init chart|manifest|namespace --write verify.yaml
   verify verify.yaml
+
+Shortcut flags (no YAML):
+  verify --manifest ./rendered.yaml
+  verify --chart ./chart --release foo -n default
+  verify --namespace default
 `),
 		Args: func(cmd *cobra.Command, args []string) error {
-			if len(args) != 1 {
-				return fmt.Errorf("expected exactly one verify config file\n\nHint: generate one with 'verify init chart|manifest|namespace --write verify.yaml' then run 'verify verify.yaml'")
+			if len(args) > 1 {
+				return fmt.Errorf("expected at most one verify config file")
 			}
 			return nil
 		},
@@ -75,24 +104,66 @@ Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|
 				ctx = context.Background()
 			}
 
-			var cfg *cfgpkg.Config
-			var baseDir string
-			var err error
-
-			cfgPath := strings.TrimSpace(args[0])
-			if cfgPath == "" {
-				return fmt.Errorf("verify config path is required")
-			}
-			if _, statErr := os.Stat(cfgPath); statErr != nil {
-				return fmt.Errorf("verify config not found: %s", cfgPath)
-			}
-			cfg, baseDir, err = cfgpkg.Load(cfgPath)
-			if err != nil {
-				return err
+			var (
+				cfg     *cfgpkg.Config
+				baseDir string
+				err     error
+			)
+			if len(args) == 1 {
+				// Avoid ambiguous mode: config file plus shortcut flags.
+				if strings.TrimSpace(chartPath) != "" || strings.TrimSpace(release) != "" || strings.TrimSpace(namespace) != "" || strings.TrimSpace(manifestPath) != "" {
+					return fmt.Errorf("provide either a config file or shortcut flags (--chart/--manifest/--namespace), not both")
+				}
+				cfgPath := strings.TrimSpace(args[0])
+				if cfgPath == "" {
+					return fmt.Errorf("verify config path is required")
+				}
+				if _, statErr := os.Stat(cfgPath); statErr != nil {
+					return fmt.Errorf("verify config not found: %s", cfgPath)
+				}
+				cfg, baseDir, err = cfgpkg.Load(cfgPath)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Build config from flags, using cwd as base dir for relative paths.
+				cwd, _ := os.Getwd()
+				if strings.TrimSpace(cwd) == "" {
+					cwd = "."
+				}
+				baseDir = cwd
+				built, berr := cfgpkg.BuildFromParams(cfgpkg.Params{
+					Kind:        "",
+					ChartPath:   chartPath,
+					Release:     release,
+					Namespace:   namespace,
+					Manifest:    manifestPath,
+					ValuesFiles: valuesFiles,
+					SetValues:   setValues,
+					UseCluster:  useCluster,
+					IncludeCRDs: includeCRDs,
+					Mode:        mode,
+					FailOn:      failOn,
+					Format:      format,
+					Report:      reportPath,
+					KubeContext: "",
+				})
+				if berr != nil {
+					return berr
+				}
+				cfg = &built
+				// Apply extra options that the param builder doesn't cover.
+				cfg.Verify.Policy.Ref = strings.TrimSpace(policyRef)
+				cfg.Verify.Policy.Mode = strings.TrimSpace(policyMode)
+				cfg.Verify.Exposure.Enabled = exposure
+				cfg.ResolvePaths(baseDir)
 			}
 
 			if err := cfg.Validate(baseDir); err != nil {
 				return err
+			}
+			if fixPlan {
+				cfg.Verify.FixPlan = true
 			}
 
 			if strings.TrimSpace(baselineWrite) != "" {
@@ -157,6 +228,13 @@ Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|
 				Out:         out,
 				RulesPath:   splitListLocal(*rulesPath),
 			})
+			if err == nil && openReport {
+				// Best effort: only for file reports.
+				rp := strings.TrimSpace(cfg.Output.Report)
+				if rp != "" && rp != "-" && strings.EqualFold(strings.TrimSpace(cfg.Output.Format), "html") {
+					_ = openLocalFile(rp)
+				}
+			}
 			return err
 		},
 	}
@@ -175,12 +253,52 @@ Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|
 	})
 
 	cmd.AddCommand(newVerifyInitCommand())
+	cmd.AddCommand(newVerifyRulesCommand(rulesPath))
+
+	// Shortcut flags.
+	cmd.Flags().StringVar(&chartPath, "chart", "", "Helm chart path (shortcut mode)")
+	cmd.Flags().StringVar(&release, "release", "", "Helm release name (shortcut mode)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Namespace (shortcut mode: namespace target; or chart namespace)")
+	cmd.Flags().StringVar(&manifestPath, "manifest", "", "Manifest YAML path (shortcut mode)")
+	cmd.Flags().StringSliceVar(&valuesFiles, "values", nil, "Values file(s) (shortcut mode, kind=chart)")
+	cmd.Flags().StringSliceVar(&setValues, "set", nil, "Set value(s) (shortcut mode, kind=chart)")
+	cmd.Flags().BoolVar(&useCluster, "use-cluster", false, "Allow cluster lookups while rendering (shortcut mode, kind=chart)")
+	cmd.Flags().BoolVar(&includeCRDs, "include-crds", false, "Include CRDs in rendered output (shortcut mode, kind=chart)")
+	cmd.Flags().StringVar(&mode, "mode", "", "Verify mode: warn|block|off (shortcut mode)")
+	cmd.Flags().StringVar(&failOn, "fail-on", "", "Fail threshold: info|low|medium|high|critical (shortcut mode)")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: table|json|sarif|html|md (shortcut mode)")
+	cmd.Flags().StringVar(&reportPath, "report", "-", `Report path ("-" for stdout) (shortcut mode)`)
+	cmd.Flags().StringVar(&policyRef, "policy-ref", "", "Policy bundle ref (path or URL) (shortcut mode)")
+	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn|enforce (shortcut mode)")
+	cmd.Flags().BoolVar(&exposure, "exposure", false, "Enable exposure analysis (shortcut mode)")
+	cmd.Flags().BoolVar(&openReport, "open", false, "Open the report after success (HTML file reports only)")
 
 	cmd.Flags().StringVar(&baselineWrite, "baseline", "", "Write a baseline report (JSON) to this path")
 	cmd.Flags().StringVar(&compareTo, "compare-to", "", "Compare against a baseline report (JSON) and show only new/changed findings")
 	cmd.Flags().BoolVar(&compareExit, "compare-exit", true, "Exit non-zero when --compare-to detects new or changed findings")
+	cmd.Flags().BoolVar(&fixPlan, "fix", false, "Print suggested patch snippets for fixable findings (table output only)")
 
 	return cmd
+}
+
+func openLocalFile(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	// macOS: open. Linux: xdg-open. Windows not supported here.
+	if err := tryExec("open", path); err == nil {
+		return nil
+	}
+	_ = tryExec("xdg-open", path)
+	return nil
+}
+
+func tryExec(name string, arg string) error {
+	cmd := exec.Command(name, arg)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
 }
 
 func splitListLocal(raw string) []string {

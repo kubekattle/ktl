@@ -229,7 +229,7 @@ func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig str
 			return nil, "", nil, err
 		}
 		objs, err := verify.DecodeK8SYAML(string(raw))
-		return objs, "", nil, err
+		return objs, string(raw), nil, err
 	case "namespace":
 		if console != nil {
 			console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "collect"})
@@ -330,7 +330,9 @@ func (c *Config) AppendInputs(rep *verify.Report, renderedManifest string) {
 		})
 	case "manifest":
 		rep.Inputs = append(rep.Inputs, verify.Input{
-			Kind: "manifest",
+			Kind:           "manifest",
+			Source:         strings.TrimSpace(c.Target.Manifest),
+			RenderedSHA256: verify.ManifestDigestSHA256(renderedManifest),
 		})
 	case "chart":
 		rep.Inputs = append(rep.Inputs, verify.Input{

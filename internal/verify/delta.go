@@ -9,6 +9,7 @@ import (
 
 type Delta struct {
 	NewOrChanged []Finding
+	Fixed        []Finding
 	Unchanged    int
 }
 
@@ -42,6 +43,14 @@ func ComputeDelta(current *Report, baseline *Report) Delta {
 			base[fp] = f
 		}
 	}
+	cur := map[string]Finding{}
+	for _, f := range current.Findings {
+		fp := strings.TrimSpace(f.Fingerprint)
+		if fp == "" {
+			fp = fallbackFingerprint(f)
+		}
+		cur[fp] = f
+	}
 	var changed []Finding
 	unchanged := 0
 	for _, f := range current.Findings {
@@ -56,13 +65,28 @@ func ComputeDelta(current *Report, baseline *Report) Delta {
 		}
 		unchanged++
 	}
+	var fixed []Finding
+	if baseline != nil {
+		for fp, f := range base {
+			if _, ok := cur[fp]; ok {
+				continue
+			}
+			fixed = append(fixed, f)
+		}
+	}
 	sort.Slice(changed, func(i, j int) bool {
 		if changed[i].Severity != changed[j].Severity {
 			return severityRank(changed[i].Severity) < severityRank(changed[j].Severity)
 		}
 		return changed[i].RuleID < changed[j].RuleID
 	})
-	return Delta{NewOrChanged: changed, Unchanged: unchanged}
+	sort.Slice(fixed, func(i, j int) bool {
+		if fixed[i].Severity != fixed[j].Severity {
+			return severityRank(fixed[i].Severity) < severityRank(fixed[j].Severity)
+		}
+		return fixed[i].RuleID < fixed[j].RuleID
+	})
+	return Delta{NewOrChanged: changed, Fixed: fixed, Unchanged: unchanged}
 }
 
 func fallbackFingerprint(f Finding) string {

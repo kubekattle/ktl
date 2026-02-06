@@ -118,10 +118,13 @@ var curatedExamples = map[string][]string{
 		"# Verify a chart render (inline)\nverify --chart ./chart --release foo -n default",
 		"# Verify a chart render with cluster lookups\nverify --chart ./chart --release foo -n default --use-cluster --context my-context",
 		"# Verify a live namespace\nverify --namespace default --context my-context",
+		"# Discover builtin rules\nverify rules list\nverify rules show k8s/container_is_privileged",
 		"# Generate a starter config for scripting\nverify init --chart ./chart --release foo -n default --write verify.yaml\nverify verify.yaml",
 		"# Run the bundled verify showcase (includes a CRITICAL rule)\nverify testdata/verify/showcase/verify.yaml",
 		"# Compare against a baseline report\nverify verify.yaml --compare-to ./baseline.json",
 		"# Write a baseline report\nverify verify.yaml --baseline ./baseline.json",
+		"# HTML report (lux minimal)\nverify --manifest ./rendered.yaml --format html --report ./verify-report.html --open",
+		"# Print a suggested fix plan (table output only)\nverify verify.yaml --fix",
 	},
 	"package": {
 		"# Package a chart directory\npackage ./chart --output dist/chart.sqlite",

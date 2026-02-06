@@ -105,6 +105,7 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		Tool:        "ktl-verify",
 		Engine:      EngineMeta{Name: "builtin", Ruleset: rulesetLabel},
 		Mode:        opts.Mode,
+		FailOn:      opts.FailOn,
 		EvaluatedAt: time.Now().UTC(),
 	}
 

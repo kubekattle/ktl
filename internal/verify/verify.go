@@ -98,6 +98,12 @@ func WriteReport(w io.Writer, rep *Report, format OutputFormat) error {
 func writeTable(w io.Writer, rep *Report) error {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "Findings: %d (blocked=%v)\n", rep.Summary.Total, rep.Blocked)
+	if strings.TrimSpace(string(rep.Mode)) != "" {
+		fmt.Fprintf(&b, "Mode: %s\n", strings.TrimSpace(string(rep.Mode)))
+	}
+	if strings.TrimSpace(rep.Engine.Ruleset) != "" {
+		fmt.Fprintf(&b, "Ruleset: %s\n", strings.TrimSpace(rep.Engine.Ruleset))
+	}
 	if len(rep.Findings) == 0 {
 		_, _ = w.Write(b.Bytes())
 		return nil
@@ -120,7 +126,20 @@ func writeTable(w io.Writer, rep *Report) error {
 		if target == "" {
 			target = "-"
 		}
-		fmt.Fprintf(&b, "- [%s] %s (%s)\n", strings.ToUpper(string(f.Severity)), f.RuleID, target)
+		msg := strings.TrimSpace(f.Message)
+		msg = strings.ReplaceAll(msg, "\n", " ")
+		msg = strings.Join(strings.Fields(msg), " ")
+		if msg == "" {
+			msg = strings.TrimSpace(f.RuleID)
+		}
+		if len(msg) > 140 {
+			msg = msg[:137] + "..."
+		}
+		if msg != "" {
+			fmt.Fprintf(&b, "- [%s] %s: %s (%s)\n", strings.ToUpper(string(f.Severity)), f.RuleID, msg, target)
+		} else {
+			fmt.Fprintf(&b, "- [%s] %s (%s)\n", strings.ToUpper(string(f.Severity)), f.RuleID, target)
+		}
 	}
 	_, _ = w.Write(b.Bytes())
 	return nil

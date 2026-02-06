@@ -170,6 +170,15 @@ func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) 
 				return err
 			}
 			delta := verify.ComputeDelta(rep, base)
+			rep.Delta = &verify.DeltaReport{
+				BaselineTotal: 0,
+				Unchanged:     delta.Unchanged,
+				NewOrChanged:  append([]verify.Finding(nil), delta.NewOrChanged...),
+				Fixed:         append([]verify.Finding(nil), delta.Fixed...),
+			}
+			if base != nil {
+				rep.Delta.BaselineTotal = base.Summary.Total
+			}
 			if cfg.Verify.Baseline.ExitOnDelta && len(delta.NewOrChanged) > 0 {
 				rep.Blocked = true
 				rep.Passed = false
