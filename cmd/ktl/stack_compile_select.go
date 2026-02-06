@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/stack"
 	"github.com/spf13/cobra"
 )
@@ -28,7 +29,17 @@ func compileInferSelectWithConfig(cmd *cobra.Command, common stackCommandCommon,
 	if cfg.InferDeps {
 		kubeconfigPath := derefString(common.kubeconfig)
 		kubeCtx := derefString(common.kubeContext)
-		if err := stack.InferDependencies(cmd.Context(), p, kubeconfigPath, kubeCtx, stack.InferDepsOptions{IncludeConfigRefs: cfg.InferConfigRefs}); err != nil {
+		secretOptions, err := buildStackSecretOptions(cmd.Context(), p.StackRoot, derefString(common.secretProvider), derefString(common.secretConfig), nil)
+		if err != nil {
+			return nil, nil, stackCommandConfig{}, err
+		}
+		if secretOptions == nil {
+			secretOptions = &deploy.SecretOptions{}
+		}
+		if err := stack.InferDependencies(cmd.Context(), p, kubeconfigPath, kubeCtx, stack.InferDepsOptions{
+			IncludeConfigRefs: cfg.InferConfigRefs,
+			Secrets:           secretOptions,
+		}); err != nil {
 			return nil, nil, stackCommandConfig{}, err
 		}
 		if err := stack.RecomputeExecutionGroups(p); err != nil {

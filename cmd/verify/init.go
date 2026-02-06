@@ -89,7 +89,7 @@ Examples:
 	cmd.Flags().BoolVar(&includeCRDs, "include-crds", false, "Include CRDs in the rendered output (kind=chart)")
 	cmd.Flags().StringVar(&mode, "mode", "", "Verify mode: warn|block|off")
 	cmd.Flags().StringVar(&failOn, "fail-on", "", "Fail threshold: info|low|medium|high|critical")
-	cmd.Flags().StringVar(&format, "format", "", "Output format: table|json|sarif")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: table|json|sarif|html|md")
 	cmd.Flags().StringVar(&report, "report", "-", `Report path ("-" for stdout)`)
 
 	cmd.AddCommand(newVerifyInitChartCommand(), newVerifyInitNamespaceCommand(), newVerifyInitManifestCommand())
@@ -162,7 +162,7 @@ func newVerifyInitChartCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&includeCRDs, "include-crds", false, "Include CRDs in the rendered output")
 	cmd.Flags().StringVar(&mode, "mode", "block", "Verify mode: warn|block|off")
 	cmd.Flags().StringVar(&failOn, "fail-on", "high", "Fail threshold: info|low|medium|high|critical")
-	cmd.Flags().StringVar(&format, "format", "table", "Output format: table|json|sarif")
+	cmd.Flags().StringVar(&format, "format", "table", "Output format: table|json|sarif|html|md")
 
 	return cmd
 }
@@ -211,7 +211,7 @@ func newVerifyInitNamespaceCommand() *cobra.Command {
 	cmd.Flags().StringVar(&kubeContext, "context", "", "Kube context (recommended)")
 	cmd.Flags().StringVar(&mode, "mode", "warn", "Verify mode: warn|block|off")
 	cmd.Flags().StringVar(&failOn, "fail-on", "high", "Fail threshold: info|low|medium|high|critical")
-	cmd.Flags().StringVar(&format, "format", "table", "Output format: table|json|sarif")
+	cmd.Flags().StringVar(&format, "format", "table", "Output format: table|json|sarif|html|md")
 
 	return cmd
 }
@@ -257,7 +257,7 @@ func newVerifyInitManifestCommand() *cobra.Command {
 	cmd.Flags().StringVar(&manifestPath, "manifest", "", "Manifest YAML path")
 	cmd.Flags().StringVar(&mode, "mode", "block", "Verify mode: warn|block|off")
 	cmd.Flags().StringVar(&failOn, "fail-on", "high", "Fail threshold: info|low|medium|high|critical")
-	cmd.Flags().StringVar(&format, "format", "table", "Output format: table|json|sarif")
+	cmd.Flags().StringVar(&format, "format", "table", "Output format: table|json|sarif|html|md")
 	return cmd
 }
 

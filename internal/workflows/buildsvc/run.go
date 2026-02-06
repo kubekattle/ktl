@@ -23,6 +23,7 @@ import (
 	"github.com/example/ktl/internal/dockerconfig"
 	"github.com/example/ktl/internal/logging"
 	"github.com/example/ktl/internal/tailer"
+	"github.com/example/ktl/internal/telemetry"
 	"github.com/example/ktl/internal/ui"
 	"github.com/example/ktl/pkg/buildkit"
 	appcompose "github.com/example/ktl/pkg/compose"
@@ -372,6 +373,15 @@ func (s *service) Run(ctx context.Context, opts Options) (res *Result, runErr er
 				Push:      opts.Push,
 				Load:      opts.Load,
 			})
+			hits, misses := stream.cacheStats()
+			telemetrySummary := telemetry.Summary{
+				Total:       time.Since(start),
+				CacheHits:   hits,
+				CacheMisses: misses,
+			}
+			if line := telemetrySummary.Line(); line != "" {
+				fmt.Fprintln(errOut, line)
+			}
 		}
 		if captureRecorder != nil {
 			if opts.ContextDir != "" {

@@ -40,7 +40,7 @@ type NodeDiffSummary struct {
 	Error   string         `json:"error,omitempty"`
 }
 
-func BuildStackDiffSummary(ctx context.Context, p *Plan, defaultKubeconfig string, defaultKubeContext string, planHash string) (*StackDiffSummary, error) {
+func BuildStackDiffSummary(ctx context.Context, p *Plan, defaultKubeconfig string, defaultKubeContext string, planHash string, secrets *deploy.SecretOptions) (*StackDiffSummary, error) {
 	if p == nil {
 		return nil, fmt.Errorf("plan is nil")
 	}
@@ -53,7 +53,7 @@ func BuildStackDiffSummary(ctx context.Context, p *Plan, defaultKubeconfig strin
 		if n == nil {
 			continue
 		}
-		sum, err := diffSummaryForNode(ctx, n, defaultKubeconfig, defaultKubeContext)
+		sum, err := diffSummaryForNode(ctx, n, defaultKubeconfig, defaultKubeContext, secrets)
 		if err != nil {
 			out.Nodes[n.ID] = NodeDiffSummary{Error: err.Error()}
 			continue
@@ -63,7 +63,7 @@ func BuildStackDiffSummary(ctx context.Context, p *Plan, defaultKubeconfig strin
 	return out, nil
 }
 
-func diffSummaryForNode(ctx context.Context, node *ResolvedRelease, defaultKubeconfig string, defaultKubeContext string) (*NodeDiffSummary, error) {
+func diffSummaryForNode(ctx context.Context, node *ResolvedRelease, defaultKubeconfig string, defaultKubeContext string, secrets *deploy.SecretOptions) (*NodeDiffSummary, error) {
 	kubeconfigPath := strings.TrimSpace(expandTilde(node.Cluster.Kubeconfig))
 	if kubeconfigPath == "" {
 		kubeconfigPath = strings.TrimSpace(defaultKubeconfig)
@@ -108,6 +108,7 @@ func diffSummaryForNode(ctx context.Context, node *ResolvedRelease, defaultKubec
 		ValuesFiles: node.Values,
 		SetValues:   flattenSet(node.Set),
 		UseCluster:  true,
+		Secrets:     secrets,
 	})
 	if err != nil {
 		return nil, err

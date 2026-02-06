@@ -18,16 +18,20 @@ const (
 	OutputTable OutputFormat = "table"
 	OutputJSON  OutputFormat = "json"
 	OutputSARIF OutputFormat = "sarif"
+	OutputHTML  OutputFormat = "html"
+	OutputMD    OutputFormat = "md"
 )
 
 type Options struct {
-	Mode       Mode
-	FailOn     Severity
-	Format     OutputFormat
-	RulesDir   string
-	ExtraRules []string
-	AttestDir  string
-	ReportPath string
+	Mode          Mode
+	FailOn        Severity
+	Format        OutputFormat
+	RulesDir      string
+	ExtraRules    []string
+	Selectors     SelectorSet
+	RuleSelectors []RuleSelector
+	AttestDir     string
+	ReportPath    string
 }
 
 func VerifyObjects(ctx context.Context, objects []map[string]any, opts Options) (*Report, error) {
@@ -82,6 +86,10 @@ func WriteReport(w io.Writer, rep *Report, format OutputFormat) error {
 		}
 		_, _ = w.Write(append(raw, '\n'))
 		return nil
+	case OutputHTML:
+		return writeHTML(w, rep)
+	case OutputMD:
+		return writeMarkdown(w, rep)
 	default:
 		return fmt.Errorf("unknown format %q", format)
 	}
@@ -102,7 +110,17 @@ func writeTable(w io.Writer, rep *Report) error {
 		return rep.Findings[i].RuleID < rep.Findings[j].RuleID
 	})
 	for _, f := range rep.Findings {
-		fmt.Fprintf(&b, "- [%s] %s (%s/%s)\n", strings.ToUpper(string(f.Severity)), f.RuleID, f.Subject.Kind, f.Subject.Name)
+		target := f.ResourceKey
+		if target == "" {
+			target = resourceKey(f.Subject)
+		}
+		if target == "" {
+			target = strings.Trim(strings.TrimSpace(f.Subject.Kind)+" "+strings.TrimSpace(f.Subject.Name), " ")
+		}
+		if target == "" {
+			target = "-"
+		}
+		fmt.Fprintf(&b, "- [%s] %s (%s)\n", strings.ToUpper(string(f.Severity)), f.RuleID, target)
 	}
 	_, _ = w.Write(b.Bytes())
 	return nil

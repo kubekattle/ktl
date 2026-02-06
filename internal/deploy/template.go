@@ -26,6 +26,7 @@ type TemplateOptions struct {
 	SetValues       []string
 	SetStringValues []string
 	SetFileValues   []string
+	Secrets         *SecretOptions
 	IncludeCRDs     bool
 	// UseCluster toggles between "client-only" rendering (fast, offline) and cluster-aware
 	// rendering (uses discovery to match actual API versions/capabilities).
@@ -69,7 +70,7 @@ func RenderTemplate(ctx context.Context, actionCfg *action.Configuration, settin
 		return nil, fmt.Errorf("chart not installable: %w", err)
 	}
 
-	vals, err := buildValues(settings, opts.ValuesFiles, opts.SetValues, opts.SetStringValues, opts.SetFileValues)
+	vals, err := buildValues(ctx, settings, opts.ValuesFiles, opts.SetValues, opts.SetStringValues, opts.SetFileValues, opts.Secrets)
 	if err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 
 type InferDepsOptions struct {
 	IncludeConfigRefs bool
+	Secrets           *deploy.SecretOptions
 }
 
 // InferDependencies renders each release client-side and infers additional Needs edges
@@ -318,6 +319,7 @@ func renderAndExtractFacts(ctx context.Context, node *ResolvedRelease, defaultKu
 		SetValues:   flattenSet(node.Set),
 		IncludeCRDs: true,
 		UseCluster:  false,
+		Secrets:     opts.Secrets,
 	})
 	if err != nil {
 		return nil, "", nil, err

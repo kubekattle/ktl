@@ -44,10 +44,14 @@ VERIFY_BINARY ?= verify
 VERIFY_PKG ?= ./cmd/verify
 PACKAGECLI_BINARY ?= package
 PACKAGECLI_PKG ?= ./cmd/package
+LOGS_BINARY ?= ktl-logs
+LOGS_PKG ?= ./cmd/ktl
+LOGS_BUILD_MODE ?= logs-only
+LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/example/ktl/cmd/ktl.buildMode=$(LOGS_BUILD_MODE)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% build-capture build-verify build-packagecli build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e
+.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e
  
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
@@ -76,6 +80,11 @@ build-packagecli: ## Build package CLI for the current platform into ./bin/packa
 	@echo ">> building $(PACKAGECLI_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
 	@mkdir -p $(BIN_DIR)
 	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(PACKAGECLI_BINARY) $(PACKAGECLI_PKG)
+
+build-logs: ## Build logs-only ktl CLI for the current platform into ./bin/ktl-logs
+	@echo ">> building $(LOGS_BINARY) (logs-only) for $(HOST_GOOS)/$(HOST_GOARCH)"
+	@mkdir -p $(BIN_DIR)
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LOGS_LDFLAGS)' -o $(BIN_DIR)/$(LOGS_BINARY) $(LOGS_PKG)
 
 build-all: ## Build ktl, verify, and package for the current platform into ./bin/
 	$(MAKE) build

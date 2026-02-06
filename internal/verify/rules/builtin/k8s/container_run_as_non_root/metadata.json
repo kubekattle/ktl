@@ -1,0 +1,13 @@
+{
+  "id": "1b64c9a6-0d3b-4f1f-9fb0-1d7dce6d2413",
+  "queryName": "Containers Should Run As Non-Root",
+  "severity": "HIGH",
+  "category": "Insecure Configurations",
+  "descriptionText": "Containers should set securityContext.runAsNonRoot to true to avoid running workloads as root.",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod",
+  "platform": "Kubernetes",
+  "descriptionID": "3c6b41f2",
+  "cloudProvider": "common",
+  "cwe": "250",
+  "riskScore": "7.0"
+}

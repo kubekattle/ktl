@@ -34,6 +34,9 @@ type Finding struct {
 	Path        string   `json:"path,omitempty"`
 	Line        int      `json:"line,omitempty"`
 	Location    string   `json:"location,omitempty"`
+	ResourceKey string   `json:"resourceKey,omitempty"`
+	Expected    string   `json:"expected,omitempty"`
+	Observed    string   `json:"observed,omitempty"`
 	Subject     Subject  `json:"subject,omitempty"`
 	Fingerprint string   `json:"fingerprint,omitempty"`
 	HelpURL     string   `json:"helpUrl,omitempty"`
@@ -41,10 +44,12 @@ type Finding struct {
 }
 
 type Summary struct {
-	Total   int              `json:"total"`
-	BySev   map[Severity]int `json:"bySeverity,omitempty"`
-	Passed  bool             `json:"passed"`
-	Blocked bool             `json:"blocked"`
+	Total          int                         `json:"total"`
+	BySev          map[Severity]int            `json:"bySeverity,omitempty"`
+	ByRule         map[string]int              `json:"byRule,omitempty"`
+	ByRuleSeverity map[string]map[Severity]int `json:"byRuleSeverity,omitempty"`
+	Passed         bool                        `json:"passed"`
+	Blocked        bool                        `json:"blocked"`
 }
 
 type EngineMeta struct {

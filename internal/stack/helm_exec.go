@@ -40,6 +40,8 @@ type helmExecutor struct {
 	kubeBurst int
 
 	clients clientCache
+
+	secrets *deploy.SecretOptions
 }
 
 type NodeExecutor interface {
@@ -194,6 +196,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 							ValuesFiles: node.Values,
 							SetValues:   flattenSet(node.Set),
 							UseCluster:  true,
+							Secrets:     e.secrets,
 						})
 						if err != nil {
 							return "", false, err
@@ -343,6 +346,7 @@ func (e *helmExecutor) RunNode(ctx context.Context, node *runNode, command strin
 			Namespace:         node.Namespace,
 			ValuesFiles:       node.Values,
 			SetValues:         setPairs,
+			Secrets:           e.secrets,
 			Timeout:           timeout,
 			Wait:              wait,
 			Atomic:            atomic,

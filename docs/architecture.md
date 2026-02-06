@@ -74,6 +74,12 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 - Key types: `InstallOptions`/`InstallResult`, `TemplateOptions`/`TemplateResult`, `StreamBroadcaster`, `StreamEvent`, `ResourceTracker`, `ResourceStatus`.
 - Invariants: observers are optional and must not block the core deploy loop; events should remain stable for UI consumers.
 
+### `internal/secretstore`
+
+- Purpose: resolve `secret://` references in deploy-time values using pluggable providers.
+- Key types: `Resolver`, `Config`, `Provider`.
+- Invariants: never log secret values; audit references only.
+
 ### `internal/ui`
 
 - Purpose: terminal UX primitives (deploy console, spinner).

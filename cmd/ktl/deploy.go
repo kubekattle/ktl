@@ -23,7 +23,9 @@ import (
 	"github.com/example/ktl/internal/config"
 	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/kube"
+	"github.com/example/ktl/internal/secretstore"
 	"github.com/example/ktl/internal/tailer"
+	"github.com/example/ktl/internal/telemetry"
 	"github.com/example/ktl/internal/ui"
 	"github.com/go-logr/logr"
 	"github.com/spf13/cobra"
@@ -55,6 +57,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	var setValues []string
 	var setStringValues []string
 	var setFileValues []string
+	var secretProvider string
+	var secretConfig string
 	wait := true
 	atomic := true
 	upgrade := false
@@ -91,6 +95,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				}
 				if strings.TrimSpace(requireVerified) != "" {
 					return fmt.Errorf("--require-verified is not supported with --remote-agent")
+				}
+				if strings.TrimSpace(secretProvider) != "" || strings.TrimSpace(secretConfig) != "" {
+					return fmt.Errorf("--secret-provider/--secret-config are not supported with --remote-agent")
 				}
 			}
 			if watchDuration > 0 && dryRun {
@@ -164,6 +171,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if resolvedNamespace != "" {
 				settings.SetNamespace(resolvedNamespace)
 			}
+			attachKubeTelemetry(settings, kubeClient)
 			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
 			settings.Debug = helmDebug
 
@@ -197,6 +205,25 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				return fmt.Errorf("init helm action config: %w", err)
 			}
 
+			var secretRefs []deploy.SecretRef
+			secretResolver, secretAuditSink, err := buildDeploySecretResolver(ctx, deploySecretConfig{
+				Chart:      chart,
+				ConfigPath: secretConfig,
+				Provider:   secretProvider,
+				Mode:       secretstore.ResolveModeValue,
+				ErrOut:     errOut,
+			})
+			if err != nil {
+				return err
+			}
+			auditSink := func(report secretstore.AuditReport) {
+				secretRefs = secretRefsFromAudit(report)
+				if secretAuditSink != nil {
+					secretAuditSink(report)
+				}
+			}
+			secretOptions := &deploy.SecretOptions{Resolver: secretResolver, AuditSink: auditSink}
+
 			if driftGuard {
 				getAction := action.NewGet(actionCfg)
 				current, err := getAction.Run(releaseName)
@@ -225,6 +252,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						SetValues:       setValues,
 						SetStringValues: setStringValues,
 						SetFileValues:   setFileValues,
+						Secrets:         secretOptions,
 						Timeout:         timeout,
 						Wait:            false,
 						Atomic:          false,
@@ -266,6 +294,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					SetValues:       setValues,
 					SetStringValues: setStringValues,
 					SetFileValues:   setFileValues,
+					Secrets:         secretOptions,
 					Timeout:         timeout,
 					Wait:            false,
 					Atomic:          false,
@@ -425,6 +454,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 						summary.Version = deployedRelease.Chart.Metadata.Version
 					}
 				}
+				summary.Secrets = cloneSecretRefs(secretRefs)
 				historyCopy := cloneBreadcrumbs(historyBreadcrumbs)
 				lastSuccessCopy := cloneBreadcrumbPointer(lastSuccessful)
 				if deployedRelease != nil {
@@ -477,7 +507,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				Diff:      false,
 			})
 
-			trackerManifest, err := renderManifestForTracking(ctx, settings, resolvedNamespace, chart, version, releaseName, valuesFiles, setValues, setStringValues, setFileValues)
+			trackerManifest, err := renderManifestForTracking(ctx, settings, resolvedNamespace, chart, version, releaseName, valuesFiles, setValues, setStringValues, setFileValues, secretOptions)
 			if err != nil && shouldLogAtLevel(currentLogLevel, zapcore.InfoLevel) {
 				fmt.Fprintf(errOut, "Warning: failed to pre-render manifest for deploy tracker: %v\n", err)
 			}
@@ -542,6 +572,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				}
 				initialSummary.History = cloneBreadcrumbs(historyBreadcrumbs)
 				initialSummary.LastSuccessful = cloneBreadcrumbPointer(lastSuccessful)
+				initialSummary.Secrets = cloneSecretRefs(secretRefs)
 				stream.EmitSummary(initialSummary)
 			}
 
@@ -660,6 +691,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				SetValues:         setValues,
 				SetStringValues:   setStringValues,
 				SetFileValues:     setFileValues,
+				Secrets:           secretOptions,
 				Timeout:           timeout,
 				Wait:              wait,
 				Atomic:            atomic,
@@ -720,6 +752,19 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			if line := renderPhaseDurationsLine(formatPhaseDurations(timerObserver.snapshot())); line != "" {
 				fmt.Fprintf(errOut, "Phase durations: %s\n", line)
 			}
+			telemetrySummary := telemetry.Summary{
+				Total:  time.Since(startedAt),
+				Phases: timerObserver.snapshot(),
+			}
+			if kubeClient != nil && kubeClient.APIStats != nil {
+				metrics := kubeClient.APIStats.Snapshot()
+				telemetrySummary.KubeRequests = metrics.Count
+				telemetrySummary.KubeAvg = metrics.Avg()
+				telemetrySummary.KubeMax = metrics.Max
+			}
+			if line := telemetrySummary.Line(); line != "" {
+				fmt.Fprintln(errOut, line)
+			}
 			report = reportLine{
 				Kind:      "apply",
 				Release:   rel.Name,
@@ -742,6 +787,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 	cmd.Flags().StringArrayVar(&setValues, "set", nil, "Set values on the command line (key=val)")
 	cmd.Flags().StringArrayVar(&setStringValues, "set-string", nil, "Set STRING values on the command line")
 	cmd.Flags().StringArrayVar(&setFileValues, "set-file", nil, "Set values from files (key=path)")
+	cmd.Flags().StringVar(&secretProvider, "secret-provider", "", "Secret provider name for secret:// references")
+	cmd.Flags().StringVar(&secretConfig, "secret-config", "", "Secrets provider config file (defaults to ~/.ktl/config.yaml and repo .ktl.yaml)")
 	cmd.Flags().BoolVar(&wait, "wait", wait, "Wait for resources to be ready")
 	cmd.Flags().BoolVar(&atomic, "atomic", atomic, "Rollback changes if the upgrade fails")
 	cmd.Flags().BoolVar(&upgrade, "upgrade", upgrade, "Only perform the upgrade path (skip install fallback)")
@@ -903,6 +950,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			if resolvedNamespace != "" {
 				settings.SetNamespace(resolvedNamespace)
 			}
+			attachKubeTelemetry(settings, kubeClient)
 			helmDebug := shouldLogAtLevel(currentLogLevel, zapcore.DebugLevel)
 			settings.Debug = helmDebug
 
@@ -1253,6 +1301,19 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 			if line := renderPhaseDurationsLine(formatPhaseDurations(timerObserver.snapshot())); line != "" {
 				fmt.Fprintf(errOut, "Destroy duration: %s\n", line)
 			}
+			telemetrySummary := telemetry.Summary{
+				Total:  time.Since(startedAt),
+				Phases: timerObserver.snapshot(),
+			}
+			if kubeClient != nil && kubeClient.APIStats != nil {
+				metrics := kubeClient.APIStats.Snapshot()
+				telemetrySummary.KubeRequests = metrics.Count
+				telemetrySummary.KubeAvg = metrics.Avg()
+				telemetrySummary.KubeMax = metrics.Max
+			}
+			if line := telemetrySummary.Line(); line != "" {
+				fmt.Fprintln(errOut, line)
+			}
 			return nil
 		},
 	}
@@ -1513,7 +1574,7 @@ func isSuccessfulStatus(status string) bool {
 	return false
 }
 
-func renderManifestForTracking(ctx context.Context, settings *cli.EnvSettings, namespace, chart, version, release string, valuesFiles, setValues, setStringValues, setFileValues []string) (string, error) {
+func renderManifestForTracking(ctx context.Context, settings *cli.EnvSettings, namespace, chart, version, release string, valuesFiles, setValues, setStringValues, setFileValues []string, secrets *deploy.SecretOptions) (string, error) {
 	if chart == "" || release == "" {
 		return "", fmt.Errorf("chart and release are required")
 	}
@@ -1530,6 +1591,7 @@ func renderManifestForTracking(ctx context.Context, settings *cli.EnvSettings, n
 		SetValues:       setValues,
 		SetStringValues: setStringValues,
 		SetFileValues:   setFileValues,
+		Secrets:         secrets,
 		IncludeCRDs:     true,
 		UseCluster:      true,
 	})

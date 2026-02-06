@@ -34,6 +34,8 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	var planOnly bool
 	var inferDeps bool
 	var inferConfigRefs bool
+	var secretProvider string
+	var secretConfig string
 
 	cmd := &cobra.Command{
 		Use:   "stack",
@@ -57,6 +59,8 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.PersistentFlags().BoolVar(&planOnly, "plan-only", false, "Compile and print the plan, but do not execute")
 	cmd.PersistentFlags().BoolVar(&inferDeps, "infer-deps", true, "Infer additional dependencies between releases by rendering manifests (client-side)")
 	cmd.PersistentFlags().BoolVar(&inferConfigRefs, "infer-config-refs", false, "When inferring deps, also add edges for ConfigMap/Secret references from workloads")
+	cmd.PersistentFlags().StringVar(&secretProvider, "secret-provider", "", "Secret provider name for secret:// references")
+	cmd.PersistentFlags().StringVar(&secretConfig, "secret-config", "", "Secrets provider config file (defaults to ~/.ktl/config.yaml and repo .ktl.yaml)")
 
 	// Minimal-flag UX: most selection and output controls are intended to live in stack.yaml `cli:`
 	// and/or be provided via env vars. Flags remain supported (including `KTL_<FLAG>`), but are hidden.
@@ -93,6 +97,8 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 		includeDeps:          &includeDeps,
 		includeDependents:    &includeDependents,
 		allowMissingDeps:     &allowMissingDeps,
+		secretProvider:       &secretProvider,
+		secretConfig:         &secretConfig,
 		kubeconfig:           kubeconfig,
 		kubeContext:          kubeContext,
 		logLevel:             logLevel,
@@ -169,7 +175,7 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 	cmd.AddCommand(newStackVerifyCommand(&rootDir))
 	cmd.AddCommand(newStackApplyCommand(common))
 	cmd.AddCommand(newStackDeleteCommand(common))
-	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &inferDeps, &inferConfigRefs, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, kubeconfig, kubeContext, logLevel, remoteAgent))
+	cmd.AddCommand(newStackRerunFailedCommand(&rootDir, &profile, &clusters, &inferDeps, &inferConfigRefs, &tags, &fromPaths, &releases, &gitRange, &gitIncludeDeps, &gitIncludeDependents, &includeDeps, &includeDependents, &allowMissingDeps, &secretProvider, &secretConfig, kubeconfig, kubeContext, logLevel, remoteAgent))
 	return cmd
 }
 
@@ -290,7 +296,11 @@ func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 
 				var diffSummaryJSON []byte
 				if bundleDiffSummary {
-					ds, err := stack.BuildStackDiffSummary(cmd.Context(), selected, kubeconfigPath, kubeContext, planHash)
+					secretOptions, err := buildStackSecretOptions(cmd.Context(), selected.StackRoot, derefString(common.secretProvider), derefString(common.secretConfig), nil)
+					if err != nil {
+						return err
+					}
+					ds, err := stack.BuildStackDiffSummary(cmd.Context(), selected, kubeconfigPath, kubeContext, planHash, secretOptions)
 					if err != nil {
 						return err
 					}

@@ -387,6 +387,38 @@
       color:var(--chip-text);
       font-size:0.92rem;
     }
+    .secrets-list {
+      list-style:none;
+      margin:0;
+      padding:0;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .secret-item {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-size:0.9rem;
+      color:var(--text);
+    }
+    .secret-badge {
+      border-radius:999px;
+      border:1px solid rgba(37,99,235,0.25);
+      background:var(--chip-bg);
+      color:var(--chip-text);
+      text-transform:uppercase;
+      letter-spacing:0.18em;
+      font-size:0.68rem;
+      padding:0.25rem 0.6rem;
+      white-space:nowrap;
+    }
+    .secret-path {
+      color:var(--muted);
+      font-size:0.88rem;
+      word-break:break-all;
+      font-family:"SFMono-Regular","JetBrains Mono","Menlo","Source Code Pro",monospace;
+    }
     .hero-meta-block {
       border-radius:20px;
       border:1px solid rgba(15,23,42,0.08);
@@ -1301,6 +1333,10 @@
             <h3>Timeline</h3>
             <ul id="timelineList" class="timeline"></ul>
           </section>
+          <section id="secretsPanel" class="hero-meta-block" hidden>
+            <h3>Secrets</h3>
+            <ul id="secretsList" class="secrets-list"></ul>
+          </section>
 	          <section id="warningsPanel" class="hero-meta-block" hidden>
 	            <h3>Warnings</h3>
 	            <button id="warningsToggle" class="warnings-toggle" type="button" aria-label="Show warnings" title="Show warnings" data-open="false">
@@ -1649,6 +1685,8 @@
       var warningsList = document.getElementById('warningsList');
       var warningsToggle = document.getElementById('warningsToggle');
       var warningsBadge = document.getElementById('warningsBadge');
+      var secretsPanel = document.getElementById('secretsPanel');
+      var secretsList = document.getElementById('secretsList');
       var impactSummary = document.getElementById('impactSummary');
       var impactDetail = document.getElementById('impactDetail');
       var preflightList = document.getElementById('preflightList');
@@ -1801,6 +1839,7 @@
       hydrateReleaseDetails();
       hydrateHighlights();
       hydrateTimeline();
+      hydrateSecrets();
       hydrateWarnings();
       /* runbook removed */
       } catch (err) {
@@ -2928,6 +2967,7 @@
         scheduleGraphRender();
         hydrateHero();
         hydrateTimeline();
+        hydrateSecrets();
       }
 
       function parseExternalVizPayload(raw) {
@@ -3004,6 +3044,7 @@
         }
         hydrateHero();
         hydrateTimeline();
+        hydrateSecrets();
       }
 
       function recomputeChangedIds() {
@@ -3958,6 +3999,8 @@
         if (dataset.clusterHost) chips.push({ label: 'Cluster', value: dataset.clusterHost });
         if (dataset.compareSummary) chips.push({ label: 'Compare', value: dataset.compareSummary, kind: 'positive' });
         if (dataset.offlineFallback) chips.push({ label: 'Mode', value: 'Offline fallback', kind: 'warning' });
+        var secretCount = Array.isArray(dataset.secrets) ? dataset.secrets.length : 0;
+        if (secretCount) chips.push({ label: 'Secrets', value: String(secretCount) });
         chips.push({ label: 'Resources', value: formatNumber(nodes.length) });
         setHeroChips(chips);
       }
@@ -3992,6 +4035,32 @@
         timelineList.innerHTML = '';
         items.forEach(function(entry) {
           timelineList.appendChild(buildTimelineItem(entry));
+        });
+      }
+
+      function hydrateSecrets() {
+        if (!secretsPanel || !secretsList) return;
+        var secrets = Array.isArray(dataset.secrets) ? dataset.secrets.filter(Boolean) : [];
+        if (!secrets.length) {
+          secretsPanel.hidden = true;
+          return;
+        }
+        secretsPanel.hidden = false;
+        secretsList.innerHTML = '';
+        secrets.forEach(function(entry) {
+          if (!entry) return;
+          var li = document.createElement('li');
+          li.className = 'secret-item';
+          var badge = document.createElement('span');
+          badge.className = 'secret-badge';
+          badge.textContent = entry.provider || 'secret';
+          li.appendChild(badge);
+          var path = document.createElement('span');
+          path.className = 'secret-path';
+          var label = entry.path || entry.reference || '';
+          path.textContent = label;
+          li.appendChild(path);
+          secretsList.appendChild(li);
         });
       }
 

@@ -100,6 +100,7 @@ type SummaryPayload struct {
 	PhaseDurations map[string]string   `json:"phaseDurations,omitempty"`
 	History        []HistoryBreadcrumb `json:"history,omitempty"`
 	LastSuccessful *HistoryBreadcrumb  `json:"lastSuccessful,omitempty"`
+	Secrets        []SecretRef         `json:"secrets,omitempty"`
 }
 
 // HealthSnapshot aggregates readiness stats for the release.

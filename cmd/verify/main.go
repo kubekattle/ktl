@@ -50,6 +50,9 @@ func newRootCommand() *cobra.Command {
 }
 
 func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *string, noColor *bool, rulesPath *string) *cobra.Command {
+	var baselineWrite string
+	var compareTo string
+	var compareExit bool
 
 	cmd := &cobra.Command{
 		Use:   "verify <config.yaml>",
@@ -90,6 +93,20 @@ Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|
 
 			if err := cfg.Validate(baseDir); err != nil {
 				return err
+			}
+
+			if strings.TrimSpace(baselineWrite) != "" {
+				cfg.Verify.Baseline.Write = cfgpkg.ResolveRelPath(baseDir, baselineWrite)
+			}
+			if strings.TrimSpace(compareTo) != "" {
+				cfg.Verify.Baseline.Read = cfgpkg.ResolveRelPath(baseDir, compareTo)
+				if cmd.Flags().Changed("compare-exit") {
+					cfg.Verify.Baseline.ExitOnDelta = compareExit
+				} else if !cfg.Verify.Baseline.ExitOnDelta {
+					cfg.Verify.Baseline.ExitOnDelta = true
+				}
+			} else if cmd.Flags().Changed("compare-exit") {
+				cfg.Verify.Baseline.ExitOnDelta = compareExit
 			}
 
 			flagKubeconfigSet := cmd.Flags().Changed("kubeconfig")
@@ -158,6 +175,10 @@ Input must be a YAML file. Generate a config with 'verify init' (chart|manifest|
 	})
 
 	cmd.AddCommand(newVerifyInitCommand())
+
+	cmd.Flags().StringVar(&baselineWrite, "baseline", "", "Write a baseline report (JSON) to this path")
+	cmd.Flags().StringVar(&compareTo, "compare-to", "", "Compare against a baseline report (JSON) and show only new/changed findings")
+	cmd.Flags().BoolVar(&compareExit, "compare-exit", true, "Exit non-zero when --compare-to detects new or changed findings")
 
 	return cmd
 }

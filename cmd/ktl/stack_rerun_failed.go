@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, inferDeps *bool, inferConfigRefs *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
+func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, inferDeps *bool, inferConfigRefs *bool, tags *[]string, fromPaths *[]string, releases *[]string, gitRange *string, gitIncludeDeps *bool, gitIncludeDependents *bool, includeDeps *bool, includeDependents *bool, allowMissingDeps *bool, secretProvider *string, secretConfig *string, kubeconfig *string, kubeContext *string, logLevel *string, remoteAgent *string) *cobra.Command {
 	var yes bool
 	var runID string
 	var allowDrift bool
@@ -51,6 +51,10 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, in
 				}
 			}
 			p = stack.FilterByNodeStatus(p, loaded.StatusByID, []string{"failed"})
+			secretOptions, err := buildStackSecretOptions(cmd.Context(), p.StackRoot, derefString(secretProvider), derefString(secretConfig), cmd.ErrOrStderr())
+			if err != nil {
+				return err
+			}
 			return stack.Run(cmd.Context(), stack.RunOptions{
 				Command:                "apply",
 				Plan:                   p,
@@ -58,6 +62,7 @@ func newStackRerunFailedCommand(rootDir, profile *string, clusters *[]string, in
 				ProgressiveConcurrency: progressiveConcurrency,
 				FailFast:               true,
 				AutoApprove:            yes,
+				Secrets:                secretOptions,
 				Lock:                   lock,
 				LockOwner:              lockOwner,
 				LockTTL:                lockTTL,

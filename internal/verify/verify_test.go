@@ -51,6 +51,21 @@ func TestVerifyObjects_K8sRuleFixtures_PositiveAndNegative(t *testing.T) {
 			positiveYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "memory_limits_not_defined", "test", "positive1.yaml"),
 			negativeYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "memory_limits_not_defined", "test", "negative1.yaml"),
 		},
+		{
+			ruleID:      "k8s/container_run_as_non_root",
+			positiveYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "container_run_as_non_root", "test", "positive.yaml"),
+			negativeYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "container_run_as_non_root", "test", "negative.yaml"),
+		},
+		{
+			ruleID:      "k8s/container_read_only_root_filesystem",
+			positiveYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "container_read_only_root_filesystem", "test", "positive.yaml"),
+			negativeYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "container_read_only_root_filesystem", "test", "negative.yaml"),
+		},
+		{
+			ruleID:      "k8s/container_image_tag_latest",
+			positiveYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "container_image_tag_latest", "test", "positive.yaml"),
+			negativeYML: verifyTestdata("internal", "verify", "rules", "builtin", "k8s", "container_image_tag_latest", "test", "negative.yaml"),
+		},
 	}
 
 	for _, c := range cases {

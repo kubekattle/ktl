@@ -12,6 +12,7 @@ import (
 
 	"github.com/example/ktl/internal/caststream"
 	"github.com/example/ktl/internal/castutil"
+	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/stack"
 	"github.com/example/ktl/internal/tailer"
 	"github.com/example/ktl/internal/ui"
@@ -35,6 +36,9 @@ type stackCommandCommon struct {
 	includeDeps          *bool
 	includeDependents    *bool
 	allowMissingDeps     *bool
+
+	secretProvider *string
+	secretConfig   *string
 
 	kubeconfig  *string
 	kubeContext *string
@@ -316,7 +320,15 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 					return err
 				}
 
-				runOpts := buildRunOptions(kind, common, p, opts, effective, adaptiveOpts)
+				var secretOptions *deploy.SecretOptions
+				if kind == stackRunApply {
+					secretOptions, err = buildStackSecretOptions(cmd.Context(), p.StackRoot, derefString(common.secretProvider), derefString(common.secretConfig), cmd.ErrOrStderr())
+					if err != nil {
+						return err
+					}
+				}
+
+				runOpts := buildRunOptions(kind, common, p, opts, effective, adaptiveOpts, secretOptions)
 				runOpts.RunID = ""
 				runOpts.ResumeStatusByID = loaded.StatusByID
 				runOpts.ResumeAttemptByID = loaded.AttemptByID
@@ -371,7 +383,15 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				return err
 			}
 
-			runOpts := buildRunOptions(kind, common, p, opts, effective, adaptiveOpts)
+			var secretOptions *deploy.SecretOptions
+			if kind == stackRunApply {
+				secretOptions, err = buildStackSecretOptions(cmd.Context(), p.StackRoot, derefString(common.secretProvider), derefString(common.secretConfig), cmd.ErrOrStderr())
+				if err != nil {
+					return err
+				}
+			}
+
+			runOpts := buildRunOptions(kind, common, p, opts, effective, adaptiveOpts, secretOptions)
 			runOpts.Selector = runSelector
 			return runWithViews(p, runOpts)
 		},
@@ -581,7 +601,7 @@ func addStackConsoleFlags(cmd *cobra.Command, opts *stackRunCLIOptions) {
 	_ = cmd.Flags().MarkHidden("console-helm")
 }
 
-func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.Plan, opts stackRunCLIOptions, effective stack.RunnerResolved, adaptive *stack.AdaptiveConcurrencyOptions) stack.RunOptions {
+func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.Plan, opts stackRunCLIOptions, effective stack.RunnerResolved, adaptive *stack.AdaptiveConcurrencyOptions, secrets *deploy.SecretOptions) stack.RunOptions {
 	failFast := opts.FailFast && !opts.ContinueOnError
 	helmLogsMode := strings.ToLower(strings.TrimSpace(opts.HelmLogs))
 	switch helmLogsMode {
@@ -600,6 +620,7 @@ func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.P
 		DryRun:                     kind == stackRunApply && opts.DryRun,
 		Diff:                       kind == stackRunApply && opts.Diff,
 		CacheApply:                 kind == stackRunApply && opts.CacheApply,
+		Secrets:                    secrets,
 		HelmLogs:                   helmLogsMode != "off",
 		KubeQPS:                    effective.KubeQPS,
 		KubeBurst:                  effective.KubeBurst,

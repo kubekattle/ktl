@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/example/ktl/internal/secretstore"
 	"github.com/pmezard/go-difflib/difflib"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -33,6 +34,7 @@ type InstallOptions struct {
 	SetValues         []string
 	SetStringValues   []string
 	SetFileValues     []string
+	Secrets           *SecretOptions
 	Timeout           time.Duration
 	Wait              bool
 	Atomic            bool
@@ -85,7 +87,7 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 		return nil, fmt.Errorf("chart not installable: %w", err)
 	}
 
-	vals, err := buildValues(settings, opts.ValuesFiles, opts.SetValues, opts.SetStringValues, opts.SetFileValues)
+	vals, err := buildValues(ctx, settings, opts.ValuesFiles, opts.SetValues, opts.SetStringValues, opts.SetFileValues, opts.Secrets)
 	if err != nil {
 		notifyPhaseCompleted(observers, PhaseRender, "failed", err.Error())
 		return nil, err
@@ -207,7 +209,7 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 	return result, nil
 }
 
-func buildValues(settings *cli.EnvSettings, files, setVals, setStringVals, setFileVals []string) (map[string]interface{}, error) {
+func buildValues(ctx context.Context, settings *cli.EnvSettings, files, setVals, setStringVals, setFileVals []string, secrets *SecretOptions) (map[string]interface{}, error) {
 	valOpts := &cliValues.Options{
 		ValueFiles:   files,
 		Values:       setVals,
@@ -218,6 +220,29 @@ func buildValues(settings *cli.EnvSettings, files, setVals, setStringVals, setFi
 	vals, err := valOpts.MergeValues(providers)
 	if err != nil {
 		return nil, fmt.Errorf("merge values: %w", err)
+	}
+	if secrets == nil || secrets.Resolver == nil {
+		refs := secretstore.FindRefs(vals)
+		if len(refs) > 0 {
+			limit := 3
+			if len(refs) < limit {
+				limit = len(refs)
+			}
+			extra := len(refs) - limit
+			msg := fmt.Sprintf("secret reference(s) detected but no secret provider configured: %s", strings.Join(refs[:limit], ", "))
+			if extra > 0 {
+				msg = fmt.Sprintf("%s (and %d more)", msg, extra)
+			}
+			return nil, fmt.Errorf("%s", msg)
+		}
+		return vals, nil
+	}
+	if err := secrets.Resolver.ResolveValues(ctx, vals); err != nil {
+		return nil, err
+	}
+	report := secrets.Resolver.Audit()
+	if !report.Empty() && secrets.AuditSink != nil {
+		secrets.AuditSink(report)
 	}
 	return vals, nil
 }

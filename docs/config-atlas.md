@@ -4,6 +4,91 @@ Practical, copy/paste-friendly examples for the configs that power `ktl`.
 
 This is intentionally biased toward “what do I put in the file?” rather than exhaustive schema docs.
 
+## ktl config (`.ktl.yaml` / `~/.ktl/config.yaml`)
+
+Use the repo or global config file to set deploy-time secret providers or build defaults.
+
+```yaml
+# .ktl.yaml
+build:
+  profile: ci
+
+secrets:
+  defaultProvider: local
+  providers:
+    local:
+      type: file
+      path: ./secrets.dev.yaml
+
+  # Example Vault provider
+  # vault:
+  #   type: vault
+  #   address: https://vault.example.com
+  #   authMethod: approle
+  #   authMount: approle
+  #   roleId: 00000000-0000-0000-0000-000000000000
+  #   secretId: s.0000000000000000000000
+  #   # kubernetesRole: ktl
+  #   # kubernetesTokenPath: /var/run/secrets/kubernetes.io/serviceaccount/token
+  #   # awsRole: ktl
+  #   # awsRegion: us-east-1
+  #   # awsHeaderValue: vault.example.com
+  #   mount: secret
+  #   kvVersion: 2
+  #   key: value
+```
+
+### Vault auth method examples
+
+AppRole:
+```yaml
+secrets:
+  defaultProvider: vault
+  providers:
+    vault:
+      type: vault
+      address: https://vault.example.com
+      authMethod: approle
+      authMount: approle
+      roleId: 00000000-0000-0000-0000-000000000000
+      secretId: s.0000000000000000000000
+      mount: secret
+      kvVersion: 2
+```
+
+Kubernetes:
+```yaml
+secrets:
+  defaultProvider: vault
+  providers:
+    vault:
+      type: vault
+      address: https://vault.example.com
+      authMethod: kubernetes
+      authMount: kubernetes
+      kubernetesRole: ktl
+      kubernetesTokenPath: /var/run/secrets/kubernetes.io/serviceaccount/token
+      mount: secret
+      kvVersion: 2
+```
+
+AWS IAM:
+```yaml
+secrets:
+  defaultProvider: vault
+  providers:
+    vault:
+      type: vault
+      address: https://vault.example.com
+      authMethod: aws
+      authMount: aws
+      awsRole: ktl
+      awsRegion: us-east-1
+      awsHeaderValue: vault.example.com
+      mount: secret
+      kvVersion: 2
+```
+
 ## `stack.yaml` (minimal, with CLI defaults)
 
 This is the “minimal-flags” stack workflow: keep defaults in `stack.yaml` under `cli:` and override with `KTL_STACK_*` only when needed.
@@ -99,10 +184,25 @@ target:
 verify:
   mode: block        # warn|block
   failOn: high       # low|medium|high|critical
+  selectors:
+    include:
+      namespaces: ["default"]
+    exclude:
+      kinds: ["ConfigMap"]
+  baseline:
+    write: ./baseline.json   # write a JSON baseline snapshot
+    read: ./baseline.json    # compare against baseline on next run
+    exitOnDelta: true        # fail when new/changed findings appear
 
 output:
-  format: table      # table|json
+  format: table      # table|json|sarif|html|md
   report: "-"        # "-" stdout, or a path
+```
+
+Tip: CLI overrides are available for baselines:
+```bash
+verify verify.yaml --baseline ./baseline.json
+verify verify.yaml --compare-to ./baseline.json
 ```
 
 ### Verify a live namespace

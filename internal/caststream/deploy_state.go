@@ -189,6 +189,9 @@ func cloneStreamEvent(event deploy.StreamEvent) deploy.StreamEvent {
 			last := *event.Summary.LastSuccessful
 			cp.LastSuccessful = &last
 		}
+		if len(event.Summary.Secrets) > 0 {
+			cp.Secrets = append([]deploy.SecretRef(nil), event.Summary.Secrets...)
+		}
 		cloned.Summary = &cp
 	}
 	if event.Health != nil {

@@ -11,11 +11,14 @@ import (
 
 	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/kube"
+	"github.com/example/ktl/internal/secretstore"
 	"github.com/example/ktl/internal/verify"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
 )
 
@@ -47,10 +50,12 @@ type Chart struct {
 }
 
 type Rules struct {
-	Mode      string   `yaml:"mode,omitempty"`   // warn|block|off
-	FailOn    string   `yaml:"failOn,omitempty"` // info|low|medium|high|critical
-	RulesDir  string   `yaml:"rulesDir,omitempty"`
-	RulesPath []string `yaml:"rulesPath,omitempty"`
+	Mode          string                `yaml:"mode,omitempty"`   // warn|block|off
+	FailOn        string                `yaml:"failOn,omitempty"` // info|low|medium|high|critical
+	RulesDir      string                `yaml:"rulesDir,omitempty"`
+	RulesPath     []string              `yaml:"rulesPath,omitempty"`
+	Selectors     verify.SelectorSet    `yaml:"selectors,omitempty"`
+	RuleSelectors []verify.RuleSelector `yaml:"ruleSelectors,omitempty"`
 
 	Policy struct {
 		Ref  string `yaml:"ref,omitempty"`
@@ -72,7 +77,7 @@ type Rules struct {
 }
 
 type Output struct {
-	Format string `yaml:"format,omitempty"` // table|json|sarif
+	Format string `yaml:"format,omitempty"` // table|json|sarif|html|md
 	Report string `yaml:"report,omitempty"` // path or "-" (stdout)
 }
 
@@ -213,7 +218,7 @@ func (c *Config) StartPhase() string {
 	}
 }
 
-func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig string, kubeContext string, console *verify.Console) ([]map[string]any, string, error) {
+func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig string, kubeContext string, console *verify.Console) ([]map[string]any, string, *kube.APIRequestStats, error) {
 	switch strings.ToLower(strings.TrimSpace(c.Target.Kind)) {
 	case "manifest":
 		if console != nil {
@@ -221,20 +226,20 @@ func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig str
 		}
 		raw, err := os.ReadFile(strings.TrimSpace(c.Target.Manifest))
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 		objs, err := verify.DecodeK8SYAML(string(raw))
-		return objs, "", err
+		return objs, "", nil, err
 	case "namespace":
 		if console != nil {
 			console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "collect"})
 		}
 		client, err := kube.New(ctx, strings.TrimSpace(kubeconfig), strings.TrimSpace(kubeContext))
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 		objs, err := collectNamespacedObjects(ctx, client, strings.TrimSpace(c.Target.Namespace))
-		return objs, "", err
+		return objs, "", client.APIStats, err
 	case "chart":
 		if console != nil {
 			console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "render"})
@@ -248,12 +253,24 @@ func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig str
 			settings.KubeContext = v
 		}
 
+		apiStats := kube.NewAPIRequestStats()
+		if flags, ok := settings.RESTClientGetter().(*genericclioptions.ConfigFlags); ok && flags != nil {
+			wrap := flags.WrapConfigFn
+			flags.WrapConfigFn = func(cfg *rest.Config) *rest.Config {
+				if wrap != nil {
+					cfg = wrap(cfg)
+				}
+				kube.AttachAPITelemetry(cfg, apiStats)
+				return cfg
+			}
+		}
+
 		actionCfg := new(action.Configuration)
 		if err := actionCfg.Init(settings.RESTClientGetter(), strings.TrimSpace(c.Target.Chart.Namespace), os.Getenv("HELM_DRIVER"), func(format string, args ...interface{}) {
 			// keep quiet
 			_ = c.LogLevel
 		}); err != nil {
-			return nil, "", err
+			return nil, "", apiStats, err
 		}
 
 		useCluster := true
@@ -265,6 +282,18 @@ func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig str
 			includeCRDs = *c.Target.Chart.IncludeCRDs
 		}
 
+		secretsCfg, secretsBaseDir, err := secretstore.LoadConfigFromApp(ctx, c.Target.Chart.Chart, "")
+		if err != nil {
+			return nil, "", apiStats, err
+		}
+		secretResolver, err := secretstore.NewResolver(secretsCfg, secretstore.ResolverOptions{
+			BaseDir: secretsBaseDir,
+			Mode:    secretstore.ResolveModeValue,
+		})
+		if err != nil {
+			return nil, "", apiStats, err
+		}
+
 		result, err := deploy.RenderTemplate(ctx, actionCfg, settings, deploy.TemplateOptions{
 			Chart:       strings.TrimSpace(c.Target.Chart.Chart),
 			ReleaseName: strings.TrimSpace(c.Target.Chart.Release),
@@ -273,17 +302,18 @@ func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig str
 			SetValues:   c.Target.Chart.SetValues,
 			UseCluster:  useCluster,
 			IncludeCRDs: includeCRDs,
+			Secrets:     &deploy.SecretOptions{Resolver: secretResolver},
 		})
 		if err != nil {
-			return nil, "", err
+			return nil, "", apiStats, err
 		}
 		if console != nil {
 			console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "decode"})
 		}
 		objs, err := verify.DecodeK8SYAML(result.Manifest)
-		return objs, result.Manifest, err
+		return objs, result.Manifest, apiStats, err
 	default:
-		return nil, "", fmt.Errorf("unsupported target.kind %q", c.Target.Kind)
+		return nil, "", nil, fmt.Errorf("unsupported target.kind %q", c.Target.Kind)
 	}
 }
 
@@ -362,6 +392,10 @@ func RepModeFormat(v string) verify.OutputFormat {
 		return verify.OutputJSON
 	case "sarif":
 		return verify.OutputSARIF
+	case "html":
+		return verify.OutputHTML
+	case "md", "markdown":
+		return verify.OutputMD
 	default:
 		return verify.OutputTable
 	}

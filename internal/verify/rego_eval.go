@@ -14,42 +14,42 @@ import (
 )
 
 func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any, commonDirs []string) ([]Finding, error) {
+	return EvaluateRulesWithSelectors(ctx, rules, objects, commonDirs, SelectorSet{}, nil)
+}
+
+func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []map[string]any, commonDirs []string, selectors SelectorSet, ruleSelectors []RuleSelector) ([]Finding, error) {
 	if len(rules.Rules) == 0 || len(objects) == 0 {
 		return nil, nil
 	}
-	inputDocs := make([]map[string]any, 0, len(objects))
-	docIndex := map[string]Subject{}
-	for i, obj := range objects {
-		docID := fmt.Sprintf("doc-%d", i+1)
-		doc := map[string]any{
-			"id":       docID,
-			"kind":     obj["kind"],
-			"metadata": obj["metadata"],
-			"spec":     obj["spec"],
-		}
-		sub := Subject{}
-		if v, ok := obj["kind"]; ok && v != nil {
-			sub.Kind = strings.TrimSpace(fmt.Sprintf("%v", v))
-		}
-		if meta, ok := obj["metadata"].(map[string]any); ok && meta != nil {
-			if v, ok := meta["name"]; ok && v != nil {
-				sub.Name = strings.TrimSpace(fmt.Sprintf("%v", v))
-			}
-			if v, ok := meta["namespace"]; ok && v != nil {
-				sub.Namespace = strings.TrimSpace(fmt.Sprintf("%v", v))
-			}
-		}
-		docIndex[docID] = sub
-		// Some queries expect arbitrary keys under the document; keep the full object too.
-		for k, v := range obj {
-			if _, ok := doc[k]; ok {
-				continue
-			}
-			doc[k] = v
-		}
-		inputDocs = append(inputDocs, doc)
+	infos := buildObjectInfos(objects)
+	if len(infos) == 0 {
+		return nil, nil
 	}
-	input := map[string]any{"document": inputDocs}
+	includeSel, err := compileSelector(selectors.Include)
+	if err != nil {
+		return nil, err
+	}
+	excludeSel, err := compileSelector(selectors.Exclude)
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]objectInfo, 0, len(infos))
+	for _, info := range infos {
+		if !selectorMatches(includeSel, info) {
+			continue
+		}
+		if !excludeSel.empty && selectorMatches(excludeSel, info) {
+			continue
+		}
+		eligible = append(eligible, info)
+	}
+	if len(eligible) == 0 {
+		return nil, nil
+	}
+	ruleFilters, err := compileRuleSelectors(ruleSelectors)
+	if err != nil {
+		return nil, err
+	}
 
 	modules, err := loadRegoModulesDirs(commonDirs)
 	if err != nil {
@@ -58,6 +58,32 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 
 	var findings []Finding
 	for _, rule := range rules.Rules {
+		ruleInfos := eligible
+		if len(ruleFilters) > 0 {
+			var matched []compiledRuleSelector
+			for _, sel := range ruleFilters {
+				if sel.pattern.MatchString(rule.ID) {
+					matched = append(matched, sel)
+				}
+			}
+			if len(matched) > 0 {
+				filtered := make([]objectInfo, 0, len(ruleInfos))
+				for _, info := range ruleInfos {
+					if !selectorMatchesAll(info, matched) {
+						continue
+					}
+					filtered = append(filtered, info)
+				}
+				ruleInfos = filtered
+			}
+		}
+		if len(ruleInfos) == 0 {
+			continue
+		}
+
+		inputDocs, docIndex := buildInputDocs(ruleInfos)
+		input := map[string]any{"document": inputDocs}
+
 		ruleModules := make(map[string]string, len(modules)+8)
 		for k, v := range modules {
 			ruleModules[k] = v
@@ -97,38 +123,54 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 			if !ok {
 				continue
 			}
-			msg := rule.Title
-			if rule.Description != "" {
-				msg = rule.Description
+			msg := strings.TrimSpace(rule.Description)
+			if msg == "" {
+				msg = strings.TrimSpace(rule.Title)
+			}
+			if v := firstString(m, "message", "msg", "description"); v != "" {
+				msg = v
 			}
 			subj := Subject{}
-			docID := ""
-			if v, ok := m["documentId"]; ok && v != nil {
-				docID = strings.TrimSpace(fmt.Sprintf("%v", v))
-			}
+			docID := strings.TrimSpace(firstString(m, "documentId"))
 			if docID != "" {
 				if base, ok := docIndex[docID]; ok {
-					subj = base
+					subj = base.subject
 				}
 			}
-			// Prefer explicit fields from the query result when present.
-			if v, ok := m["resourceType"]; ok && v != nil {
-				subj.Kind = strings.TrimSpace(fmt.Sprintf("%v", v))
+			if v := firstString(m, "resourceType"); v != "" {
+				subj.Kind = v
 			}
-			if v, ok := m["resourceName"]; ok && v != nil {
-				subj.Name = strings.TrimSpace(fmt.Sprintf("%v", v))
+			if v := firstString(m, "resourceName"); v != "" {
+				subj.Name = v
 			}
-			loc := ""
-			if v, ok := m["searchKey"]; ok && v != nil {
-				loc = strings.TrimSpace(fmt.Sprintf("%v", v))
+			if v := firstString(m, "resourceNamespace"); v != "" {
+				subj.Namespace = v
 			}
-			fp := rule.ID + ":" + subj.Kind + ":" + subj.Namespace + ":" + subj.Name + ":" + loc
+
+			loc := strings.TrimSpace(firstString(m, "searchKey"))
+			path, line := parseSearchLine(m["searchLine"])
+			if path == "" {
+				path = loc
+			}
+			expected := strings.TrimSpace(firstString(m, "keyExpectedValue", "expected", "expectedValue"))
+			observed := strings.TrimSpace(firstString(m, "keyActualValue", "actual", "actualValue", "observed"))
+			key := resourceKey(subj)
+			fp := rule.ID + ":" + key
+			if loc != "" {
+				fp += ":" + loc
+			}
+
 			findings = append(findings, Finding{
 				RuleID:      rule.ID,
 				Severity:    rule.Severity,
 				Category:    rule.Category,
 				Message:     msg,
+				Path:        path,
+				Line:        line,
 				Location:    loc,
+				ResourceKey: key,
+				Expected:    expected,
+				Observed:    observed,
 				Subject:     subj,
 				Fingerprint: fp,
 				HelpURL:     rule.HelpURL,
@@ -136,6 +178,99 @@ func EvaluateRules(ctx context.Context, rules Ruleset, objects []map[string]any,
 		}
 	}
 	return findings, nil
+}
+
+func selectorMatchesAll(info objectInfo, selectors []compiledRuleSelector) bool {
+	for _, sel := range selectors {
+		if !selectorMatches(sel.include, info) {
+			return false
+		}
+		if !sel.exclude.empty && selectorMatches(sel.exclude, info) {
+			return false
+		}
+	}
+	return true
+}
+
+func buildInputDocs(infos []objectInfo) ([]map[string]any, map[string]objectInfo) {
+	inputDocs := make([]map[string]any, 0, len(infos))
+	docIndex := map[string]objectInfo{}
+	for i, info := range infos {
+		docID := fmt.Sprintf("doc-%d", i+1)
+		obj := info.obj
+		doc := map[string]any{
+			"id":       docID,
+			"kind":     obj["kind"],
+			"metadata": obj["metadata"],
+			"spec":     obj["spec"],
+		}
+		// Some queries expect arbitrary keys under the document; keep the full object too.
+		for k, v := range obj {
+			if _, ok := doc[k]; ok {
+				continue
+			}
+			doc[k] = v
+		}
+		docIndex[docID] = info
+		inputDocs = append(inputDocs, doc)
+	}
+	return inputDocs, docIndex
+}
+
+func firstString(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if v, ok := m[key]; ok && v != nil {
+			s := strings.TrimSpace(fmt.Sprintf("%v", v))
+			if s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func parseSearchLine(raw interface{}) (string, int) {
+	switch typed := raw.(type) {
+	case int:
+		return "", typed
+	case int64:
+		return "", int(typed)
+	case float64:
+		return "", int(typed)
+	case string:
+		return strings.TrimSpace(typed), 0
+	case []string:
+		return joinPathParts(typed), 0
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			part := strings.TrimSpace(fmt.Sprintf("%v", item))
+			if part != "" {
+				parts = append(parts, part)
+			}
+		}
+		return joinPathParts(parts), 0
+	default:
+		return "", 0
+	}
+}
+
+func joinPathParts(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, ".")
 }
 
 var regoModuleCache sync.Map // key -> map[string]string

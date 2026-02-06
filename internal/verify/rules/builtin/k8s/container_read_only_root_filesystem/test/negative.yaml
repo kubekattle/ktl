@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: read-only-root
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25
+      securityContext:
+        readOnlyRootFilesystem: true

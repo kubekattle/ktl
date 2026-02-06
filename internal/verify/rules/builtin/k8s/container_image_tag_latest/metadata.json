@@ -1,0 +1,13 @@
+{
+  "id": "7f7eaf0b-1a49-4b46-9e42-2f0eac49a44f",
+  "queryName": "Container Image Tag Should Not Be Latest",
+  "severity": "MEDIUM",
+  "category": "Supply Chain",
+  "descriptionText": "Container images should be pinned to a specific tag or digest instead of using :latest or an implicit latest tag.",
+  "descriptionUrl": "https://kubernetes.io/docs/concepts/containers/images/#image-names",
+  "platform": "Kubernetes",
+  "descriptionID": "4d5a4d3f",
+  "cloudProvider": "common",
+  "cwe": "1104",
+  "riskScore": "5.2"
+}

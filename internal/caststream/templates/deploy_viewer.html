@@ -411,6 +411,25 @@
     .summary-status.success { color:var(--success); }
     .summary-status.fail { color:var(--fail); }
     .summary-status.pending { color:var(--muted); }
+    .secrets-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:0.6rem; }
+    .secret-item { display:flex; align-items:center; gap:0.6rem; font-size:0.9rem; color:var(--text); }
+    .secret-badge {
+      border-radius:999px;
+      border:1px solid rgba(37,99,235,0.25);
+      background:rgba(37,99,235,0.08);
+      color:var(--accent);
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+      font-size:0.68rem;
+      padding:0.2rem 0.6rem;
+      white-space:nowrap;
+    }
+    .secret-path {
+      color:var(--muted);
+      font-size:0.85rem;
+      word-break:break-all;
+      font-family:"SFMono-Regular","JetBrains Mono","Menlo","Source Code Pro",monospace;
+    }
     .empty-note { color:var(--muted); font-size:0.9rem; }
     @media (prefers-reduced-motion: no-preference) {
       .panel {
@@ -540,6 +559,10 @@
           <p class="empty-note" id="healthEmpty">Awaiting readiness data…</p>
           <p class="summary-meta" id="healthUpdated">—</p>
         </section>
+        <section class="panel" id="secretPanel" style="--panel-delay:2.5;" hidden>
+          <h2>Secrets</h2>
+          <ul class="secrets-list" id="secretList"></ul>
+        </section>
       </aside>
     </div>
   </div>
@@ -598,6 +621,8 @@
         duration: document.getElementById('summaryDuration'),
         notes: document.getElementById('summaryNotes'),
       };
+      const secretsPanel = document.getElementById('secretPanel');
+      const secretsList = document.getElementById('secretList');
       const resourceRowMap = new Map();
       const timelineState = { showCompleted: false, threshold: 10 };
       const eventEntries = [];
@@ -1604,6 +1629,38 @@
         } else {
           statusLocked = false;
         }
+        renderSecrets(data);
+      }
+
+      function renderSecrets(data) {
+        if (!secretsPanel || !secretsList) return;
+        const secrets = Array.isArray(data && data.secrets) ? data.secrets.filter(Boolean) : [];
+        if (!secrets.length) {
+          secretsPanel.hidden = true;
+          return;
+        }
+        secretsPanel.hidden = false;
+        secretsList.innerHTML = '';
+        secrets.forEach(function(entry) {
+          const li = document.createElement('li');
+          li.className = 'secret-item';
+          const badge = document.createElement('span');
+          badge.className = 'secret-badge';
+          badge.textContent = entry.provider || 'secret';
+          const path = document.createElement('span');
+          path.className = 'secret-path';
+          if (entry.reference) {
+            path.textContent = entry.reference;
+          } else if (entry.path) {
+            const prefix = entry.provider ? 'secret://' + entry.provider + '/' : 'secret:///';
+            path.textContent = prefix + entry.path;
+          } else {
+            path.textContent = 'secret://';
+          }
+          li.appendChild(badge);
+          li.appendChild(path);
+          secretsList.appendChild(li);
+        });
       }
 
       function setHeroContext(summaryData) {

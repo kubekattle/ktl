@@ -121,6 +121,15 @@ func (b *buildProgressBroadcaster) emitSummary(summary buildSummary) {
 	b.emitCustom(fmt.Sprintf("Summary: %s", string(payload)), "ⓘ")
 }
 
+func (b *buildProgressBroadcaster) cacheStats() (int, int) {
+	if b == nil {
+		return 0, 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.cacheHits, b.cacheMisses
+}
+
 func (b *buildProgressBroadcaster) emitResult(resultErr error, duration time.Duration) {
 	if b == nil {
 		return

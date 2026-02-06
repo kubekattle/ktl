@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/example/ktl/internal/deploy"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -27,6 +28,7 @@ type RunOptions struct {
 	Diff        bool
 	CacheApply  bool
 	Executor    NodeExecutor
+	Secrets     *deploy.SecretOptions
 
 	HelmLogs bool
 
@@ -140,6 +142,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			helmLogs:    opts.HelmLogs,
 			kubeQPS:     opts.KubeQPS,
 			kubeBurst:   opts.KubeBurst,
+			secrets:     opts.Secrets,
 		}
 	}
 	exec = &hookedExecutor{base: exec, run: run, opts: opts, out: out, errOut: errOut}

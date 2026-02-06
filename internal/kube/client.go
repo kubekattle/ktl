@@ -30,6 +30,7 @@ type Client struct {
 	Metrics    metricsclient.Interface
 	RESTMapper *restmapper.DeferredDiscoveryRESTMapper
 	Namespace  string
+	APIStats   *APIRequestStats
 }
 
 // New builds a Kubernetes client configuration honoring the provided kubeconfig path and context.
@@ -62,6 +63,8 @@ func New(ctx context.Context, kubeconfigPath, contextName string) (*Client, erro
 	restConfig.Timeout = 30 * time.Second
 	restConfig.QPS = 50
 	restConfig.Burst = 100
+	apiStats := NewAPIRequestStats()
+	AttachAPITelemetry(restConfig, apiStats)
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
@@ -91,5 +94,6 @@ func New(ctx context.Context, kubeconfigPath, contextName string) (*Client, erro
 		Metrics:    metrics,
 		RESTMapper: mapper,
 		Namespace:  namespace,
+		APIStats:   apiStats,
 	}, nil
 }

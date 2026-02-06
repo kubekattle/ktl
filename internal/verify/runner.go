@@ -42,13 +42,14 @@ type Runner struct {
 
 func (r Runner) Verify(ctx context.Context, target string, objects []map[string]any, opts Options, emit Emitter) (*Report, error) {
 	if opts.Mode == ModeOff {
+		summary := BuildSummary(nil, false)
 		rep := &Report{
 			Tool:        "ktl-verify",
 			Engine:      EngineMeta{Name: "builtin", Ruleset: "off"},
 			Mode:        opts.Mode,
 			Passed:      true,
 			EvaluatedAt: time.Now().UTC(),
-			Summary:     Summary{Total: 0, BySev: map[Severity]int{}, Passed: true, Blocked: false},
+			Summary:     summary,
 		}
 		return rep, nil
 	}
@@ -105,14 +106,11 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		Engine:      EngineMeta{Name: "builtin", Ruleset: rulesetLabel},
 		Mode:        opts.Mode,
 		EvaluatedAt: time.Now().UTC(),
-		Summary:     Summary{BySev: map[Severity]int{}},
 	}
 
 	var findings []Finding
 	emitFinding := func(f Finding) {
 		findings = append(findings, f)
-		rep.Summary.Total++
-		rep.Summary.BySev[f.Severity]++
 		if emit != nil {
 			ff := f
 			_ = emit(Event{Type: EventFinding, When: time.Now().UTC(), Finding: &ff})
@@ -123,7 +121,7 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		_ = emit(Event{Type: EventProgress, When: time.Now().UTC(), Phase: "evaluate"})
 	}
 
-	ruleFindings, err := EvaluateRules(ctx, rules, objects, commonDirs)
+	ruleFindings, err := EvaluateRulesWithSelectors(ctx, rules, objects, commonDirs, opts.Selectors, opts.RuleSelectors)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +129,11 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		emitFinding(f)
 	}
 
+	sortFindings(findings)
 	blocked := opts.Mode == ModeBlock && hasAtLeast(findings, opts.FailOn)
 	rep.Blocked = blocked
 	rep.Passed = !blocked
-	rep.Summary.Blocked = rep.Blocked
-	rep.Summary.Passed = rep.Passed
+	rep.Summary = BuildSummary(findings, blocked)
 	rep.Findings = findings
 
 	if emit != nil {

@@ -22,6 +22,16 @@ func Catalog() []VarInfo {
 			Description: "Set any ktl CLI flag via environment (hyphens become underscores). Example: KTL_NAMESPACE=default.",
 		},
 		{
+			Category:    "Secrets",
+			Name:        "KTL_SECRET_PROVIDER",
+			Description: "Default secret provider name for resolving secret:// references in ktl apply/plan.",
+		},
+		{
+			Category:    "Secrets",
+			Name:        "KTL_SECRET_CONFIG",
+			Description: "Path to a secrets provider config file for resolving secret:// references.",
+		},
+		{
 			Category:    "Output",
 			Name:        "NO_COLOR",
 			Description: "Disable ANSI color output (any non-empty value).",

@@ -27,7 +27,8 @@ type BuildConfig struct {
 }
 
 type Config struct {
-	Build BuildConfig `yaml:"build,omitempty"`
+	Build   BuildConfig   `yaml:"build,omitempty"`
+	Secrets SecretsConfig `yaml:"secrets,omitempty"`
 }
 
 func DefaultGlobalPath() string {
@@ -92,6 +93,7 @@ func loadOne(path string) (Config, error) {
 func merge(a, b Config) Config {
 	out := a
 	out.Build = mergeBuild(a.Build, b.Build)
+	out.Secrets = mergeSecrets(a.Secrets, b.Secrets)
 	return out
 }
 

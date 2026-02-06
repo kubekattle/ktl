@@ -85,6 +85,12 @@ func fixTitle(ruleID string) string {
 		return "Add a baseline securityContext for pods/containers"
 	case "k8s/memory_limits_not_defined":
 		return "Define memory requests/limits for containers"
+	case "k8s/container_run_as_non_root":
+		return "Require containers to run as non-root"
+	case "k8s/container_read_only_root_filesystem":
+		return "Require containers to use a read-only root filesystem"
+	case "k8s/container_image_tag_latest":
+		return "Pin container images to a tag or digest"
 	default:
 		return ""
 	}
@@ -116,6 +122,12 @@ func patchSuggestion(sub Subject, ruleID string) string {
 		return header + podSpecPrefix + "  securityContext:\n    runAsNonRoot: true\n  containers:\n    - name: <container>\n      securityContext:\n        allowPrivilegeEscalation: false\n        readOnlyRootFilesystem: true\n        capabilities:\n          drop: [\"ALL\"]\n"
 	case "k8s/memory_limits_not_defined":
 		return header + podSpecPrefix + "  containers:\n    - name: <container>\n      resources:\n        requests:\n          memory: 128Mi\n        limits:\n          memory: 256Mi\n"
+	case "k8s/container_run_as_non_root":
+		return header + podSpecPrefix + "  securityContext:\n    runAsNonRoot: true\n  containers:\n    - name: <container>\n      securityContext:\n        runAsNonRoot: true\n"
+	case "k8s/container_read_only_root_filesystem":
+		return header + podSpecPrefix + "  containers:\n    - name: <container>\n      securityContext:\n        readOnlyRootFilesystem: true\n"
+	case "k8s/container_image_tag_latest":
+		return header + podSpecPrefix + "  containers:\n    - name: <container>\n      image: <repo>:<tag>\n"
 	default:
 		return ""
 	}
