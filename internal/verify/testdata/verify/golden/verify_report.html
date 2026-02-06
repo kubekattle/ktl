@@ -1,194 +1,71 @@
-package verify
-
-import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"sort"
-	"strings"
-	"time"
-)
-
-func writeMarkdown(w io.Writer, rep *Report) error {
-	if w == nil || rep == nil {
-		return nil
-	}
-	var b strings.Builder
-	b.WriteString("# ktl verify report\n\n")
-	b.WriteString(fmt.Sprintf("- Evaluated: %s\n", rep.EvaluatedAt.Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("- Mode: %s\n", rep.Mode))
-	b.WriteString(fmt.Sprintf("- Passed: %t\n", rep.Passed))
-	b.WriteString(fmt.Sprintf("- Blocked: %t\n", rep.Blocked))
-	if strings.TrimSpace(rep.Engine.Ruleset) != "" {
-		b.WriteString(fmt.Sprintf("- Ruleset: %s\n", strings.TrimSpace(rep.Engine.Ruleset)))
-	}
-	b.WriteString(fmt.Sprintf("- Total findings: %d\n", rep.Summary.Total))
-
-	if len(rep.Summary.BySev) > 0 {
-		b.WriteString("\n## By severity\n\n")
-		writeMarkdownSeverityTable(&b, rep.Summary.BySev)
-	}
-
-	if len(rep.Findings) == 0 {
-		b.WriteString("\n_No findings._\n")
-		_, _ = w.Write([]byte(b.String()))
-		return nil
-	}
-
-	b.WriteString("\n## Findings\n\n")
-	b.WriteString("| Severity | Rule | Resource | Message | Location | Expected | Observed | Help |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- |\n")
-	for _, f := range rep.Findings {
-		b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
-			strings.ToUpper(string(f.Severity)),
-			mdEscape(f.RuleID),
-			mdEscape(findingResource(f)),
-			mdEscape(f.Message),
-			mdEscape(findingLocation(f)),
-			mdEscape(f.Expected),
-			mdEscape(f.Observed),
-			mdEscape(f.HelpURL),
-		))
-	}
-	_, _ = w.Write([]byte(b.String()))
-	return nil
-}
-
-func writeMarkdownSeverityTable(b *strings.Builder, bySev map[Severity]int) {
-	if b == nil {
-		return
-	}
-	sevs := make([]Severity, 0, len(bySev))
-	for sev := range bySev {
-		sevs = append(sevs, sev)
-	}
-	sort.Slice(sevs, func(i, j int) bool { return severityRank(sevs[i]) < severityRank(sevs[j]) })
-	b.WriteString("| Severity | Count |\n")
-	b.WriteString("| --- | --- |\n")
-	for _, sev := range sevs {
-		b.WriteString(fmt.Sprintf("| %s | %d |\n", strings.ToUpper(string(sev)), bySev[sev]))
-	}
-}
-
-func writeHTML(w io.Writer, rep *Report) error {
-	if w == nil || rep == nil {
-		return nil
-	}
-
-	type htmlPayload struct {
-		Report  *Report     `json:"report"`
-		FixPlan []FixChange `json:"fixPlan,omitempty"`
-	}
-	payload := htmlPayload{Report: rep, FixPlan: BuildFixPlan(rep.Findings)}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	// Avoid closing the script tag if report content contains "</script>"-like sequences.
-	jsonText := strings.ReplaceAll(string(raw), "</", "<\\/")
-
-	var b strings.Builder
-	b.WriteString("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\" />\n")
-	b.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n")
-	b.WriteString("<title>ktl verify report</title>\n")
-	b.WriteString("<style>\n")
-	// Lux minimalist: ivory surfaces, deep ink text, brass accents.
-	b.WriteString(":root{color-scheme:light;--ink:#0b1f2a;--muted:rgba(11,31,42,0.62);--navy:#0b3a53;--brass:#b08d57;--surface:rgba(255,255,255,0.92);--surface-soft:rgba(255,255,255,0.84);--border:rgba(11,31,42,0.12);--shadow:0 26px 60px rgba(11,31,42,0.12);--shadow-soft:0 16px 34px rgba(11,31,42,0.10);--ease:cubic-bezier(.16,1,.3,1);} \n")
-	b.WriteString("*{box-sizing:border-box;}body{margin:0;padding:44px 52px 72px;font-family:\"SF Pro Display\",\"SF Pro Text\",-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;background:radial-gradient(1200px 700px at 18% 12%, #ffffff 0%, #eef2f7 38%, #dce3f1 100%);color:var(--ink);}h1{margin:0;font-size:2.3rem;letter-spacing:-0.03em;font-weight:650;}h2{margin:1.2rem 0 0.6rem;font-size:1.05rem;letter-spacing:0.01em;}p{margin:0.25rem 0;color:var(--muted);}a{color:var(--navy);text-decoration:none;}a:hover{text-decoration:underline;} \n")
-	b.WriteString(".chrome{max-width:1280px;margin:0 auto;} \n")
-	b.WriteString(".panel{background:var(--surface);border:1px solid var(--border);border-radius:26px;padding:26px 28px;box-shadow:var(--shadow);backdrop-filter:blur(18px);} \n")
-	b.WriteString(".panel.soft{background:var(--surface-soft);box-shadow:var(--shadow-soft);} \n")
-	b.WriteString(".layout{display:flex;gap:18px;align-items:flex-start;margin-top:16px;} \n")
-	b.WriteString("aside{flex:0 0 320px;position:sticky;top:18px;}main{flex:1 1 auto;min-width:0;} \n")
-	b.WriteString(".hero{display:flex;gap:16px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;} \n")
-	b.WriteString(".subtitle{font-size:0.98rem;color:var(--muted);} \n")
-	b.WriteString(".metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:14px;} \n")
-	b.WriteString(".metric{padding:14px 14px;border:1px solid rgba(11,31,42,0.10);border-radius:18px;background:rgba(255,255,255,0.55);} \n")
-	b.WriteString(".metric .k{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.18em;color:var(--muted);font-weight:650;} \n")
-	b.WriteString(".metric .v{margin-top:6px;font-size:1.1rem;font-weight:680;overflow-wrap:anywhere;word-break:break-word;} \n")
-	b.WriteString(".toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;} \n")
-	b.WriteString(".search{flex:1 1 320px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.65);border:1px solid var(--border);border-radius:999px;padding:10px 14px;box-shadow:0 0 0 rgba(0,0,0,0);} \n")
-	b.WriteString(".search:focus-within{box-shadow:0 0 0 4px rgba(11,58,83,0.20);border-color:rgba(11,58,83,0.45);} \n")
-	b.WriteString(".search input{border:0;outline:0;background:transparent;width:100%;font-size:0.95rem;color:var(--ink);} \n")
-	b.WriteString(".chips{display:flex;gap:8px;flex-wrap:wrap;} \n")
-	b.WriteString(".chip{border-radius:999px;padding:8px 12px;border:1px solid var(--border);background:rgba(255,255,255,0.55);color:var(--navy);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.16em;font-weight:650;cursor:pointer;transition:transform 140ms var(--ease),box-shadow 140ms var(--ease),background 140ms var(--ease),border-color 140ms var(--ease);} \n")
-	b.WriteString(".chip[data-on='1']{box-shadow:0 0 0 2px rgba(176,141,87,0.35);border-color:rgba(176,141,87,0.55);background:rgba(176,141,87,0.10);transform:translateY(-1px);} \n")
-	b.WriteString(".chip.sev-critical,.chip.sev-high{color:#7f1d1d;} .chip.sev-medium{color:#7c4a00;} .chip.sev-low{color:#0c4a6e;} .chip.sev-info{color:rgba(11,31,42,0.70);} \n")
-	b.WriteString("select,button,input{font-family:inherit;} \n")
-	b.WriteString(".select{border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,0.55);padding:9px 12px;font-size:0.9rem;color:var(--ink);} \n")
-	b.WriteString(".tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;} \n")
-	b.WriteString(".tab{border-radius:999px;padding:8px 12px;border:1px solid var(--border);background:rgba(255,255,255,0.55);cursor:pointer;font-size:0.78rem;letter-spacing:0.14em;text-transform:uppercase;font-weight:650;color:var(--ink);} \n")
-	b.WriteString(".tab[data-on='1']{border-color:rgba(176,141,87,0.55);box-shadow:0 0 0 2px rgba(176,141,87,0.30);background:rgba(176,141,87,0.10);} \n")
-	b.WriteString(".table{width:100%;border-collapse:collapse;margin-top:10px;font-size:0.95rem;} \n")
-	b.WriteString(".table th,.table td{padding:10px 10px;border-bottom:1px solid rgba(11,31,42,0.08);vertical-align:top;text-align:left;} \n")
-	b.WriteString(".table th{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.18em;color:var(--muted);font-weight:680;} \n")
-	b.WriteString(".mono{font-family:\"SFMono-Regular\",\"JetBrains Mono\",\"Menlo\",\"Source Code Pro\",monospace;font-size:0.9em;overflow-wrap:anywhere;word-break:break-word;} \n")
-	b.WriteString(".badge{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:4px 10px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.16em;font-weight:700;border:1px solid rgba(11,31,42,0.10);background:rgba(255,255,255,0.55);} \n")
-	b.WriteString(".dot{width:8px;height:8px;border-radius:999px;background:rgba(11,31,42,0.35);} \n")
-	b.WriteString(".sev-critical .dot,.sev-high .dot{background:#ef4444;} .sev-medium .dot{background:#f59e0b;} .sev-low .dot{background:#0ea5e9;} .sev-info .dot{background:rgba(11,31,42,0.35);} \n")
-	b.WriteString(".row{cursor:pointer;} .row:hover{background:rgba(11,31,42,0.03);} \n")
-	b.WriteString(".klist{list-style:none;padding:0;margin:10px 0 0;} .klist li{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(11,31,42,0.07);} .klist li:last-child{border-bottom:none;} \n")
-	b.WriteString(".muted{color:var(--muted);} \n")
-	b.WriteString(".toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:rgba(11,31,42,0.92);color:#fff;padding:10px 14px;border-radius:999px;font-size:0.9rem;opacity:0;pointer-events:none;transition:opacity 160ms var(--ease);} .toast.on{opacity:1;} \n")
-	b.WriteString(".drawer-backdrop{position:fixed;inset:0;background:rgba(11,31,42,0.28);opacity:0;pointer-events:none;transition:opacity 160ms var(--ease);} .drawer-backdrop.on{opacity:1;pointer-events:auto;} \n")
-	b.WriteString(".drawer{position:fixed;top:0;right:0;height:100%;width:min(520px, 92vw);background:rgba(255,255,255,0.96);border-left:1px solid rgba(11,31,42,0.10);box-shadow:0 40px 90px rgba(11,31,42,0.22);transform:translateX(100%);transition:transform 220ms var(--ease);padding:20px 18px 24px;overflow:auto;} .drawer.on{transform:translateX(0);} \n")
-	b.WriteString(".drawer h2{margin-top:0.25rem;} \n")
-	b.WriteString(".btn{border-radius:999px;padding:9px 12px;border:1px solid rgba(11,31,42,0.16);background:rgba(255,255,255,0.70);cursor:pointer;font-weight:650;} .btn:hover{border-color:rgba(176,141,87,0.60);} \n")
-	b.WriteString("pre{white-space:pre-wrap;margin:10px 0 0;background:rgba(11,31,42,0.04);border:1px solid rgba(11,31,42,0.08);border-radius:16px;padding:12px 14px;overflow-wrap:anywhere;word-break:break-word;} \n")
-	b.WriteString("body.print .toolbar,body.print aside,body.print .drawer,body.print .drawer-backdrop,body.print .toast{display:none !important;} body.print .layout{display:block;} body.print .panel{box-shadow:none;} \n")
-	b.WriteString("@media (max-width:1100px){body{padding:26px 16px 48px;} aside{position:relative;top:auto;flex:1 1 100%;} .layout{flex-direction:column;} } \n")
-	b.WriteString("</style>\n</head>\n<body>\n<div class=\"chrome\">\n")
-
-	b.WriteString("<div class=\"panel\" id=\"hero\"></div>\n")
-	b.WriteString("<div class=\"layout\">\n")
-	b.WriteString("<aside class=\"panel soft\" id=\"sidebar\"></aside>\n")
-	b.WriteString("<main>\n")
-	b.WriteString("<div class=\"panel\" id=\"main\"></div>\n")
-	b.WriteString("</main>\n")
-	b.WriteString("</div>\n")
-	b.WriteString("</div>\n")
-
-	b.WriteString("<div class=\"drawer-backdrop\" id=\"drawerBackdrop\"></div>\n")
-	b.WriteString("<div class=\"drawer\" id=\"drawer\"></div>\n")
-	b.WriteString("<div class=\"toast\" id=\"toast\">Copied</div>\n")
-
-	b.WriteString("<script type=\"application/json\" id=\"ktlVerifyData\">")
-	b.WriteString(jsonText)
-	b.WriteString("</script>\n")
-
-	b.WriteString("<script>\n")
-	b.WriteString(strings.TrimSpace(verifyHTMLJS))
-	b.WriteString("\n</script>\n")
-
-	b.WriteString("</body>\n</html>\n")
-	_, _ = io.WriteString(w, b.String())
-	return nil
-}
-
-func mdEscape(value string) string {
-	value = strings.ReplaceAll(value, "\n", "<br>")
-	value = strings.ReplaceAll(value, "|", "\\|")
-	return value
-}
-
-func findingResource(f Finding) string {
-	if f.ResourceKey != "" {
-		return f.ResourceKey
-	}
-	return resourceKey(f.Subject)
-}
-
-func findingLocation(f Finding) string {
-	if f.Path != "" {
-		return f.Path
-	}
-	if strings.TrimSpace(f.FieldPath) != "" {
-		return strings.TrimSpace(f.FieldPath)
-	}
-	return f.Location
-}
-
-const verifyHTMLJS = `
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ktl verify report</title>
+<style>
+:root{color-scheme:light;--ink:#0b1f2a;--muted:rgba(11,31,42,0.62);--navy:#0b3a53;--brass:#b08d57;--surface:rgba(255,255,255,0.92);--surface-soft:rgba(255,255,255,0.84);--border:rgba(11,31,42,0.12);--shadow:0 26px 60px rgba(11,31,42,0.12);--shadow-soft:0 16px 34px rgba(11,31,42,0.10);--ease:cubic-bezier(.16,1,.3,1);} 
+*{box-sizing:border-box;}body{margin:0;padding:44px 52px 72px;font-family:"SF Pro Display","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:radial-gradient(1200px 700px at 18% 12%, #ffffff 0%, #eef2f7 38%, #dce3f1 100%);color:var(--ink);}h1{margin:0;font-size:2.3rem;letter-spacing:-0.03em;font-weight:650;}h2{margin:1.2rem 0 0.6rem;font-size:1.05rem;letter-spacing:0.01em;}p{margin:0.25rem 0;color:var(--muted);}a{color:var(--navy);text-decoration:none;}a:hover{text-decoration:underline;} 
+.chrome{max-width:1280px;margin:0 auto;} 
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:26px;padding:26px 28px;box-shadow:var(--shadow);backdrop-filter:blur(18px);} 
+.panel.soft{background:var(--surface-soft);box-shadow:var(--shadow-soft);} 
+.layout{display:flex;gap:18px;align-items:flex-start;margin-top:16px;} 
+aside{flex:0 0 320px;position:sticky;top:18px;}main{flex:1 1 auto;min-width:0;} 
+.hero{display:flex;gap:16px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;} 
+.subtitle{font-size:0.98rem;color:var(--muted);} 
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:14px;} 
+.metric{padding:14px 14px;border:1px solid rgba(11,31,42,0.10);border-radius:18px;background:rgba(255,255,255,0.55);} 
+.metric .k{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.18em;color:var(--muted);font-weight:650;} 
+.metric .v{margin-top:6px;font-size:1.1rem;font-weight:680;overflow-wrap:anywhere;word-break:break-word;} 
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;} 
+.search{flex:1 1 320px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,0.65);border:1px solid var(--border);border-radius:999px;padding:10px 14px;box-shadow:0 0 0 rgba(0,0,0,0);} 
+.search:focus-within{box-shadow:0 0 0 4px rgba(11,58,83,0.20);border-color:rgba(11,58,83,0.45);} 
+.search input{border:0;outline:0;background:transparent;width:100%;font-size:0.95rem;color:var(--ink);} 
+.chips{display:flex;gap:8px;flex-wrap:wrap;} 
+.chip{border-radius:999px;padding:8px 12px;border:1px solid var(--border);background:rgba(255,255,255,0.55);color:var(--navy);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.16em;font-weight:650;cursor:pointer;transition:transform 140ms var(--ease),box-shadow 140ms var(--ease),background 140ms var(--ease),border-color 140ms var(--ease);} 
+.chip[data-on='1']{box-shadow:0 0 0 2px rgba(176,141,87,0.35);border-color:rgba(176,141,87,0.55);background:rgba(176,141,87,0.10);transform:translateY(-1px);} 
+.chip.sev-critical,.chip.sev-high{color:#7f1d1d;} .chip.sev-medium{color:#7c4a00;} .chip.sev-low{color:#0c4a6e;} .chip.sev-info{color:rgba(11,31,42,0.70);} 
+select,button,input{font-family:inherit;} 
+.select{border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,0.55);padding:9px 12px;font-size:0.9rem;color:var(--ink);} 
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;} 
+.tab{border-radius:999px;padding:8px 12px;border:1px solid var(--border);background:rgba(255,255,255,0.55);cursor:pointer;font-size:0.78rem;letter-spacing:0.14em;text-transform:uppercase;font-weight:650;color:var(--ink);} 
+.tab[data-on='1']{border-color:rgba(176,141,87,0.55);box-shadow:0 0 0 2px rgba(176,141,87,0.30);background:rgba(176,141,87,0.10);} 
+.table{width:100%;border-collapse:collapse;margin-top:10px;font-size:0.95rem;} 
+.table th,.table td{padding:10px 10px;border-bottom:1px solid rgba(11,31,42,0.08);vertical-align:top;text-align:left;} 
+.table th{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.18em;color:var(--muted);font-weight:680;} 
+.mono{font-family:"SFMono-Regular","JetBrains Mono","Menlo","Source Code Pro",monospace;font-size:0.9em;overflow-wrap:anywhere;word-break:break-word;} 
+.badge{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:4px 10px;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.16em;font-weight:700;border:1px solid rgba(11,31,42,0.10);background:rgba(255,255,255,0.55);} 
+.dot{width:8px;height:8px;border-radius:999px;background:rgba(11,31,42,0.35);} 
+.sev-critical .dot,.sev-high .dot{background:#ef4444;} .sev-medium .dot{background:#f59e0b;} .sev-low .dot{background:#0ea5e9;} .sev-info .dot{background:rgba(11,31,42,0.35);} 
+.row{cursor:pointer;} .row:hover{background:rgba(11,31,42,0.03);} 
+.klist{list-style:none;padding:0;margin:10px 0 0;} .klist li{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(11,31,42,0.07);} .klist li:last-child{border-bottom:none;} 
+.muted{color:var(--muted);} 
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:rgba(11,31,42,0.92);color:#fff;padding:10px 14px;border-radius:999px;font-size:0.9rem;opacity:0;pointer-events:none;transition:opacity 160ms var(--ease);} .toast.on{opacity:1;} 
+.drawer-backdrop{position:fixed;inset:0;background:rgba(11,31,42,0.28);opacity:0;pointer-events:none;transition:opacity 160ms var(--ease);} .drawer-backdrop.on{opacity:1;pointer-events:auto;} 
+.drawer{position:fixed;top:0;right:0;height:100%;width:min(520px, 92vw);background:rgba(255,255,255,0.96);border-left:1px solid rgba(11,31,42,0.10);box-shadow:0 40px 90px rgba(11,31,42,0.22);transform:translateX(100%);transition:transform 220ms var(--ease);padding:20px 18px 24px;overflow:auto;} .drawer.on{transform:translateX(0);} 
+.drawer h2{margin-top:0.25rem;} 
+.btn{border-radius:999px;padding:9px 12px;border:1px solid rgba(11,31,42,0.16);background:rgba(255,255,255,0.70);cursor:pointer;font-weight:650;} .btn:hover{border-color:rgba(176,141,87,0.60);} 
+pre{white-space:pre-wrap;margin:10px 0 0;background:rgba(11,31,42,0.04);border:1px solid rgba(11,31,42,0.08);border-radius:16px;padding:12px 14px;overflow-wrap:anywhere;word-break:break-word;} 
+body.print .toolbar,body.print aside,body.print .drawer,body.print .drawer-backdrop,body.print .toast{display:none !important;} body.print .layout{display:block;} body.print .panel{box-shadow:none;} 
+@media (max-width:1100px){body{padding:26px 16px 48px;} aside{position:relative;top:auto;flex:1 1 100%;} .layout{flex-direction:column;} } 
+</style>
+</head>
+<body>
+<div class="chrome">
+<div class="panel" id="hero"></div>
+<div class="layout">
+<aside class="panel soft" id="sidebar"></aside>
+<main>
+<div class="panel" id="main"></div>
+</main>
+</div>
+</div>
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+<div class="drawer" id="drawer"></div>
+<div class="toast" id="toast">Copied</div>
+<script type="application/json" id="ktlVerifyData">{"report":{"tool":"ktl-verify","engine":{"name":"builtin","ruleset":"builtin@test"},"mode":"warn","failOn":"high","passed":true,"blocked":false,"evaluatedAt":"2026-02-06T00:00:00Z","inputs":[{"kind":"manifest","source":"rendered.yaml","renderedSha256":"abc123"}],"summary":{"total":1,"bySeverity":{"medium":1},"byRule":{"k8s/container_image_tag_latest":1},"byRuleSeverity":{"k8s/container_image_tag_latest":{"medium":1}},"passed":true,"blocked":false},"findings":[{"ruleId":"k8s/container_image_tag_latest","severity":"medium","category":"Supply Chain","message":"Image tag should not be latest","fieldPath":"spec.template.spec.containers.0.image","location":"metadata.name={{web}}.spec.template.spec.containers.name={{web}}.image","expected":"pin to tag/digest","observed":"nginx:latest","subject":{"kind":"Deployment","namespace":"default","name":"web"},"helpUrl":"https://example.invalid/docs"}]},"fixPlan":[{"kind":"Deployment","namespace":"default","name":"web","ruleId":"k8s/container_image_tag_latest","title":"Pin container images to a tag or digest","patchYaml":"apiVersion: v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: default\nspec:\n  template:\n    spec:\n  containers:\n    - name: \u003ccontainer\u003e\n      image: \u003crepo\u003e:\u003ctag\u003e\n"}]}</script>
+<script>
 (function(){
   var raw = document.getElementById('ktlVerifyData');
   if(!raw){ return; }
@@ -599,4 +476,6 @@ const verifyHTMLJS = `
   renderMain();
   wire();
 })();
-`
+</script>
+</body>
+</html>

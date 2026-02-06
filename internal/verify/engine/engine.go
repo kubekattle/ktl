@@ -23,6 +23,7 @@ type Options struct {
 	ErrOut      io.Writer
 	Out         io.Writer
 	RulesPath   []string
+	Now         func() time.Time
 }
 
 func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) error {
@@ -75,6 +76,11 @@ func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) 
 
 	timer := telemetry.NewPhaseTimer()
 
+	now := opts.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+
 	var emit verify.Emitter
 	if console != nil {
 		emit = func(ev verify.Event) error {
@@ -115,6 +121,7 @@ func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) 
 		ExtraRules:    extraRules,
 		Selectors:     cfg.Verify.Selectors,
 		RuleSelectors: cfg.Verify.RuleSelectors,
+		Now:           now,
 	}
 	if console != nil {
 		console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "evaluate"})
@@ -135,7 +142,7 @@ func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) 
 			console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "policy", PolicyRef: strings.TrimSpace(cfg.Verify.Policy.Ref), PolicyMode: strings.TrimSpace(cfg.Verify.Policy.Mode)})
 		}
 		if err := timer.Track("policy", func() error {
-			pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: cfg.Verify.Policy.Ref, Mode: cfg.Verify.Policy.Mode}, objs)
+			pol, err := verify.EvaluatePolicy(ctx, verify.PolicyOptions{Ref: cfg.Verify.Policy.Ref, Mode: cfg.Verify.Policy.Mode, Now: now}, objs)
 			if err != nil {
 				return err
 			}

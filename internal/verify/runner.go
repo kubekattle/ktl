@@ -41,6 +41,10 @@ type Runner struct {
 }
 
 func (r Runner) Verify(ctx context.Context, target string, objects []map[string]any, opts Options, emit Emitter) (*Report, error) {
+	now := opts.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
 	if opts.Mode == ModeOff {
 		summary := BuildSummary(nil, false)
 		rep := &Report{
@@ -48,7 +52,7 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 			Engine:      EngineMeta{Name: "builtin", Ruleset: "off"},
 			Mode:        opts.Mode,
 			Passed:      true,
-			EvaluatedAt: time.Now().UTC(),
+			EvaluatedAt: now(),
 			Summary:     summary,
 		}
 		return rep, nil
@@ -79,7 +83,7 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 	if emit != nil {
 		_ = emit(Event{
 			Type:    EventStarted,
-			When:    time.Now().UTC(),
+			When:    now(),
 			Target:  strings.TrimSpace(target),
 			Ruleset: rulesetLabel,
 		})
@@ -106,7 +110,7 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		Engine:      EngineMeta{Name: "builtin", Ruleset: rulesetLabel},
 		Mode:        opts.Mode,
 		FailOn:      opts.FailOn,
-		EvaluatedAt: time.Now().UTC(),
+		EvaluatedAt: now(),
 	}
 
 	var findings []Finding
@@ -114,12 +118,12 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 		findings = append(findings, f)
 		if emit != nil {
 			ff := f
-			_ = emit(Event{Type: EventFinding, When: time.Now().UTC(), Finding: &ff})
+			_ = emit(Event{Type: EventFinding, When: now(), Finding: &ff})
 		}
 	}
 
 	if emit != nil {
-		_ = emit(Event{Type: EventProgress, When: time.Now().UTC(), Phase: "evaluate"})
+		_ = emit(Event{Type: EventProgress, When: now(), Phase: "evaluate"})
 	}
 
 	ruleFindings, err := EvaluateRulesWithSelectors(ctx, rules, objects, commonDirs, opts.Selectors, opts.RuleSelectors)
@@ -139,8 +143,8 @@ func (r Runner) Verify(ctx context.Context, target string, objects []map[string]
 
 	if emit != nil {
 		s := rep.Summary
-		_ = emit(Event{Type: EventSummary, When: time.Now().UTC(), Summary: &s})
-		_ = emit(Event{Type: EventDone, When: time.Now().UTC(), Passed: rep.Passed, Blocked: rep.Blocked})
+		_ = emit(Event{Type: EventSummary, When: now(), Summary: &s})
+		_ = emit(Event{Type: EventDone, When: now(), Passed: rep.Passed, Blocked: rep.Blocked})
 	}
 	return rep, nil
 }

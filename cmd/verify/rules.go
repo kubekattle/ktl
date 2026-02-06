@@ -30,6 +30,7 @@ and it gives you stable rule IDs to use in selectors.
 	cmd.PersistentFlags().StringVar(&rulesDir, "rules-dir", "", "Rules directory root (defaults to the builtin rules)")
 	cmd.AddCommand(newVerifyRulesListCommand(&rulesDir, rulesPath))
 	cmd.AddCommand(newVerifyRulesShowCommand(&rulesDir, rulesPath))
+	cmd.AddCommand(newVerifyRulesExplainCommand(&rulesDir, rulesPath))
 	return cmd
 }
 
@@ -143,6 +144,79 @@ func newVerifyRulesShowCommand(rulesDir *string, rulesPath *string) *cobra.Comma
 				if r.Description != "" {
 					fmt.Fprintln(out, "")
 					fmt.Fprintln(out, strings.TrimSpace(r.Description))
+				}
+				return nil
+			}
+			return fmt.Errorf("unknown rule id %q", needle)
+		},
+	}
+	return cmd
+}
+
+func newVerifyRulesExplainCommand(rulesDir *string, rulesPath *string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "explain <rule-id>",
+		Short: "Explain a rule and show example fixtures (if present)",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return fmt.Errorf("expected exactly one rule id")
+			}
+			if strings.TrimSpace(args[0]) == "" {
+				return fmt.Errorf("rule id is required")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rs, err := loadRulesForCLI(*rulesDir, rulesPath)
+			if err != nil {
+				return err
+			}
+			needle := strings.TrimSpace(args[0])
+			for _, r := range rs.Rules {
+				if r.ID != needle {
+					continue
+				}
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "ID: %s\n", r.ID)
+				if r.Title != "" {
+					fmt.Fprintf(out, "Title: %s\n", r.Title)
+				}
+				if r.Severity != "" {
+					fmt.Fprintf(out, "Severity: %s\n", strings.ToUpper(string(r.Severity)))
+				}
+				if r.Category != "" {
+					fmt.Fprintf(out, "Category: %s\n", r.Category)
+				}
+				if r.HelpURL != "" {
+					fmt.Fprintf(out, "Help: %s\n", r.HelpURL)
+				}
+				if r.Description != "" {
+					fmt.Fprintln(out, "\n"+strings.TrimSpace(r.Description))
+				}
+
+				// Show local fixtures if present.
+				if strings.TrimSpace(r.Dir) != "" {
+					testDir := filepath.Join(r.Dir, "test")
+					if ents, err := os.ReadDir(testDir); err == nil {
+						var files []string
+						for _, e := range ents {
+							if e.IsDir() {
+								continue
+							}
+							name := strings.TrimSpace(e.Name())
+							if name == "" {
+								continue
+							}
+							files = append(files, filepath.Join(testDir, name))
+						}
+						sort.Strings(files)
+						if len(files) > 0 {
+							fmt.Fprintln(out, "\nFixtures:")
+							for _, p := range files {
+								fmt.Fprintf(out, "- %s\n", p)
+							}
+						}
+					}
 				}
 				return nil
 			}

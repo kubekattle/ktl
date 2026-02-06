@@ -148,10 +148,7 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 			}
 
 			loc := strings.TrimSpace(firstString(m, "searchKey"))
-			path, line := parseSearchLine(m["searchLine"])
-			if path == "" {
-				path = loc
-			}
+			fieldPath, _ := parseSearchLine(m["searchLine"])
 			expected := strings.TrimSpace(firstString(m, "keyExpectedValue", "expected", "expectedValue"))
 			observed := strings.TrimSpace(firstString(m, "keyActualValue", "actual", "actualValue", "observed"))
 			key := resourceKey(subj)
@@ -165,8 +162,9 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 				Severity:    rule.Severity,
 				Category:    rule.Category,
 				Message:     msg,
-				Path:        path,
-				Line:        line,
+				FieldPath:   strings.TrimSpace(fieldPath),
+				Path:        "",
+				Line:        0,
 				Location:    loc,
 				ResourceKey: key,
 				Expected:    expected,

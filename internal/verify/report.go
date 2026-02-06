@@ -31,6 +31,7 @@ type Finding struct {
 	Severity    Severity `json:"severity"`
 	Category    string   `json:"category,omitempty"`
 	Message     string   `json:"message"`
+	FieldPath   string   `json:"fieldPath,omitempty"`
 	Path        string   `json:"path,omitempty"`
 	Line        int      `json:"line,omitempty"`
 	Location    string   `json:"location,omitempty"`

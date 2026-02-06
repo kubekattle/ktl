@@ -74,6 +74,7 @@ func newVerifyCommand(kubeconfigPath *string, kubeContext *string, logLevel *str
 	var policyRef string
 	var policyMode string
 	var exposure bool
+	var evaluatedAt string
 
 	cmd := &cobra.Command{
 		Use:   "verify [config.yaml]",
@@ -219,6 +220,16 @@ Shortcut flags (no YAML):
 				defer closer.Close()
 			}
 
+			var nowFn func() time.Time
+			if strings.TrimSpace(evaluatedAt) != "" {
+				tm, perr := time.Parse(time.RFC3339, strings.TrimSpace(evaluatedAt))
+				if perr != nil {
+					return fmt.Errorf("--evaluated-at must be RFC3339 (e.g. 2026-02-06T00:00:00Z): %w", perr)
+				}
+				fixed := tm.UTC()
+				nowFn = func() time.Time { return fixed }
+			}
+
 			err = engine.Run(ctx, cfg, baseDir, engine.Options{
 				Kubeconfig:  *kubeconfigPath,
 				KubeContext: *kubeContext,
@@ -227,6 +238,7 @@ Shortcut flags (no YAML):
 				ErrOut:      cmd.ErrOrStderr(),
 				Out:         out,
 				RulesPath:   splitListLocal(*rulesPath),
+				Now:         nowFn,
 			})
 			if err == nil && openReport {
 				// Best effort: only for file reports.
@@ -272,6 +284,7 @@ Shortcut flags (no YAML):
 	cmd.Flags().StringVar(&policyMode, "policy-mode", "warn", "Policy mode: warn|enforce (shortcut mode)")
 	cmd.Flags().BoolVar(&exposure, "exposure", false, "Enable exposure analysis (shortcut mode)")
 	cmd.Flags().BoolVar(&openReport, "open", false, "Open the report after success (HTML file reports only)")
+	cmd.Flags().StringVar(&evaluatedAt, "evaluated-at", "", "Override evaluation time (RFC3339) for deterministic reports/tests")
 
 	cmd.Flags().StringVar(&baselineWrite, "baseline", "", "Write a baseline report (JSON) to this path")
 	cmd.Flags().StringVar(&compareTo, "compare-to", "", "Compare against a baseline report (JSON) and show only new/changed findings")

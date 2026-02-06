@@ -12,12 +12,17 @@ import (
 type PolicyOptions struct {
 	Ref  string
 	Mode string // warn|enforce (mapped by caller)
+	Now  func() time.Time
 }
 
 func EvaluatePolicy(ctx context.Context, opts PolicyOptions, objects []map[string]any) (*policy.Report, error) {
 	ref := strings.TrimSpace(opts.Ref)
 	if ref == "" {
 		return nil, nil
+	}
+	now := opts.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
 	}
 	bundle, err := policy.LoadBundle(ctx, ref)
 	if err != nil {
@@ -30,7 +35,7 @@ func EvaluatePolicy(ctx context.Context, opts PolicyOptions, objects []map[strin
 	}
 	raw, _ := json.Marshal(payload)
 	rep, err := policy.EvaluateWithQuery(ctx, bundle, policy.BuildInput{
-		WhenUTC:  time.Now().UTC(),
+		WhenUTC:  now(),
 		Context:  "verify",
 		External: raw,
 	}, "data.ktl.verify")

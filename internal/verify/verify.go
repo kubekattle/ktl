@@ -8,6 +8,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -32,6 +33,7 @@ type Options struct {
 	RuleSelectors []RuleSelector
 	AttestDir     string
 	ReportPath    string
+	Now           func() time.Time
 }
 
 func VerifyObjects(ctx context.Context, objects []map[string]any, opts Options) (*Report, error) {
