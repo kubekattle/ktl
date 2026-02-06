@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25
+      securityContext:
+        allowPrivilegeEscalation: true

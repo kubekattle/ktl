@@ -1,0 +1,33 @@
+[
+  {
+    "ruleId": "k8s/pss_restricted_profile",
+    "severity": "critical",
+    "category": "Pod Security Standards",
+    "message": "PSS restricted profile failed: allowPrivilegeEscalation=false, capabilities.drop includes ALL, runAsNonRoot=true, readOnlyRootFilesystem=true, seccompProfile.type=RuntimeDefault",
+    "fieldPath": "spec",
+    "location": "metadata.name={{bad}}.spec",
+    "resourceKey": "cluster/Pod/bad",
+    "expected": "restricted profile requirements met",
+    "observed": "PSS restricted profile failed: allowPrivilegeEscalation=false, capabilities.drop includes ALL, runAsNonRoot=true, readOnlyRootFilesystem=true, seccompProfile.type=RuntimeDefault",
+    "subject": {
+      "kind": "Pod",
+      "name": "bad"
+    },
+    "fingerprint": "k8s/pss_restricted_profile:cluster/Pod/bad:metadata.name={{bad}}.spec",
+    "helpUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app",
+          "securityContext": {
+            "allowPrivilegeEscalation": true
+          }
+        }
+      ],
+      "fieldPath": "spec",
+      "kind": "Pod",
+      "name": "bad"
+    }
+  }
+]

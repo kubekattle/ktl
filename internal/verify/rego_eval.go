@@ -90,7 +90,7 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 		}
 		ruleMod, err := os.ReadFile(filepath.Join(rule.Dir, "query.rego"))
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read rule %s: %w", rule.ID, err)
 		}
 		ruleModules["rule.rego"] = string(ruleMod)
 
@@ -109,14 +109,14 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 		r := rego.New(opts...)
 		rs, err := r.Eval(ctx)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("eval rule %s: %w", rule.ID, err)
 		}
 		if len(rs) == 0 || len(rs[0].Expressions) == 0 {
-			continue
+			return nil, fmt.Errorf("eval rule %s: missing expressions", rule.ID)
 		}
 		list, ok := rs[0].Expressions[0].Value.([]any)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("eval rule %s: unexpected result type %T", rule.ID, rs[0].Expressions[0].Value)
 		}
 		for _, entry := range list {
 			m, ok := entry.(map[string]any)
