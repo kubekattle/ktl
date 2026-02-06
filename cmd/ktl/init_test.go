@@ -231,3 +231,109 @@ func TestInitShowDiff(t *testing.T) {
 		t.Fatalf("expected unified diff output, got:\n%s", payload.Diff)
 	}
 }
+
+func TestInitTemplateFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	templatePath := filepath.Join(dir, "init-template.yaml")
+	template := "build:\n  cacheDir: .ktl/cache\n"
+	if err := os.WriteFile(templatePath, []byte(template), 0o600); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"init", dir, "--dry-run", "--output", "json", "--template", templatePath})
+
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	var payload struct {
+		ConfigYAML string `json:"configYaml"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if !strings.Contains(payload.ConfigYAML, "cacheDir: .ktl/cache") {
+		t.Fatalf("expected template cacheDir in config, got:\n%s", payload.ConfigYAML)
+	}
+}
+
+func TestInitDetectsChartAndValues(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	chartDir := filepath.Join(dir, "services", "api", "chart")
+	if err := os.MkdirAll(chartDir, 0o755); err != nil {
+		t.Fatalf("mkdir chart: %v", err)
+	}
+	chart := "apiVersion: v2\nname: api\nversion: 0.1.0\n"
+	if err := os.WriteFile(filepath.Join(chartDir, "Chart.yaml"), []byte(chart), 0o644); err != nil {
+		t.Fatalf("write Chart.yaml: %v", err)
+	}
+
+	valuesDir := filepath.Join(dir, "services", "api", "values")
+	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+		t.Fatalf("mkdir values: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(valuesDir, "dev.yaml"), []byte("env: dev\n"), 0o644); err != nil {
+		t.Fatalf("write dev values: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(valuesDir, "prod.yaml"), []byte("env: prod\n"), 0o644); err != nil {
+		t.Fatalf("write prod values: %v", err)
+	}
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"init", dir, "--dry-run", "--output", "json"})
+
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	var payload struct {
+		NextSteps []string `json:"nextSteps"`
+		Project   struct {
+			ChartPath      string `json:"ChartPath"`
+			ValuesDevPath  string `json:"ValuesDevPath"`
+			ValuesProdPath string `json:"ValuesProdPath"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if payload.Project.ChartPath != "./services/api/chart" {
+		t.Fatalf("expected chart path ./services/api/chart, got %q", payload.Project.ChartPath)
+	}
+	if payload.Project.ValuesDevPath != "./services/api/values/dev.yaml" {
+		t.Fatalf("expected dev values path, got %q", payload.Project.ValuesDevPath)
+	}
+	if payload.Project.ValuesProdPath != "./services/api/values/prod.yaml" {
+		t.Fatalf("expected prod values path, got %q", payload.Project.ValuesProdPath)
+	}
+	foundDev := false
+	foundProd := false
+	for _, step := range payload.NextSteps {
+		if strings.Contains(step, "values/dev.yaml") {
+			foundDev = true
+		}
+		if strings.Contains(step, "values/prod.yaml") {
+			foundProd = true
+		}
+	}
+	if !foundDev || !foundProd {
+		t.Fatalf("expected next steps to mention dev and prod values, got: %v", payload.NextSteps)
+	}
+}

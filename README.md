@@ -75,6 +75,7 @@ CLI flags always win over profile/config defaults.
 ktl init
 ktl init --interactive
 ktl init --layout --gitignore
+ktl init --template platform
 ktl help --ui
 ```
 

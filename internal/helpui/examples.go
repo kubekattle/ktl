@@ -12,6 +12,8 @@ var curatedExamples = map[string][]string{
 		"# Preview the config without writing\nktl init --dry-run",
 		"# Run the interactive wizard\nktl init --interactive",
 		"# Use an opinionated preset\nktl init --preset prod",
+		"# Apply a built-in template\nktl init --template platform",
+		"# Apply a template from a URL\nktl init --template https://example.com/ktl-init.yaml",
 		"# Merge defaults into an existing config\nktl init --merge",
 		"# Scaffold chart/ and values/ plus gitignore\nktl init --layout --gitignore",
 		"# Scaffold Vault-backed secrets\nktl init --secrets-provider vault",

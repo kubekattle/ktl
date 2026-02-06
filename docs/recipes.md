@@ -17,6 +17,10 @@ ktl init --layout --gitignore
 # Use an opinionated preset
 ktl init --preset prod
 
+# Apply an init template (built-in or URL)
+ktl init --template platform
+ktl init --template https://example.com/ktl-init.yaml
+
 # Scaffold a Vault secrets provider
 ktl init --secrets-provider vault
 

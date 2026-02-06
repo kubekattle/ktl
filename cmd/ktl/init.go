@@ -45,6 +45,7 @@ type initOptions struct {
 	validate        bool
 	output          string
 	preset          string
+	template        string
 	secretsFile     string
 	secretsProvider string
 }
@@ -61,11 +62,15 @@ type gitignoreResult struct {
 }
 
 type projectLayout struct {
-	ChartPath      string
-	StackPath      string
-	HelmfilePath   string
-	KustomizePath  string
-	DockerfilePath string
+	ChartPath       string
+	ChartCandidates []string
+	StackPath       string
+	HelmfilePath    string
+	KustomizePath   string
+	DockerfilePath  string
+	ValuesDir       string
+	ValuesDevPath   string
+	ValuesProdPath  string
 }
 
 func newInitCommand(kubeconfig *string, kubeContext *string, profile *string) *cobra.Command {
@@ -155,7 +160,23 @@ getting-started checklist.`),
 				}
 			}
 
-			payload, finalMap, err := renderInitConfig(cfg, existing.Map, opts.merge && existing.Exists)
+			baseMap, err := configToMap(cfg)
+			if err != nil {
+				return err
+			}
+
+			templateMap, templateSource, err := loadInitTemplate(opts.template, repoRoot)
+			if err != nil {
+				return err
+			}
+			if templateMap != nil && opts.merge && existing.Exists && !isSecretsEmpty(existing.Config.Secrets) {
+				delete(templateMap, "secrets")
+			}
+			if templateMap != nil {
+				baseMap = mergeMapsPreferOverlay(baseMap, templateMap)
+			}
+
+			payload, finalMap, err := renderInitConfig(baseMap, existing.Map, opts.merge && existing.Exists)
 			if err != nil {
 				return err
 			}
@@ -263,7 +284,7 @@ getting-started checklist.`),
 				namespace = strings.TrimSpace(info.Namespace)
 			}
 			nextSteps := buildNextSteps(project, opts.layout, namespace)
-			notes := buildInitNotes(project, sandboxNote)
+			notes := buildInitNotes(project, sandboxNote, templateSource)
 
 			summary := initSummary{
 				ConfigPath:    cfgPath,
@@ -329,6 +350,7 @@ getting-started checklist.`),
 	cmd.Flags().BoolVar(&opts.validate, "validate", opts.validate, "Validate the generated config for common mistakes")
 	cmd.Flags().StringVar(&opts.output, "output", opts.output, "Output format: text or json")
 	cmd.Flags().StringVar(&opts.preset, "preset", "", "Opinionated init preset: dev, ci, prod")
+	cmd.Flags().StringVar(&opts.template, "template", "", "Apply a config template (name, path, or URL). Built-ins: platform, secure")
 	cmd.Flags().StringVar(&opts.secretsFile, "secrets-file", opts.secretsFile, "Local secrets file path to reference in .ktl.yaml")
 	cmd.Flags().StringVar(&opts.secretsProvider, "secrets-provider", opts.secretsProvider, "Secrets provider to scaffold (local, vault, aws, k8s)")
 	decorateCommandHelp(cmd, "Onboarding")
@@ -381,6 +403,12 @@ type existingConfig struct {
 	Map    map[string]any
 	Raw    string
 	Exists bool
+}
+
+type initTemplate struct {
+	Name    string
+	Content string
+	Source  string
 }
 
 func resolveInitPaths(args []string) (string, string, error) {
@@ -873,23 +901,18 @@ func readExistingConfig(cfgPath string) (existingConfig, error) {
 	}, nil
 }
 
-func renderInitConfig(cfg appconfig.Config, existing map[string]any, merge bool) ([]byte, map[string]any, error) {
+func renderInitConfig(base map[string]any, existing map[string]any, merge bool) ([]byte, map[string]any, error) {
+	if base == nil {
+		base = map[string]any{}
+	}
 	if !merge {
-		outMap, err := configToMap(cfg)
-		if err != nil {
-			return nil, nil, err
-		}
-		out, err := yaml.Marshal(outMap)
+		out, err := yaml.Marshal(base)
 		if err != nil {
 			return nil, nil, fmt.Errorf("render config yaml: %w", err)
 		}
-		return out, outMap, nil
+		return out, base, nil
 	}
-	genMap, err := configToMap(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	merged := mergeMapsPreferExisting(genMap, existing)
+	merged := mergeMapsPreferExisting(base, existing)
 	out, err := yaml.Marshal(merged)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render config yaml: %w", err)
@@ -923,6 +946,25 @@ func mergeMapsPreferExisting(base map[string]any, existing map[string]any) map[s
 			nextMap, nextOK := v.(map[string]any)
 			if curOK && nextOK {
 				out[k] = mergeMapsPreferExisting(curMap, nextMap)
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out
+}
+
+func mergeMapsPreferOverlay(base map[string]any, overlay map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		if cur, ok := out[k]; ok {
+			curMap, curOK := cur.(map[string]any)
+			nextMap, nextOK := v.(map[string]any)
+			if curOK && nextOK {
+				out[k] = mergeMapsPreferOverlay(curMap, nextMap)
 				continue
 			}
 		}
@@ -1191,11 +1233,11 @@ func detectProjectLayout(repoRoot string) projectLayout {
 	if repoRoot == "" {
 		return out
 	}
-	if fileExists(filepath.Join(repoRoot, "Chart.yaml")) {
-		out.ChartPath = "."
-	} else if fileExists(filepath.Join(repoRoot, "chart", "Chart.yaml")) {
-		out.ChartPath = "./chart"
-	}
+
+	chartPath, candidates := findChartPath(repoRoot)
+	out.ChartPath = chartPath
+	out.ChartCandidates = candidates
+
 	if fileExists(filepath.Join(repoRoot, "stack.yaml")) || fileExists(filepath.Join(repoRoot, "stack.yml")) {
 		out.StackPath = "."
 	}
@@ -1212,6 +1254,12 @@ func detectProjectLayout(repoRoot string) projectLayout {
 	if fileExists(filepath.Join(repoRoot, "Dockerfile")) {
 		out.DockerfilePath = "./Dockerfile"
 	}
+
+	valuesDir, valuesDev, valuesProd := detectValuesPaths(repoRoot, out.ChartPath)
+	out.ValuesDir = valuesDir
+	out.ValuesDevPath = valuesDev
+	out.ValuesProdPath = valuesProd
+
 	return out
 }
 
@@ -1428,9 +1476,18 @@ func buildNextSteps(project projectLayout, layoutEnabled bool, namespace string)
 		namespace = "default"
 	}
 	var steps []string
+	valuesArg := ""
+	if project.ValuesDevPath != "" {
+		valuesArg = " -f " + project.ValuesDevPath
+	} else if project.ValuesProdPath != "" {
+		valuesArg = " -f " + project.ValuesProdPath
+	}
 	if project.ChartPath != "" {
-		steps = append(steps, fmt.Sprintf("ktl apply plan --chart %s --release demo -n %s", project.ChartPath, namespace))
-		steps = append(steps, fmt.Sprintf("ktl apply --chart %s --release demo -n %s --ui", project.ChartPath, namespace))
+		steps = append(steps, fmt.Sprintf("ktl apply plan --chart %s --release demo -n %s%s", project.ChartPath, namespace, valuesArg))
+		steps = append(steps, fmt.Sprintf("ktl apply --chart %s --release demo -n %s%s --ui", project.ChartPath, namespace, valuesArg))
+		if project.ValuesDevPath != "" && project.ValuesProdPath != "" && project.ValuesDevPath != project.ValuesProdPath {
+			steps = append(steps, fmt.Sprintf("ktl apply plan --chart %s --release demo -n %s -f %s", project.ChartPath, namespace, project.ValuesProdPath))
+		}
 	} else if layoutEnabled {
 		steps = append(steps, "Place your Helm chart under ./chart (or run `helm create chart`)")
 	}
@@ -1445,8 +1502,26 @@ func buildNextSteps(project projectLayout, layoutEnabled bool, namespace string)
 	return steps
 }
 
-func buildInitNotes(project projectLayout, sandboxNote string) []string {
+func buildInitNotes(project projectLayout, sandboxNote string, templateSource string) []string {
 	var notes []string
+	if templateSource != "" {
+		notes = append(notes, fmt.Sprintf("Applied init template: %s.", templateSource))
+	}
+	if len(project.ChartCandidates) > 1 {
+		notes = append(notes, fmt.Sprintf("Multiple charts detected (%s). Using %s.", strings.Join(project.ChartCandidates, ", "), project.ChartPath))
+	}
+	if project.ValuesDevPath != "" || project.ValuesProdPath != "" {
+		var values []string
+		if project.ValuesDevPath != "" {
+			values = append(values, project.ValuesDevPath)
+		}
+		if project.ValuesProdPath != "" {
+			values = append(values, project.ValuesProdPath)
+		}
+		notes = append(notes, fmt.Sprintf("Detected values files: %s.", strings.Join(values, ", ")))
+	} else if project.ValuesDir != "" {
+		notes = append(notes, fmt.Sprintf("values/ found at %s, but dev/prod files are missing.", project.ValuesDir))
+	}
 	if project.HelmfilePath != "" {
 		notes = append(notes, fmt.Sprintf("Helmfile detected at %s (ktl init does not import Helmfile automatically).", project.HelmfilePath))
 	}
@@ -1511,6 +1586,126 @@ func fileExists(path string) bool {
 	}
 	fi, err := os.Stat(path)
 	return err == nil && !fi.IsDir()
+}
+
+func findChartPath(repoRoot string) (string, []string) {
+	if repoRoot == "" {
+		return "", nil
+	}
+	candidates := []string{}
+	primary := []string{
+		filepath.Join(repoRoot, "Chart.yaml"),
+		filepath.Join(repoRoot, "chart", "Chart.yaml"),
+		filepath.Join(repoRoot, "charts", "Chart.yaml"),
+	}
+	for _, candidate := range primary {
+		if fileExists(candidate) {
+			chartDir := filepath.Dir(candidate)
+			rel := relPath(repoRoot, chartDir)
+			if rel == "./" {
+				rel = "."
+			}
+			return rel, []string{rel}
+		}
+	}
+
+	_ = filepath.WalkDir(repoRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
+		}
+		if d.IsDir() {
+			if shouldSkipInitDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.EqualFold(d.Name(), "Chart.yaml") {
+			dir := filepath.Dir(path)
+			rel := relPath(repoRoot, dir)
+			if rel == "./" {
+				rel = "."
+			}
+			candidates = append(candidates, rel)
+		}
+		return nil
+	})
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return chartScore(candidates[i]) < chartScore(candidates[j]) || (chartScore(candidates[i]) == chartScore(candidates[j]) && candidates[i] < candidates[j])
+	})
+	unique := uniqueStrings(candidates)
+	return unique[0], unique
+}
+
+func chartScore(path string) int {
+	if path == "." || path == "./" {
+		return 0
+	}
+	score := strings.Count(path, string(os.PathSeparator)) * 10
+	base := filepath.Base(path)
+	switch base {
+	case "chart", "charts":
+		score -= 5
+	}
+	if strings.Contains(path, "examples") {
+		score += 5
+	}
+	return score
+}
+
+func shouldSkipInitDir(name string) bool {
+	switch name {
+	case ".git", ".github", ".idea", ".vscode", "node_modules", "vendor", "dist", "bin", "testdata", "tmp", ".ktl":
+		return true
+	default:
+		return false
+	}
+}
+
+func detectValuesPaths(repoRoot string, chartPath string) (string, string, string) {
+	if repoRoot == "" {
+		return "", "", ""
+	}
+	rootValues := filepath.Join(repoRoot, "values")
+	valuesDir := ""
+	if chartPath != "" {
+		chartAbs := filepath.Join(repoRoot, chartPath)
+		parent := filepath.Dir(chartAbs)
+		if chartPath == "." || chartPath == "./" {
+			parent = repoRoot
+		}
+		parentValues := filepath.Join(parent, "values")
+		if dirExists(parentValues) {
+			valuesDir = parentValues
+		}
+	}
+	if valuesDir == "" && dirExists(rootValues) {
+		valuesDir = rootValues
+	}
+	if valuesDir == "" {
+		return "", "", ""
+	}
+	dev := filepath.Join(valuesDir, "dev.yaml")
+	prod := filepath.Join(valuesDir, "prod.yaml")
+	devRel := ""
+	prodRel := ""
+	if fileExists(dev) {
+		devRel = relPath(repoRoot, dev)
+	}
+	if fileExists(prod) {
+		prodRel = relPath(repoRoot, prod)
+	}
+	return relPath(repoRoot, valuesDir), devRel, prodRel
+}
+
+func dirExists(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
 }
 
 func relPath(base string, path string) string {
