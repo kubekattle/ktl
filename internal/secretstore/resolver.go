@@ -159,6 +159,14 @@ func (r *Resolver) ProviderNames() []string {
 	return names
 }
 
+// DefaultProvider returns the resolver's default provider name.
+func (r *Resolver) DefaultProvider() string {
+	if r == nil {
+		return ""
+	}
+	return strings.TrimSpace(r.defaultProvider)
+}
+
 func (r *Resolver) resolveValue(ctx context.Context, value interface{}) (interface{}, error) {
 	switch typed := value.(type) {
 	case map[string]interface{}:

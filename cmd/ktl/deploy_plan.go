@@ -157,7 +157,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 					secretAuditSink(report)
 				}
 			}
-			secretOptions := &deploy.SecretOptions{Resolver: secretResolver, AuditSink: auditSink}
+			secretOptions := &deploy.SecretOptions{Resolver: secretResolver, AuditSink: auditSink, Validate: true}
 
 			stopSpinner := ui.StartSpinner(cmd.ErrOrStderr(), fmt.Sprintf("Planning release %s", release))
 			defer func() {

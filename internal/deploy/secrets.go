@@ -6,6 +6,7 @@ import "github.com/example/ktl/internal/secretstore"
 type SecretOptions struct {
 	Resolver  *secretstore.Resolver
 	AuditSink func(secretstore.AuditReport)
+	Validate  bool
 }
 
 // SecretRef represents a resolved secret reference for reporting/UI purposes.

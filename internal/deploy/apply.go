@@ -237,6 +237,11 @@ func buildValues(ctx context.Context, settings *cli.EnvSettings, files, setVals,
 		}
 		return vals, nil
 	}
+	if secrets.Validate {
+		if err := secretstore.ValidateRefs(ctx, secrets.Resolver, vals, secretstore.ValidationOptions{}); err != nil {
+			return nil, err
+		}
+	}
 	if err := secrets.Resolver.ResolveValues(ctx, vals); err != nil {
 		return nil, err
 	}
