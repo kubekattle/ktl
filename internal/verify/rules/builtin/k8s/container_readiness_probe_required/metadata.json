@@ -1,0 +1,13 @@
+{
+  "id": "a9898c0a-e9c1-4dfe-9e0d-31d0b5e6c31b",
+  "queryName": "Containers Should Define Readiness Probes",
+  "severity": "LOW",
+  "category": "Reliability",
+  "descriptionText": "Containers should define a readinessProbe to help Kubernetes route traffic only to ready workloads.",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-rel-02",
+  "cloudProvider": "common",
+  "cwe": "710",
+  "riskScore": "3.2"
+}

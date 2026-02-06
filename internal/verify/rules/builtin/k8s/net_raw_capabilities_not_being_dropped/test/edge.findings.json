@@ -1,0 +1,37 @@
+[
+  {
+    "ruleId": "k8s/net_raw_capabilities_not_being_dropped",
+    "severity": "medium",
+    "category": "Insecure Configurations",
+    "message": "Containers should drop 'ALL' or at least 'NET_RAW' capabilities",
+    "fieldPath": "spec.template.spec.containers.0.securityContext.capabilities",
+    "location": "metadata.name={{redis-unhealthy-deployment}}.spec.template.spec.containers.name={{redis}}",
+    "resourceKey": "cluster/Deployment/redis-unhealthy-deployment",
+    "expected": "metadata.name={{redis-unhealthy-deployment}}.spec.template.spec.containers.name={{redis}}.securityContext.capabilities.drop should be defined",
+    "observed": "metadata.name={{redis-unhealthy-deployment}}.spec.template.spec.containers.name={{redis}}.securityContext.capabilities.drop is undefined",
+    "subject": {
+      "kind": "Deployment",
+      "name": "redis-unhealthy-deployment"
+    },
+    "fingerprint": "k8s/net_raw_capabilities_not_being_dropped:cluster/Deployment/redis-unhealthy-deployment:metadata.name={{redis-unhealthy-deployment}}.spec.template.spec.containers.name={{redis}}",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "redis:latest",
+          "name": "redis",
+          "securityContext": {
+            "allowPrivilegeEscalation": true,
+            "privileged": true,
+            "readOnlyRootFilesystem": false
+          }
+        }
+      ],
+      "fieldPath": "spec.template.spec.containers.0.securityContext.capabilities",
+      "hostNetwork": true,
+      "hostPID": true,
+      "kind": "Deployment",
+      "name": "redis-unhealthy-deployment"
+    }
+  }
+]

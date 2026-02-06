@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/container_run_as_non_root",
+    "severity": "high",
+    "category": "Insecure Configurations",
+    "message": "Containers should set securityContext.runAsNonRoot to true to avoid running workloads as root.",
+    "fieldPath": "spec.template.spec.containers.0.securityContext.runAsNonRoot",
+    "location": "metadata.name={{run-as-root}}.spec.template.spec.containers.name={{app}}.securityContext.runAsNonRoot",
+    "resourceKey": "cluster/Deployment/run-as-root",
+    "expected": "metadata.name={{run-as-root}}.spec.template.spec.containers.name={{app}}.securityContext.runAsNonRoot should be true",
+    "observed": "metadata.name={{run-as-root}}.spec.template.spec.containers.name={{app}}.securityContext.runAsNonRoot is false",
+    "subject": {
+      "kind": "Deployment",
+      "name": "run-as-root"
+    },
+    "fingerprint": "k8s/container_run_as_non_root:cluster/Deployment/run-as-root:metadata.name={{run-as-root}}.spec.template.spec.containers.name={{app}}.securityContext.runAsNonRoot",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.template.spec.containers.0.securityContext.runAsNonRoot",
+      "kind": "Deployment",
+      "name": "run-as-root"
+    }
+  }
+]

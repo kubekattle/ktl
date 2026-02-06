@@ -1,0 +1,32 @@
+[
+  {
+    "ruleId": "k8s/deployment_hpa_recommended",
+    "severity": "info",
+    "category": "Scalability",
+    "message": "Deployments with 3 or more replicas should consider an HPA. This rule only checks within the same manifest render.",
+    "fieldPath": "spec.replicas",
+    "location": "metadata.name={{web}}.spec.replicas",
+    "resourceKey": "default/Deployment/web",
+    "expected": "metadata.name={{web}} should have a HorizontalPodAutoscaler",
+    "observed": "metadata.name={{web}} has 3+ replicas without an HPA in this render",
+    "subject": {
+      "kind": "Deployment",
+      "namespace": "default",
+      "name": "web"
+    },
+    "fingerprint": "k8s/deployment_hpa_recommended:default/Deployment/web:metadata.name={{web}}.spec.replicas",
+    "helpUrl": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.replicas",
+      "kind": "Deployment",
+      "name": "web",
+      "namespace": "default"
+    }
+  }
+]

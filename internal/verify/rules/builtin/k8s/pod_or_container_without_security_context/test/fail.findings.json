@@ -1,0 +1,88 @@
+[
+  {
+    "ruleId": "k8s/pod_or_container_without_security_context",
+    "severity": "low",
+    "category": "Insecure Configurations",
+    "message": "A security context defines privilege and access control settings for a Pod or Container",
+    "fieldPath": "spec",
+    "location": "metadata.name={{frontend}}.spec",
+    "resourceKey": "cluster/Pod/frontend",
+    "expected": "metadata.name={{frontend}}.spec has a security context",
+    "observed": "metadata.name={{frontend}}.spec does not have a security context",
+    "subject": {
+      "kind": "Pod",
+      "name": "frontend"
+    },
+    "fingerprint": "k8s/pod_or_container_without_security_context:cluster/Pod/frontend:metadata.name={{frontend}}.spec",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "images.my-company.example/app:v4",
+          "name": "app",
+          "resources": {
+            "limits.memory": "128Mi",
+            "requests.memory": "64Mi"
+          },
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        },
+        {
+          "image": "images.my-company.example/log-aggregator:v6",
+          "name": "log-aggregator",
+          "resources": {
+            "limits.memory": "128Mi",
+            "requests.memory": "64Mi"
+          }
+        }
+      ],
+      "fieldPath": "spec",
+      "kind": "Pod",
+      "name": "frontend"
+    }
+  },
+  {
+    "ruleId": "k8s/pod_or_container_without_security_context",
+    "severity": "low",
+    "category": "Insecure Configurations",
+    "message": "A security context defines privilege and access control settings for a Pod or Container",
+    "fieldPath": "spec.containers.1",
+    "location": "metadata.name={{frontend}}.spec.containers.name=log-aggregator",
+    "resourceKey": "cluster/Pod/frontend",
+    "expected": "spec.containers.name=log-aggregator has a security context",
+    "observed": "spec.containers.name=log-aggregator does not have a security context",
+    "subject": {
+      "kind": "Pod",
+      "name": "frontend"
+    },
+    "fingerprint": "k8s/pod_or_container_without_security_context:cluster/Pod/frontend:metadata.name={{frontend}}.spec.containers.name=log-aggregator",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "images.my-company.example/app:v4",
+          "name": "app",
+          "resources": {
+            "limits.memory": "128Mi",
+            "requests.memory": "64Mi"
+          },
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        },
+        {
+          "image": "images.my-company.example/log-aggregator:v6",
+          "name": "log-aggregator",
+          "resources": {
+            "limits.memory": "128Mi",
+            "requests.memory": "64Mi"
+          }
+        }
+      ],
+      "fieldPath": "spec.containers.1",
+      "kind": "Pod",
+      "name": "frontend"
+    }
+  }
+]

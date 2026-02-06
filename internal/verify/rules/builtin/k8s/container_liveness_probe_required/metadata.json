@@ -1,0 +1,13 @@
+{
+  "id": "aa34d4b1-2bdc-4a1b-bd72-c0ac0b0f01aa",
+  "queryName": "Containers Should Define Liveness Probes",
+  "severity": "LOW",
+  "category": "Reliability",
+  "descriptionText": "Containers should define a livenessProbe to help Kubernetes restart unhealthy workloads.",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-rel-01",
+  "cloudProvider": "common",
+  "cwe": "710",
+  "riskScore": "3.2"
+}

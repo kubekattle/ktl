@@ -1,0 +1,31 @@
+[
+  {
+    "ruleId": "k8s/container_is_privileged",
+    "severity": "high",
+    "category": "Insecure Configurations",
+    "message": "Privileged containers lack essential security restrictions and should be avoided by removing the 'privileged' flag or by changing its value to false",
+    "location": "metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}.securityContext.privileged",
+    "resourceKey": "cluster/Deployment/test-deployment",
+    "expected": "metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}.securityContext.privileged is unset or false",
+    "observed": "metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}.securityContext.privileged is true",
+    "subject": {
+      "kind": "Deployment",
+      "name": "test-deployment"
+    },
+    "fingerprint": "k8s/container_is_privileged:cluster/Deployment/test-deployment:metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}.securityContext.privileged",
+    "helpUrl": "https://kubernetes.io/docs/concepts/workloads/pods/#privileged-mode-for-containers",
+    "evidence": {
+      "containers": [
+        {
+          "image": "k8s.gcr.io/pause",
+          "name": "pause",
+          "securityContext": {
+            "privileged": true
+          }
+        }
+      ],
+      "kind": "Deployment",
+      "name": "test-deployment"
+    }
+  }
+]

@@ -1,0 +1,194 @@
+[
+  {
+    "ruleId": "k8s/net_raw_capabilities_not_being_dropped",
+    "severity": "medium",
+    "category": "Insecure Configurations",
+    "message": "Containers should drop 'ALL' or at least 'NET_RAW' capabilities",
+    "fieldPath": "spec.containers.0.securityContext.capabilities.drop",
+    "location": "metadata.name={{example}}.spec.containers.name={{payment}}.securityContext.capabilities.drop",
+    "resourceKey": "cluster/Pod/example",
+    "expected": "metadata.name={{example}}.spec.containers.name={{payment}}.securityContext.capabilities.drop includes ALL or NET_RAW",
+    "observed": "metadata.name={{example}}.spec.containers.name={{payment}}.securityContext.capabilities.drop does not include ALL or NET_RAW",
+    "subject": {
+      "kind": "Pod",
+      "name": "example"
+    },
+    "fingerprint": "k8s/net_raw_capabilities_not_being_dropped:cluster/Pod/example:metadata.name={{example}}.spec.containers.name={{payment}}.securityContext.capabilities.drop",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx",
+          "name": "payment",
+          "securityContext": {
+            "capabilities.drop": [
+              "SYS_ADMIN"
+            ]
+          }
+        },
+        {
+          "image": "nginx",
+          "name": "payment2"
+        },
+        {
+          "image": "nginx",
+          "name": "payment4"
+        },
+        {
+          "image": "nginx",
+          "name": "payment3",
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        }
+      ],
+      "fieldPath": "spec.containers.0.securityContext.capabilities.drop",
+      "kind": "Pod",
+      "name": "example"
+    }
+  },
+  {
+    "ruleId": "k8s/net_raw_capabilities_not_being_dropped",
+    "severity": "medium",
+    "category": "Insecure Configurations",
+    "message": "Containers should drop 'ALL' or at least 'NET_RAW' capabilities",
+    "fieldPath": "spec.containers.1",
+    "location": "metadata.name={{example}}.spec.containers.name={{payment2}}",
+    "resourceKey": "cluster/Pod/example",
+    "expected": "metadata.name={{example}}.spec.containers.name={{payment2}}.securityContext.capabilities.drop should be defined",
+    "observed": "metadata.name={{example}}.spec.containers.name={{payment2}}.securityContext.capabilities.drop is undefined",
+    "subject": {
+      "kind": "Pod",
+      "name": "example"
+    },
+    "fingerprint": "k8s/net_raw_capabilities_not_being_dropped:cluster/Pod/example:metadata.name={{example}}.spec.containers.name={{payment2}}",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx",
+          "name": "payment",
+          "securityContext": {
+            "capabilities.drop": [
+              "SYS_ADMIN"
+            ]
+          }
+        },
+        {
+          "image": "nginx",
+          "name": "payment2"
+        },
+        {
+          "image": "nginx",
+          "name": "payment4"
+        },
+        {
+          "image": "nginx",
+          "name": "payment3",
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        }
+      ],
+      "fieldPath": "spec.containers.1",
+      "kind": "Pod",
+      "name": "example"
+    }
+  },
+  {
+    "ruleId": "k8s/net_raw_capabilities_not_being_dropped",
+    "severity": "medium",
+    "category": "Insecure Configurations",
+    "message": "Containers should drop 'ALL' or at least 'NET_RAW' capabilities",
+    "fieldPath": "spec.containers.2.securityContext.capabilities",
+    "location": "metadata.name={{example}}.spec.containers.name={{payment4}}",
+    "resourceKey": "cluster/Pod/example",
+    "expected": "metadata.name={{example}}.spec.containers.name={{payment4}}.securityContext.capabilities.drop should be defined",
+    "observed": "metadata.name={{example}}.spec.containers.name={{payment4}}.securityContext.capabilities.drop is undefined",
+    "subject": {
+      "kind": "Pod",
+      "name": "example"
+    },
+    "fingerprint": "k8s/net_raw_capabilities_not_being_dropped:cluster/Pod/example:metadata.name={{example}}.spec.containers.name={{payment4}}",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx",
+          "name": "payment",
+          "securityContext": {
+            "capabilities.drop": [
+              "SYS_ADMIN"
+            ]
+          }
+        },
+        {
+          "image": "nginx",
+          "name": "payment2"
+        },
+        {
+          "image": "nginx",
+          "name": "payment4"
+        },
+        {
+          "image": "nginx",
+          "name": "payment3",
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        }
+      ],
+      "fieldPath": "spec.containers.2.securityContext.capabilities",
+      "kind": "Pod",
+      "name": "example"
+    }
+  },
+  {
+    "ruleId": "k8s/net_raw_capabilities_not_being_dropped",
+    "severity": "medium",
+    "category": "Insecure Configurations",
+    "message": "Containers should drop 'ALL' or at least 'NET_RAW' capabilities",
+    "fieldPath": "spec.containers.3.securityContext",
+    "location": "metadata.name={{example}}.spec.containers.name={{payment3}}",
+    "resourceKey": "cluster/Pod/example",
+    "expected": "metadata.name={{example}}.spec.containers.name={{payment3}}.securityContext.capabilities.drop should be defined",
+    "observed": "metadata.name={{example}}.spec.containers.name={{payment3}}.securityContext.capabilities.drop is undefined",
+    "subject": {
+      "kind": "Pod",
+      "name": "example"
+    },
+    "fingerprint": "k8s/net_raw_capabilities_not_being_dropped:cluster/Pod/example:metadata.name={{example}}.spec.containers.name={{payment3}}",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx",
+          "name": "payment",
+          "securityContext": {
+            "capabilities.drop": [
+              "SYS_ADMIN"
+            ]
+          }
+        },
+        {
+          "image": "nginx",
+          "name": "payment2"
+        },
+        {
+          "image": "nginx",
+          "name": "payment4"
+        },
+        {
+          "image": "nginx",
+          "name": "payment3",
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        }
+      ],
+      "fieldPath": "spec.containers.3.securityContext",
+      "kind": "Pod",
+      "name": "example"
+    }
+  }
+]

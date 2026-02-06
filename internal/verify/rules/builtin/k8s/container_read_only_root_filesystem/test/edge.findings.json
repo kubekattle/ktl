@@ -1,0 +1,33 @@
+[
+  {
+    "ruleId": "k8s/container_read_only_root_filesystem",
+    "severity": "medium",
+    "category": "Insecure Configurations",
+    "message": "Containers should set securityContext.readOnlyRootFilesystem to true to reduce the writable surface area.",
+    "fieldPath": "spec.initContainers.0.securityContext.readOnlyRootFilesystem",
+    "location": "metadata.name={{initcontainer-readonly-missing}}.spec.initContainers.name={{init}}.securityContext.readOnlyRootFilesystem",
+    "resourceKey": "cluster/Pod/initcontainer-readonly-missing",
+    "expected": "metadata.name={{initcontainer-readonly-missing}}.spec.initContainers.name={{init}}.securityContext.readOnlyRootFilesystem should be true",
+    "observed": "metadata.name={{initcontainer-readonly-missing}}.spec.initContainers.name={{init}}.securityContext.readOnlyRootFilesystem is false",
+    "subject": {
+      "kind": "Pod",
+      "name": "initcontainer-readonly-missing"
+    },
+    "fingerprint": "k8s/container_read_only_root_filesystem:cluster/Pod/initcontainer-readonly-missing:metadata.name={{initcontainer-readonly-missing}}.spec.initContainers.name={{init}}.securityContext.readOnlyRootFilesystem",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app",
+          "securityContext": {
+            "readOnlyRootFilesystem": true
+          }
+        }
+      ],
+      "fieldPath": "spec.initContainers.0.securityContext.readOnlyRootFilesystem",
+      "kind": "Pod",
+      "name": "initcontainer-readonly-missing"
+    }
+  }
+]

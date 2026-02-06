@@ -1,0 +1,33 @@
+[
+  {
+    "ruleId": "k8s/pod_or_container_without_security_context",
+    "severity": "low",
+    "category": "Insecure Configurations",
+    "message": "A security context defines privilege and access control settings for a Pod or Container",
+    "fieldPath": "spec.initContainers.0",
+    "location": "metadata.name={{pod-has-sc-init-missing}}.spec.initContainers.name=init",
+    "resourceKey": "cluster/Pod/pod-has-sc-init-missing",
+    "expected": "spec.initContainers.name=init has a security context",
+    "observed": "spec.initContainers.name=init does not have a security context",
+    "subject": {
+      "kind": "Pod",
+      "name": "pod-has-sc-init-missing"
+    },
+    "fingerprint": "k8s/pod_or_container_without_security_context:cluster/Pod/pod-has-sc-init-missing:metadata.name={{pod-has-sc-init-missing}}.spec.initContainers.name=init",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app",
+          "securityContext": {
+            "runAsNonRoot": true
+          }
+        }
+      ],
+      "fieldPath": "spec.initContainers.0",
+      "kind": "Pod",
+      "name": "pod-has-sc-init-missing"
+    }
+  }
+]

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: default
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: app
+          image: nginx:1.25
+---
+# PDB exists but selector does not match the deployment.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: other
+  namespace: default
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: other
