@@ -36,6 +36,9 @@ type initOptions struct {
 	merge           bool
 	dryRun          bool
 	interactive     bool
+	plan            bool
+	planOutput      string
+	applyPlan       string
 	layout          bool
 	values          bool
 	stack           bool
@@ -89,6 +92,12 @@ Creates a repo-local .ktl.yaml with sane defaults and prints a short
 getting-started checklist.`),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(opts.applyPlan) != "" {
+				if opts.plan {
+					return fmt.Errorf("--apply-plan cannot be combined with --plan")
+				}
+				return runInitApplyPlan(cmd, opts.applyPlan, opts.dryRun)
+			}
 			if opts.force && opts.merge {
 				return fmt.Errorf("use either --force or --merge (not both)")
 			}
@@ -147,6 +156,11 @@ getting-started checklist.`),
 				opts.values = true
 			}
 
+			planning := opts.plan
+			if planning {
+				opts.dryRun = true
+			}
+
 			sandboxConfig, sandboxNote := detectSandboxConfig(repoRoot)
 
 			cfg, err := buildInitConfig(profileValue, opts.secretsProvider, opts.secretsFile, opts.preset, sandboxConfig)
@@ -190,7 +204,7 @@ getting-started checklist.`),
 
 			mode := "created"
 			switch {
-			case opts.dryRun:
+			case opts.dryRun && !planning:
 				mode = "preview"
 			case existing.Exists && opts.merge:
 				mode = "merged"
@@ -204,8 +218,8 @@ getting-started checklist.`),
 			}
 
 			if opts.dryRun {
-				if strings.EqualFold(opts.output, "json") {
-					// Suppress YAML output; JSON payload will include it.
+				if planning || strings.EqualFold(opts.output, "json") {
+					// Suppress YAML output; JSON payload or plan output will include it.
 				} else {
 					if _, err := cmd.OutOrStdout().Write(payload); err != nil {
 						return err
@@ -307,6 +321,32 @@ getting-started checklist.`),
 				Notes:         notes,
 			}
 
+			if planning {
+				plan := buildInitPlan(initPlanOptions{
+					Mode:            mode,
+					RepoRoot:        repoRoot,
+					ConfigPath:      cfgPath,
+					ConfigYAML:      string(payload),
+					Diff:            diffText,
+					Template:        opts.template,
+					Preset:          opts.preset,
+					KubeContext:     info,
+					KubeNote:        note,
+					Project:         project,
+					Layout:          layout,
+					Values:          values,
+					Stack:           stack,
+					Gitignore:       gitignore,
+					NextSteps:       nextSteps,
+					Notes:           notes,
+					SandboxConfig:   sandboxConfig,
+					SandboxNote:     sandboxNote,
+					ValuesEnabled:   opts.values,
+					SecretsProvider: opts.secretsProvider,
+				})
+				return writeInitPlan(cmd, plan, opts.planOutput)
+			}
+
 			if strings.EqualFold(opts.output, "json") {
 				return writeInitJSON(cmd.OutOrStdout(), initOutput{
 					Mode:          summary.Mode,
@@ -341,6 +381,9 @@ getting-started checklist.`),
 	cmd.Flags().BoolVar(&opts.merge, "merge", false, "Merge defaults into an existing .ktl.yaml")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Print the .ktl.yaml that would be written")
 	cmd.Flags().BoolVar(&opts.interactive, "interactive", false, "Run an interactive setup wizard")
+	cmd.Flags().BoolVar(&opts.plan, "plan", false, "Output a replayable init plan as JSON (no changes applied)")
+	cmd.Flags().StringVar(&opts.planOutput, "plan-output", "", "Write plan JSON to a file instead of stdout")
+	cmd.Flags().StringVar(&opts.applyPlan, "apply-plan", "", "Apply a previously generated init plan (path or - for stdin)")
 	cmd.Flags().BoolVar(&opts.layout, "layout", false, "Create chart/ and values/ directories")
 	cmd.Flags().BoolVar(&opts.values, "values", false, "Create values/dev.yaml and values/prod.yaml")
 	cmd.Flags().BoolVar(&opts.stack, "stack", false, "Create a minimal stack.yaml in the repo root")
@@ -1084,6 +1127,19 @@ func scaffoldStack(repoRoot string, force bool, dryRun bool, project projectLayo
 		return res, err
 	}
 
+	content := renderStackTemplate(repoRoot, project, valuesEnabled)
+
+	res.Created = append(res.Created, relPath(repoRoot, stackPath))
+	if dryRun {
+		return res, nil
+	}
+	if err := os.WriteFile(stackPath, []byte(content), 0o644); err != nil {
+		return res, fmt.Errorf("write %s: %w", stackPath, err)
+	}
+	return res, nil
+}
+
+func renderStackTemplate(repoRoot string, project projectLayout, valuesEnabled bool) string {
 	chartPath := "./chart"
 	if project.ChartPath != "" {
 		chartPath = project.ChartPath
@@ -1105,15 +1161,7 @@ func scaffoldStack(repoRoot string, force bool, dryRun bool, project projectLayo
 		b.WriteString("    values:\n")
 		b.WriteString("      - ./values/dev.yaml\n")
 	}
-
-	res.Created = append(res.Created, relPath(repoRoot, stackPath))
-	if dryRun {
-		return res, nil
-	}
-	if err := os.WriteFile(stackPath, []byte(b.String()), 0o644); err != nil {
-		return res, fmt.Errorf("write %s: %w", stackPath, err)
-	}
-	return res, nil
+	return b.String()
 }
 
 func buildValuesTemplate(secretsProvider string, env string) string {

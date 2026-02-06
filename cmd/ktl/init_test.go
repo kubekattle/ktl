@@ -337,3 +337,126 @@ func TestInitDetectsChartAndValues(t *testing.T) {
 		t.Fatalf("expected next steps to mention dev and prod values, got: %v", payload.NextSteps)
 	}
 }
+
+func TestInitPlanOutputsActions(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"init", dir, "--plan", "--layout", "--values", "--stack", "--gitignore"})
+
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".ktl.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no .ktl.yaml to be written, got err=%v", err)
+	}
+
+	var plan initPlan
+	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
+		t.Fatalf("parse plan json: %v", err)
+	}
+
+	hasConfig := false
+	hasChartDir := false
+	hasValuesDir := false
+	hasValuesDev := false
+	hasValuesProd := false
+	hasStack := false
+	hasGitignore := false
+
+	for _, action := range plan.Actions {
+		switch action.Kind {
+		case "writeConfig":
+			hasConfig = true
+		case "createDir":
+			if strings.HasSuffix(action.Path, "/chart") || strings.HasSuffix(action.Path, "./chart") {
+				hasChartDir = true
+			}
+			if strings.HasSuffix(action.Path, "/values") || strings.HasSuffix(action.Path, "./values") {
+				hasValuesDir = true
+			}
+		case "writeFile":
+			if strings.HasSuffix(action.Path, "values/dev.yaml") {
+				hasValuesDev = true
+			}
+			if strings.HasSuffix(action.Path, "values/prod.yaml") {
+				hasValuesProd = true
+			}
+			if strings.HasSuffix(action.Path, "stack.yaml") {
+				hasStack = true
+			}
+		case "gitignore":
+			for _, line := range action.Lines {
+				if line == "secrets.dev.yaml" {
+					hasGitignore = true
+				}
+			}
+		}
+	}
+
+	if !hasConfig {
+		t.Fatalf("expected plan to include config write action")
+	}
+	if !hasChartDir {
+		t.Fatalf("expected plan to include chart directory creation")
+	}
+	if !hasValuesDir || !hasValuesDev || !hasValuesProd {
+		t.Fatalf("expected plan to include values scaffolding actions")
+	}
+	if !hasStack {
+		t.Fatalf("expected plan to include stack.yaml creation")
+	}
+	if !hasGitignore {
+		t.Fatalf("expected plan to include gitignore entries")
+	}
+}
+
+func TestInitApplyPlanWritesFiles(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	planPath := filepath.Join(dir, "init-plan.json")
+	root := newRootCommand()
+	root.SetArgs([]string{"init", dir, "--plan", "--layout", "--values", "--stack", "--gitignore", "--secrets-provider", "vault", "--plan-output", planPath})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute plan: %v", err)
+	}
+
+	root = newRootCommand()
+	root.SetArgs([]string{"init", "--apply-plan", planPath})
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute apply plan: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".ktl.yaml")); err != nil {
+		t.Fatalf("expected .ktl.yaml to be written, got err=%v", err)
+	}
+	valuesDev, err := os.ReadFile(filepath.Join(dir, "values", "dev.yaml"))
+	if err != nil {
+		t.Fatalf("read values/dev.yaml: %v", err)
+	}
+	if !strings.Contains(string(valuesDev), "secret://vault/app/db#password") {
+		t.Fatalf("expected vault secret reference in values/dev.yaml, got:\n%s", string(valuesDev))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "stack.yaml")); err != nil {
+		t.Fatalf("expected stack.yaml to be written, got err=%v", err)
+	}
+	gitignore, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if !strings.Contains(string(gitignore), "secrets.dev.yaml") {
+		t.Fatalf("expected secrets.dev.yaml in .gitignore, got:\n%s", string(gitignore))
+	}
+}

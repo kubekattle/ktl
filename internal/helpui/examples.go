@@ -18,6 +18,8 @@ var curatedExamples = map[string][]string{
 		"# Scaffold chart/ and values/ plus gitignore\nktl init --layout --gitignore",
 		"# Scaffold Vault-backed secrets\nktl init --secrets-provider vault",
 		"# Emit JSON for automation\nktl init --output json --dry-run",
+		"# Write a replayable init plan\nktl init --plan --plan-output .ktl/init-plan.json",
+		"# Apply a saved init plan\nktl init --apply-plan .ktl/init-plan.json",
 		"# Initialize another path\nktl init ./services/api",
 		"# Overwrite existing config\nktl init --force",
 	},

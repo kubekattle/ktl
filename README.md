@@ -76,6 +76,8 @@ ktl init
 ktl init --interactive
 ktl init --layout --gitignore
 ktl init --template platform
+ktl init --plan --plan-output .ktl/init-plan.json
+ktl init --apply-plan .ktl/init-plan.json
 ktl help --ui
 ```
 

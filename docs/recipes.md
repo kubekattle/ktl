@@ -27,6 +27,12 @@ ktl init --secrets-provider vault
 # Preview the config without writing
 ktl init --dry-run
 
+# Generate a replayable init plan
+ktl init --plan --plan-output .ktl/init-plan.json
+
+# Apply a saved init plan
+ktl init --apply-plan .ktl/init-plan.json
+
 # Launch the interactive help UI
 ktl help --ui
 ```
