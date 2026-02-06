@@ -1,0 +1,13 @@
+{
+  "id": "5a3f41ed-2d53-4fae-9e4a-2dd0f405e9fb",
+  "queryName": "Containers Should Drop All Linux Capabilities",
+  "severity": "HIGH",
+  "category": "Pod Security Standards",
+  "descriptionText": "Containers should drop all Linux capabilities (securityContext.capabilities.drop includes 'ALL').",
+  "descriptionUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-pss-02",
+  "cloudProvider": "common",
+  "cwe": "250",
+  "riskScore": "7.0"
+}

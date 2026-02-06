@@ -1,0 +1,13 @@
+{
+  "id": "55e21f2d-f54a-4b5d-8cb7-0e8e0b0d9308",
+  "queryName": "Pods Should Set fsGroup (Recommended)",
+  "severity": "INFO",
+  "category": "Pod Security Standards",
+  "descriptionText": "Recommend setting pod securityContext.fsGroup to a non-zero GID for volume file ownership defaults.",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-pss-05",
+  "cloudProvider": "common",
+  "cwe": "250",
+  "riskScore": "2.0"
+}

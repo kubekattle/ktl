@@ -1,0 +1,33 @@
+[
+  {
+    "ruleId": "k8s/container_allow_privilege_escalation_disabled",
+    "severity": "high",
+    "category": "Pod Security Standards",
+    "message": "Containers should set securityContext.allowPrivilegeEscalation=false to reduce the risk of privilege escalation.",
+    "fieldPath": "spec.containers.0.securityContext.allowPrivilegeEscalation",
+    "location": "metadata.name={{bad}}.spec.containers.name={{app}}.securityContext.allowPrivilegeEscalation",
+    "resourceKey": "cluster/Pod/bad",
+    "expected": "allowPrivilegeEscalation should be false",
+    "observed": "allowPrivilegeEscalation is true",
+    "subject": {
+      "kind": "Pod",
+      "name": "bad"
+    },
+    "fingerprint": "k8s/container_allow_privilege_escalation_disabled:cluster/Pod/bad:metadata.name={{bad}}.spec.containers.name={{app}}.securityContext.allowPrivilegeEscalation",
+    "helpUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app",
+          "securityContext": {
+            "runAsNonRoot": true
+          }
+        }
+      ],
+      "fieldPath": "spec.containers.0.securityContext.allowPrivilegeEscalation",
+      "kind": "Pod",
+      "name": "bad"
+    }
+  }
+]

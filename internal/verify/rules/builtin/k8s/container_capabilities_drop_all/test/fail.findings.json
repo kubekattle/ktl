@@ -1,0 +1,35 @@
+[
+  {
+    "ruleId": "k8s/container_capabilities_drop_all",
+    "severity": "high",
+    "category": "Pod Security Standards",
+    "message": "Containers should drop all Linux capabilities (securityContext.capabilities.drop includes 'ALL').",
+    "fieldPath": "spec.containers.0.securityContext.capabilities.drop",
+    "location": "metadata.name={{bad}}.spec.containers.name={{app}}.securityContext.capabilities.drop",
+    "resourceKey": "cluster/Pod/bad",
+    "expected": "capabilities.drop should include ALL",
+    "observed": "capabilities.drop does not include ALL",
+    "subject": {
+      "kind": "Pod",
+      "name": "bad"
+    },
+    "fingerprint": "k8s/container_capabilities_drop_all:cluster/Pod/bad:metadata.name={{bad}}.spec.containers.name={{app}}.securityContext.capabilities.drop",
+    "helpUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app",
+          "securityContext": {
+            "capabilities.drop": [
+              "NET_RAW"
+            ]
+          }
+        }
+      ],
+      "fieldPath": "spec.containers.0.securityContext.capabilities.drop",
+      "kind": "Pod",
+      "name": "bad"
+    }
+  }
+]

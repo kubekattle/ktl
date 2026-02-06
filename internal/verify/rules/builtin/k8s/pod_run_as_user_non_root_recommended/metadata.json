@@ -1,0 +1,13 @@
+{
+  "id": "f0a88291-5d26-4c56-8f00-3d5f3d1d3a68",
+  "queryName": "Workloads Should Set runAsUser (Recommended)",
+  "severity": "INFO",
+  "category": "Pod Security Standards",
+  "descriptionText": "Recommend setting securityContext.runAsUser to a non-zero UID (defense in depth).",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-pss-04",
+  "cloudProvider": "common",
+  "cwe": "250",
+  "riskScore": "2.0"
+}

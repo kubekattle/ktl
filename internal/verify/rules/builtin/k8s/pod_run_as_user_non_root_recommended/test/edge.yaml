@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: edge
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+    - name: app
+      image: nginx:1.25
+      securityContext:
+        runAsUser: 0

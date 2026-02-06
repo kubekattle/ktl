@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/pod_seccomp_profile_runtime_default",
+    "severity": "high",
+    "category": "Pod Security Standards",
+    "message": "Pods and containers should configure seccompProfile.type (prefer RuntimeDefault) to reduce kernel attack surface.",
+    "fieldPath": "spec.containers.0",
+    "location": "metadata.name={{bad}}.spec.containers.name={{app}}.securityContext.seccompProfile.type",
+    "resourceKey": "cluster/Pod/bad",
+    "expected": "seccompProfile.type should be RuntimeDefault (or Localhost)",
+    "observed": "seccompProfile.type is",
+    "subject": {
+      "kind": "Pod",
+      "name": "bad"
+    },
+    "fingerprint": "k8s/pod_seccomp_profile_runtime_default:cluster/Pod/bad:metadata.name={{bad}}.spec.containers.name={{app}}.securityContext.seccompProfile.type",
+    "helpUrl": "https://kubernetes.io/docs/tutorials/security/seccomp/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.containers.0",
+      "kind": "Pod",
+      "name": "bad"
+    }
+  }
+]

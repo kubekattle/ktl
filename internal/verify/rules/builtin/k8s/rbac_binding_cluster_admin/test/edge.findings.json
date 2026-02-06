@@ -1,0 +1,26 @@
+[
+  {
+    "ruleId": "k8s/rbac_binding_cluster_admin",
+    "severity": "high",
+    "category": "RBAC",
+    "message": "RoleBinding/ClusterRoleBinding should avoid binding to the built-in cluster-admin role.",
+    "fieldPath": "roleRef.name",
+    "location": "metadata.name={{bad2}}.roleRef.name",
+    "resourceKey": "default/RoleBinding/bad2",
+    "expected": "metadata.name={{bad2}}.roleRef.name should not be cluster-admin",
+    "observed": "metadata.name={{bad2}}.roleRef.name is cluster-admin",
+    "subject": {
+      "kind": "RoleBinding",
+      "namespace": "default",
+      "name": "bad2"
+    },
+    "fingerprint": "k8s/rbac_binding_cluster_admin:default/RoleBinding/bad2:metadata.name={{bad2}}.roleRef.name",
+    "helpUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+    "evidence": {
+      "fieldPath": "roleRef.name",
+      "kind": "RoleBinding",
+      "name": "bad2",
+      "namespace": "default"
+    }
+  }
+]

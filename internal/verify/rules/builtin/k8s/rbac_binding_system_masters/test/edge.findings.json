@@ -1,0 +1,26 @@
+[
+  {
+    "ruleId": "k8s/rbac_binding_system_masters",
+    "severity": "critical",
+    "category": "RBAC",
+    "message": "RoleBinding/ClusterRoleBinding subjects should not include the system:masters group.",
+    "fieldPath": "subjects.0.name",
+    "location": "metadata.name={{bad2}}.subjects",
+    "resourceKey": "default/RoleBinding/bad2",
+    "expected": "metadata.name={{bad2}}.subjects should not include system:masters",
+    "observed": "metadata.name={{bad2}}.subjects includes system:masters",
+    "subject": {
+      "kind": "RoleBinding",
+      "namespace": "default",
+      "name": "bad2"
+    },
+    "fingerprint": "k8s/rbac_binding_system_masters:default/RoleBinding/bad2:metadata.name={{bad2}}.subjects",
+    "helpUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+    "evidence": {
+      "fieldPath": "subjects.0.name",
+      "kind": "RoleBinding",
+      "name": "bad2",
+      "namespace": "default"
+    }
+  }
+]
