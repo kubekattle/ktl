@@ -86,7 +86,7 @@ func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyServ
 		if err != nil {
 			return status.Errorf(codes.Internal, "render chart: %v", err)
 		}
-		objs, err := verify.DecodeK8SYAML(res.Manifest)
+		objs, err := verify.DecodeK8SYAMLWithHelmSources(res.Manifest)
 		if err != nil {
 			return status.Errorf(codes.Internal, "decode manifest: %v", err)
 		}

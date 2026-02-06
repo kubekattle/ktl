@@ -25,6 +25,9 @@ func buildEvidence(obj map[string]any, fieldPath string) map[string]any {
 	if strings.TrimSpace(fieldPath) != "" {
 		out["fieldPath"] = strings.TrimSpace(fieldPath)
 	}
+	if src := strings.TrimSpace(toString(obj["__ktl_source"])); src != "" {
+		out["templateSource"] = src
+	}
 
 	// Best-effort pod spec extraction for workload objects.
 	spec := toMap(obj["spec"])

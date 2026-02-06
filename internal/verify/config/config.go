@@ -228,7 +228,7 @@ func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig str
 		if err != nil {
 			return nil, "", nil, err
 		}
-		objs, err := verify.DecodeK8SYAML(string(raw))
+		objs, err := verify.DecodeK8SYAMLWithHelmSources(string(raw))
 		return objs, string(raw), nil, err
 	case "namespace":
 		if console != nil {
@@ -310,7 +310,7 @@ func (c *Config) LoadObjects(ctx context.Context, baseDir string, kubeconfig str
 		if console != nil {
 			console.Observe(verify.Event{Type: verify.EventProgress, When: time.Now().UTC(), Phase: "decode"})
 		}
-		objs, err := verify.DecodeK8SYAML(result.Manifest)
+		objs, err := verify.DecodeK8SYAMLWithHelmSources(result.Manifest)
 		return objs, result.Manifest, apiStats, err
 	default:
 		return nil, "", nil, fmt.Errorf("unsupported target.kind %q", c.Target.Kind)
