@@ -7,12 +7,53 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/example/ktl/internal/appconfig"
 	"gopkg.in/yaml.v3"
 )
+
+var _, initTestFile, _, _ = runtime.Caller(0)
+var initTestRepoRoot = filepath.Clean(filepath.Join(filepath.Dir(initTestFile), "..", ".."))
+
+func copyInitFixture(t *testing.T, name string) string {
+	t.Helper()
+	src := filepath.Join(initTestRepoRoot, "testdata", "init", name)
+	if _, err := os.Stat(src); err != nil {
+		t.Fatalf("fixture %s missing: %v", name, err)
+	}
+	dest := t.TempDir()
+	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		target := filepath.Join(dest, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		t.Fatalf("copy fixture %s: %v", name, err)
+	}
+	return dest
+}
 
 func TestInitWritesConfig(t *testing.T) {
 	dir := t.TempDir()
@@ -267,32 +308,12 @@ func TestInitTemplateFile(t *testing.T) {
 }
 
 func TestInitDetectsChartAndValues(t *testing.T) {
-	dir := t.TempDir()
+	dir := copyInitFixture(t, "nested-chart")
 	cfgPath := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	t.Setenv("KTL_CONFIG", cfgPath)
-
-	chartDir := filepath.Join(dir, "services", "api", "chart")
-	if err := os.MkdirAll(chartDir, 0o755); err != nil {
-		t.Fatalf("mkdir chart: %v", err)
-	}
-	chart := "apiVersion: v2\nname: api\nversion: 0.1.0\n"
-	if err := os.WriteFile(filepath.Join(chartDir, "Chart.yaml"), []byte(chart), 0o644); err != nil {
-		t.Fatalf("write Chart.yaml: %v", err)
-	}
-
-	valuesDir := filepath.Join(dir, "services", "api", "values")
-	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
-		t.Fatalf("mkdir values: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(valuesDir, "dev.yaml"), []byte("env: dev\n"), 0o644); err != nil {
-		t.Fatalf("write dev values: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(valuesDir, "prod.yaml"), []byte("env: prod\n"), 0o644); err != nil {
-		t.Fatalf("write prod values: %v", err)
-	}
 
 	root := newRootCommand()
 	var out bytes.Buffer
@@ -335,6 +356,89 @@ func TestInitDetectsChartAndValues(t *testing.T) {
 	}
 	if !foundDev || !foundProd {
 		t.Fatalf("expected next steps to mention dev and prod values, got: %v", payload.NextSteps)
+	}
+}
+
+func TestInitDetectsRootChartFixture(t *testing.T) {
+	dir := copyInitFixture(t, "root-chart")
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"init", dir, "--dry-run", "--output", "json"})
+
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	var payload struct {
+		Project struct {
+			ChartPath      string `json:"ChartPath"`
+			ValuesDevPath  string `json:"ValuesDevPath"`
+			ValuesProdPath string `json:"ValuesProdPath"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if payload.Project.ChartPath != "./chart" {
+		t.Fatalf("expected chart path ./chart, got %q", payload.Project.ChartPath)
+	}
+	if payload.Project.ValuesDevPath != "./values/dev.yaml" {
+		t.Fatalf("expected dev values path, got %q", payload.Project.ValuesDevPath)
+	}
+	if payload.Project.ValuesProdPath != "./values/prod.yaml" {
+		t.Fatalf("expected prod values path, got %q", payload.Project.ValuesProdPath)
+	}
+}
+
+func TestInitDetectsMultipleChartsFixture(t *testing.T) {
+	dir := copyInitFixture(t, "multi-chart")
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("KTL_CONFIG", cfgPath)
+
+	root := newRootCommand()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetArgs([]string{"init", dir, "--dry-run", "--output", "json"})
+
+	if err := root.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	var payload struct {
+		Notes   []string `json:"notes"`
+		Project struct {
+			ChartPath       string   `json:"ChartPath"`
+			ChartCandidates []string `json:"ChartCandidates"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if payload.Project.ChartPath != "./services/api/chart" {
+		t.Fatalf("expected chart path ./services/api/chart, got %q", payload.Project.ChartPath)
+	}
+	if len(payload.Project.ChartCandidates) < 2 {
+		t.Fatalf("expected multiple chart candidates, got %v", payload.Project.ChartCandidates)
+	}
+	foundNote := false
+	for _, note := range payload.Notes {
+		if strings.Contains(note, "Multiple charts detected") {
+			foundNote = true
+			break
+		}
+	}
+	if !foundNote {
+		t.Fatalf("expected note about multiple charts, got %v", payload.Notes)
 	}
 }
 
