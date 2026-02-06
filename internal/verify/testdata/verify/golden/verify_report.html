@@ -437,6 +437,13 @@ body.print .toolbar,body.print aside,body.print .drawer,body.print .drawer-backd
     if(f.expected){ dr.appendChild(text(ce('div','muted'), 'Expected')); var pre=ce('pre','mono'); pre.textContent=String(f.expected); dr.appendChild(pre); }
     if(f.observed){ dr.appendChild(text(ce('div','muted'), 'Observed')); var pre2=ce('pre','mono'); pre2.textContent=String(f.observed); dr.appendChild(pre2); }
     if(f.helpUrl){ var p=ce('p'); var a=ce('a'); a.href=f.helpUrl; a.target='_blank'; a.rel='noreferrer'; a.textContent='Docs'; p.appendChild(a); dr.appendChild(p); }
+    if(f.path || (f.line && f.line>0)){
+      dr.appendChild(text(ce('div','muted'), 'Source'));
+      var src = String(f.path||'').trim();
+      if(f.line && f.line>0){ src = src ? (src + ':' + f.line) : String(f.line); }
+      var ps = ce('p','mono'); ps.textContent = src || '-'; dr.appendChild(ps);
+      var bsrc=ce('button','btn'); text(bsrc,'Copy Source'); bsrc.onclick=function(){ copyText(src); }; dr.appendChild(bsrc);
+    }
     if(f._baseline){
       var box = ce('div','baseline-box');
       box.appendChild(text(ce('div','muted'), 'Baseline'));

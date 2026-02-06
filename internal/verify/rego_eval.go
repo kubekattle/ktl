@@ -159,15 +159,13 @@ func EvaluateRulesWithSelectors(ctx context.Context, rules Ruleset, objects []ma
 				fp += ":" + loc
 			}
 
-			src := strings.TrimSpace(toString(obj["__ktl_source"]))
-
 			findings = append(findings, Finding{
 				RuleID:      rule.ID,
 				Severity:    rule.Severity,
 				Category:    rule.Category,
 				Message:     msg,
 				FieldPath:   strings.TrimSpace(fieldPath),
-				Path:        src,
+				Path:        "",
 				Line:        0,
 				Location:    loc,
 				ResourceKey: key,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -165,6 +166,31 @@ func Run(ctx context.Context, cfg *cfgpkg.Config, baseDir string, opts Options) 
 			finishConsole()
 			return err
 		}
+	}
+
+	// Source line mapping: when we have a rendered manifest (chart/namespace),
+	// write it next to the report and annotate findings with absolute line numbers.
+	// This makes SARIF consumers and the HTML report point at real files/lines.
+	annotatedRenderedPath := ""
+	switch strings.ToLower(strings.TrimSpace(cfg.Target.Kind)) {
+	case "manifest":
+		annotatedRenderedPath = strings.TrimSpace(cfg.Target.Manifest)
+	default:
+		rp := strings.TrimSpace(cfg.Output.Report)
+		if rp != "" && rp != "-" && strings.TrimSpace(renderedManifest) != "" {
+			ext := filepath.Ext(rp)
+			base := strings.TrimSuffix(rp, ext)
+			if base == "" {
+				base = rp
+			}
+			annotatedRenderedPath = base + ".rendered.yaml"
+			_ = os.MkdirAll(filepath.Dir(annotatedRenderedPath), 0o755)
+			_ = os.WriteFile(annotatedRenderedPath, []byte(renderedManifest), 0o644)
+		}
+	}
+	if strings.TrimSpace(renderedManifest) != "" && len(rep.Findings) > 0 {
+		rep.Findings = verify.AnnotateFindingsWithRenderedSource(annotatedRenderedPath, renderedManifest, rep.Findings)
+		rep.Summary = verify.BuildSummary(rep.Findings, rep.Blocked)
 	}
 
 	if strings.TrimSpace(cfg.Verify.Baseline.Read) != "" {
