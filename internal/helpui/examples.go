@@ -58,6 +58,9 @@ var curatedExamples = map[string][]string{
 	"ktl secrets": {
 		"# Validate a secret reference\nktl secrets test --secret-provider vault --ref secret://vault/app/db#password",
 		"# List secrets under a provider prefix\nktl secrets list --secret-provider local --path app --format json",
+		"# Discover secret refs across the repo\nktl secrets discover --scope repo",
+		"# Discover secret refs for a chart\nktl secrets discover --scope chart --chart ./chart --values values/dev.yaml",
+		"# Discover secret refs for a stack\nktl secrets discover --scope stack --config ./stacks/prod",
 	},
 	"ktl version": {
 		"# Print version information\nktl version",

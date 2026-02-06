@@ -22,6 +22,7 @@ func newSecretsCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newSecretsTestCommand())
 	cmd.AddCommand(newSecretsListCommand())
+	cmd.AddCommand(newSecretsDiscoverCommand())
 	return cmd
 }
 
