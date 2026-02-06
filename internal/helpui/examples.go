@@ -7,17 +7,39 @@ var curatedExamples = map[string][]string{
 		"# Tail pods matching a regex in a namespace\nktl logs 'checkout-.*' -n prod-payments",
 		"# Highlight errors\nktl logs 'checkout-.*' -n prod-payments --highlight ERROR",
 	},
+	"ktl init": {
+		"# Create a repo-local .ktl.yaml\nktl init",
+		"# Preview the config without writing\nktl init --dry-run",
+		"# Run the interactive wizard\nktl init --interactive",
+		"# Use an opinionated preset\nktl init --preset prod",
+		"# Merge defaults into an existing config\nktl init --merge",
+		"# Scaffold chart/ and values/ plus gitignore\nktl init --layout --gitignore",
+		"# Scaffold Vault-backed secrets\nktl init --secrets-provider vault",
+		"# Emit JSON for automation\nktl init --output json --dry-run",
+		"# Initialize another path\nktl init ./services/api",
+		"# Overwrite existing config\nktl init --force",
+	},
 	"ktl build": {
 		"# Build an image from a directory\nktl build --context . --tag ghcr.io/acme/app:dev",
 		"# Share the build stream over WebSocket\nktl build --context . --ws-listen :9085",
 	},
+	"ktl help": {
+		"# Launch the interactive help UI\nktl help --ui",
+		"# Show help for a specific command\nktl help apply",
+	},
 	"ktl apply plan": {
 		"# Preview a Helm upgrade\nktl apply plan --chart ./chart --release foo -n default",
 		"# Render a shareable HTML visualization\nktl apply plan --visualize --chart ./chart --release foo -n default",
+		"# Preview with secret references\nktl apply plan --chart ./chart --release foo -n default --secret-provider local",
+		"# Preview with Vault-backed secrets\nktl apply plan --chart ./chart --release foo -n default --secret-provider vault",
+		"# Compare against a saved baseline\nktl apply plan --chart ./chart --release foo -n default --compare-to ./plan.json",
+		"# Write a baseline snapshot\nktl apply plan --chart ./chart --release foo -n default --baseline ./plan.json",
 	},
 	"ktl apply": {
 		"# Deploy a chart\nktl apply --chart ./chart --release foo -n default",
 		"# Run the deploy viewer\nktl apply --chart ./chart --release foo -n default --ui",
+		"# Deploy with secret references\nktl apply --chart ./chart --release foo -n default --secret-provider local",
+		"# Deploy with Vault-backed secrets\nktl apply --chart ./chart --release foo -n default --secret-provider vault",
 	},
 	"ktl delete": {
 		"# Delete a release\nktl delete --release foo -n default",
@@ -28,6 +50,10 @@ var curatedExamples = map[string][]string{
 	},
 	"ktl env": {
 		"# Show env var reference (machine-readable)\nktl env --format json",
+	},
+	"ktl secrets": {
+		"# Validate a secret reference\nktl secrets test --secret-provider vault --ref secret://vault/app/db#password",
+		"# List secrets under a provider prefix\nktl secrets list --secret-provider local --path app --format json",
 	},
 	"ktl version": {
 		"# Print version information\nktl version",
@@ -53,6 +79,7 @@ var curatedExamples = map[string][]string{
 		"# Apply the selected releases (DAG order)\nktl stack apply --config ./stacks/prod --yes",
 		"# Resume the most recent run (uses stored frozen plan unless --replan is set)\nktl stack apply --config ./stacks/prod --resume --yes",
 		"# Enable manifest diffs (defaulted via env)\nKTL_STACK_APPLY_DIFF=1 ktl stack apply --config ./stacks/prod --yes",
+		"# Apply with secret references\nktl stack apply --config ./stacks/prod --secret-provider vault --yes",
 	},
 	"ktl stack delete": {
 		"# Delete the selected releases (reverse DAG order)\nktl stack delete --config ./stacks/prod --yes",
@@ -86,6 +113,8 @@ var curatedExamples = map[string][]string{
 		"# Verify a live namespace\nverify --namespace default --context my-context",
 		"# Generate a starter config for scripting\nverify init --chart ./chart --release foo -n default --write verify.yaml\nverify verify.yaml",
 		"# Run the bundled verify showcase (includes a CRITICAL rule)\nverify testdata/verify/showcase/verify.yaml",
+		"# Compare against a baseline report\nverify verify.yaml --compare-to ./baseline.json",
+		"# Write a baseline report\nverify verify.yaml --baseline ./baseline.json",
 	},
 	"package": {
 		"# Package a chart directory\npackage ./chart --output dist/chart.sqlite",

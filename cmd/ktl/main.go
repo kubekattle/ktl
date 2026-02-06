@@ -39,6 +39,7 @@ import (
 )
 
 var klogInitOnce sync.Once
+var buildMode = "full"
 
 func initKlogFlags() {
 	klogInitOnce.Do(func() {
@@ -95,6 +96,9 @@ func newRootCommand() *cobra.Command {
 
 func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Command {
 	initKlogFlags()
+	if strings.EqualFold(strings.TrimSpace(buildMode), "logs-only") {
+		return newLogsRootCommand()
+	}
 
 	opts := config.NewOptions()
 	var kubeconfigPath string
@@ -184,16 +188,19 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	logFlagNames := opts.BindFlags(cmd.Flags())
 	hideFlags(cmd.Flags(), logFlagNames)
 	logsCmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)
+	initCmd := newInitCommand(&kubeconfigPath, &kubeContext, &globalProfile)
 	buildCmd := newBuildCommandWithService(buildService, &globalProfile, &logLevel)
 	listCmd := newListCommand(&kubeconfigPath, &kubeContext)
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
 	envCmd := newEnvCommand()
 	versionCmd := newVersionCommand()
+	secretsCmd := newSecretsCommand()
 	revertCmd := newRevertCommand(&kubeconfigPath, &kubeContext, &logLevel)
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	stackCmd := newStackCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	cmd.AddCommand(
+		initCmd,
 		buildCmd,
 		revertCmd,
 		applyCmd,
@@ -203,11 +210,18 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		lintCmd,
 		logsCmd,
 		envCmd,
+		secretsCmd,
 		versionCmd,
 	)
 	cmd.SetHelpCommand(newHelpCommand(cmd))
 	cmd.Example = `  # Tail checkout pods in prod-payments and highlight errors
 	  ktl logs 'checkout-.*' --namespace prod-payments --highlight ERROR
+
+  # Initialize repo defaults
+  ktl init
+
+  # Launch the interactive help UI
+  ktl help --ui
 
   # Preview a Helm upgrade
   ktl apply plan --chart ./chart --release foo
@@ -218,7 +232,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
   # Apply chart changes
   ktl apply --chart ./chart --release foo --namespace prod`
 	decorateCommandHelp(cmd, "Global Flags")
-	bindViper(cmd, logsCmd, buildCmd, listCmd, lintCmd, applyCmd, deleteCmd, stackCmd)
+	bindViper(cmd, initCmd, logsCmd, buildCmd, listCmd, lintCmd, applyCmd, deleteCmd, stackCmd)
 
 	_ = cmd.RegisterFlagCompletionFunc("profile", cobra.FixedCompletions([]string{"dev", "ci", "secure", "remote"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions([]string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp))
@@ -238,7 +252,7 @@ Usage:
   {{.UseLine}}
 
 Subcommands:
-{{- range $i, $n := (list "build" "apply" "delete" "stack" "revert" "list" "lint" "logs" "env" "version") }}
+{{- range $i, $n := (list "init" "build" "apply" "delete" "stack" "revert" "list" "lint" "logs" "env" "secrets" "version") }}
 {{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
 {{- end }}

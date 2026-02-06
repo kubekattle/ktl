@@ -423,6 +423,7 @@
       const elChips = Array.from(document.querySelectorAll("[data-kind]"));
 
       const curated = [
+        { id: "cmd:ktl init", title: "ktl init", sub: "Bootstrap a repo config quickly" },
         { id: "cmd:ktl apply", title: "ktl apply", sub: "Deploy a chart to a cluster" },
         { id: "cmd:ktl logs", title: "ktl logs", sub: "Tail pods fast with filtering" },
         { id: "cmd:ktl build", title: "ktl build", sub: "Build images with BuildKit workflows" },
@@ -452,7 +453,10 @@
       }
 
       function score(entry, q) {
-        if (!q) return 1;
+        if (!q) {
+          if (entry.tags && entry.tags.includes("onboarding")) return 5;
+          return 1;
+        }
         const hay = norm(entry.title + " " + (entry.subtitle || "") + " " + (entry.content || "") + " " + (entry.tags || []).join(" "));
         const needle = norm(q);
         if (hay === needle) return 1000;

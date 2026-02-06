@@ -7,8 +7,10 @@ var commandOwners = map[string][]string{
 	"ktl apply plan": {"internal/deploy", "internal/ui"},
 	"ktl build":      {"internal/workflows/buildsvc"},
 	"ktl delete":     {"internal/deploy", "internal/ui"},
+	"ktl init":       {"internal/appconfig"},
 	"ktl help":       {"internal/helpui"},
 	"ktl logs":       {"internal/tailer"},
+	"ktl secrets":    {"internal/secretstore"},
 	"ktl stack":      {"internal/stack"},
 }
 

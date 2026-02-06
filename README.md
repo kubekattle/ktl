@@ -70,6 +70,32 @@ Sample versions:
 
 CLI flags always win over profile/config defaults.
 
+## Zero-conf onboarding
+```bash
+ktl init
+ktl init --interactive
+ktl init --layout --gitignore
+ktl help --ui
+```
+
+## 5-minute demo (public chart)
+Do this:
+```bash
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+# Preview changes + generate an HTML report
+ktl apply plan --chart bitnami/nginx --release demo-nginx -n default --visualize
+
+# Apply (optional)
+ktl apply --chart bitnami/nginx --release demo-nginx -n default --yes
+
+# Cleanup
+ktl delete --release demo-nginx -n default --yes
+```
+
+Each run prints a `Telemetry:` line to stderr with phase timings, cache hits/misses (builds), and K8s API latency.
+
 ## Build policy gate (OPA/Rego)
 `ktl build` supports a fast “policy gate” so security can codify what’s allowed and developers get actionable failures locally and in CI.
 
@@ -85,6 +111,61 @@ CLI flags always win over profile/config defaults.
 - `--secrets-report <path>` writes a machine-readable JSON report (defaults to `--attest-dir/ktl-secrets-report.json` when `--attest-dir` is set).
 
 See `docs/recipes.md` for practical examples.
+
+## Deploy-time secrets providers
+`ktl apply`, `ktl apply plan`, and `ktl stack apply` resolve `secret://` placeholders in values just before templating, without persisting the raw secret material to disk.
+
+Example `.ktl.yaml` (local file):
+```yaml
+secrets:
+  defaultProvider: local
+  providers:
+    local:
+      type: file
+      path: ./secrets.dev.yaml
+```
+
+Example `.ktl.yaml` (Vault):
+```yaml
+secrets:
+  defaultProvider: vault
+  providers:
+    vault:
+      type: vault
+      address: https://vault.example.com
+      authMethod: approle         # token | approle | kubernetes | aws (default: token)
+      authMount: approle          # optional auth mount override
+      roleId: 00000000-0000-0000-0000-000000000000
+      secretId: s.0000000000000000000000
+      namespace: team/platform   # optional
+      mount: secret              # KV mount (default: secret)
+      kvVersion: 2               # 1 or 2 (default: 2)
+      key: value                 # optional default key
+      # kubernetesRole: ktl       # for authMethod: kubernetes
+      # kubernetesTokenPath: /var/run/secrets/kubernetes.io/serviceaccount/token
+      # awsRole: ktl              # for authMethod: aws
+      # awsRegion: us-east-1
+      # awsHeaderValue: vault.example.com
+```
+
+Example values:
+```yaml
+db:
+  password: secret://vault/app/db#password
+```
+
+Then run:
+```bash
+ktl apply plan --chart ./chart --release foo -n default --secret-provider vault
+ktl apply --chart ./chart --release foo -n default --secret-provider vault
+ktl stack apply --config ./stacks/prod --secret-provider vault --yes
+```
+
+Validate and inspect providers:
+```bash
+ktl secrets test --secret-provider vault --ref secret://vault/app/db#password
+ktl secrets list --secret-provider vault --path app --format json
+```
 
 ## Cache intelligence (ktl build)
 `ktl build` prints a post-build cache summary by default:

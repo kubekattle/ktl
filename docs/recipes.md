@@ -2,6 +2,31 @@
 
 Copy/paste workflows that cover the common “happy paths” for `ktl`.
 
+## Zero-conf onboarding
+
+```bash
+# Initialize repo defaults and detect your kubecontext
+ktl init
+
+# Run the interactive setup wizard
+ktl init --interactive
+
+# Scaffold chart/ and values/ plus gitignore entries
+ktl init --layout --gitignore
+
+# Use an opinionated preset
+ktl init --preset prod
+
+# Scaffold a Vault secrets provider
+ktl init --secrets-provider vault
+
+# Preview the config without writing
+ktl init --dry-run
+
+# Launch the interactive help UI
+ktl help --ui
+```
+
 ## Apply a chart (with and without the UI)
 
 ```bash
@@ -13,6 +38,119 @@ ktl apply --chart ./chart --release foo -n default
 
 # Deploy with the viewer UI
 ktl apply --chart ./chart --release foo -n default --ui
+```
+
+## 5-minute demo (public chart)
+
+Do this:
+```bash
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+ktl apply plan --chart bitnami/nginx --release demo-nginx -n default --visualize
+ktl apply --chart bitnami/nginx --release demo-nginx -n default --yes
+ktl delete --release demo-nginx -n default --yes
+```
+
+## Recommended `.ktl.yaml` layout
+
+Do this:
+```yaml
+build:
+  profile: ci
+
+secrets:
+  defaultProvider: local
+  providers:
+    local:
+      type: file
+      path: ./secrets.dev.yaml
+```
+
+## Apply with secret references
+
+```bash
+# Define providers in .ktl.yaml (or pass --secret-config)
+cat > .ktl.yaml <<'YAML'
+secrets:
+  defaultProvider: local
+  providers:
+    local:
+      type: file
+      path: ./secrets.dev.yaml
+YAML
+
+# Use secret:// references in values
+cat > values.dev.yaml <<'YAML'
+db:
+  password: secret://local/db/password
+YAML
+
+ktl apply plan --chart ./chart --release foo -n default -f values.dev.yaml --secret-provider local
+ktl apply --chart ./chart --release foo -n default -f values.dev.yaml --secret-provider local
+ktl stack apply --config ./stacks/prod --secret-provider local --yes
+```
+
+## Vault-backed secrets
+
+```bash
+cat > .ktl.yaml <<'YAML'
+secrets:
+  defaultProvider: vault
+  providers:
+    vault:
+      type: vault
+      address: https://vault.example.com
+      authMethod: approle
+      authMount: approle
+      roleId: 00000000-0000-0000-0000-000000000000
+      secretId: s.0000000000000000000000
+      mount: secret
+      kvVersion: 2
+      key: value
+      # kubernetesRole: ktl
+      # kubernetesTokenPath: /var/run/secrets/kubernetes.io/serviceaccount/token
+      # awsRole: ktl
+      # awsRegion: us-east-1
+      # awsHeaderValue: vault.example.com
+YAML
+
+cat > values.dev.yaml <<'YAML'
+db:
+  password: secret://vault/app/db#password
+YAML
+
+ktl apply plan --chart ./chart --release foo -n default -f values.dev.yaml --secret-provider vault
+ktl apply --chart ./chart --release foo -n default -f values.dev.yaml --secret-provider vault
+ktl stack apply --config ./stacks/prod --secret-provider vault --yes
+```
+
+Inspect providers and references:
+```bash
+ktl secrets test --secret-provider vault --ref secret://vault/app/db#password
+ktl secrets list --secret-provider vault --path app --format json
+```
+
+Minimal CLI workflow (sanity check before apply):
+```bash
+ktl secrets test --secret-provider vault --ref secret://vault/app/db#password
+ktl secrets list --secret-provider vault --path app
+```
+
+## Regression-proof plans
+
+Do this:
+```bash
+ktl apply plan --chart ./chart --release foo -n default --baseline ./plan.json
+ktl apply plan --chart ./chart --release foo -n default --compare-to ./plan.json
+```
+
+## Regression-proof verify
+
+Do this:
+```bash
+verify verify.yaml --baseline ./baseline.json
+verify verify.yaml --compare-to ./baseline.json
 ```
 
 ## Share an `apply plan` visualization

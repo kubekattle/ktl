@@ -68,6 +68,10 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		if len(sources) > 0 {
 			tags = append(tags, sources...)
 		}
+		if extra := tagsForCommand(path); len(extra) > 0 {
+			tags = append(tags, extra...)
+		}
+		tags = uniqueStrings(tags)
 		entries = append(entries, Entry{
 			ID:       "cmd:" + path,
 			Kind:     "command",
@@ -204,6 +208,28 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 			ID:       "doc:recipes",
 			Kind:     "doc",
 			Title:    "Recipes",
+			Subtitle: "Golden paths and copy/paste workflows",
+			Content:  md,
+			Tags:     []string{"doc", "recipes", "examples", "onboarding"},
+		})
+	}
+
+	if md := strings.TrimSpace(ktldocs.TroubleshootingMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:troubleshooting",
+			Kind:     "doc",
+			Title:    "Troubleshooting",
+			Subtitle: "Common errors and recovery steps",
+			Content:  md,
+			Tags:     []string{"doc", "troubleshooting", "support"},
+		})
+	}
+
+	if md := strings.TrimSpace(ktldocs.RecipesMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:recipes",
+			Kind:     "doc",
+			Title:    "Recipes",
 			Subtitle: "Golden paths (copy/paste workflows)",
 			Content:  md,
 			Tags:     []string{"doc", "recipes", "golden-paths"},
@@ -243,6 +269,23 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		GeneratedAt: now,
 		Entries:     entries,
 	}
+}
+
+func uniqueStrings(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
 }
 
 func visitCommands(root *cobra.Command, includeHidden bool, fn func(*cobra.Command)) {

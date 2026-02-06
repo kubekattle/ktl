@@ -173,6 +173,7 @@ func TestRootHelpSubcommandOrder(t *testing.T) {
 	help := out.String()
 	wantOrder := []string{
 		"\nSubcommands:\n",
+		"  init",
 		"  build",
 		"  apply",
 		"  delete",
