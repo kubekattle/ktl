@@ -1,4 +1,9 @@
-FROM golang:1.22-bookworm
+# Use a modern toolchain so go.mod's Go version requirement is satisfied.
+FROM golang:1.25-bookworm
+
+# Allow automatic download of the exact toolchain version declared in go.mod
+# (some upstream images default GOTOOLCHAIN=local).
+ENV GOTOOLCHAIN=auto
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

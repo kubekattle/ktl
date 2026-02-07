@@ -57,13 +57,13 @@ jobs:
             mkdir -p "${outdir}"
             GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 \
               go build -trimpath -ldflags "${ldflags}" -o "${outdir}/${tool}" "./cmd/${tool}"
-            cat > "${outdir}/README.txt" <<'TXT'
-            This archive contains a single binary built from https://github.com/example/ktl
-            Install:
-              chmod +x ./<tool> && mv ./<tool> /usr/local/bin/<tool>
-            Check version:
-              <tool> --version
-            TXT
+            cat > "${outdir}/README.txt" <<TXT
+          This archive contains a single binary built from https://github.com/${{ github.repository }}
+          Install:
+            chmod +x ./${tool} && mv ./${tool} /usr/local/bin/${tool}
+          Check version:
+            ${tool} --version
+          TXT
             tarball="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz"
             # Reproducible tar.gz:
             # - stable ordering (--sort=name)
