@@ -131,7 +131,7 @@ jobs:
 
   manual-extras:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && (inputs.integration == 'true' || inputs.charts_e2e == 'true')
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.integration == 'true' || github.event.inputs.charts_e2e == 'true')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -143,23 +143,38 @@ jobs:
         run: |
           set -euo pipefail
           args=(--ci --no-fmt --no-lint)
-          if [[ "${{ inputs.integration }}" == "true" ]]; then
+          if [[ "${{ github.event.inputs.integration }}" == "true" ]]; then
             args+=(--integration)
           fi
-          if [[ "${{ inputs.charts_e2e }}" == "true" ]]; then
+          if [[ "${{ github.event.inputs.charts_e2e }}" == "true" ]]; then
             args+=(--charts-e2e)
           fi
           ./scripts/testpoint.sh "${args[@]}"
 
   e2e-real:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.e2e_real == 'true' && secrets.KTL_E2E_KUBECONFIG_B64 != '' && secrets.KTL_E2E_NAMESPACE != ''
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.e2e_real == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25.x'
           cache: true
+      - name: Validate e2e secrets
+        shell: bash
+        env:
+          KUBECONFIG_B64: ${{ secrets.KTL_E2E_KUBECONFIG_B64 }}
+          NAMESPACE: ${{ secrets.KTL_E2E_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${KUBECONFIG_B64}" ]]; then
+            echo "missing required secret: KTL_E2E_KUBECONFIG_B64" >&2
+            exit 2
+          fi
+          if [[ -z "${NAMESPACE}" ]]; then
+            echo "missing required secret: KTL_E2E_NAMESPACE" >&2
+            exit 2
+          fi
       - name: Decode kubeconfig
         shell: bash
         run: |
