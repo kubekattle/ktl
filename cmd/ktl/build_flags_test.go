@@ -43,7 +43,7 @@ func TestBuildCommandFlagPropagation(t *testing.T) {
 	rec := &recordingBuildService{}
 	profile := "dev"
 	logLevel := "info"
-	cmd := newBuildCommandWithService(rec, &profile, &logLevel)
+	cmd := newBuildCommandWithService(rec, &profile, &logLevel, nil, nil)
 	cmd.SetIn(newFakeTTY())
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -214,7 +214,7 @@ func TestBuildCommandNoCacheDisablesCacheImports(t *testing.T) {
 	rec := &recordingBuildService{}
 	profile := "dev"
 	logLevel := "info"
-	cmd := newBuildCommandWithService(rec, &profile, &logLevel)
+	cmd := newBuildCommandWithService(rec, &profile, &logLevel, nil, nil)
 	cmd.SetArgs([]string{
 		"--cache-from", "type=registry,ref=cache/main",
 		"--no-cache",
@@ -323,7 +323,7 @@ func TestBuildCommandMirrorFlagsRejectInvalidCombinations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			profile := "dev"
 			logLevel := "info"
-			cmd := newBuildCommandWithService(&recordingBuildService{}, &profile, &logLevel)
+			cmd := newBuildCommandWithService(&recordingBuildService{}, &profile, &logLevel, nil, nil)
 			cmd.SetIn(newFakeTTY())
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
@@ -347,7 +347,7 @@ func TestBuildCommandDefaultBuilderIsNotForced(t *testing.T) {
 	rec := &recordingBuildService{}
 	profile := "dev"
 	logLevel := "info"
-	cmd := newBuildCommandWithService(rec, &profile, &logLevel)
+	cmd := newBuildCommandWithService(rec, &profile, &logLevel, nil, nil)
 	cmd.SetIn(newFakeTTY())
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
@@ -431,7 +431,7 @@ func TestBuildCommandRejectsInvalidFlagValuesAtParseTime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			profile := "dev"
 			logLevel := "info"
-			cmd := newBuildCommandWithService(&recordingBuildService{}, &profile, &logLevel)
+			cmd := newBuildCommandWithService(&recordingBuildService{}, &profile, &logLevel, nil, nil)
 			cmd.SetIn(newFakeTTY())
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})

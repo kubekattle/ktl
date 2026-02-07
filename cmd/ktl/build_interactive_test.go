@@ -39,7 +39,7 @@ func TestBuildInteractiveRequiresTTY(t *testing.T) {
 	profile := "dev"
 	svc := buildsvc.New(buildsvc.Dependencies{BuildRunner: noopBuildkitRunner{}})
 	logLevel := "info"
-	cmd := newBuildCommandWithService(svc, &profile, &logLevel)
+	cmd := newBuildCommandWithService(svc, &profile, &logLevel, nil, nil)
 	cmd.SetIn(bytes.NewBuffer(nil))
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
@@ -66,7 +66,7 @@ func TestBuildInteractiveDefaultsShellAndPropagates(t *testing.T) {
 	profile := "dev"
 	svc := buildsvc.New(buildsvc.Dependencies{BuildRunner: runner})
 	logLevel := "info"
-	cmd := newBuildCommandWithService(svc, &profile, &logLevel)
+	cmd := newBuildCommandWithService(svc, &profile, &logLevel, nil, nil)
 	cmd.SetIn(newFakeTTY())
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
