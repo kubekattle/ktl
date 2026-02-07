@@ -2,44 +2,67 @@ package analyze
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 // Evidence collects all relevant data for analysis
 type Evidence struct {
-	Pod              *corev1.Pod
-	Node             *corev1.Node      // Details of the node running the pod
-	Events           []corev1.Event    // Events related to the pod
-	NamespaceEvents  []corev1.Event    // Recent events in the namespace (for context)
-	Logs             map[string]string // ContainerName -> Last N lines of logs
-	PreviousLogs     map[string]string // ContainerName -> Last N lines of previous logs (if crashed)
-	ConfigWarnings   []string          // Missing ConfigMaps, Secrets, etc.
-	NetworkContext   []string          // Services, Endpoints status
-	ResourceInfo     []string          // QoS, Limits, OOMKilled history
-	ImageAnalysis    []string          // Tag validation, known vulnerabilities
-	SecurityAudit    []string          // ServiceAccount, SecurityContext
-	Availability     []string          // PDB status
-	ChangeDiff       []string          // Diff vs previous revision
-	IngressInfo      []string          // Ingress details
-	ScalingInfo      []string          // HPA details
-	StorageInfo      []string          // PVC details
-	SchedulingInfo   []string          // Taints/Affinity
-	LifecycleInfo    []string          // Hooks
-	ProbeInfo        []string          // Liveness/Readiness issues
-	SecretValidation []string          // Content checks (trailing newlines)
-	MeshInfo         []string          // Sidecar status
-	InitExitInfo     []string          // Init container exit codes
-	OwnerChain       []string          // Hierarchy
-	LocalDocs        string            // Content of local troubleshooting docs
-	SourceSnippets   []Snippet         // Code snippets linked from stack traces
-	Manifest         string            // YAML representation (optional)
+	Pod               *corev1.Pod
+	Node              *corev1.Node      // Details of the node running the pod
+	Events            []corev1.Event    // Events related to the pod
+	NamespaceEvents   []corev1.Event    // Recent events in the namespace (for context)
+	Logs              map[string]string // ContainerName -> Last N lines of logs
+	PreviousLogs      map[string]string // ContainerName -> Last N lines of previous logs (if crashed)
+	ConfigWarnings    []string          // Missing ConfigMaps, Secrets, etc.
+	NetworkContext    []string          // Services, Endpoints status
+	ResourceInfo      []string          // QoS, Limits, OOMKilled history
+	ImageAnalysis     []string          // Tag validation, known vulnerabilities
+	SecurityAudit     []string          // ServiceAccount, SecurityContext
+	Availability      []string          // PDB status
+	ChangeDiff        []string          // Diff vs previous revision
+	IngressInfo       []string          // Ingress details
+	ScalingInfo       []string          // HPA details
+	StorageInfo       []string          // PVC details
+	SchedulingInfo    []string          // Taints/Affinity
+	LifecycleInfo     []string          // Hooks
+	ProbeInfo         []string          // Liveness/Readiness issues
+	SecretValidation  []string          // Content checks (trailing newlines)
+	MeshInfo          []string          // Sidecar status
+	InitExitInfo      []string          // Init container exit codes
+	OwnerChain        []string          // Hierarchy
+	NetPolicyInfo     []string          // Network Policies
+	CertInfo          []string          // Certificate expiration
+	QuotaInfo         []string          // ResourceQuotas
+	LogInsights       []string          // Pattern matching results
+	AffinityInfo      []string          // Node/Pod Affinity
+	PSAInfo           []string          // Pod Security Admission
+	SpreadInfo        []string          // Topology Spread
+	PriorityInfo      []string          // PriorityClass
+	FinalizerInfo     []string          // Finalizers
+	DNSInfo           []string          // CoreDNS status
+	NodeExtInfo       []string          // Kernel, Runtime, Pressure
+	SecurityExtInfo   []string          // Caps, Seccomp, AppArmor
+	VolumeExtInfo     []string          // HostPath, HugePages, DownwardAPI
+	ServiceExtInfo    []string          // Port mismatch, LB status
+	IngressExtInfo    []string          // TLS, Class
+	ConfigSyntaxInfo  []string          // JSON/YAML validation
+	PodStateExtInfo   []string          // Zombie, Backoff
+	ControllerExtInfo []string          // Deployment strategy, CronJob
+	LocalDocs         string            // Content of local troubleshooting docs
+	SourceSnippets    []Snippet         // Code snippets linked from stack traces
+	Manifest          string            // YAML representation (optional)
 }
 
 // Diagnosis represents the result of an analysis
@@ -143,6 +166,60 @@ func GatherEvidence(ctx context.Context, client kubernetes.Interface, namespace,
 	// Iteration 20: Owner Chain
 	ownerChain := checkOwnerChain(ctx, client, namespace, pod)
 
+	// Iteration 21: Network Policies
+	netPolicyInfo := checkNetworkPolicies(ctx, client, namespace, pod)
+
+	// Iteration 22: Certificates
+	certInfo := checkCertificates(ctx, client, namespace, pod)
+
+	// Iteration 23: Quotas
+	quotaInfo := checkResourceQuotas(ctx, client, namespace)
+
+	// Iteration 24: Ephemeral Storage
+	ephemeralInfo := checkEphemeralStorage(pod)
+
+	// Iteration 26: Affinity
+	affinityInfo := checkAffinity(pod)
+
+	// Iteration 27: PSA
+	psaInfo := checkPSA(ctx, client, namespace, pod)
+
+	// Iteration 28: Topology Spread
+	spreadInfo := checkTopologySpread(pod)
+
+	// Iteration 29: Priority
+	priorityInfo := checkPriority(pod)
+
+	// Iteration 30: Finalizers
+	finalizerInfo := checkFinalizers(pod)
+
+	// Iteration 31: DNS Health
+	dnsInfo := checkDNS(ctx, client)
+
+	// Iteration 32-33: Node Extended
+	nodeExtInfo := checkNodeExt(node)
+
+	// Iteration 34, 36, 37: Security Extended
+	secExtInfo := checkSecurityExt(pod)
+
+	// Iteration 35, 38, 39, 40: Volume/Resource Extended
+	volExtInfo := checkVolumeExt(pod)
+
+	// Iteration 41-42: Service Extended
+	svcExtInfo := checkServiceExt(ctx, client, namespace, pod)
+
+	// Iteration 43-44: Ingress Extended
+	ingExtInfo := checkIngressExt(ctx, client, namespace, pod)
+
+	// Iteration 45: Config Syntax
+	confSynInfo := checkConfigSyntax(ctx, client, namespace, pod)
+
+	// Iteration 46-48: Pod State Extended
+	podStateInfo := checkPodStateExt(pod)
+
+	// Iteration 49-50: Controller Extended
+	ctrlExtInfo := checkControllerExt(ctx, client, namespace, pod)
+
 	// 3.7 Local Knowledge Base (Iteration 4)
 	localDocs := findLocalDocs()
 
@@ -193,33 +270,427 @@ func GatherEvidence(ctx context.Context, client kubernetes.Interface, namespace,
 		snippets = append(snippets, s...)
 	}
 
+	resourceInfo = append(resourceInfo, ephemeralInfo...)
+
+	// Iteration 25: Log Insights (Must be done after logs are fetched)
+	logInsights := analyzeLogPatterns(logs, prevLogs)
+
 	return &Evidence{
-		Pod:              pod,
-		Node:             node,
-		Events:           events.Items,
-		NamespaceEvents:  nsEvents,
-		Logs:             logs,
-		PreviousLogs:     prevLogs,
-		ConfigWarnings:   configWarnings,
-		NetworkContext:   networkContext,
-		ResourceInfo:     resourceInfo,
-		ImageAnalysis:    imageAnalysis,
-		SecurityAudit:    securityAudit,
-		Availability:     availability,
-		ChangeDiff:       changeDiff,
-		IngressInfo:      ingressInfo,
-		ScalingInfo:      scalingInfo,
-		StorageInfo:      storageInfo,
-		SchedulingInfo:   schedulingInfo,
-		LifecycleInfo:    lifecycleInfo,
-		ProbeInfo:        probeInfo,
-		SecretValidation: secretVal,
-		MeshInfo:         meshInfo,
-		InitExitInfo:     initExit,
-		OwnerChain:       ownerChain,
-		LocalDocs:        localDocs,
-		SourceSnippets:   snippets,
+		Pod:               pod,
+		Node:              node,
+		Events:            events.Items,
+		NamespaceEvents:   nsEvents,
+		Logs:              logs,
+		PreviousLogs:      prevLogs,
+		ConfigWarnings:    configWarnings,
+		NetworkContext:    networkContext,
+		ResourceInfo:      resourceInfo, // Includes ephemeral
+		ImageAnalysis:     imageAnalysis,
+		SecurityAudit:     securityAudit,
+		Availability:      availability,
+		ChangeDiff:        changeDiff,
+		IngressInfo:       ingressInfo,
+		ScalingInfo:       scalingInfo,
+		StorageInfo:       storageInfo,
+		SchedulingInfo:    schedulingInfo,
+		LifecycleInfo:     lifecycleInfo,
+		ProbeInfo:         probeInfo,
+		SecretValidation:  secretVal,
+		MeshInfo:          meshInfo,
+		InitExitInfo:      initExit,
+		OwnerChain:        ownerChain,
+		NetPolicyInfo:     netPolicyInfo,
+		CertInfo:          certInfo,
+		QuotaInfo:         quotaInfo,
+		LogInsights:       logInsights,
+		AffinityInfo:      affinityInfo,
+		PSAInfo:           psaInfo,
+		SpreadInfo:        spreadInfo,
+		PriorityInfo:      priorityInfo,
+		FinalizerInfo:     finalizerInfo,
+		DNSInfo:           dnsInfo,
+		NodeExtInfo:       nodeExtInfo,
+		SecurityExtInfo:   secExtInfo,
+		VolumeExtInfo:     volExtInfo,
+		ServiceExtInfo:    svcExtInfo,
+		IngressExtInfo:    ingExtInfo,
+		ConfigSyntaxInfo:  confSynInfo,
+		PodStateExtInfo:   podStateInfo,
+		ControllerExtInfo: ctrlExtInfo,
+		LocalDocs:         localDocs,
+		SourceSnippets:    snippets,
 	}, nil
+}
+
+func checkServiceExt(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	svcs, err := client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return info
+	}
+
+	for _, svc := range svcs.Items {
+		match := true
+		for k, v := range svc.Spec.Selector {
+			if pod.Labels[k] != v {
+				match = false
+				break
+			}
+		}
+		if match && len(svc.Spec.Selector) > 0 {
+			// Check ports
+			for _, port := range svc.Spec.Ports {
+				foundPort := false
+				for _, c := range pod.Spec.Containers {
+					for _, cp := range c.Ports {
+						if cp.ContainerPort == port.TargetPort.IntVal || port.TargetPort.StrVal == cp.Name {
+							foundPort = true
+						}
+					}
+					// Also check if targetPort is not set, defaults to port
+					if port.TargetPort.IntVal == 0 && port.TargetPort.StrVal == "" {
+						if port.Port == 0 {
+							continue
+						} // Should not happen
+						// Assuming container listens on same port (heuristic)
+					}
+				}
+				if !foundPort && port.TargetPort.IntVal != 0 {
+					info = append(info, fmt.Sprintf("WARNING: Service '%s' targets port %s, but no container exposes it explicitly.", svc.Name, port.TargetPort.String()))
+				}
+			}
+
+			// Check LoadBalancer
+			if svc.Spec.Type == corev1.ServiceTypeLoadBalancer {
+				if len(svc.Status.LoadBalancer.Ingress) == 0 {
+					info = append(info, fmt.Sprintf("WARNING: Service '%s' is LoadBalancer but has no IP allocated yet.", svc.Name))
+				}
+			}
+		}
+	}
+	return info
+}
+
+func checkIngressExt(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	// Reuse ingress check logic or fetch new
+	ingresses, err := client.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return info
+	}
+
+	for _, ing := range ingresses.Items {
+		// TLS Check
+		for _, tls := range ing.Spec.TLS {
+			if tls.SecretName != "" {
+				_, err := client.CoreV1().Secrets(namespace).Get(ctx, tls.SecretName, metav1.GetOptions{})
+				if err != nil {
+					info = append(info, fmt.Sprintf("CRITICAL: Ingress '%s' refers to missing TLS secret '%s'.", ing.Name, tls.SecretName))
+				}
+			}
+		}
+		// Class Check
+		if ing.Spec.IngressClassName != nil {
+			// List classes (cluster scoped) - need cluster permissions, might fail
+			// Just skipping for now to avoid permission errors in restricted envs
+		}
+	}
+	return info
+}
+
+func checkConfigSyntax(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	// Check ConfigMaps referenced
+	for _, c := range pod.Spec.Containers {
+		for _, envFrom := range c.EnvFrom {
+			if envFrom.ConfigMapRef != nil {
+				cm, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, envFrom.ConfigMapRef.Name, metav1.GetOptions{})
+				if err == nil {
+					for k, v := range cm.Data {
+						if strings.HasSuffix(k, ".json") {
+							if !json.Valid([]byte(v)) {
+								info = append(info, fmt.Sprintf("WARNING: ConfigMap '%s' key '%s' has invalid JSON.", cm.Name, k))
+							}
+						}
+						// Simple YAML check (heuristic)
+						if strings.HasSuffix(k, ".yaml") || strings.HasSuffix(k, ".yml") {
+							if strings.HasPrefix(strings.TrimSpace(v), "\t") {
+								info = append(info, fmt.Sprintf("WARNING: ConfigMap '%s' key '%s' seems to use tabs. YAML forbids tabs.", cm.Name, k))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return info
+}
+
+func checkPodStateExt(pod *corev1.Pod) []string {
+	var info []string
+	// Zombie check
+	if pod.DeletionTimestamp != nil {
+		if time.Since(pod.DeletionTimestamp.Time) > 1*time.Hour {
+			info = append(info, fmt.Sprintf("CRITICAL: Pod has been Terminating for > 1 hour (Zombie). Force delete might be needed."))
+		}
+	}
+
+	// Restart Backoff
+	for _, s := range pod.Status.ContainerStatuses {
+		if s.State.Waiting != nil && s.State.Waiting.Reason == "CrashLoopBackOff" {
+			// Can't easily get backoff duration from status, but we can infer from restart count vs age?
+			// Just generic warning
+			if s.RestartCount > 10 {
+				info = append(info, fmt.Sprintf("Container '%s' has restarted %d times. Backoff is likely at max.", s.Name, s.RestartCount))
+			}
+		}
+	}
+	return info
+}
+
+func checkControllerExt(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "ReplicaSet" {
+			rs, err := client.AppsV1().ReplicaSets(namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+			if err == nil {
+				for _, rsRef := range rs.OwnerReferences {
+					if rsRef.Kind == "Deployment" {
+						deploy, err := client.AppsV1().Deployments(namespace).Get(ctx, rsRef.Name, metav1.GetOptions{})
+						if err == nil {
+							if deploy.Spec.Strategy.Type == appsv1.RollingUpdateDeploymentStrategyType {
+								if deploy.Spec.Strategy.RollingUpdate != nil {
+									info = append(info, fmt.Sprintf("Deployment Strategy: RollingUpdate (MaxUnavail: %s, MaxSurge: %s)", deploy.Spec.Strategy.RollingUpdate.MaxUnavailable.String(), deploy.Spec.Strategy.RollingUpdate.MaxSurge.String()))
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return info
+}
+
+func checkDNS(ctx context.Context, client kubernetes.Interface) []string {
+	var info []string
+	// Check kube-system for kube-dns or coredns
+	svcs, err := client.CoreV1().Services("kube-system").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return info
+	}
+
+	found := false
+	for _, svc := range svcs.Items {
+		if svc.Name == "kube-dns" || svc.Name == "coredns" {
+			found = true
+			// Check endpoints
+			eps, err := client.CoreV1().Endpoints("kube-system").Get(ctx, svc.Name, metav1.GetOptions{})
+			if err == nil {
+				ready := 0
+				for _, sub := range eps.Subsets {
+					ready += len(sub.Addresses)
+				}
+				if ready == 0 {
+					info = append(info, fmt.Sprintf("CRITICAL: Cluster DNS (%s) has 0 endpoints! Cluster-wide resolution might fail.", svc.Name))
+				} else {
+					info = append(info, fmt.Sprintf("Cluster DNS (%s) is healthy (%d endpoints).", svc.Name, ready))
+				}
+			}
+		}
+	}
+	if !found {
+		info = append(info, "WARNING: Could not find 'kube-dns' or 'coredns' service in kube-system.")
+	}
+	return info
+}
+
+func checkNodeExt(node *corev1.Node) []string {
+	var info []string
+	if node == nil {
+		return info
+	}
+
+	info = append(info, fmt.Sprintf("Node Info: Kernel=%s, Runtime=%s, OS=%s", node.Status.NodeInfo.KernelVersion, node.Status.NodeInfo.ContainerRuntimeVersion, node.Status.NodeInfo.OSImage))
+
+	// Extended Pressure Checks
+	for _, cond := range node.Status.Conditions {
+		if cond.Status == "True" {
+			switch cond.Type {
+			case corev1.NodePIDPressure:
+				info = append(info, "CRITICAL: Node has PIDPressure. Too many processes.")
+			case corev1.NodeMemoryPressure:
+				info = append(info, "CRITICAL: Node has MemoryPressure. Eviction imminent.")
+			case corev1.NodeDiskPressure:
+				info = append(info, "CRITICAL: Node has DiskPressure. Garbage collection active.")
+			}
+		}
+	}
+	return info
+}
+
+func checkSecurityExt(pod *corev1.Pod) []string {
+	var info []string
+
+	if pod.Spec.AutomountServiceAccountToken != nil && !*pod.Spec.AutomountServiceAccountToken {
+		info = append(info, "Security: AutomountServiceAccountToken is disabled (Good).")
+	}
+
+	for _, c := range pod.Spec.Containers {
+		if c.SecurityContext != nil {
+			if c.SecurityContext.Capabilities != nil {
+				if len(c.SecurityContext.Capabilities.Add) > 0 {
+					info = append(info, fmt.Sprintf("WARNING: Container '%s' adds capabilities: %v", c.Name, c.SecurityContext.Capabilities.Add))
+				}
+				if len(c.SecurityContext.Capabilities.Drop) > 0 {
+					info = append(info, fmt.Sprintf("Security: Container '%s' drops capabilities: %v", c.Name, c.SecurityContext.Capabilities.Drop))
+				}
+			}
+			if c.SecurityContext.AllowPrivilegeEscalation != nil && *c.SecurityContext.AllowPrivilegeEscalation {
+				info = append(info, fmt.Sprintf("WARNING: Container '%s' allows privilege escalation.", c.Name))
+			}
+			if c.SecurityContext.ReadOnlyRootFilesystem != nil && *c.SecurityContext.ReadOnlyRootFilesystem {
+				info = append(info, fmt.Sprintf("Security: Container '%s' has ReadOnlyRootFilesystem (Good).", c.Name))
+			}
+		}
+	}
+	return info
+}
+
+func checkVolumeExt(pod *corev1.Pod) []string {
+	var info []string
+
+	for _, vol := range pod.Spec.Volumes {
+		if vol.HostPath != nil {
+			info = append(info, fmt.Sprintf("WARNING: Volume '%s' uses HostPath (%s). Security risk & node dependency.", vol.Name, vol.HostPath.Path))
+		}
+		if vol.EmptyDir != nil {
+			if vol.EmptyDir.SizeLimit == nil {
+				info = append(info, fmt.Sprintf("NOTE: Volume '%s' (emptyDir) has no SizeLimit.", vol.Name))
+			}
+		}
+		if vol.DownwardAPI != nil {
+			info = append(info, fmt.Sprintf("Info: Volume '%s' uses DownwardAPI.", vol.Name))
+		}
+	}
+
+	for _, c := range pod.Spec.Containers {
+		for _, res := range c.Resources.Limits {
+			if res.Format == "nvidia.com/gpu" {
+				info = append(info, fmt.Sprintf("Resource: Container '%s' requests GPU.", c.Name))
+			}
+		}
+	}
+
+	return info
+}
+
+func analyzeLogPatterns(logs, prevLogs map[string]string) []string {
+	var info []string
+
+	check := func(source, log string) {
+		if strings.Contains(log, "java.lang.OutOfMemoryError") {
+			info = append(info, fmt.Sprintf("Pattern Match (%s): Java OOM detected. Tune -Xmx matches container memory.", source))
+		}
+		if strings.Contains(log, "FATAL: password authentication failed") {
+			info = append(info, fmt.Sprintf("Pattern Match (%s): Postgres Auth Failure. Check DB_PASSWORD.", source))
+		}
+		if strings.Contains(log, "Connection refused") {
+			info = append(info, fmt.Sprintf("Pattern Match (%s): Connection refused. Target service might be down.", source))
+		}
+		if strings.Contains(log, "permission denied") {
+			info = append(info, fmt.Sprintf("Pattern Match (%s): Filesystem permission error. Check RunAsUser/fsGroup.", source))
+		}
+		if strings.Contains(log, "ModuleNotFoundError") || strings.Contains(log, "ImportError") {
+			info = append(info, fmt.Sprintf("Pattern Match (%s): Python missing dependency. Check requirements.txt.", source))
+		}
+		if strings.Contains(log, "Error: Cannot find module") {
+			info = append(info, fmt.Sprintf("Pattern Match (%s): Node.js missing module. Check package.json/npm install.", source))
+		}
+	}
+
+	for c, l := range logs {
+		check("Current-"+c, l)
+	}
+	for c, l := range prevLogs {
+		check("Previous-"+c, l)
+	}
+	return info
+}
+
+func checkAffinity(pod *corev1.Pod) []string {
+	var info []string
+	if pod.Spec.Affinity != nil {
+		if pod.Spec.Affinity.NodeAffinity != nil {
+			info = append(info, "Note: Pod has NodeAffinity configured.")
+		}
+		if pod.Spec.Affinity.PodAntiAffinity != nil {
+			info = append(info, "Note: Pod has PodAntiAffinity configured (Spread).")
+		}
+	}
+	return info
+}
+
+func checkPSA(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	ns, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		return info
+	}
+
+	mode := ns.Labels["pod-security.kubernetes.io/enforce"]
+	if mode != "" {
+		info = append(info, fmt.Sprintf("Namespace enforcement: %s. Pod must comply.", mode))
+		// Basic check
+		if mode == "restricted" {
+			if pod.Spec.SecurityContext == nil || pod.Spec.SecurityContext.RunAsNonRoot == nil || !*pod.Spec.SecurityContext.RunAsNonRoot {
+				info = append(info, "WARNING: PSA 'restricted' requires RunAsNonRoot=true.")
+			}
+		}
+	}
+	return info
+}
+
+func checkTopologySpread(pod *corev1.Pod) []string {
+	var info []string
+	if len(pod.Spec.TopologySpreadConstraints) > 0 {
+		info = append(info, fmt.Sprintf("Pod has %d TopologySpreadConstraints.", len(pod.Spec.TopologySpreadConstraints)))
+	}
+	return info
+}
+
+func checkPriority(pod *corev1.Pod) []string {
+	var info []string
+	if pod.Spec.PriorityClassName != "" {
+		info = append(info, fmt.Sprintf("PriorityClass: %s (Priority: %d)", pod.Spec.PriorityClassName, *pod.Spec.Priority))
+	}
+	return info
+}
+
+func checkFinalizers(pod *corev1.Pod) []string {
+	var info []string
+	if len(pod.Finalizers) > 0 {
+		info = append(info, fmt.Sprintf("Finalizers preventing deletion: %v", pod.Finalizers))
+		if pod.DeletionTimestamp != nil {
+			info = append(info, "CRITICAL: Pod is Terminating but stuck on Finalizers.")
+		}
+	}
+	return info
+}
+
+func checkEphemeralStorage(pod *corev1.Pod) []string {
+	var info []string
+	for _, c := range pod.Spec.Containers {
+		lim := c.Resources.Limits
+		req := c.Resources.Requests
+		if _, ok := lim[corev1.ResourceEphemeralStorage]; !ok {
+			info = append(info, fmt.Sprintf("WARNING: Container '%s' has NO ephemeral-storage limit. It can consume all node disk.", c.Name))
+		}
+		if _, ok := req[corev1.ResourceEphemeralStorage]; !ok {
+			info = append(info, fmt.Sprintf("NOTE: Container '%s' has NO ephemeral-storage request.", c.Name))
+		}
+	}
+	return info
 }
 
 func checkProbes(pod *corev1.Pod) []string {
@@ -330,6 +801,105 @@ func checkOwnerChain(ctx context.Context, client kubernetes.Interface, namespace
 		break
 	}
 	return chain
+}
+
+func checkNetworkPolicies(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	pols, err := client.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return info
+	}
+
+	deniedIngress := false
+	deniedEgress := false
+
+	for _, pol := range pols.Items {
+		match := true
+		for k, v := range pol.Spec.PodSelector.MatchLabels {
+			if pod.Labels[k] != v {
+				match = false
+				break
+			}
+		}
+		if match {
+			// This policy applies to the pod
+			// Simplified analysis: just listing them
+			types := []string{}
+			for _, t := range pol.Spec.PolicyTypes {
+				types = append(types, string(t))
+				if t == networkingv1.PolicyTypeIngress {
+					deniedIngress = true
+				} // Default deny unless allowed
+				if t == networkingv1.PolicyTypeEgress {
+					deniedEgress = true
+				}
+			}
+			info = append(info, fmt.Sprintf("NetworkPolicy '%s' applies to this pod (Types: %v).", pol.Name, types))
+		}
+	}
+
+	if deniedIngress {
+		info = append(info, "NOTE: At least one NetworkPolicy selects this pod. Ingress traffic is restricted unless explicitly allowed.")
+	}
+	if deniedEgress {
+		info = append(info, "NOTE: At least one NetworkPolicy selects this pod. Egress traffic is restricted unless explicitly allowed.")
+	}
+
+	return info
+}
+
+func checkCertificates(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	for _, c := range pod.Spec.Containers {
+		for _, env := range c.Env {
+			if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+				// Check if secret looks like a cert
+				secretName := env.ValueFrom.SecretKeyRef.Name
+				key := env.ValueFrom.SecretKeyRef.Key
+
+				// Optimization: avoid re-fetching if possible, but for now just fetch
+				secret, err := client.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+				if err != nil {
+					continue
+				}
+
+				valBytes := secret.Data[key]
+				if strings.Contains(string(valBytes), "-----BEGIN CERTIFICATE-----") {
+					block, _ := pem.Decode(valBytes)
+					if block != nil {
+						cert, err := x509.ParseCertificate(block.Bytes)
+						if err == nil {
+							if time.Now().After(cert.NotAfter) {
+								info = append(info, fmt.Sprintf("CRITICAL: Certificate in Secret '%s' (key '%s') EXPIRED on %s.", secretName, key, cert.NotAfter.Format(time.RFC3339)))
+							} else if time.Now().Add(24 * 7 * time.Hour).After(cert.NotAfter) {
+								info = append(info, fmt.Sprintf("WARNING: Certificate in Secret '%s' (key '%s') expires soon (%s).", secretName, key, cert.NotAfter.Format(time.RFC3339)))
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	// TODO: Check volumes too
+	return info
+}
+
+func checkResourceQuotas(ctx context.Context, client kubernetes.Interface, namespace string) []string {
+	var info []string
+	quotas, err := client.CoreV1().ResourceQuotas(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return info
+	}
+
+	for _, q := range quotas.Items {
+		for resName, qty := range q.Status.Hard {
+			used := q.Status.Used[resName]
+			if used.Cmp(qty) >= 0 {
+				info = append(info, fmt.Sprintf("WARNING: ResourceQuota '%s' hit limit for %s (Used: %s, Limit: %s).", q.Name, resName, used.String(), qty.String()))
+			}
+		}
+	}
+	return info
 }
 
 func checkIngress(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {

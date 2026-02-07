@@ -358,6 +358,140 @@ func buildPrompt(e *Evidence) string {
 		}
 	}
 
+	// 4.21 Network Policies
+	if len(e.NetPolicyInfo) > 0 {
+		b.WriteString("\n--- Network Policies (Traffic Rules) ---\n")
+		for _, n := range e.NetPolicyInfo {
+			b.WriteString(fmt.Sprintf("%s\n", n))
+		}
+	}
+
+	// 4.22 Certificates
+	if len(e.CertInfo) > 0 {
+		b.WriteString("\n--- TLS Certificates (Expiration Check) ---\n")
+		for _, c := range e.CertInfo {
+			b.WriteString(fmt.Sprintf("%s\n", c))
+		}
+	}
+
+	// 4.23 Resource Quotas
+	if len(e.QuotaInfo) > 0 {
+		b.WriteString("\n--- Namespace Resource Quotas ---\n")
+		for _, q := range e.QuotaInfo {
+			b.WriteString(fmt.Sprintf("%s\n", q))
+		}
+	}
+
+	// 4.25 Log Insights
+	if len(e.LogInsights) > 0 {
+		b.WriteString("\n--- Log Pattern Matches ---\n")
+		for _, l := range e.LogInsights {
+			b.WriteString(fmt.Sprintf("%s\n", l))
+		}
+	}
+
+	// 4.26 Scheduling Constraints (Affinity/Spread/Priority)
+	if len(e.AffinityInfo) > 0 || len(e.SpreadInfo) > 0 || len(e.PriorityInfo) > 0 {
+		b.WriteString("\n--- Advanced Scheduling ---\n")
+		for _, a := range e.AffinityInfo {
+			b.WriteString(fmt.Sprintf("%s\n", a))
+		}
+		for _, s := range e.SpreadInfo {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+		for _, p := range e.PriorityInfo {
+			b.WriteString(fmt.Sprintf("%s\n", p))
+		}
+	}
+
+	// 4.27 PSA & Security
+	if len(e.PSAInfo) > 0 {
+		b.WriteString("\n--- Pod Security Admission ---\n")
+		for _, p := range e.PSAInfo {
+			b.WriteString(fmt.Sprintf("%s\n", p))
+		}
+	}
+
+	// 4.30 Finalizers
+	if len(e.FinalizerInfo) > 0 {
+		b.WriteString("\n--- Finalizers (Deletion Blockers) ---\n")
+		for _, f := range e.FinalizerInfo {
+			b.WriteString(fmt.Sprintf("%s\n", f))
+		}
+	}
+
+	// 4.31 DNS Health
+	if len(e.DNSInfo) > 0 {
+		b.WriteString("\n--- Cluster DNS Status ---\n")
+		for _, d := range e.DNSInfo {
+			b.WriteString(fmt.Sprintf("%s\n", d))
+		}
+	}
+
+	// 4.32 Node Extended Info
+	if len(e.NodeExtInfo) > 0 {
+		b.WriteString("\n--- Node Extended Details ---\n")
+		for _, n := range e.NodeExtInfo {
+			b.WriteString(fmt.Sprintf("%s\n", n))
+		}
+	}
+
+	// 4.34 Security Extended
+	if len(e.SecurityExtInfo) > 0 {
+		b.WriteString("\n--- Security Audit (Extended) ---\n")
+		for _, s := range e.SecurityExtInfo {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+	}
+
+	// 4.35 Volume & Resource Extended
+	if len(e.VolumeExtInfo) > 0 {
+		b.WriteString("\n--- Storage & Resource Extended ---\n")
+		for _, v := range e.VolumeExtInfo {
+			b.WriteString(fmt.Sprintf("%s\n", v))
+		}
+	}
+
+	// 4.41 Service Extended
+	if len(e.ServiceExtInfo) > 0 {
+		b.WriteString("\n--- Service Configuration (Extended) ---\n")
+		for _, s := range e.ServiceExtInfo {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+	}
+
+	// 4.43 Ingress Extended
+	if len(e.IngressExtInfo) > 0 {
+		b.WriteString("\n--- Ingress Configuration (Extended) ---\n")
+		for _, i := range e.IngressExtInfo {
+			b.WriteString(fmt.Sprintf("%s\n", i))
+		}
+	}
+
+	// 4.45 Config Syntax
+	if len(e.ConfigSyntaxInfo) > 0 {
+		b.WriteString("\n--- Configuration Syntax Checks ---\n")
+		for _, c := range e.ConfigSyntaxInfo {
+			b.WriteString(fmt.Sprintf("%s\n", c))
+		}
+	}
+
+	// 4.46 Pod State Extended
+	if len(e.PodStateExtInfo) > 0 {
+		b.WriteString("\n--- Pod State Analysis (Zombie/Backoff) ---\n")
+		for _, p := range e.PodStateExtInfo {
+			b.WriteString(fmt.Sprintf("%s\n", p))
+		}
+	}
+
+	// 4.49 Controller Extended
+	if len(e.ControllerExtInfo) > 0 {
+		b.WriteString("\n--- Controller Strategy (Deployment/Cron) ---\n")
+		for _, c := range e.ControllerExtInfo {
+			b.WriteString(fmt.Sprintf("%s\n", c))
+		}
+	}
+
 	// 5. Local Knowledge Base
 	if e.LocalDocs != "" {
 		b.WriteString("\n--- Local Knowledge Base (Company Runbook) ---\n")
