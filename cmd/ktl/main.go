@@ -211,7 +211,6 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	versionCmd := newVersionCommand()
 	secretsCmd := newSecretsCommand()
 	revertCmd := newRevertCommand(&kubeconfigPath, &kubeContext, &logLevel)
-	eventsCmd := newEventsCommand(&kubeconfigPath, &kubeContext)
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	stackCmd := newStackCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
@@ -221,7 +220,6 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		analyzeCmd,
 		revertCmd,
 		applyCmd,
-		eventsCmd,
 		deleteCmd,
 		stackCmd,
 		listCmd,
@@ -250,7 +248,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
   # Apply chart changes
   ktl apply --chart ./chart --release foo --namespace prod`
 	decorateCommandHelp(cmd, "Global Flags")
-	bindViper(cmd, initCmd, logsCmd, buildCmd, listCmd, lintCmd, applyCmd, deleteCmd, stackCmd, eventsCmd)
+	bindViper(cmd, initCmd, logsCmd, buildCmd, listCmd, lintCmd, applyCmd, deleteCmd, stackCmd)
 
 	_ = cmd.RegisterFlagCompletionFunc("profile", cobra.FixedCompletions([]string{"dev", "ci", "secure", "remote"}, cobra.ShellCompDirectiveNoFileComp))
 	_ = cmd.RegisterFlagCompletionFunc("log-level", cobra.FixedCompletions([]string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp))
@@ -270,7 +268,7 @@ Usage:
   {{.UseLine}}
 
 Subcommands:
-{{- range $i, $n := (list "init" "build" "apply" "delete" "stack" "revert" "list" "lint" "logs" "events" "env" "secrets" "version") }}
+{{- range $i, $n := (list "init" "build" "apply" "delete" "stack" "revert" "list" "lint" "logs" "env" "secrets" "version") }}
 {{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
 {{- end }}
