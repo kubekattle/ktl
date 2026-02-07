@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,9 +47,6 @@ Examples:
   ktl tunnel 8080:app:80         # Explicit local:remote
   ktl tunnel app redis postgres  # Open 3 tunnels at once`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return fmt.Errorf("at least one service or pod is required")
-			}
 			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args)
 		},
 	}
@@ -72,6 +72,17 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 		namespace = kClient.Namespace
 		if namespace == "" {
 			namespace = "default"
+		}
+	}
+
+	if len(targets) == 0 {
+		var err error
+		targets, err = selectTargets(ctx, kClient, namespace)
+		if err != nil {
+			return err
+		}
+		if len(targets) == 0 {
+			return fmt.Errorf("no targets selected")
 		}
 	}
 
@@ -135,10 +146,23 @@ func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
 
 		// Check if local port is available
 		if !isPortAvailable(t.LocalPort) {
-			t.Status = "Port Busy"
-			t.Error = fmt.Errorf("local port %d is in use", t.LocalPort)
-			time.Sleep(5 * time.Second)
-			continue
+			// Auto-fix: try next ports
+			found := false
+			originalPort := t.LocalPort
+			for i := 1; i <= 10; i++ {
+				next := originalPort + i
+				if isPortAvailable(next) {
+					t.LocalPort = next
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Status = "Port Busy"
+				t.Error = fmt.Errorf("local port %d (and next 10) in use", originalPort)
+				time.Sleep(5 * time.Second)
+				continue
+			}
 		}
 
 		t.Status = "Connecting..."
@@ -289,6 +313,48 @@ func isPortAvailable(port int) bool {
 	}
 	ln.Close()
 	return true
+}
+
+func selectTargets(ctx context.Context, kClient *kube.Client, namespace string) ([]string, error) {
+	svcs, err := kClient.Clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if len(svcs.Items) == 0 {
+		return nil, fmt.Errorf("no services found in namespace %s", namespace)
+	}
+
+	fmt.Printf("Available Services in %s:\n", namespace)
+	for i, svc := range svcs.Items {
+		ports := []string{}
+		for _, p := range svc.Spec.Ports {
+			ports = append(ports, fmt.Sprintf("%d", p.Port))
+		}
+		fmt.Printf("  %d) %s (Ports: %s)\n", i+1, svc.Name, strings.Join(ports, ", "))
+	}
+
+	fmt.Print("\nEnter numbers (e.g. 1,3) to tunnel: ")
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return nil, fmt.Errorf("no input")
+	}
+	input := scanner.Text()
+
+	var selected []string
+	parts := strings.Split(input, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		idx, err := strconv.Atoi(p)
+		if err != nil || idx < 1 || idx > len(svcs.Items) {
+			fmt.Printf("Invalid selection: %s\n", p)
+			continue
+		}
+		selected = append(selected, svcs.Items[idx-1].Name)
+	}
+	return selected, nil
 }
 
 func printTable(tunnels []*Tunnel) {
