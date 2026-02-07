@@ -21,6 +21,180 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type MirrorSessionState int32
+
+const (
+	MirrorSessionState_MIRROR_SESSION_STATE_UNSPECIFIED MirrorSessionState = 0
+	MirrorSessionState_MIRROR_SESSION_STATE_RUNNING     MirrorSessionState = 1
+	MirrorSessionState_MIRROR_SESSION_STATE_DONE        MirrorSessionState = 2
+	MirrorSessionState_MIRROR_SESSION_STATE_ERROR       MirrorSessionState = 3
+)
+
+// Enum value maps for MirrorSessionState.
+var (
+	MirrorSessionState_name = map[int32]string{
+		0: "MIRROR_SESSION_STATE_UNSPECIFIED",
+		1: "MIRROR_SESSION_STATE_RUNNING",
+		2: "MIRROR_SESSION_STATE_DONE",
+		3: "MIRROR_SESSION_STATE_ERROR",
+	}
+	MirrorSessionState_value = map[string]int32{
+		"MIRROR_SESSION_STATE_UNSPECIFIED": 0,
+		"MIRROR_SESSION_STATE_RUNNING":     1,
+		"MIRROR_SESSION_STATE_DONE":        2,
+		"MIRROR_SESSION_STATE_ERROR":       3,
+	}
+)
+
+func (x MirrorSessionState) Enum() *MirrorSessionState {
+	p := new(MirrorSessionState)
+	*p = x
+	return p
+}
+
+func (x MirrorSessionState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (MirrorSessionState) Descriptor() protoreflect.EnumDescriptor {
+	return file_ktl_api_v1_agent_proto_enumTypes[0].Descriptor()
+}
+
+func (MirrorSessionState) Type() protoreflect.EnumType {
+	return &file_ktl_api_v1_agent_proto_enumTypes[0]
+}
+
+func (x MirrorSessionState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use MirrorSessionState.Descriptor instead.
+func (MirrorSessionState) EnumDescriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{0}
+}
+
+type AgentInfoRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentInfoRequest) Reset() {
+	*x = AgentInfoRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentInfoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentInfoRequest) ProtoMessage() {}
+
+func (x *AgentInfoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentInfoRequest.ProtoReflect.Descriptor instead.
+func (*AgentInfoRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{0}
+}
+
+type AgentInfo struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// These fields mirror `ktl version` output so callers can sanity-check
+	// compatibility before issuing long-running streaming RPCs.
+	Version       string `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	GitCommit     string `protobuf:"bytes,2,opt,name=git_commit,json=gitCommit,proto3" json:"git_commit,omitempty"`
+	GitTreeState  string `protobuf:"bytes,3,opt,name=git_tree_state,json=gitTreeState,proto3" json:"git_tree_state,omitempty"`
+	BuildDate     string `protobuf:"bytes,4,opt,name=build_date,json=buildDate,proto3" json:"build_date,omitempty"`
+	GoVersion     string `protobuf:"bytes,5,opt,name=go_version,json=goVersion,proto3" json:"go_version,omitempty"`
+	Platform      string `protobuf:"bytes,6,opt,name=platform,proto3" json:"platform,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentInfo) Reset() {
+	*x = AgentInfo{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentInfo) ProtoMessage() {}
+
+func (x *AgentInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentInfo.ProtoReflect.Descriptor instead.
+func (*AgentInfo) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AgentInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *AgentInfo) GetGitCommit() string {
+	if x != nil {
+		return x.GitCommit
+	}
+	return ""
+}
+
+func (x *AgentInfo) GetGitTreeState() string {
+	if x != nil {
+		return x.GitTreeState
+	}
+	return ""
+}
+
+func (x *AgentInfo) GetBuildDate() string {
+	if x != nil {
+		return x.BuildDate
+	}
+	return ""
+}
+
+func (x *AgentInfo) GetGoVersion() string {
+	if x != nil {
+		return x.GoVersion
+	}
+	return ""
+}
+
+func (x *AgentInfo) GetPlatform() string {
+	if x != nil {
+		return x.Platform
+	}
+	return ""
+}
+
 type LogRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	PodQuery          string                 `protobuf:"bytes,1,opt,name=pod_query,json=podQuery,proto3" json:"pod_query,omitempty"`
@@ -40,13 +214,15 @@ type LogRequest struct {
 	Template          string                 `protobuf:"bytes,15,opt,name=template,proto3" json:"template,omitempty"`
 	KubeContext       string                 `protobuf:"bytes,16,opt,name=kube_context,json=kubeContext,proto3" json:"kube_context,omitempty"`
 	KubeconfigPath    string                 `protobuf:"bytes,17,opt,name=kubeconfig_path,json=kubeconfigPath,proto3" json:"kubeconfig_path,omitempty"`
+	SessionId         string                 `protobuf:"bytes,18,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Requester         string                 `protobuf:"bytes,19,opt,name=requester,proto3" json:"requester,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *LogRequest) Reset() {
 	*x = LogRequest{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[0]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -58,7 +234,7 @@ func (x *LogRequest) String() string {
 func (*LogRequest) ProtoMessage() {}
 
 func (x *LogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[0]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -71,7 +247,7 @@ func (x *LogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogRequest.ProtoReflect.Descriptor instead.
 func (*LogRequest) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{0}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *LogRequest) GetPodQuery() string {
@@ -193,6 +369,20 @@ func (x *LogRequest) GetKubeconfigPath() string {
 	return ""
 }
 
+func (x *LogRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *LogRequest) GetRequester() string {
+	if x != nil {
+		return x.Requester
+	}
+	return ""
+}
+
 type LogLine struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	TimestampUnixNano  int64                  `protobuf:"varint,1,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
@@ -211,7 +401,7 @@ type LogLine struct {
 
 func (x *LogLine) Reset() {
 	*x = LogLine{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[1]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -223,7 +413,7 @@ func (x *LogLine) String() string {
 func (*LogLine) ProtoMessage() {}
 
 func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[1]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -236,7 +426,7 @@ func (x *LogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
 func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *LogLine) GetTimestampUnixNano() int64 {
@@ -347,7 +537,7 @@ type BuildOptions struct {
 
 func (x *BuildOptions) Reset() {
 	*x = BuildOptions{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[2]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -359,7 +549,7 @@ func (x *BuildOptions) String() string {
 func (*BuildOptions) ProtoMessage() {}
 
 func (x *BuildOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[2]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -372,7 +562,7 @@ func (x *BuildOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildOptions.ProtoReflect.Descriptor instead.
 func (*BuildOptions) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *BuildOptions) GetContextDir() string {
@@ -596,7 +786,7 @@ type RunBuildRequest struct {
 
 func (x *RunBuildRequest) Reset() {
 	*x = RunBuildRequest{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[3]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -608,7 +798,7 @@ func (x *RunBuildRequest) String() string {
 func (*RunBuildRequest) ProtoMessage() {}
 
 func (x *RunBuildRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[3]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -621,7 +811,7 @@ func (x *RunBuildRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunBuildRequest.ProtoReflect.Descriptor instead.
 func (*RunBuildRequest) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RunBuildRequest) GetOptions() *BuildOptions {
@@ -657,7 +847,7 @@ type BuildResult struct {
 
 func (x *BuildResult) Reset() {
 	*x = BuildResult{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[4]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -669,7 +859,7 @@ func (x *BuildResult) String() string {
 func (*BuildResult) ProtoMessage() {}
 
 func (x *BuildResult) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[4]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -682,7 +872,7 @@ func (x *BuildResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildResult.ProtoReflect.Descriptor instead.
 func (*BuildResult) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *BuildResult) GetTags() []string {
@@ -727,7 +917,7 @@ type BuildEvent struct {
 
 func (x *BuildEvent) Reset() {
 	*x = BuildEvent{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[5]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -739,7 +929,7 @@ func (x *BuildEvent) String() string {
 func (*BuildEvent) ProtoMessage() {}
 
 func (x *BuildEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[5]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -752,7 +942,7 @@ func (x *BuildEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildEvent.ProtoReflect.Descriptor instead.
 func (*BuildEvent) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BuildEvent) GetTimestampUnixNano() int64 {
@@ -812,7 +1002,7 @@ type DeployEvent struct {
 
 func (x *DeployEvent) Reset() {
 	*x = DeployEvent{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[6]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -824,7 +1014,7 @@ func (x *DeployEvent) String() string {
 func (*DeployEvent) ProtoMessage() {}
 
 func (x *DeployEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[6]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -837,7 +1027,7 @@ func (x *DeployEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployEvent.ProtoReflect.Descriptor instead.
 func (*DeployEvent) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DeployEvent) GetJson() string {
@@ -872,7 +1062,7 @@ type DeployApplyOptions struct {
 
 func (x *DeployApplyOptions) Reset() {
 	*x = DeployApplyOptions{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[7]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -884,7 +1074,7 @@ func (x *DeployApplyOptions) String() string {
 func (*DeployApplyOptions) ProtoMessage() {}
 
 func (x *DeployApplyOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[7]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -897,7 +1087,7 @@ func (x *DeployApplyOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployApplyOptions.ProtoReflect.Descriptor instead.
 func (*DeployApplyOptions) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{7}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DeployApplyOptions) GetRelease() string {
@@ -1022,13 +1212,15 @@ func (x *DeployApplyOptions) GetKubeconfigPath() string {
 type DeployApplyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Options       *DeployApplyOptions    `protobuf:"bytes,1,opt,name=options,proto3" json:"options,omitempty"`
+	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Requester     string                 `protobuf:"bytes,3,opt,name=requester,proto3" json:"requester,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeployApplyRequest) Reset() {
 	*x = DeployApplyRequest{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[8]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1040,7 +1232,7 @@ func (x *DeployApplyRequest) String() string {
 func (*DeployApplyRequest) ProtoMessage() {}
 
 func (x *DeployApplyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[8]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1053,7 +1245,7 @@ func (x *DeployApplyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployApplyRequest.ProtoReflect.Descriptor instead.
 func (*DeployApplyRequest) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DeployApplyRequest) GetOptions() *DeployApplyOptions {
@@ -1061,6 +1253,20 @@ func (x *DeployApplyRequest) GetOptions() *DeployApplyOptions {
 		return x.Options
 	}
 	return nil
+}
+
+func (x *DeployApplyRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *DeployApplyRequest) GetRequester() string {
+	if x != nil {
+		return x.Requester
+	}
+	return ""
 }
 
 type DeployDestroyOptions struct {
@@ -1081,7 +1287,7 @@ type DeployDestroyOptions struct {
 
 func (x *DeployDestroyOptions) Reset() {
 	*x = DeployDestroyOptions{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[9]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1093,7 +1299,7 @@ func (x *DeployDestroyOptions) String() string {
 func (*DeployDestroyOptions) ProtoMessage() {}
 
 func (x *DeployDestroyOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[9]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1106,7 +1312,7 @@ func (x *DeployDestroyOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployDestroyOptions.ProtoReflect.Descriptor instead.
 func (*DeployDestroyOptions) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{9}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DeployDestroyOptions) GetRelease() string {
@@ -1182,13 +1388,15 @@ func (x *DeployDestroyOptions) GetKubeconfigPath() string {
 type DeployDestroyRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Options       *DeployDestroyOptions  `protobuf:"bytes,1,opt,name=options,proto3" json:"options,omitempty"`
+	SessionId     string                 `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Requester     string                 `protobuf:"bytes,3,opt,name=requester,proto3" json:"requester,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeployDestroyRequest) Reset() {
 	*x = DeployDestroyRequest{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[10]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1200,7 +1408,7 @@ func (x *DeployDestroyRequest) String() string {
 func (*DeployDestroyRequest) ProtoMessage() {}
 
 func (x *DeployDestroyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[10]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1213,7 +1421,7 @@ func (x *DeployDestroyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployDestroyRequest.ProtoReflect.Descriptor instead.
 func (*DeployDestroyRequest) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeployDestroyRequest) GetOptions() *DeployDestroyOptions {
@@ -1223,15 +1431,32 @@ func (x *DeployDestroyRequest) GetOptions() *DeployDestroyOptions {
 	return nil
 }
 
+func (x *DeployDestroyRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *DeployDestroyRequest) GetRequester() string {
+	if x != nil {
+		return x.Requester
+	}
+	return ""
+}
+
 type MirrorFrame struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	Producer  string                 `protobuf:"bytes,2,opt,name=producer,proto3" json:"producer,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	SessionId        string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Producer         string                 `protobuf:"bytes,2,opt,name=producer,proto3" json:"producer,omitempty"`
+	Sequence         uint64                 `protobuf:"varint,3,opt,name=sequence,proto3" json:"sequence,omitempty"`                                           // assigned by server
+	ReceivedUnixNano int64                  `protobuf:"varint,4,opt,name=received_unix_nano,json=receivedUnixNano,proto3" json:"received_unix_nano,omitempty"` // server receipt timestamp
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*MirrorFrame_Log
 	//	*MirrorFrame_Build
 	//	*MirrorFrame_Deploy
+	//	*MirrorFrame_Verify
 	//	*MirrorFrame_Raw
 	Payload       isMirrorFrame_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
@@ -1240,7 +1465,7 @@ type MirrorFrame struct {
 
 func (x *MirrorFrame) Reset() {
 	*x = MirrorFrame{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[11]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1252,7 +1477,7 @@ func (x *MirrorFrame) String() string {
 func (*MirrorFrame) ProtoMessage() {}
 
 func (x *MirrorFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[11]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1265,7 +1490,7 @@ func (x *MirrorFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorFrame.ProtoReflect.Descriptor instead.
 func (*MirrorFrame) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MirrorFrame) GetSessionId() string {
@@ -1280,6 +1505,20 @@ func (x *MirrorFrame) GetProducer() string {
 		return x.Producer
 	}
 	return ""
+}
+
+func (x *MirrorFrame) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *MirrorFrame) GetReceivedUnixNano() int64 {
+	if x != nil {
+		return x.ReceivedUnixNano
+	}
+	return 0
 }
 
 func (x *MirrorFrame) GetPayload() isMirrorFrame_Payload {
@@ -1316,6 +1555,15 @@ func (x *MirrorFrame) GetDeploy() *DeployEvent {
 	return nil
 }
 
+func (x *MirrorFrame) GetVerify() *VerifyEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*MirrorFrame_Verify); ok {
+			return x.Verify
+		}
+	}
+	return nil
+}
+
 func (x *MirrorFrame) GetRaw() []byte {
 	if x != nil {
 		if x, ok := x.Payload.(*MirrorFrame_Raw); ok {
@@ -1341,6 +1589,10 @@ type MirrorFrame_Deploy struct {
 	Deploy *DeployEvent `protobuf:"bytes,12,opt,name=deploy,proto3,oneof"`
 }
 
+type MirrorFrame_Verify struct {
+	Verify *VerifyEvent `protobuf:"bytes,14,opt,name=verify,proto3,oneof"`
+}
+
 type MirrorFrame_Raw struct {
 	Raw []byte `protobuf:"bytes,13,opt,name=raw,proto3,oneof"`
 }
@@ -1350,6 +1602,8 @@ func (*MirrorFrame_Log) isMirrorFrame_Payload() {}
 func (*MirrorFrame_Build) isMirrorFrame_Payload() {}
 
 func (*MirrorFrame_Deploy) isMirrorFrame_Payload() {}
+
+func (*MirrorFrame_Verify) isMirrorFrame_Payload() {}
 
 func (*MirrorFrame_Raw) isMirrorFrame_Payload() {}
 
@@ -1364,7 +1618,7 @@ type MirrorAck struct {
 
 func (x *MirrorAck) Reset() {
 	*x = MirrorAck{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[12]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1376,7 +1630,7 @@ func (x *MirrorAck) String() string {
 func (*MirrorAck) ProtoMessage() {}
 
 func (x *MirrorAck) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[12]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1389,7 +1643,7 @@ func (x *MirrorAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorAck.ProtoReflect.Descriptor instead.
 func (*MirrorAck) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *MirrorAck) GetSessionId() string {
@@ -1417,13 +1671,14 @@ type MirrorSubscribeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	Replay        bool                   `protobuf:"varint,2,opt,name=replay,proto3" json:"replay,omitempty"`
+	FromSequence  uint64                 `protobuf:"varint,3,opt,name=from_sequence,json=fromSequence,proto3" json:"from_sequence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MirrorSubscribeRequest) Reset() {
 	*x = MirrorSubscribeRequest{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[13]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1435,7 +1690,7 @@ func (x *MirrorSubscribeRequest) String() string {
 func (*MirrorSubscribeRequest) ProtoMessage() {}
 
 func (x *MirrorSubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[13]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1448,7 +1703,7 @@ func (x *MirrorSubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorSubscribeRequest.ProtoReflect.Descriptor instead.
 func (*MirrorSubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MirrorSubscribeRequest) GetSessionId() string {
@@ -1463,6 +1718,755 @@ func (x *MirrorSubscribeRequest) GetReplay() bool {
 		return x.Replay
 	}
 	return false
+}
+
+func (x *MirrorSubscribeRequest) GetFromSequence() uint64 {
+	if x != nil {
+		return x.FromSequence
+	}
+	return 0
+}
+
+type MirrorSessionMeta struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// `command` and `args` aim to preserve the caller's original intent (CLI or IDE action),
+	// while the other fields are optional context for indexing and UI.
+	Command       string   `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	Args          []string `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	Requester     string   `protobuf:"bytes,3,opt,name=requester,proto3" json:"requester,omitempty"`
+	Cluster       string   `protobuf:"bytes,4,opt,name=cluster,proto3" json:"cluster,omitempty"`
+	KubeContext   string   `protobuf:"bytes,5,opt,name=kube_context,json=kubeContext,proto3" json:"kube_context,omitempty"`
+	Namespace     string   `protobuf:"bytes,6,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Release       string   `protobuf:"bytes,7,opt,name=release,proto3" json:"release,omitempty"`
+	Chart         string   `protobuf:"bytes,8,opt,name=chart,proto3" json:"chart,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorSessionMeta) Reset() {
+	*x = MirrorSessionMeta{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorSessionMeta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorSessionMeta) ProtoMessage() {}
+
+func (x *MirrorSessionMeta) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorSessionMeta.ProtoReflect.Descriptor instead.
+func (*MirrorSessionMeta) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *MirrorSessionMeta) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *MirrorSessionMeta) GetArgs() []string {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
+func (x *MirrorSessionMeta) GetRequester() string {
+	if x != nil {
+		return x.Requester
+	}
+	return ""
+}
+
+func (x *MirrorSessionMeta) GetCluster() string {
+	if x != nil {
+		return x.Cluster
+	}
+	return ""
+}
+
+func (x *MirrorSessionMeta) GetKubeContext() string {
+	if x != nil {
+		return x.KubeContext
+	}
+	return ""
+}
+
+func (x *MirrorSessionMeta) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *MirrorSessionMeta) GetRelease() string {
+	if x != nil {
+		return x.Release
+	}
+	return ""
+}
+
+func (x *MirrorSessionMeta) GetChart() string {
+	if x != nil {
+		return x.Chart
+	}
+	return ""
+}
+
+type MirrorSession struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	SessionId        string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	CreatedUnixNano  int64                  `protobuf:"varint,2,opt,name=created_unix_nano,json=createdUnixNano,proto3" json:"created_unix_nano,omitempty"`
+	LastSeenUnixNano int64                  `protobuf:"varint,3,opt,name=last_seen_unix_nano,json=lastSeenUnixNano,proto3" json:"last_seen_unix_nano,omitempty"`
+	LastSequence     uint64                 `protobuf:"varint,4,opt,name=last_sequence,json=lastSequence,proto3" json:"last_sequence,omitempty"`
+	Meta             *MirrorSessionMeta     `protobuf:"bytes,5,opt,name=meta,proto3" json:"meta,omitempty"`
+	Tags             map[string]string      `protobuf:"bytes,6,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Status           *MirrorSessionStatus   `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *MirrorSession) Reset() {
+	*x = MirrorSession{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorSession) ProtoMessage() {}
+
+func (x *MirrorSession) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorSession.ProtoReflect.Descriptor instead.
+func (*MirrorSession) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *MirrorSession) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *MirrorSession) GetCreatedUnixNano() int64 {
+	if x != nil {
+		return x.CreatedUnixNano
+	}
+	return 0
+}
+
+func (x *MirrorSession) GetLastSeenUnixNano() int64 {
+	if x != nil {
+		return x.LastSeenUnixNano
+	}
+	return 0
+}
+
+func (x *MirrorSession) GetLastSequence() uint64 {
+	if x != nil {
+		return x.LastSequence
+	}
+	return 0
+}
+
+func (x *MirrorSession) GetMeta() *MirrorSessionMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *MirrorSession) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *MirrorSession) GetStatus() *MirrorSessionStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+type MirrorSessionStatus struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	State             MirrorSessionState     `protobuf:"varint,1,opt,name=state,proto3,enum=ktl.api.v1.MirrorSessionState" json:"state,omitempty"`
+	ExitCode          int32                  `protobuf:"varint,2,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	ErrorMessage      string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	CompletedUnixNano int64                  `protobuf:"varint,4,opt,name=completed_unix_nano,json=completedUnixNano,proto3" json:"completed_unix_nano,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *MirrorSessionStatus) Reset() {
+	*x = MirrorSessionStatus{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorSessionStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorSessionStatus) ProtoMessage() {}
+
+func (x *MirrorSessionStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorSessionStatus.ProtoReflect.Descriptor instead.
+func (*MirrorSessionStatus) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *MirrorSessionStatus) GetState() MirrorSessionState {
+	if x != nil {
+		return x.State
+	}
+	return MirrorSessionState_MIRROR_SESSION_STATE_UNSPECIFIED
+}
+
+func (x *MirrorSessionStatus) GetExitCode() int32 {
+	if x != nil {
+		return x.ExitCode
+	}
+	return 0
+}
+
+func (x *MirrorSessionStatus) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *MirrorSessionStatus) GetCompletedUnixNano() int64 {
+	if x != nil {
+		return x.CompletedUnixNano
+	}
+	return 0
+}
+
+type MirrorListSessionsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Limit int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Optional query filters (exact match unless noted).
+	// - meta.command: case-insensitive substring match.
+	// - other meta fields: case-insensitive exact match.
+	// - tags: require all key/value pairs to match.
+	Meta                  *MirrorSessionMeta `protobuf:"bytes,2,opt,name=meta,proto3" json:"meta,omitempty"`
+	Tags                  map[string]string  `protobuf:"bytes,3,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	State                 MirrorSessionState `protobuf:"varint,4,opt,name=state,proto3,enum=ktl.api.v1.MirrorSessionState" json:"state,omitempty"`
+	SinceLastSeenUnixNano int64              `protobuf:"varint,5,opt,name=since_last_seen_unix_nano,json=sinceLastSeenUnixNano,proto3" json:"since_last_seen_unix_nano,omitempty"`
+	UntilLastSeenUnixNano int64              `protobuf:"varint,6,opt,name=until_last_seen_unix_nano,json=untilLastSeenUnixNano,proto3" json:"until_last_seen_unix_nano,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *MirrorListSessionsRequest) Reset() {
+	*x = MirrorListSessionsRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorListSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorListSessionsRequest) ProtoMessage() {}
+
+func (x *MirrorListSessionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorListSessionsRequest.ProtoReflect.Descriptor instead.
+func (*MirrorListSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *MirrorListSessionsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *MirrorListSessionsRequest) GetMeta() *MirrorSessionMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *MirrorListSessionsRequest) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *MirrorListSessionsRequest) GetState() MirrorSessionState {
+	if x != nil {
+		return x.State
+	}
+	return MirrorSessionState_MIRROR_SESSION_STATE_UNSPECIFIED
+}
+
+func (x *MirrorListSessionsRequest) GetSinceLastSeenUnixNano() int64 {
+	if x != nil {
+		return x.SinceLastSeenUnixNano
+	}
+	return 0
+}
+
+func (x *MirrorListSessionsRequest) GetUntilLastSeenUnixNano() int64 {
+	if x != nil {
+		return x.UntilLastSeenUnixNano
+	}
+	return 0
+}
+
+type MirrorListSessionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Sessions      []*MirrorSession       `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorListSessionsResponse) Reset() {
+	*x = MirrorListSessionsResponse{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorListSessionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorListSessionsResponse) ProtoMessage() {}
+
+func (x *MirrorListSessionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorListSessionsResponse.ProtoReflect.Descriptor instead.
+func (*MirrorListSessionsResponse) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *MirrorListSessionsResponse) GetSessions() []*MirrorSession {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
+type MirrorGetSessionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorGetSessionRequest) Reset() {
+	*x = MirrorGetSessionRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorGetSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorGetSessionRequest) ProtoMessage() {}
+
+func (x *MirrorGetSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorGetSessionRequest.ProtoReflect.Descriptor instead.
+func (*MirrorGetSessionRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *MirrorGetSessionRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+type MirrorSetSessionMetaRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Meta          *MirrorSessionMeta     `protobuf:"bytes,2,opt,name=meta,proto3" json:"meta,omitempty"`
+	Tags          map[string]string      `protobuf:"bytes,3,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorSetSessionMetaRequest) Reset() {
+	*x = MirrorSetSessionMetaRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorSetSessionMetaRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorSetSessionMetaRequest) ProtoMessage() {}
+
+func (x *MirrorSetSessionMetaRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorSetSessionMetaRequest.ProtoReflect.Descriptor instead.
+func (*MirrorSetSessionMetaRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *MirrorSetSessionMetaRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *MirrorSetSessionMetaRequest) GetMeta() *MirrorSessionMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *MirrorSetSessionMetaRequest) GetTags() map[string]string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+type MirrorSetSessionStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Status        *MirrorSessionStatus   `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorSetSessionStatusRequest) Reset() {
+	*x = MirrorSetSessionStatusRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorSetSessionStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorSetSessionStatusRequest) ProtoMessage() {}
+
+func (x *MirrorSetSessionStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorSetSessionStatusRequest.ProtoReflect.Descriptor instead.
+func (*MirrorSetSessionStatusRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *MirrorSetSessionStatusRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *MirrorSetSessionStatusRequest) GetStatus() *MirrorSessionStatus {
+	if x != nil {
+		return x.Status
+	}
+	return nil
+}
+
+type MirrorDeleteSessionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorDeleteSessionRequest) Reset() {
+	*x = MirrorDeleteSessionRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorDeleteSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorDeleteSessionRequest) ProtoMessage() {}
+
+func (x *MirrorDeleteSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorDeleteSessionRequest.ProtoReflect.Descriptor instead.
+func (*MirrorDeleteSessionRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *MirrorDeleteSessionRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+type MirrorDeleteSessionResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Deleted       bool                   `protobuf:"varint,1,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorDeleteSessionResponse) Reset() {
+	*x = MirrorDeleteSessionResponse{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorDeleteSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorDeleteSessionResponse) ProtoMessage() {}
+
+func (x *MirrorDeleteSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorDeleteSessionResponse.ProtoReflect.Descriptor instead.
+func (*MirrorDeleteSessionResponse) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *MirrorDeleteSessionResponse) GetDeleted() bool {
+	if x != nil {
+		return x.Deleted
+	}
+	return false
+}
+
+type MirrorExportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Format        string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"` // "jsonl" (default)
+	FromSequence  uint64                 `protobuf:"varint,3,opt,name=from_sequence,json=fromSequence,proto3" json:"from_sequence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorExportRequest) Reset() {
+	*x = MirrorExportRequest{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorExportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorExportRequest) ProtoMessage() {}
+
+func (x *MirrorExportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorExportRequest.ProtoReflect.Descriptor instead.
+func (*MirrorExportRequest) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *MirrorExportRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *MirrorExportRequest) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *MirrorExportRequest) GetFromSequence() uint64 {
+	if x != nil {
+		return x.FromSequence
+	}
+	return 0
+}
+
+type MirrorExportChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MirrorExportChunk) Reset() {
+	*x = MirrorExportChunk{}
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MirrorExportChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MirrorExportChunk) ProtoMessage() {}
+
+func (x *MirrorExportChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MirrorExportChunk.ProtoReflect.Descriptor instead.
+func (*MirrorExportChunk) Descriptor() ([]byte, []int) {
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *MirrorExportChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
 }
 
 type VerifyChartOptions struct {
@@ -1483,7 +2487,7 @@ type VerifyChartOptions struct {
 
 func (x *VerifyChartOptions) Reset() {
 	*x = VerifyChartOptions{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[14]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1495,7 +2499,7 @@ func (x *VerifyChartOptions) String() string {
 func (*VerifyChartOptions) ProtoMessage() {}
 
 func (x *VerifyChartOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[14]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1508,7 +2512,7 @@ func (x *VerifyChartOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyChartOptions.ProtoReflect.Descriptor instead.
 func (*VerifyChartOptions) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *VerifyChartOptions) GetChart() string {
@@ -1592,7 +2596,7 @@ type VerifyNamespaceOptions struct {
 
 func (x *VerifyNamespaceOptions) Reset() {
 	*x = VerifyNamespaceOptions{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[15]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1604,7 +2608,7 @@ func (x *VerifyNamespaceOptions) String() string {
 func (*VerifyNamespaceOptions) ProtoMessage() {}
 
 func (x *VerifyNamespaceOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[15]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1617,7 +2621,7 @@ func (x *VerifyNamespaceOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyNamespaceOptions.ProtoReflect.Descriptor instead.
 func (*VerifyNamespaceOptions) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *VerifyNamespaceOptions) GetNamespace() string {
@@ -1656,7 +2660,7 @@ type VerifyOptions struct {
 
 func (x *VerifyOptions) Reset() {
 	*x = VerifyOptions{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[16]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1668,7 +2672,7 @@ func (x *VerifyOptions) String() string {
 func (*VerifyOptions) ProtoMessage() {}
 
 func (x *VerifyOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[16]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1681,7 +2685,7 @@ func (x *VerifyOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyOptions.ProtoReflect.Descriptor instead.
 func (*VerifyOptions) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *VerifyOptions) GetMode() string {
@@ -1741,13 +2745,15 @@ type VerifyRequest struct {
 	//	*VerifyRequest_Chart
 	//	*VerifyRequest_Namespace
 	Target        isVerifyRequest_Target `protobuf_oneof:"target"`
+	SessionId     string                 `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Requester     string                 `protobuf:"bytes,5,opt,name=requester,proto3" json:"requester,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *VerifyRequest) Reset() {
 	*x = VerifyRequest{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[17]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1759,7 +2765,7 @@ func (x *VerifyRequest) String() string {
 func (*VerifyRequest) ProtoMessage() {}
 
 func (x *VerifyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[17]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1772,7 +2778,7 @@ func (x *VerifyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyRequest.ProtoReflect.Descriptor instead.
 func (*VerifyRequest) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{17}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *VerifyRequest) GetOptions() *VerifyOptions {
@@ -1805,6 +2811,20 @@ func (x *VerifyRequest) GetNamespace() *VerifyNamespaceOptions {
 		}
 	}
 	return nil
+}
+
+func (x *VerifyRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *VerifyRequest) GetRequester() string {
+	if x != nil {
+		return x.Requester
+	}
+	return ""
 }
 
 type isVerifyRequest_Target interface {
@@ -1841,7 +2861,7 @@ type VerifyEvent struct {
 
 func (x *VerifyEvent) Reset() {
 	*x = VerifyEvent{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[18]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1853,7 +2873,7 @@ func (x *VerifyEvent) String() string {
 func (*VerifyEvent) ProtoMessage() {}
 
 func (x *VerifyEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[18]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1866,7 +2886,7 @@ func (x *VerifyEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyEvent.ProtoReflect.Descriptor instead.
 func (*VerifyEvent) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *VerifyEvent) GetTimestampUnixNano() int64 {
@@ -1989,7 +3009,7 @@ type VerifyStarted struct {
 
 func (x *VerifyStarted) Reset() {
 	*x = VerifyStarted{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[19]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2001,7 +3021,7 @@ func (x *VerifyStarted) String() string {
 func (*VerifyStarted) ProtoMessage() {}
 
 func (x *VerifyStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[19]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2014,7 +3034,7 @@ func (x *VerifyStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyStarted.ProtoReflect.Descriptor instead.
 func (*VerifyStarted) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{19}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *VerifyStarted) GetTarget() string {
@@ -2055,7 +3075,7 @@ type VerifyProgress struct {
 
 func (x *VerifyProgress) Reset() {
 	*x = VerifyProgress{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[20]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2067,7 +3087,7 @@ func (x *VerifyProgress) String() string {
 func (*VerifyProgress) ProtoMessage() {}
 
 func (x *VerifyProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[20]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2080,7 +3100,7 @@ func (x *VerifyProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyProgress.ProtoReflect.Descriptor instead.
 func (*VerifyProgress) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *VerifyProgress) GetPhase() string {
@@ -2108,7 +3128,7 @@ type VerifySubject struct {
 
 func (x *VerifySubject) Reset() {
 	*x = VerifySubject{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[21]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2120,7 +3140,7 @@ func (x *VerifySubject) String() string {
 func (*VerifySubject) ProtoMessage() {}
 
 func (x *VerifySubject) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[21]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2133,7 +3153,7 @@ func (x *VerifySubject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifySubject.ProtoReflect.Descriptor instead.
 func (*VerifySubject) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *VerifySubject) GetKind() string {
@@ -2172,7 +3192,7 @@ type VerifyFinding struct {
 
 func (x *VerifyFinding) Reset() {
 	*x = VerifyFinding{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[22]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2184,7 +3204,7 @@ func (x *VerifyFinding) String() string {
 func (*VerifyFinding) ProtoMessage() {}
 
 func (x *VerifyFinding) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[22]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2197,7 +3217,7 @@ func (x *VerifyFinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyFinding.ProtoReflect.Descriptor instead.
 func (*VerifyFinding) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *VerifyFinding) GetRuleId() string {
@@ -2260,7 +3280,7 @@ type VerifySummary struct {
 
 func (x *VerifySummary) Reset() {
 	*x = VerifySummary{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[23]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2272,7 +3292,7 @@ func (x *VerifySummary) String() string {
 func (*VerifySummary) ProtoMessage() {}
 
 func (x *VerifySummary) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[23]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2285,7 +3305,7 @@ func (x *VerifySummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifySummary.ProtoReflect.Descriptor instead.
 func (*VerifySummary) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *VerifySummary) GetTotal() int32 {
@@ -2319,7 +3339,7 @@ type VerifyDone struct {
 
 func (x *VerifyDone) Reset() {
 	*x = VerifyDone{}
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[24]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2331,7 +3351,7 @@ func (x *VerifyDone) String() string {
 func (*VerifyDone) ProtoMessage() {}
 
 func (x *VerifyDone) ProtoReflect() protoreflect.Message {
-	mi := &file_ktl_api_v1_agent_proto_msgTypes[24]
+	mi := &file_ktl_api_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2344,7 +3364,7 @@ func (x *VerifyDone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyDone.ProtoReflect.Descriptor instead.
 func (*VerifyDone) Descriptor() ([]byte, []int) {
-	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_ktl_api_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *VerifyDone) GetPassed() bool {
@@ -2366,7 +3386,18 @@ var File_ktl_api_v1_agent_proto protoreflect.FileDescriptor
 const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"\x16ktl/api/v1/agent.proto\x12\n" +
-	"ktl.api.v1\"\xe0\x04\n" +
+	"ktl.api.v1\"\x12\n" +
+	"\x10AgentInfoRequest\"\xc4\x01\n" +
+	"\tAgentInfo\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12\x1d\n" +
+	"\n" +
+	"git_commit\x18\x02 \x01(\tR\tgitCommit\x12$\n" +
+	"\x0egit_tree_state\x18\x03 \x01(\tR\fgitTreeState\x12\x1d\n" +
+	"\n" +
+	"build_date\x18\x04 \x01(\tR\tbuildDate\x12\x1d\n" +
+	"\n" +
+	"go_version\x18\x05 \x01(\tR\tgoVersion\x12\x1a\n" +
+	"\bplatform\x18\x06 \x01(\tR\bplatform\"\x9d\x05\n" +
 	"\n" +
 	"LogRequest\x12\x1b\n" +
 	"\tpod_query\x18\x01 \x01(\tR\bpodQuery\x12\x1e\n" +
@@ -2394,7 +3425,10 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"timestamps\x12\x1a\n" +
 	"\btemplate\x18\x0f \x01(\tR\btemplate\x12!\n" +
 	"\fkube_context\x18\x10 \x01(\tR\vkubeContext\x12'\n" +
-	"\x0fkubeconfig_path\x18\x11 \x01(\tR\x0ekubeconfigPath\"\xd1\x02\n" +
+	"\x0fkubeconfig_path\x18\x11 \x01(\tR\x0ekubeconfigPath\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x12 \x01(\tR\tsessionId\x12\x1c\n" +
+	"\trequester\x18\x13 \x01(\tR\trequester\"\xd1\x02\n" +
 	"\aLogLine\x12.\n" +
 	"\x13timestamp_unix_nano\x18\x01 \x01(\x03R\x11timestampUnixNano\x12/\n" +
 	"\x13formatted_timestamp\x18\x02 \x01(\tR\x12formattedTimestamp\x12\x1c\n" +
@@ -2483,9 +3517,12 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\adry_run\x18\x0e \x01(\bR\x06dryRun\x12\x12\n" +
 	"\x04diff\x18\x0f \x01(\bR\x04diff\x12!\n" +
 	"\fkube_context\x18\x10 \x01(\tR\vkubeContext\x12'\n" +
-	"\x0fkubeconfig_path\x18\x11 \x01(\tR\x0ekubeconfigPath\"N\n" +
+	"\x0fkubeconfig_path\x18\x11 \x01(\tR\x0ekubeconfigPath\"\x8b\x01\n" +
 	"\x12DeployApplyRequest\x128\n" +
-	"\aoptions\x18\x01 \x01(\v2\x1e.ktl.api.v1.DeployApplyOptionsR\aoptions\"\xce\x02\n" +
+	"\aoptions\x18\x01 \x01(\v2\x1e.ktl.api.v1.DeployApplyOptionsR\aoptions\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1c\n" +
+	"\trequester\x18\x03 \x01(\tR\trequester\"\xce\x02\n" +
 	"\x14DeployDestroyOptions\x12\x18\n" +
 	"\arelease\x18\x01 \x01(\tR\arelease\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12'\n" +
@@ -2497,28 +3534,100 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\rdisable_hooks\x18\b \x01(\bR\fdisableHooks\x12!\n" +
 	"\fkube_context\x18\t \x01(\tR\vkubeContext\x12'\n" +
 	"\x0fkubeconfig_path\x18\n" +
-	" \x01(\tR\x0ekubeconfigPath\"R\n" +
+	" \x01(\tR\x0ekubeconfigPath\"\x8f\x01\n" +
 	"\x14DeployDestroyRequest\x12:\n" +
-	"\aoptions\x18\x01 \x01(\v2 .ktl.api.v1.DeployDestroyOptionsR\aoptions\"\xf3\x01\n" +
+	"\aoptions\x18\x01 \x01(\v2 .ktl.api.v1.DeployDestroyOptionsR\aoptions\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x1c\n" +
+	"\trequester\x18\x03 \x01(\tR\trequester\"\xf0\x02\n" +
 	"\vMirrorFrame\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1a\n" +
-	"\bproducer\x18\x02 \x01(\tR\bproducer\x12'\n" +
+	"\bproducer\x18\x02 \x01(\tR\bproducer\x12\x1a\n" +
+	"\bsequence\x18\x03 \x01(\x04R\bsequence\x12,\n" +
+	"\x12received_unix_nano\x18\x04 \x01(\x03R\x10receivedUnixNano\x12'\n" +
 	"\x03log\x18\n" +
 	" \x01(\v2\x13.ktl.api.v1.LogLineH\x00R\x03log\x12.\n" +
 	"\x05build\x18\v \x01(\v2\x16.ktl.api.v1.BuildEventH\x00R\x05build\x121\n" +
-	"\x06deploy\x18\f \x01(\v2\x17.ktl.api.v1.DeployEventH\x00R\x06deploy\x12\x12\n" +
+	"\x06deploy\x18\f \x01(\v2\x17.ktl.api.v1.DeployEventH\x00R\x06deploy\x121\n" +
+	"\x06verify\x18\x0e \x01(\v2\x17.ktl.api.v1.VerifyEventH\x00R\x06verify\x12\x12\n" +
 	"\x03raw\x18\r \x01(\fH\x00R\x03rawB\t\n" +
 	"\apayload\"`\n" +
 	"\tMirrorAck\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1a\n" +
-	"\bsequence\x18\x03 \x01(\x04R\bsequence\"O\n" +
+	"\bsequence\x18\x03 \x01(\x04R\bsequence\"t\n" +
 	"\x16MirrorSubscribeRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
-	"\x06replay\x18\x02 \x01(\bR\x06replay\"\xde\x02\n" +
+	"\x06replay\x18\x02 \x01(\bR\x06replay\x12#\n" +
+	"\rfrom_sequence\x18\x03 \x01(\x04R\ffromSequence\"\xea\x01\n" +
+	"\x11MirrorSessionMeta\x12\x18\n" +
+	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
+	"\x04args\x18\x02 \x03(\tR\x04args\x12\x1c\n" +
+	"\trequester\x18\x03 \x01(\tR\trequester\x12\x18\n" +
+	"\acluster\x18\x04 \x01(\tR\acluster\x12!\n" +
+	"\fkube_context\x18\x05 \x01(\tR\vkubeContext\x12\x1c\n" +
+	"\tnamespace\x18\x06 \x01(\tR\tnamespace\x12\x18\n" +
+	"\arelease\x18\a \x01(\tR\arelease\x12\x14\n" +
+	"\x05chart\x18\b \x01(\tR\x05chart\"\x8c\x03\n" +
+	"\rMirrorSession\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12*\n" +
+	"\x11created_unix_nano\x18\x02 \x01(\x03R\x0fcreatedUnixNano\x12-\n" +
+	"\x13last_seen_unix_nano\x18\x03 \x01(\x03R\x10lastSeenUnixNano\x12#\n" +
+	"\rlast_sequence\x18\x04 \x01(\x04R\flastSequence\x121\n" +
+	"\x04meta\x18\x05 \x01(\v2\x1d.ktl.api.v1.MirrorSessionMetaR\x04meta\x127\n" +
+	"\x04tags\x18\x06 \x03(\v2#.ktl.api.v1.MirrorSession.TagsEntryR\x04tags\x127\n" +
+	"\x06status\x18\a \x01(\v2\x1f.ktl.api.v1.MirrorSessionStatusR\x06status\x1a7\n" +
+	"\tTagsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbd\x01\n" +
+	"\x13MirrorSessionStatus\x124\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x1e.ktl.api.v1.MirrorSessionStateR\x05state\x12\x1b\n" +
+	"\texit_code\x18\x02 \x01(\x05R\bexitCode\x12#\n" +
+	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12.\n" +
+	"\x13completed_unix_nano\x18\x04 \x01(\x03R\x11completedUnixNano\"\x8c\x03\n" +
+	"\x19MirrorListSessionsRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\x121\n" +
+	"\x04meta\x18\x02 \x01(\v2\x1d.ktl.api.v1.MirrorSessionMetaR\x04meta\x12C\n" +
+	"\x04tags\x18\x03 \x03(\v2/.ktl.api.v1.MirrorListSessionsRequest.TagsEntryR\x04tags\x124\n" +
+	"\x05state\x18\x04 \x01(\x0e2\x1e.ktl.api.v1.MirrorSessionStateR\x05state\x128\n" +
+	"\x19since_last_seen_unix_nano\x18\x05 \x01(\x03R\x15sinceLastSeenUnixNano\x128\n" +
+	"\x19until_last_seen_unix_nano\x18\x06 \x01(\x03R\x15untilLastSeenUnixNano\x1a7\n" +
+	"\tTagsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"S\n" +
+	"\x1aMirrorListSessionsResponse\x125\n" +
+	"\bsessions\x18\x01 \x03(\v2\x19.ktl.api.v1.MirrorSessionR\bsessions\"8\n" +
+	"\x17MirrorGetSessionRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xef\x01\n" +
+	"\x1bMirrorSetSessionMetaRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x121\n" +
+	"\x04meta\x18\x02 \x01(\v2\x1d.ktl.api.v1.MirrorSessionMetaR\x04meta\x12E\n" +
+	"\x04tags\x18\x03 \x03(\v21.ktl.api.v1.MirrorSetSessionMetaRequest.TagsEntryR\x04tags\x1a7\n" +
+	"\tTagsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"w\n" +
+	"\x1dMirrorSetSessionStatusRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x127\n" +
+	"\x06status\x18\x02 \x01(\v2\x1f.ktl.api.v1.MirrorSessionStatusR\x06status\";\n" +
+	"\x1aMirrorDeleteSessionRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"7\n" +
+	"\x1bMirrorDeleteSessionResponse\x12\x18\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\"q\n" +
+	"\x13MirrorExportRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x16\n" +
+	"\x06format\x18\x02 \x01(\tR\x06format\x12#\n" +
+	"\rfrom_sequence\x18\x03 \x01(\x04R\ffromSequence\"'\n" +
+	"\x11MirrorExportChunk\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\"\xde\x02\n" +
 	"\x12VerifyChartOptions\x12\x14\n" +
 	"\x05chart\x18\x01 \x01(\tR\x05chart\x12\x18\n" +
 	"\arelease\x18\x02 \x01(\tR\arelease\x12\x1c\n" +
@@ -2544,11 +3653,14 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\x06policy\x18\x05 \x01(\tR\x06policy\x12\x1f\n" +
 	"\vpolicy_mode\x18\x06 \x01(\tR\n" +
 	"policyMode\x12\x1a\n" +
-	"\bbaseline\x18\a \x01(\tR\bbaseline\"\xca\x01\n" +
+	"\bbaseline\x18\a \x01(\tR\bbaseline\"\x87\x02\n" +
 	"\rVerifyRequest\x123\n" +
 	"\aoptions\x18\x01 \x01(\v2\x19.ktl.api.v1.VerifyOptionsR\aoptions\x126\n" +
 	"\x05chart\x18\x02 \x01(\v2\x1e.ktl.api.v1.VerifyChartOptionsH\x00R\x05chart\x12B\n" +
-	"\tnamespace\x18\x03 \x01(\v2\".ktl.api.v1.VerifyNamespaceOptionsH\x00R\tnamespaceB\b\n" +
+	"\tnamespace\x18\x03 \x01(\v2\".ktl.api.v1.VerifyNamespaceOptionsH\x00R\tnamespace\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x04 \x01(\tR\tsessionId\x12\x1c\n" +
+	"\trequester\x18\x05 \x01(\tR\trequesterB\b\n" +
 	"\x06target\"\xe8\x02\n" +
 	"\vVerifyEvent\x12.\n" +
 	"\x13timestamp_unix_nano\x18\x01 \x01(\x03R\x11timestampUnixNano\x125\n" +
@@ -2596,7 +3708,12 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"VerifyDone\x12\x16\n" +
 	"\x06passed\x18\x01 \x01(\bR\x06passed\x12\x18\n" +
-	"\ablocked\x18\x02 \x01(\bR\ablocked2I\n" +
+	"\ablocked\x18\x02 \x01(\bR\ablocked*\x9b\x01\n" +
+	"\x12MirrorSessionState\x12$\n" +
+	" MIRROR_SESSION_STATE_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cMIRROR_SESSION_STATE_RUNNING\x10\x01\x12\x1d\n" +
+	"\x19MIRROR_SESSION_STATE_DONE\x10\x02\x12\x1e\n" +
+	"\x1aMIRROR_SESSION_STATE_ERROR\x10\x032I\n" +
 	"\n" +
 	"LogService\x12;\n" +
 	"\n" +
@@ -2605,12 +3722,21 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\bRunBuild\x12\x1b.ktl.api.v1.RunBuildRequest\x1a\x16.ktl.api.v1.BuildEvent0\x012\x9b\x01\n" +
 	"\rDeployService\x12B\n" +
 	"\x05Apply\x12\x1e.ktl.api.v1.DeployApplyRequest\x1a\x17.ktl.api.v1.DeployEvent0\x01\x12F\n" +
-	"\aDestroy\x12 .ktl.api.v1.DeployDestroyRequest\x1a\x17.ktl.api.v1.DeployEvent0\x012\x9a\x01\n" +
+	"\aDestroy\x12 .ktl.api.v1.DeployDestroyRequest\x1a\x17.ktl.api.v1.DeployEvent0\x012\xa5\x05\n" +
 	"\rMirrorService\x12=\n" +
 	"\aPublish\x12\x17.ktl.api.v1.MirrorFrame\x1a\x15.ktl.api.v1.MirrorAck(\x010\x01\x12J\n" +
-	"\tSubscribe\x12\".ktl.api.v1.MirrorSubscribeRequest\x1a\x17.ktl.api.v1.MirrorFrame0\x012O\n" +
+	"\tSubscribe\x12\".ktl.api.v1.MirrorSubscribeRequest\x1a\x17.ktl.api.v1.MirrorFrame0\x01\x12]\n" +
+	"\fListSessions\x12%.ktl.api.v1.MirrorListSessionsRequest\x1a&.ktl.api.v1.MirrorListSessionsResponse\x12L\n" +
+	"\n" +
+	"GetSession\x12#.ktl.api.v1.MirrorGetSessionRequest\x1a\x19.ktl.api.v1.MirrorSession\x12T\n" +
+	"\x0eSetSessionMeta\x12'.ktl.api.v1.MirrorSetSessionMetaRequest\x1a\x19.ktl.api.v1.MirrorSession\x12X\n" +
+	"\x10SetSessionStatus\x12).ktl.api.v1.MirrorSetSessionStatusRequest\x1a\x19.ktl.api.v1.MirrorSession\x12`\n" +
+	"\rDeleteSession\x12&.ktl.api.v1.MirrorDeleteSessionRequest\x1a'.ktl.api.v1.MirrorDeleteSessionResponse\x12J\n" +
+	"\x06Export\x12\x1f.ktl.api.v1.MirrorExportRequest\x1a\x1d.ktl.api.v1.MirrorExportChunk0\x012O\n" +
 	"\rVerifyService\x12>\n" +
-	"\x06Verify\x12\x19.ktl.api.v1.VerifyRequest\x1a\x17.ktl.api.v1.VerifyEvent0\x01B)Z'github.com/example/ktl/pkg/api/v1;apiv1b\x06proto3"
+	"\x06Verify\x12\x19.ktl.api.v1.VerifyRequest\x1a\x17.ktl.api.v1.VerifyEvent0\x012R\n" +
+	"\x10AgentInfoService\x12>\n" +
+	"\aGetInfo\x12\x1c.ktl.api.v1.AgentInfoRequest\x1a\x15.ktl.api.v1.AgentInfoB1Z/github.com/example/ktl/pkg/api/ktl/api/v1;apiv1b\x06proto3"
 
 var (
 	file_ktl_api_v1_agent_proto_rawDescOnce sync.Once
@@ -2624,75 +3750,120 @@ func file_ktl_api_v1_agent_proto_rawDescGZIP() []byte {
 	return file_ktl_api_v1_agent_proto_rawDescData
 }
 
-var file_ktl_api_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_ktl_api_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_ktl_api_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_ktl_api_v1_agent_proto_goTypes = []any{
-	(*LogRequest)(nil),             // 0: ktl.api.v1.LogRequest
-	(*LogLine)(nil),                // 1: ktl.api.v1.LogLine
-	(*BuildOptions)(nil),           // 2: ktl.api.v1.BuildOptions
-	(*RunBuildRequest)(nil),        // 3: ktl.api.v1.RunBuildRequest
-	(*BuildResult)(nil),            // 4: ktl.api.v1.BuildResult
-	(*BuildEvent)(nil),             // 5: ktl.api.v1.BuildEvent
-	(*DeployEvent)(nil),            // 6: ktl.api.v1.DeployEvent
-	(*DeployApplyOptions)(nil),     // 7: ktl.api.v1.DeployApplyOptions
-	(*DeployApplyRequest)(nil),     // 8: ktl.api.v1.DeployApplyRequest
-	(*DeployDestroyOptions)(nil),   // 9: ktl.api.v1.DeployDestroyOptions
-	(*DeployDestroyRequest)(nil),   // 10: ktl.api.v1.DeployDestroyRequest
-	(*MirrorFrame)(nil),            // 11: ktl.api.v1.MirrorFrame
-	(*MirrorAck)(nil),              // 12: ktl.api.v1.MirrorAck
-	(*MirrorSubscribeRequest)(nil), // 13: ktl.api.v1.MirrorSubscribeRequest
-	(*VerifyChartOptions)(nil),     // 14: ktl.api.v1.VerifyChartOptions
-	(*VerifyNamespaceOptions)(nil), // 15: ktl.api.v1.VerifyNamespaceOptions
-	(*VerifyOptions)(nil),          // 16: ktl.api.v1.VerifyOptions
-	(*VerifyRequest)(nil),          // 17: ktl.api.v1.VerifyRequest
-	(*VerifyEvent)(nil),            // 18: ktl.api.v1.VerifyEvent
-	(*VerifyStarted)(nil),          // 19: ktl.api.v1.VerifyStarted
-	(*VerifyProgress)(nil),         // 20: ktl.api.v1.VerifyProgress
-	(*VerifySubject)(nil),          // 21: ktl.api.v1.VerifySubject
-	(*VerifyFinding)(nil),          // 22: ktl.api.v1.VerifyFinding
-	(*VerifySummary)(nil),          // 23: ktl.api.v1.VerifySummary
-	(*VerifyDone)(nil),             // 24: ktl.api.v1.VerifyDone
-	nil,                            // 25: ktl.api.v1.VerifyProgress.CountsByKindEntry
-	nil,                            // 26: ktl.api.v1.VerifySummary.BySeverityEntry
+	(MirrorSessionState)(0),               // 0: ktl.api.v1.MirrorSessionState
+	(*AgentInfoRequest)(nil),              // 1: ktl.api.v1.AgentInfoRequest
+	(*AgentInfo)(nil),                     // 2: ktl.api.v1.AgentInfo
+	(*LogRequest)(nil),                    // 3: ktl.api.v1.LogRequest
+	(*LogLine)(nil),                       // 4: ktl.api.v1.LogLine
+	(*BuildOptions)(nil),                  // 5: ktl.api.v1.BuildOptions
+	(*RunBuildRequest)(nil),               // 6: ktl.api.v1.RunBuildRequest
+	(*BuildResult)(nil),                   // 7: ktl.api.v1.BuildResult
+	(*BuildEvent)(nil),                    // 8: ktl.api.v1.BuildEvent
+	(*DeployEvent)(nil),                   // 9: ktl.api.v1.DeployEvent
+	(*DeployApplyOptions)(nil),            // 10: ktl.api.v1.DeployApplyOptions
+	(*DeployApplyRequest)(nil),            // 11: ktl.api.v1.DeployApplyRequest
+	(*DeployDestroyOptions)(nil),          // 12: ktl.api.v1.DeployDestroyOptions
+	(*DeployDestroyRequest)(nil),          // 13: ktl.api.v1.DeployDestroyRequest
+	(*MirrorFrame)(nil),                   // 14: ktl.api.v1.MirrorFrame
+	(*MirrorAck)(nil),                     // 15: ktl.api.v1.MirrorAck
+	(*MirrorSubscribeRequest)(nil),        // 16: ktl.api.v1.MirrorSubscribeRequest
+	(*MirrorSessionMeta)(nil),             // 17: ktl.api.v1.MirrorSessionMeta
+	(*MirrorSession)(nil),                 // 18: ktl.api.v1.MirrorSession
+	(*MirrorSessionStatus)(nil),           // 19: ktl.api.v1.MirrorSessionStatus
+	(*MirrorListSessionsRequest)(nil),     // 20: ktl.api.v1.MirrorListSessionsRequest
+	(*MirrorListSessionsResponse)(nil),    // 21: ktl.api.v1.MirrorListSessionsResponse
+	(*MirrorGetSessionRequest)(nil),       // 22: ktl.api.v1.MirrorGetSessionRequest
+	(*MirrorSetSessionMetaRequest)(nil),   // 23: ktl.api.v1.MirrorSetSessionMetaRequest
+	(*MirrorSetSessionStatusRequest)(nil), // 24: ktl.api.v1.MirrorSetSessionStatusRequest
+	(*MirrorDeleteSessionRequest)(nil),    // 25: ktl.api.v1.MirrorDeleteSessionRequest
+	(*MirrorDeleteSessionResponse)(nil),   // 26: ktl.api.v1.MirrorDeleteSessionResponse
+	(*MirrorExportRequest)(nil),           // 27: ktl.api.v1.MirrorExportRequest
+	(*MirrorExportChunk)(nil),             // 28: ktl.api.v1.MirrorExportChunk
+	(*VerifyChartOptions)(nil),            // 29: ktl.api.v1.VerifyChartOptions
+	(*VerifyNamespaceOptions)(nil),        // 30: ktl.api.v1.VerifyNamespaceOptions
+	(*VerifyOptions)(nil),                 // 31: ktl.api.v1.VerifyOptions
+	(*VerifyRequest)(nil),                 // 32: ktl.api.v1.VerifyRequest
+	(*VerifyEvent)(nil),                   // 33: ktl.api.v1.VerifyEvent
+	(*VerifyStarted)(nil),                 // 34: ktl.api.v1.VerifyStarted
+	(*VerifyProgress)(nil),                // 35: ktl.api.v1.VerifyProgress
+	(*VerifySubject)(nil),                 // 36: ktl.api.v1.VerifySubject
+	(*VerifyFinding)(nil),                 // 37: ktl.api.v1.VerifyFinding
+	(*VerifySummary)(nil),                 // 38: ktl.api.v1.VerifySummary
+	(*VerifyDone)(nil),                    // 39: ktl.api.v1.VerifyDone
+	nil,                                   // 40: ktl.api.v1.MirrorSession.TagsEntry
+	nil,                                   // 41: ktl.api.v1.MirrorListSessionsRequest.TagsEntry
+	nil,                                   // 42: ktl.api.v1.MirrorSetSessionMetaRequest.TagsEntry
+	nil,                                   // 43: ktl.api.v1.VerifyProgress.CountsByKindEntry
+	nil,                                   // 44: ktl.api.v1.VerifySummary.BySeverityEntry
 }
 var file_ktl_api_v1_agent_proto_depIdxs = []int32{
-	2,  // 0: ktl.api.v1.RunBuildRequest.options:type_name -> ktl.api.v1.BuildOptions
-	1,  // 1: ktl.api.v1.BuildEvent.log:type_name -> ktl.api.v1.LogLine
-	4,  // 2: ktl.api.v1.BuildEvent.result:type_name -> ktl.api.v1.BuildResult
-	7,  // 3: ktl.api.v1.DeployApplyRequest.options:type_name -> ktl.api.v1.DeployApplyOptions
-	9,  // 4: ktl.api.v1.DeployDestroyRequest.options:type_name -> ktl.api.v1.DeployDestroyOptions
-	1,  // 5: ktl.api.v1.MirrorFrame.log:type_name -> ktl.api.v1.LogLine
-	5,  // 6: ktl.api.v1.MirrorFrame.build:type_name -> ktl.api.v1.BuildEvent
-	6,  // 7: ktl.api.v1.MirrorFrame.deploy:type_name -> ktl.api.v1.DeployEvent
-	16, // 8: ktl.api.v1.VerifyRequest.options:type_name -> ktl.api.v1.VerifyOptions
-	14, // 9: ktl.api.v1.VerifyRequest.chart:type_name -> ktl.api.v1.VerifyChartOptions
-	15, // 10: ktl.api.v1.VerifyRequest.namespace:type_name -> ktl.api.v1.VerifyNamespaceOptions
-	19, // 11: ktl.api.v1.VerifyEvent.started:type_name -> ktl.api.v1.VerifyStarted
-	20, // 12: ktl.api.v1.VerifyEvent.progress:type_name -> ktl.api.v1.VerifyProgress
-	22, // 13: ktl.api.v1.VerifyEvent.finding:type_name -> ktl.api.v1.VerifyFinding
-	23, // 14: ktl.api.v1.VerifyEvent.summary:type_name -> ktl.api.v1.VerifySummary
-	24, // 15: ktl.api.v1.VerifyEvent.done:type_name -> ktl.api.v1.VerifyDone
-	25, // 16: ktl.api.v1.VerifyProgress.counts_by_kind:type_name -> ktl.api.v1.VerifyProgress.CountsByKindEntry
-	21, // 17: ktl.api.v1.VerifyFinding.subject:type_name -> ktl.api.v1.VerifySubject
-	26, // 18: ktl.api.v1.VerifySummary.by_severity:type_name -> ktl.api.v1.VerifySummary.BySeverityEntry
-	0,  // 19: ktl.api.v1.LogService.StreamLogs:input_type -> ktl.api.v1.LogRequest
-	3,  // 20: ktl.api.v1.BuildService.RunBuild:input_type -> ktl.api.v1.RunBuildRequest
-	8,  // 21: ktl.api.v1.DeployService.Apply:input_type -> ktl.api.v1.DeployApplyRequest
-	10, // 22: ktl.api.v1.DeployService.Destroy:input_type -> ktl.api.v1.DeployDestroyRequest
-	11, // 23: ktl.api.v1.MirrorService.Publish:input_type -> ktl.api.v1.MirrorFrame
-	13, // 24: ktl.api.v1.MirrorService.Subscribe:input_type -> ktl.api.v1.MirrorSubscribeRequest
-	17, // 25: ktl.api.v1.VerifyService.Verify:input_type -> ktl.api.v1.VerifyRequest
-	1,  // 26: ktl.api.v1.LogService.StreamLogs:output_type -> ktl.api.v1.LogLine
-	5,  // 27: ktl.api.v1.BuildService.RunBuild:output_type -> ktl.api.v1.BuildEvent
-	6,  // 28: ktl.api.v1.DeployService.Apply:output_type -> ktl.api.v1.DeployEvent
-	6,  // 29: ktl.api.v1.DeployService.Destroy:output_type -> ktl.api.v1.DeployEvent
-	12, // 30: ktl.api.v1.MirrorService.Publish:output_type -> ktl.api.v1.MirrorAck
-	11, // 31: ktl.api.v1.MirrorService.Subscribe:output_type -> ktl.api.v1.MirrorFrame
-	18, // 32: ktl.api.v1.VerifyService.Verify:output_type -> ktl.api.v1.VerifyEvent
-	26, // [26:33] is the sub-list for method output_type
-	19, // [19:26] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	5,  // 0: ktl.api.v1.RunBuildRequest.options:type_name -> ktl.api.v1.BuildOptions
+	4,  // 1: ktl.api.v1.BuildEvent.log:type_name -> ktl.api.v1.LogLine
+	7,  // 2: ktl.api.v1.BuildEvent.result:type_name -> ktl.api.v1.BuildResult
+	10, // 3: ktl.api.v1.DeployApplyRequest.options:type_name -> ktl.api.v1.DeployApplyOptions
+	12, // 4: ktl.api.v1.DeployDestroyRequest.options:type_name -> ktl.api.v1.DeployDestroyOptions
+	4,  // 5: ktl.api.v1.MirrorFrame.log:type_name -> ktl.api.v1.LogLine
+	8,  // 6: ktl.api.v1.MirrorFrame.build:type_name -> ktl.api.v1.BuildEvent
+	9,  // 7: ktl.api.v1.MirrorFrame.deploy:type_name -> ktl.api.v1.DeployEvent
+	33, // 8: ktl.api.v1.MirrorFrame.verify:type_name -> ktl.api.v1.VerifyEvent
+	17, // 9: ktl.api.v1.MirrorSession.meta:type_name -> ktl.api.v1.MirrorSessionMeta
+	40, // 10: ktl.api.v1.MirrorSession.tags:type_name -> ktl.api.v1.MirrorSession.TagsEntry
+	19, // 11: ktl.api.v1.MirrorSession.status:type_name -> ktl.api.v1.MirrorSessionStatus
+	0,  // 12: ktl.api.v1.MirrorSessionStatus.state:type_name -> ktl.api.v1.MirrorSessionState
+	17, // 13: ktl.api.v1.MirrorListSessionsRequest.meta:type_name -> ktl.api.v1.MirrorSessionMeta
+	41, // 14: ktl.api.v1.MirrorListSessionsRequest.tags:type_name -> ktl.api.v1.MirrorListSessionsRequest.TagsEntry
+	0,  // 15: ktl.api.v1.MirrorListSessionsRequest.state:type_name -> ktl.api.v1.MirrorSessionState
+	18, // 16: ktl.api.v1.MirrorListSessionsResponse.sessions:type_name -> ktl.api.v1.MirrorSession
+	17, // 17: ktl.api.v1.MirrorSetSessionMetaRequest.meta:type_name -> ktl.api.v1.MirrorSessionMeta
+	42, // 18: ktl.api.v1.MirrorSetSessionMetaRequest.tags:type_name -> ktl.api.v1.MirrorSetSessionMetaRequest.TagsEntry
+	19, // 19: ktl.api.v1.MirrorSetSessionStatusRequest.status:type_name -> ktl.api.v1.MirrorSessionStatus
+	31, // 20: ktl.api.v1.VerifyRequest.options:type_name -> ktl.api.v1.VerifyOptions
+	29, // 21: ktl.api.v1.VerifyRequest.chart:type_name -> ktl.api.v1.VerifyChartOptions
+	30, // 22: ktl.api.v1.VerifyRequest.namespace:type_name -> ktl.api.v1.VerifyNamespaceOptions
+	34, // 23: ktl.api.v1.VerifyEvent.started:type_name -> ktl.api.v1.VerifyStarted
+	35, // 24: ktl.api.v1.VerifyEvent.progress:type_name -> ktl.api.v1.VerifyProgress
+	37, // 25: ktl.api.v1.VerifyEvent.finding:type_name -> ktl.api.v1.VerifyFinding
+	38, // 26: ktl.api.v1.VerifyEvent.summary:type_name -> ktl.api.v1.VerifySummary
+	39, // 27: ktl.api.v1.VerifyEvent.done:type_name -> ktl.api.v1.VerifyDone
+	43, // 28: ktl.api.v1.VerifyProgress.counts_by_kind:type_name -> ktl.api.v1.VerifyProgress.CountsByKindEntry
+	36, // 29: ktl.api.v1.VerifyFinding.subject:type_name -> ktl.api.v1.VerifySubject
+	44, // 30: ktl.api.v1.VerifySummary.by_severity:type_name -> ktl.api.v1.VerifySummary.BySeverityEntry
+	3,  // 31: ktl.api.v1.LogService.StreamLogs:input_type -> ktl.api.v1.LogRequest
+	6,  // 32: ktl.api.v1.BuildService.RunBuild:input_type -> ktl.api.v1.RunBuildRequest
+	11, // 33: ktl.api.v1.DeployService.Apply:input_type -> ktl.api.v1.DeployApplyRequest
+	13, // 34: ktl.api.v1.DeployService.Destroy:input_type -> ktl.api.v1.DeployDestroyRequest
+	14, // 35: ktl.api.v1.MirrorService.Publish:input_type -> ktl.api.v1.MirrorFrame
+	16, // 36: ktl.api.v1.MirrorService.Subscribe:input_type -> ktl.api.v1.MirrorSubscribeRequest
+	20, // 37: ktl.api.v1.MirrorService.ListSessions:input_type -> ktl.api.v1.MirrorListSessionsRequest
+	22, // 38: ktl.api.v1.MirrorService.GetSession:input_type -> ktl.api.v1.MirrorGetSessionRequest
+	23, // 39: ktl.api.v1.MirrorService.SetSessionMeta:input_type -> ktl.api.v1.MirrorSetSessionMetaRequest
+	24, // 40: ktl.api.v1.MirrorService.SetSessionStatus:input_type -> ktl.api.v1.MirrorSetSessionStatusRequest
+	25, // 41: ktl.api.v1.MirrorService.DeleteSession:input_type -> ktl.api.v1.MirrorDeleteSessionRequest
+	27, // 42: ktl.api.v1.MirrorService.Export:input_type -> ktl.api.v1.MirrorExportRequest
+	32, // 43: ktl.api.v1.VerifyService.Verify:input_type -> ktl.api.v1.VerifyRequest
+	1,  // 44: ktl.api.v1.AgentInfoService.GetInfo:input_type -> ktl.api.v1.AgentInfoRequest
+	4,  // 45: ktl.api.v1.LogService.StreamLogs:output_type -> ktl.api.v1.LogLine
+	8,  // 46: ktl.api.v1.BuildService.RunBuild:output_type -> ktl.api.v1.BuildEvent
+	9,  // 47: ktl.api.v1.DeployService.Apply:output_type -> ktl.api.v1.DeployEvent
+	9,  // 48: ktl.api.v1.DeployService.Destroy:output_type -> ktl.api.v1.DeployEvent
+	15, // 49: ktl.api.v1.MirrorService.Publish:output_type -> ktl.api.v1.MirrorAck
+	14, // 50: ktl.api.v1.MirrorService.Subscribe:output_type -> ktl.api.v1.MirrorFrame
+	21, // 51: ktl.api.v1.MirrorService.ListSessions:output_type -> ktl.api.v1.MirrorListSessionsResponse
+	18, // 52: ktl.api.v1.MirrorService.GetSession:output_type -> ktl.api.v1.MirrorSession
+	18, // 53: ktl.api.v1.MirrorService.SetSessionMeta:output_type -> ktl.api.v1.MirrorSession
+	18, // 54: ktl.api.v1.MirrorService.SetSessionStatus:output_type -> ktl.api.v1.MirrorSession
+	26, // 55: ktl.api.v1.MirrorService.DeleteSession:output_type -> ktl.api.v1.MirrorDeleteSessionResponse
+	28, // 56: ktl.api.v1.MirrorService.Export:output_type -> ktl.api.v1.MirrorExportChunk
+	33, // 57: ktl.api.v1.VerifyService.Verify:output_type -> ktl.api.v1.VerifyEvent
+	2,  // 58: ktl.api.v1.AgentInfoService.GetInfo:output_type -> ktl.api.v1.AgentInfo
+	45, // [45:59] is the sub-list for method output_type
+	31, // [31:45] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_ktl_api_v1_agent_proto_init() }
@@ -2700,21 +3871,22 @@ func file_ktl_api_v1_agent_proto_init() {
 	if File_ktl_api_v1_agent_proto != nil {
 		return
 	}
-	file_ktl_api_v1_agent_proto_msgTypes[5].OneofWrappers = []any{
+	file_ktl_api_v1_agent_proto_msgTypes[7].OneofWrappers = []any{
 		(*BuildEvent_Log)(nil),
 		(*BuildEvent_Result)(nil),
 	}
-	file_ktl_api_v1_agent_proto_msgTypes[11].OneofWrappers = []any{
+	file_ktl_api_v1_agent_proto_msgTypes[13].OneofWrappers = []any{
 		(*MirrorFrame_Log)(nil),
 		(*MirrorFrame_Build)(nil),
 		(*MirrorFrame_Deploy)(nil),
+		(*MirrorFrame_Verify)(nil),
 		(*MirrorFrame_Raw)(nil),
 	}
-	file_ktl_api_v1_agent_proto_msgTypes[17].OneofWrappers = []any{
+	file_ktl_api_v1_agent_proto_msgTypes[31].OneofWrappers = []any{
 		(*VerifyRequest_Chart)(nil),
 		(*VerifyRequest_Namespace)(nil),
 	}
-	file_ktl_api_v1_agent_proto_msgTypes[18].OneofWrappers = []any{
+	file_ktl_api_v1_agent_proto_msgTypes[32].OneofWrappers = []any{
 		(*VerifyEvent_Started)(nil),
 		(*VerifyEvent_Progress)(nil),
 		(*VerifyEvent_Finding)(nil),
@@ -2727,13 +3899,14 @@ func file_ktl_api_v1_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ktl_api_v1_agent_proto_rawDesc), len(file_ktl_api_v1_agent_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   27,
+			NumEnums:      1,
+			NumMessages:   44,
 			NumExtensions: 0,
-			NumServices:   5,
+			NumServices:   6,
 		},
 		GoTypes:           file_ktl_api_v1_agent_proto_goTypes,
 		DependencyIndexes: file_ktl_api_v1_agent_proto_depIdxs,
+		EnumInfos:         file_ktl_api_v1_agent_proto_enumTypes,
 		MessageInfos:      file_ktl_api_v1_agent_proto_msgTypes,
 	}.Build()
 	File_ktl_api_v1_agent_proto = out.File

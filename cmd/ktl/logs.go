@@ -24,7 +24,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -163,12 +162,38 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		if addr := strings.TrimSpace(*mirrorBus); addr != "" {
 			sessionID := fmt.Sprintf("logs-%d", time.Now().UnixNano())
 			fmt.Fprintf(cmd.ErrOrStderr(), "Publishing logs to mirror bus %s (session %s)\n", addr, sessionID)
-			pub, err := mirrorbus.NewPublisher(ctx, addr, sessionID, "logs")
+			meta := &apiv1.MirrorSessionMeta{
+				Command:     cmd.CommandPath(),
+				Args:        append([]string(nil), os.Args[1:]...),
+				Requester:   defaultRequester(),
+				KubeContext: derefString(kubeContext),
+			}
+			if len(tailerOptions.Namespaces) == 1 {
+				meta.Namespace = tailerOptions.Namespaces[0]
+			}
+			tags := map[string]string{
+				"logs.pod_query": tailerOptions.PodQuery,
+			}
+			busCreds, err := remoteTransportCredentials(cmd, addr)
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Mirror bus unavailable: %v\n", err)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Mirror bus TLS config invalid: %v\n", err)
 			} else {
-				mirrorPublisher = pub
-				tailerOpts = append(tailerOpts, tailer.WithLogObserver(pub))
+				pub, err := mirrorbus.NewPublisher(
+					ctx,
+					addr,
+					sessionID,
+					"logs",
+					meta,
+					tags,
+					grpc.WithTransportCredentials(busCreds),
+					grpcutil.WithBearerToken(remoteToken(cmd)),
+				)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Mirror bus unavailable: %v\n", err)
+				} else {
+					mirrorPublisher = pub
+					tailerOpts = append(tailerOpts, tailer.WithLogObserver(pub))
+				}
 			}
 		}
 	}
@@ -208,13 +233,31 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 
 func runRemoteLogs(cmd *cobra.Command, opts *config.Options, remoteAddr string) error {
 	ctx := cmd.Context()
-	conn, err := grpcutil.Dial(ctx, remoteAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	creds, err := remoteTransportCredentials(cmd, remoteAddr)
+	if err != nil {
+		return err
+	}
+	conn, err := grpcutil.Dial(ctx, remoteAddr,
+		grpc.WithTransportCredentials(creds),
+		grpcutil.WithBearerToken(remoteToken(cmd)),
+	)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 	client := apiv1.NewLogServiceClient(conn)
 	req := convert.LogOptionsToProto(opts)
+	sessionID := newSessionID("remote-logs")
+	req.SessionId = sessionID
+	req.Requester = defaultRequester()
+	trySetRemoteMirrorSessionMeta(ctx, conn, sessionID, &apiv1.MirrorSessionMeta{
+		Command:     cmd.CommandPath(),
+		Args:        append([]string(nil), os.Args[1:]...),
+		Requester:   defaultRequester(),
+		KubeContext: strings.TrimSpace(req.GetKubeContext()),
+	}, map[string]string{
+		"logs.pod_query": strings.TrimSpace(req.GetPodQuery()),
+	})
 	stream, err := client.StreamLogs(ctx, req)
 	if err != nil {
 		return err

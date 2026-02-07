@@ -8,12 +8,13 @@ Thanks for helping improve ktl. This document highlights the minimum testing ste
 | --- | --- | --- |
 | Any Go code change | `make fmt`, `make lint`, `make test` | `make fmt` enforces gofmt; `make lint` runs `go vet` (and `staticcheck` when available); `make test` is equivalent to `go test ./...`. Run them locally before pushing. |
 | CLI / Cobra wiring | `go test ./cmd/...` in addition to the default matrix | Focuses on fast command-scope tests when you only altered CLI wiring. |
-| Integration features (logs, capture, report, etc.) | `KTL_TEST_KUBECONFIG=$HOME/.kube/config go test ./integration/...` | Requires access to a real cluster via kubeconfig. The harness builds `bin/ktl.test`, applies the `testdata/ktl-logger.yaml` fixture, and exercises real kubectl/ktl flows. Expect ~1 minute runtime. |
+| Integration features (logs, capture, report, etc.) | `KTL_TEST_KUBECONFIG=$HOME/.kube/config go test ./integration/...` | Requires access to a Kubernetes cluster plus `kubectl`. Example kubeconfig: `$HOME/.kube/archimedes.yaml`. The harness builds `bin/ktl.test`, applies the `testdata/ktl-logger.yaml` fixture, and exercises real kubectl/ktl flows. Expect ~1 minute runtime. |
 | Docs only (Markdown, design notes) | No tests required | Call out “docs only” in the PR body; still run `make fmt` if you touched Go code. |
 
 ### Running Unit Tests
 
 ```bash
+make preflight # fmt + lint + unit tests
 make fmt   # gofmt all modules
 make lint  # go vet (+staticcheck when installed)
 make test  # go test ./...
@@ -23,14 +24,14 @@ Use `GO_TEST_FLAGS` when you need verbose output, e.g. `GO_TEST_FLAGS=-run TestK
 
 ### Running Integration Tests
 
-1. Ensure you have a kubeconfig for a test cluster.
+1. Ensure you have a kubeconfig for a test cluster (example: `~/.kube/config` or `~/.kube/archimedes.yaml`).
 2. Run:
    ```bash
-   KTL_TEST_KUBECONFIG=$HOME/.kube/config go test ./integration/...
+   KTL_TEST_KUBECONFIG=$HOME/.kube/config go test ./integration/... # e.g. $HOME/.kube/archimedes.yaml
    ```
 3. The harness will:
    - Build `bin/ktl.test`.
-   - Apply `testdata/ktl-logger.yaml` and wait for the pods.
+   - Apply `testdata/ktl-logger.yaml` using `kubectl --kubeconfig ...` and wait for the pods.
    - Exercise log tailing plus the capture E2E scenarios.
 
 If the cluster is missing optional namespaces (e.g., `kubernetes-dashboard`), some dashboard-only assertions will skip automatically; note this in your PR if it happens frequently.

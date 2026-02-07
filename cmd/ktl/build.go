@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/example/ktl/internal/api/convert"
 	"github.com/example/ktl/internal/caststream"
@@ -362,13 +362,36 @@ func runBuildCommand(cmd *cobra.Command, service buildsvc.Service, opts buildCLI
 	if flag := cmd.Flags().Lookup("mirror-bus"); flag != nil {
 		if addr := strings.TrimSpace(flag.Value.String()); addr != "" {
 			sessionID := fmt.Sprintf("build-%d", time.Now().UnixNano())
-			pub, err := mirrorbus.NewPublisher(cmd.Context(), addr, sessionID, "build")
+			meta := &apiv1.MirrorSessionMeta{
+				Command:   cmd.CommandPath(),
+				Args:      append([]string(nil), os.Args[1:]...),
+				Requester: defaultRequester(),
+			}
+			tags := map[string]string{
+				"build.context_dir": opts.contextDir,
+				"build.dockerfile":  opts.dockerfile,
+			}
+			busCreds, err := remoteTransportCredentials(cmd, addr)
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Mirror bus unavailable: %v\n", err)
+				fmt.Fprintf(cmd.ErrOrStderr(), "Mirror bus TLS config invalid: %v\n", err)
 			} else {
-				svcOpts.Observers = append(svcOpts.Observers, pub)
-				observerClosers = append(observerClosers, pub)
-				fmt.Fprintf(cmd.ErrOrStderr(), "Publishing build mirror session %s via %s\n", sessionID, addr)
+				pub, err := mirrorbus.NewPublisher(
+					cmd.Context(),
+					addr,
+					sessionID,
+					"build",
+					meta,
+					tags,
+					grpc.WithTransportCredentials(busCreds),
+					grpcutil.WithBearerToken(remoteToken(cmd)),
+				)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Mirror bus unavailable: %v\n", err)
+				} else {
+					svcOpts.Observers = append(svcOpts.Observers, pub)
+					observerClosers = append(observerClosers, pub)
+					fmt.Fprintf(cmd.ErrOrStderr(), "Publishing build mirror session %s via %s\n", sessionID, addr)
+				}
 			}
 		}
 	}
@@ -384,7 +407,14 @@ func runBuildCommand(cmd *cobra.Command, service buildsvc.Service, opts buildCLI
 
 func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string) error {
 	ctx := cmd.Context()
-	conn, err := grpcutil.Dial(ctx, remoteAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	creds, err := remoteTransportCredentials(cmd, remoteAddr)
+	if err != nil {
+		return err
+	}
+	conn, err := grpcutil.Dial(ctx, remoteAddr,
+		grpc.WithTransportCredentials(creds),
+		grpcutil.WithBearerToken(remoteToken(cmd)),
+	)
 	if err != nil {
 		return err
 	}
@@ -423,7 +453,7 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 		mirrorAddr = strings.TrimSpace(flag.Value.String())
 	}
 	mirrorLabel := fmt.Sprintf("Context: %s", opts.contextDir)
-	extraObservers, cleanup, err := startBuildMirrors(ctx, opts, mirrorAddr, mirrorLabel, logger.WithName("remote-build"), errOut)
+	extraObservers, cleanup, err := startBuildMirrors(ctx, cmd, opts, mirrorAddr, mirrorLabel, logger.WithName("remote-build"), errOut, remoteToken(cmd))
 	if err != nil {
 		return err
 	}
@@ -432,8 +462,18 @@ func runRemoteBuild(cmd *cobra.Command, opts buildCLIOptions, remoteAddr string)
 
 	client := apiv1.NewBuildServiceClient(conn)
 	buildOpts := cliOptionsToServiceOptions(opts)
+	sessionID := newSessionID("remote-build")
+	trySetRemoteMirrorSessionMeta(ctx, conn, sessionID, &apiv1.MirrorSessionMeta{
+		Command:   cmd.CommandPath(),
+		Args:      append([]string(nil), os.Args[1:]...),
+		Requester: defaultRequester(),
+	}, map[string]string{
+		"build.context_dir": opts.contextDir,
+		"build.dockerfile":  opts.dockerfile,
+	})
 	req := &apiv1.RunBuildRequest{
-		SessionId: fmt.Sprintf("remote-%d", time.Now().UnixNano()),
+		SessionId: sessionID,
+		Requester: defaultRequester(),
 		Options:   convert.BuildOptionsToProto(buildOpts),
 	}
 	stream, err := client.RunBuild(ctx, req)
@@ -544,7 +584,7 @@ func cliOptionsToServiceOptions(opts buildCLIOptions) buildsvc.Options {
 	}
 }
 
-func startBuildMirrors(ctx context.Context, opts buildCLIOptions, mirrorAddr, label string, logger logr.Logger, errOut io.Writer) ([]tailer.LogObserver, func(), error) {
+func startBuildMirrors(ctx context.Context, cmd *cobra.Command, opts buildCLIOptions, mirrorAddr, label string, logger logr.Logger, errOut io.Writer, token string) ([]tailer.LogObserver, func(), error) {
 	var observers []tailer.LogObserver
 	var closers []func()
 	if addr := strings.TrimSpace(opts.wsListenAddr); addr != "" {
@@ -557,7 +597,29 @@ func startBuildMirrors(ctx context.Context, opts buildCLIOptions, mirrorAddr, la
 	}
 	if strings.TrimSpace(mirrorAddr) != "" {
 		sessionID := fmt.Sprintf("build-%d", time.Now().UnixNano())
-		pub, err := mirrorbus.NewPublisher(ctx, mirrorAddr, sessionID, "build")
+		meta := &apiv1.MirrorSessionMeta{
+			Command:   "ktl build",
+			Requester: defaultRequester(),
+		}
+		tags := map[string]string{
+			"build.context_dir": opts.contextDir,
+			"build.dockerfile":  opts.dockerfile,
+		}
+		busCreds, err := remoteTransportCredentials(cmd, mirrorAddr)
+		if err != nil {
+			fmt.Fprintf(errOut, "Mirror bus TLS config invalid: %v\n", err)
+			return observers, func() {}, nil
+		}
+		pub, err := mirrorbus.NewPublisher(
+			ctx,
+			mirrorAddr,
+			sessionID,
+			"build",
+			meta,
+			tags,
+			grpc.WithTransportCredentials(busCreds),
+			grpcutil.WithBearerToken(token),
+		)
 		if err != nil {
 			fmt.Fprintf(errOut, "Mirror bus unavailable: %v\n", err)
 		} else {

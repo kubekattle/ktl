@@ -24,12 +24,6 @@ GH_RELEASE_TITLE ?= $(BINARY) $(RELEASE_TAG)
 GH_RELEASE_NOTES ?= Automated release for $(RELEASE_TAG)
 GH_RELEASE_NOTES_FILE ?=
 GH_RELEASE_FLAGS ?=
-DOCS_SOURCE ?= docs/ktl_features_ru.md
-DOCS_PDF ?= $(DIST_DIR)/ktl_features_ru.pdf
-DOCS_HTML ?= $(DIST_DIR)/ktl_features_ru.html
-PANDOC ?= pandoc
-PDF_ENGINE ?= xelatex
-MERMAID_FILTER ?= mermaid-filter
 BUF_VERSION ?= v1.61.0
 BUF ?= $(GO) run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 GO_TEST_FLAGS ?= $(GOFLAGS)
@@ -51,8 +45,7 @@ LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/example/ktl/cmd/ktl.buildMode=$(LOGS_BU
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
-
+.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify preflight docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
 
@@ -288,6 +281,8 @@ tidy: ## Ensure go.mod/go.sum are tidy
 verify: ## Run fmt, lint, and test
 	$(MAKE) fmt lint test
 
+preflight: verify ## Alias for verify (fmt + lint + unit tests)
+
 package: ## Build .deb/.rpm packages into ./dist (Docker-based)
 	@mkdir -p "$(DIST_DIR)"
 	@for platform in $(PACKAGE_PLATFORMS); do \
@@ -307,25 +302,8 @@ package: ## Build .deb/.rpm packages into ./dist (Docker-based)
 			"$$image"; \
 	done
 
-docs: $(DOCS_PDF) $(DOCS_HTML) ## Build Russian feature guide PDF and HTML outputs
-
-$(DOCS_PDF): $(DOCS_SOURCE) docs/custom-header.tex docs/titlepage.tex
-	@mkdir -p $(DIST_DIR)
-	$(PANDOC) $(DOCS_SOURCE) \
-		--from markdown+yaml_metadata_block+grid_tables+pipe_tables \
-		--template eisvogel \
-		--table-of-contents --toc-depth 3 \
-		--number-sections --highlight-style tango \
-		--pdf-engine=$(PDF_ENGINE) --variable papersize=a4 \
-		--include-in-header=docs/custom-header.tex \
-		--include-before-body=docs/titlepage.tex \
-		-o $@
-
-$(DOCS_HTML): $(DOCS_SOURCE)
-	@mkdir -p $(DIST_DIR)
-	$(PANDOC) $(DOCS_SOURCE) \
-		-t html5 --filter $(MERMAID_FILTER) \
-		-o $@
+docs: ## (No-op) Docs build pipeline is not checked in
+	@echo ">> docs: no docs build pipeline is checked into this repo"
 
 proto: ## Generate gRPC/protobuf stubs under pkg/api
 	$(BUF) generate

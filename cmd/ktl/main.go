@@ -109,6 +109,13 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	var featureFlagValues []string
 	var remoteAgentAddr string
 	var mirrorBusAddr string
+	var remoteToken string
+	var remoteTLS bool
+	var remoteTLSCA string
+	var remoteTLSServerName string
+	var remoteTLSInsecureSkipVerify bool
+	var remoteTLSClientCert string
+	var remoteTLSClientKey string
 	globalProfile := "dev"
 	cmd := &cobra.Command{
 		Use:           "ktl <command>",
@@ -185,6 +192,13 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	}
 	cmd.PersistentFlags().StringVar(&remoteAgentAddr, "remote-agent", "", "Forward ktl logs and deploy operations to a remote ktl-agent gRPC endpoint")
 	cmd.PersistentFlags().StringVar(&mirrorBusAddr, "mirror-bus", "", "Publish mirror payloads to a shared gRPC bus (ktl-agent MirrorService)")
+	cmd.PersistentFlags().StringVar(&remoteToken, "remote-token", "", "Authentication token for remote gRPC endpoints (also via KTL_REMOTE_TOKEN)")
+	cmd.PersistentFlags().BoolVar(&remoteTLS, "remote-tls", false, "Use TLS for remote gRPC endpoints (also via KTL_REMOTE_TLS=1)")
+	cmd.PersistentFlags().StringVar(&remoteTLSCA, "remote-tls-ca", "", "CA bundle PEM file for remote gRPC TLS (also via KTL_REMOTE_TLS_CA)")
+	cmd.PersistentFlags().StringVar(&remoteTLSServerName, "remote-tls-server-name", "", "Override remote gRPC TLS server name (also via KTL_REMOTE_TLS_SERVER_NAME)")
+	cmd.PersistentFlags().BoolVar(&remoteTLSInsecureSkipVerify, "remote-tls-insecure-skip-verify", false, "Skip TLS verification for remote gRPC (also via KTL_REMOTE_TLS_INSECURE_SKIP_VERIFY=1)")
+	cmd.PersistentFlags().StringVar(&remoteTLSClientCert, "remote-tls-client-cert", "", "Client certificate PEM file for remote gRPC mTLS (also via KTL_REMOTE_TLS_CLIENT_CERT)")
+	cmd.PersistentFlags().StringVar(&remoteTLSClientKey, "remote-tls-client-key", "", "Client private key PEM file for remote gRPC mTLS (also via KTL_REMOTE_TLS_CLIENT_KEY)")
 	logFlagNames := opts.BindFlags(cmd.Flags())
 	hideFlags(cmd.Flags(), logFlagNames)
 	logsCmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)

@@ -7,8 +7,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"helm.sh/helm/v3/pkg/action"
@@ -28,15 +31,21 @@ import (
 type DeployServer struct {
 	apiv1.UnimplementedDeployServiceServer
 	Logger logr.Logger
+	Mirror *MirrorServer
 }
 
 // Apply runs the Helm upgrade/install workflow remotely.
-func (s *DeployServer) Apply(req *apiv1.DeployApplyRequest, stream apiv1.DeployService_ApplyServer) error {
+func (s *DeployServer) Apply(req *apiv1.DeployApplyRequest, stream apiv1.DeployService_ApplyServer) (retErr error) {
 	if req == nil || req.GetOptions() == nil {
 		return fmt.Errorf("deploy options are required")
 	}
 	cfg := convert.DeployApplyFromProto(req.GetOptions())
 	ctx := stream.Context()
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	producer := "deploy"
+	if strings.TrimSpace(req.GetRequester()) != "" {
+		producer = "deploy:" + strings.TrimSpace(req.GetRequester())
+	}
 
 	namespace := cfg.Namespace
 	settings := helmSettings(cfg.KubeConfigPath, cfg.KubeContext, namespace)
@@ -65,8 +74,38 @@ func (s *DeployServer) Apply(req *apiv1.DeployApplyRequest, stream apiv1.DeployS
 		}
 	}
 
+	if s.Mirror != nil && sessionID != "" {
+		_ = s.Mirror.UpsertSessionMeta(ctx, sessionID, MirrorSessionMeta{
+			Requester:   strings.TrimSpace(req.GetRequester()),
+			KubeContext: strings.TrimSpace(cfg.KubeContext),
+			Namespace:   strings.TrimSpace(namespace),
+			Release:     strings.TrimSpace(cfg.ReleaseName),
+			Chart:       strings.TrimSpace(cfg.Chart),
+		}, nil)
+		_ = s.Mirror.UpsertSessionStatus(ctx, sessionID, MirrorSessionStatus{State: MirrorSessionStateRunning})
+		defer func() {
+			st := MirrorSessionStatus{
+				State:             MirrorSessionStateDone,
+				ExitCode:          0,
+				CompletedUnixNano: time.Now().UTC().UnixNano(),
+			}
+			if retErr != nil {
+				if errors.Is(retErr, context.Canceled) {
+					st.State = MirrorSessionStateDone
+					st.ExitCode = 130
+					st.ErrorMessage = "canceled"
+				} else {
+					st.State = MirrorSessionStateError
+					st.ExitCode = 1
+					st.ErrorMessage = retErr.Error()
+				}
+			}
+			_ = s.Mirror.UpsertSessionStatus(context.Background(), sessionID, st)
+		}()
+	}
+
 	streamBroadcaster := deploy.NewStreamBroadcaster(cfg.ReleaseName, namespace, cfg.Chart)
-	forwarder := &deployStreamForwarder{stream: stream}
+	forwarder := &deployStreamForwarder{stream: stream, mirror: s.Mirror, sessionID: sessionID, producer: producer}
 	streamBroadcaster.AddObserver(forwarder)
 
 	result, err := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
@@ -111,11 +150,44 @@ func (s *DeployServer) Apply(req *apiv1.DeployApplyRequest, stream apiv1.DeployS
 }
 
 // Destroy removes a Helm release remotely.
-func (s *DeployServer) Destroy(req *apiv1.DeployDestroyRequest, stream apiv1.DeployService_DestroyServer) error {
+func (s *DeployServer) Destroy(req *apiv1.DeployDestroyRequest, stream apiv1.DeployService_DestroyServer) (retErr error) {
 	if req == nil || req.GetOptions() == nil {
 		return fmt.Errorf("destroy options are required")
 	}
 	cfg := convert.DeployDestroyFromProto(req.GetOptions())
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	producer := "deploy"
+	if strings.TrimSpace(req.GetRequester()) != "" {
+		producer = "deploy:" + strings.TrimSpace(req.GetRequester())
+	}
+	if s.Mirror != nil && sessionID != "" {
+		_ = s.Mirror.UpsertSessionMeta(stream.Context(), sessionID, MirrorSessionMeta{
+			Requester:   strings.TrimSpace(req.GetRequester()),
+			KubeContext: strings.TrimSpace(cfg.KubeContext),
+			Namespace:   strings.TrimSpace(cfg.Namespace),
+			Release:     strings.TrimSpace(cfg.Release),
+		}, nil)
+		_ = s.Mirror.UpsertSessionStatus(stream.Context(), sessionID, MirrorSessionStatus{State: MirrorSessionStateRunning})
+		defer func() {
+			st := MirrorSessionStatus{
+				State:             MirrorSessionStateDone,
+				ExitCode:          0,
+				CompletedUnixNano: time.Now().UTC().UnixNano(),
+			}
+			if retErr != nil {
+				if errors.Is(retErr, context.Canceled) {
+					st.State = MirrorSessionStateDone
+					st.ExitCode = 130
+					st.ErrorMessage = "canceled"
+				} else {
+					st.State = MirrorSessionStateError
+					st.ExitCode = 1
+					st.ErrorMessage = retErr.Error()
+				}
+			}
+			_ = s.Mirror.UpsertSessionStatus(context.Background(), sessionID, st)
+		}()
+	}
 
 	settings := helmSettings(cfg.KubeConfigPath, cfg.KubeContext, cfg.Namespace)
 	actionCfg := new(action.Configuration)
@@ -129,7 +201,7 @@ func (s *DeployServer) Destroy(req *apiv1.DeployDestroyRequest, stream apiv1.Dep
 	}
 
 	streamBroadcaster := deploy.NewStreamBroadcaster(cfg.Release, cfg.Namespace, "")
-	streamBroadcaster.AddObserver(&deployStreamForwarder{stream: stream})
+	streamBroadcaster.AddObserver(&deployStreamForwarder{stream: stream, mirror: s.Mirror, sessionID: sessionID, producer: producer})
 
 	uninstall := action.NewUninstall(actionCfg)
 	uninstall.Wait = cfg.Wait
@@ -160,6 +232,9 @@ type deployStreamForwarder struct {
 		Send(*apiv1.DeployEvent) error
 		Context() context.Context
 	}
+	mirror    *MirrorServer
+	sessionID string
+	producer  string
 }
 
 func (d *deployStreamForwarder) HandleDeployEvent(evt deploy.StreamEvent) {
@@ -171,6 +246,13 @@ func (d *deployStreamForwarder) HandleDeployEvent(evt deploy.StreamEvent) {
 		return
 	}
 	_ = d.stream.Send(msg)
+	if d.mirror != nil && d.sessionID != "" {
+		_, _, _ = d.mirror.ingestFrame(context.Background(), &apiv1.MirrorFrame{
+			SessionId: d.sessionID,
+			Producer:  d.producer,
+			Payload:   &apiv1.MirrorFrame_Deploy{Deploy: msg},
+		})
+	}
 }
 
 func helmSettings(kubeconfig, kubeContext, namespace string) *cli.EnvSettings {

@@ -6,7 +6,7 @@ This repo is a single-module Go CLI with an optional companion agent.
 - `cmd/ktl`: end-user CLI (Cobra) and CLI-only helpers.
 - `cmd/ktl-agent`: gRPC agent used by `--remote-agent` / `--mirror-bus`.
 - `internal/*`: non-exported libraries used by the CLI/agent (tailing, deploy/apply, UI mirroring, BuildKit workflows, config/feature flags).
-- `pkg/*`: reusable non-`internal` packages (BuildKit/Compose/registry helpers and generated API stubs under `pkg/api/v1`).
+- `pkg/*`: reusable non-`internal` packages (BuildKit/Compose/registry helpers and generated API stubs under `pkg/api/ktl/api/v1`).
 - `testdata/*`: fixtures and golden files.
 
 ## Main Commands (wired today)
@@ -55,7 +55,7 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 
 ### `internal/api/convert`
 
-- Purpose: translate between internal runtime structs and protobuf API types (`pkg/api/v1`).
+- Purpose: translate between internal runtime structs and protobuf API types (`pkg/api/ktl/api/v1`).
 - Key types: `BuildConfig`, `DeployApplyConfig`, `DeployDestroyConfig`.
 - Invariants: conversion is one-way “boundary glue”; don’t leak protobuf types into core packages.
 
@@ -128,4 +128,6 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 ## Agent-Facing Docs
 
 - Golden paths + validation commands: `docs/agent-playbook.md`
+- UI design system (HTML/CSS surfaces): `DESIGN.md`
+- gRPC agent API: `docs/grpc-agent.md`
 - Generated package dependency map: `docs/deps.md` (refresh with `make deps`)

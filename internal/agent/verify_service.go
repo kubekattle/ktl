@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"time"
@@ -20,14 +21,15 @@ import (
 
 type verifyService struct {
 	apiv1.UnimplementedVerifyServiceServer
-	cfg Config
+	cfg    Config
+	Mirror *MirrorServer
 }
 
-func newVerifyService(cfg Config) *verifyService {
-	return &verifyService{cfg: cfg}
+func newVerifyService(cfg Config, mirror *MirrorServer) *verifyService {
+	return &verifyService{cfg: cfg, Mirror: mirror}
 }
 
-func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyService_VerifyServer) error {
+func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyService_VerifyServer) (retErr error) {
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
@@ -51,6 +53,46 @@ func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyServ
 	rulesDir := strings.TrimSpace(opts.GetRulesDir())
 	if rulesDir == "" {
 		rulesDir = filepath.Join(appconfig.FindRepoRoot("."), "internal", "verify", "rules", "builtin")
+	}
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	exitCode := int32(0)
+	producer := "verify"
+	if strings.TrimSpace(req.GetRequester()) != "" {
+		producer = "verify:" + strings.TrimSpace(req.GetRequester())
+	}
+	if s.Mirror != nil && sessionID != "" {
+		meta := MirrorSessionMeta{Requester: strings.TrimSpace(req.GetRequester())}
+		switch t := req.GetTarget().(type) {
+		case *apiv1.VerifyRequest_Chart:
+			meta.KubeContext = strings.TrimSpace(t.Chart.GetKubeContext())
+			meta.Namespace = strings.TrimSpace(t.Chart.GetNamespace())
+			meta.Release = strings.TrimSpace(t.Chart.GetRelease())
+			meta.Chart = strings.TrimSpace(t.Chart.GetChart())
+		case *apiv1.VerifyRequest_Namespace:
+			meta.KubeContext = strings.TrimSpace(t.Namespace.GetKubeContext())
+			meta.Namespace = strings.TrimSpace(t.Namespace.GetNamespace())
+		}
+		_ = s.Mirror.UpsertSessionMeta(ctx, sessionID, meta, nil)
+		_ = s.Mirror.UpsertSessionStatus(ctx, sessionID, MirrorSessionStatus{State: MirrorSessionStateRunning})
+		defer func() {
+			st := MirrorSessionStatus{
+				State:             MirrorSessionStateDone,
+				ExitCode:          exitCode,
+				CompletedUnixNano: time.Now().UTC().UnixNano(),
+			}
+			if retErr != nil {
+				if errors.Is(retErr, context.Canceled) {
+					st.State = MirrorSessionStateDone
+					st.ExitCode = 130
+					st.ErrorMessage = "canceled"
+				} else {
+					st.State = MirrorSessionStateError
+					st.ExitCode = 1
+					st.ErrorMessage = retErr.Error()
+				}
+			}
+			_ = s.Mirror.UpsertSessionStatus(context.Background(), sessionID, st)
+		}()
 	}
 
 	var objects []map[string]any
@@ -177,7 +219,17 @@ func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyServ
 		default:
 			return nil
 		}
-		return stream.Send(msg)
+		if err := stream.Send(msg); err != nil {
+			return err
+		}
+		if s.Mirror != nil && sessionID != "" {
+			_, _, _ = s.Mirror.ingestFrame(context.Background(), &apiv1.MirrorFrame{
+				SessionId: sessionID,
+				Producer:  producer,
+				Payload:   &apiv1.MirrorFrame_Verify{Verify: msg},
+			})
+		}
+		return nil
 	}
 
 	// Emit collect counts (cheap and useful).
@@ -216,13 +268,24 @@ func (s *verifyService) Verify(req *apiv1.VerifyRequest, stream apiv1.VerifyServ
 			rep.Passed = false
 		}
 	}
+	if rep != nil && !rep.Passed {
+		exitCode = 1
+	}
 
 	// Optional full report payload (for clients that want one blob).
 	raw, _ := json.Marshal(rep)
-	_ = stream.Send(&apiv1.VerifyEvent{
+	msg := &apiv1.VerifyEvent{
 		TimestampUnixNano: time.Now().UTC().UnixNano(),
 		Body:              &apiv1.VerifyEvent_Json{Json: string(raw)},
-	})
+	}
+	_ = stream.Send(msg)
+	if s.Mirror != nil && sessionID != "" {
+		_, _, _ = s.Mirror.ingestFrame(context.Background(), &apiv1.MirrorFrame{
+			SessionId: sessionID,
+			Producer:  producer,
+			Payload:   &apiv1.MirrorFrame_Verify{Verify: msg},
+		})
+	}
 	return nil
 }
 

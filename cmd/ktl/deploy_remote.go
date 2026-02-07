@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type remoteDeployApplyArgs struct {
@@ -57,7 +57,14 @@ type remoteDeployDestroyArgs struct {
 
 func runRemoteDeployApply(cmd *cobra.Command, args remoteDeployApplyArgs) error {
 	ctx := cmd.Context()
-	conn, err := grpcutil.Dial(ctx, args.RemoteAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	creds, err := remoteTransportCredentials(cmd, args.RemoteAddr)
+	if err != nil {
+		return err
+	}
+	conn, err := grpcutil.Dial(ctx, args.RemoteAddr,
+		grpc.WithTransportCredentials(creds),
+		grpcutil.WithBearerToken(remoteToken(cmd)),
+	)
 	if err != nil {
 		return err
 	}
@@ -84,7 +91,22 @@ func runRemoteDeployApply(cmd *cobra.Command, args remoteDeployApplyArgs) error 
 		KubeContext:     derefString(args.KubeContext),
 	}
 
-	stream, err := client.Apply(ctx, &apiv1.DeployApplyRequest{Options: convert.DeployApplyToProto(cfg)})
+	sessionID := newSessionID("remote-deploy")
+	trySetRemoteMirrorSessionMeta(ctx, conn, sessionID, &apiv1.MirrorSessionMeta{
+		Command:     cmd.CommandPath(),
+		Args:        append([]string(nil), os.Args[1:]...),
+		Requester:   defaultRequester(),
+		KubeContext: strings.TrimSpace(cfg.KubeContext),
+		Namespace:   strings.TrimSpace(cfg.Namespace),
+		Release:     strings.TrimSpace(cfg.ReleaseName),
+		Chart:       strings.TrimSpace(cfg.Chart),
+	}, nil)
+	req := &apiv1.DeployApplyRequest{
+		Options:   convert.DeployApplyToProto(cfg),
+		SessionId: sessionID,
+		Requester: defaultRequester(),
+	}
+	stream, err := client.Apply(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -93,7 +115,14 @@ func runRemoteDeployApply(cmd *cobra.Command, args remoteDeployApplyArgs) error 
 
 func runRemoteDeployDestroy(cmd *cobra.Command, args remoteDeployDestroyArgs) error {
 	ctx := cmd.Context()
-	conn, err := grpcutil.Dial(ctx, args.RemoteAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	creds, err := remoteTransportCredentials(cmd, args.RemoteAddr)
+	if err != nil {
+		return err
+	}
+	conn, err := grpcutil.Dial(ctx, args.RemoteAddr,
+		grpc.WithTransportCredentials(creds),
+		grpcutil.WithBearerToken(remoteToken(cmd)),
+	)
 	if err != nil {
 		return err
 	}
@@ -112,7 +141,21 @@ func runRemoteDeployDestroy(cmd *cobra.Command, args remoteDeployDestroyArgs) er
 		KubeConfigPath: derefString(args.KubeConfig),
 		KubeContext:    derefString(args.KubeContext),
 	}
-	stream, err := client.Destroy(ctx, &apiv1.DeployDestroyRequest{Options: convert.DeployDestroyToProto(cfg)})
+	sessionID := newSessionID("remote-deploy")
+	trySetRemoteMirrorSessionMeta(ctx, conn, sessionID, &apiv1.MirrorSessionMeta{
+		Command:     cmd.CommandPath(),
+		Args:        append([]string(nil), os.Args[1:]...),
+		Requester:   defaultRequester(),
+		KubeContext: strings.TrimSpace(cfg.KubeContext),
+		Namespace:   strings.TrimSpace(cfg.Namespace),
+		Release:     strings.TrimSpace(cfg.Release),
+	}, nil)
+	req := &apiv1.DeployDestroyRequest{
+		Options:   convert.DeployDestroyToProto(cfg),
+		SessionId: sessionID,
+		Requester: defaultRequester(),
+	}
+	stream, err := client.Destroy(ctx, req)
 	if err != nil {
 		return err
 	}

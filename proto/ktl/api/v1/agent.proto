@@ -2,7 +2,20 @@ syntax = "proto3";
 
 package ktl.api.v1;
 
-option go_package = "github.com/example/ktl/pkg/api/v1;apiv1";
+option go_package = "github.com/example/ktl/pkg/api/ktl/api/v1;apiv1";
+
+message AgentInfoRequest {}
+
+message AgentInfo {
+  // These fields mirror `ktl version` output so callers can sanity-check
+  // compatibility before issuing long-running streaming RPCs.
+  string version = 1;
+  string git_commit = 2;
+  string git_tree_state = 3;
+  string build_date = 4;
+  string go_version = 5;
+  string platform = 6;
+}
 
 message LogRequest {
   string pod_query = 1;
@@ -22,6 +35,8 @@ message LogRequest {
   string template = 15;
   string kube_context = 16;
   string kubeconfig_path = 17;
+  string session_id = 18;
+  string requester = 19;
 }
 
 message LogLine {
@@ -117,6 +132,8 @@ message DeployApplyOptions {
 
 message DeployApplyRequest {
   DeployApplyOptions options = 1;
+  string session_id = 2;
+  string requester = 3;
 }
 
 message DeployDestroyOptions {
@@ -134,15 +151,20 @@ message DeployDestroyOptions {
 
 message DeployDestroyRequest {
   DeployDestroyOptions options = 1;
+  string session_id = 2;
+  string requester = 3;
 }
 
 message MirrorFrame {
   string session_id = 1;
   string producer = 2;
+  uint64 sequence = 3; // assigned by server
+  int64 received_unix_nano = 4; // server receipt timestamp
   oneof payload {
     LogLine log = 10;
     BuildEvent build = 11;
     DeployEvent deploy = 12;
+    VerifyEvent verify = 14;
     bytes raw = 13;
   }
 }
@@ -156,6 +178,94 @@ message MirrorAck {
 message MirrorSubscribeRequest {
   string session_id = 1;
   bool replay = 2;
+  uint64 from_sequence = 3;
+}
+
+message MirrorSessionMeta {
+  // `command` and `args` aim to preserve the caller's original intent (CLI or IDE action),
+  // while the other fields are optional context for indexing and UI.
+  string command = 1;
+  repeated string args = 2;
+  string requester = 3;
+  string cluster = 4;
+  string kube_context = 5;
+  string namespace = 6;
+  string release = 7;
+  string chart = 8;
+}
+
+message MirrorSession {
+  string session_id = 1;
+  int64 created_unix_nano = 2;
+  int64 last_seen_unix_nano = 3;
+  uint64 last_sequence = 4;
+  MirrorSessionMeta meta = 5;
+  map<string,string> tags = 6;
+  MirrorSessionStatus status = 7;
+}
+
+enum MirrorSessionState {
+  MIRROR_SESSION_STATE_UNSPECIFIED = 0;
+  MIRROR_SESSION_STATE_RUNNING = 1;
+  MIRROR_SESSION_STATE_DONE = 2;
+  MIRROR_SESSION_STATE_ERROR = 3;
+}
+
+message MirrorSessionStatus {
+  MirrorSessionState state = 1;
+  int32 exit_code = 2;
+  string error_message = 3;
+  int64 completed_unix_nano = 4;
+}
+
+message MirrorListSessionsRequest {
+  int32 limit = 1;
+  // Optional query filters (exact match unless noted).
+  // - meta.command: case-insensitive substring match.
+  // - other meta fields: case-insensitive exact match.
+  // - tags: require all key/value pairs to match.
+  MirrorSessionMeta meta = 2;
+  map<string,string> tags = 3;
+  MirrorSessionState state = 4;
+  int64 since_last_seen_unix_nano = 5;
+  int64 until_last_seen_unix_nano = 6;
+}
+
+message MirrorListSessionsResponse {
+  repeated MirrorSession sessions = 1;
+}
+
+message MirrorGetSessionRequest {
+  string session_id = 1;
+}
+
+message MirrorSetSessionMetaRequest {
+  string session_id = 1;
+  MirrorSessionMeta meta = 2;
+  map<string,string> tags = 3;
+}
+
+message MirrorSetSessionStatusRequest {
+  string session_id = 1;
+  MirrorSessionStatus status = 2;
+}
+
+message MirrorDeleteSessionRequest {
+  string session_id = 1;
+}
+
+message MirrorDeleteSessionResponse {
+  bool deleted = 1;
+}
+
+message MirrorExportRequest {
+  string session_id = 1;
+  string format = 2; // "jsonl" (default)
+  uint64 from_sequence = 3;
+}
+
+message MirrorExportChunk {
+  bytes data = 1;
 }
 
 message VerifyChartOptions {
@@ -193,6 +303,8 @@ message VerifyRequest {
     VerifyChartOptions chart = 2;
     VerifyNamespaceOptions namespace = 3;
   }
+  string session_id = 4;
+  string requester = 5;
 }
 
 message VerifyEvent {
@@ -262,8 +374,18 @@ service DeployService {
 service MirrorService {
   rpc Publish(stream MirrorFrame) returns (stream MirrorAck);
   rpc Subscribe(MirrorSubscribeRequest) returns (stream MirrorFrame);
+  rpc ListSessions(MirrorListSessionsRequest) returns (MirrorListSessionsResponse);
+  rpc GetSession(MirrorGetSessionRequest) returns (MirrorSession);
+  rpc SetSessionMeta(MirrorSetSessionMetaRequest) returns (MirrorSession);
+  rpc SetSessionStatus(MirrorSetSessionStatusRequest) returns (MirrorSession);
+  rpc DeleteSession(MirrorDeleteSessionRequest) returns (MirrorDeleteSessionResponse);
+  rpc Export(MirrorExportRequest) returns (stream MirrorExportChunk);
 }
 
 service VerifyService {
   rpc Verify(VerifyRequest) returns (stream VerifyEvent);
+}
+
+service AgentInfoService {
+  rpc GetInfo(AgentInfoRequest) returns (AgentInfo);
 }

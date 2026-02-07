@@ -375,8 +375,14 @@ var DeployService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	MirrorService_Publish_FullMethodName   = "/ktl.api.v1.MirrorService/Publish"
-	MirrorService_Subscribe_FullMethodName = "/ktl.api.v1.MirrorService/Subscribe"
+	MirrorService_Publish_FullMethodName          = "/ktl.api.v1.MirrorService/Publish"
+	MirrorService_Subscribe_FullMethodName        = "/ktl.api.v1.MirrorService/Subscribe"
+	MirrorService_ListSessions_FullMethodName     = "/ktl.api.v1.MirrorService/ListSessions"
+	MirrorService_GetSession_FullMethodName       = "/ktl.api.v1.MirrorService/GetSession"
+	MirrorService_SetSessionMeta_FullMethodName   = "/ktl.api.v1.MirrorService/SetSessionMeta"
+	MirrorService_SetSessionStatus_FullMethodName = "/ktl.api.v1.MirrorService/SetSessionStatus"
+	MirrorService_DeleteSession_FullMethodName    = "/ktl.api.v1.MirrorService/DeleteSession"
+	MirrorService_Export_FullMethodName           = "/ktl.api.v1.MirrorService/Export"
 )
 
 // MirrorServiceClient is the client API for MirrorService service.
@@ -385,6 +391,12 @@ const (
 type MirrorServiceClient interface {
 	Publish(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[MirrorFrame, MirrorAck], error)
 	Subscribe(ctx context.Context, in *MirrorSubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[MirrorFrame], error)
+	ListSessions(ctx context.Context, in *MirrorListSessionsRequest, opts ...grpc.CallOption) (*MirrorListSessionsResponse, error)
+	GetSession(ctx context.Context, in *MirrorGetSessionRequest, opts ...grpc.CallOption) (*MirrorSession, error)
+	SetSessionMeta(ctx context.Context, in *MirrorSetSessionMetaRequest, opts ...grpc.CallOption) (*MirrorSession, error)
+	SetSessionStatus(ctx context.Context, in *MirrorSetSessionStatusRequest, opts ...grpc.CallOption) (*MirrorSession, error)
+	DeleteSession(ctx context.Context, in *MirrorDeleteSessionRequest, opts ...grpc.CallOption) (*MirrorDeleteSessionResponse, error)
+	Export(ctx context.Context, in *MirrorExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[MirrorExportChunk], error)
 }
 
 type mirrorServiceClient struct {
@@ -427,12 +439,87 @@ func (c *mirrorServiceClient) Subscribe(ctx context.Context, in *MirrorSubscribe
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MirrorService_SubscribeClient = grpc.ServerStreamingClient[MirrorFrame]
 
+func (c *mirrorServiceClient) ListSessions(ctx context.Context, in *MirrorListSessionsRequest, opts ...grpc.CallOption) (*MirrorListSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MirrorListSessionsResponse)
+	err := c.cc.Invoke(ctx, MirrorService_ListSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mirrorServiceClient) GetSession(ctx context.Context, in *MirrorGetSessionRequest, opts ...grpc.CallOption) (*MirrorSession, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MirrorSession)
+	err := c.cc.Invoke(ctx, MirrorService_GetSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mirrorServiceClient) SetSessionMeta(ctx context.Context, in *MirrorSetSessionMetaRequest, opts ...grpc.CallOption) (*MirrorSession, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MirrorSession)
+	err := c.cc.Invoke(ctx, MirrorService_SetSessionMeta_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mirrorServiceClient) SetSessionStatus(ctx context.Context, in *MirrorSetSessionStatusRequest, opts ...grpc.CallOption) (*MirrorSession, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MirrorSession)
+	err := c.cc.Invoke(ctx, MirrorService_SetSessionStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mirrorServiceClient) DeleteSession(ctx context.Context, in *MirrorDeleteSessionRequest, opts ...grpc.CallOption) (*MirrorDeleteSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MirrorDeleteSessionResponse)
+	err := c.cc.Invoke(ctx, MirrorService_DeleteSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mirrorServiceClient) Export(ctx context.Context, in *MirrorExportRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[MirrorExportChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MirrorService_ServiceDesc.Streams[2], MirrorService_Export_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[MirrorExportRequest, MirrorExportChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MirrorService_ExportClient = grpc.ServerStreamingClient[MirrorExportChunk]
+
 // MirrorServiceServer is the server API for MirrorService service.
 // All implementations must embed UnimplementedMirrorServiceServer
 // for forward compatibility.
 type MirrorServiceServer interface {
 	Publish(grpc.BidiStreamingServer[MirrorFrame, MirrorAck]) error
 	Subscribe(*MirrorSubscribeRequest, grpc.ServerStreamingServer[MirrorFrame]) error
+	ListSessions(context.Context, *MirrorListSessionsRequest) (*MirrorListSessionsResponse, error)
+	GetSession(context.Context, *MirrorGetSessionRequest) (*MirrorSession, error)
+	SetSessionMeta(context.Context, *MirrorSetSessionMetaRequest) (*MirrorSession, error)
+	SetSessionStatus(context.Context, *MirrorSetSessionStatusRequest) (*MirrorSession, error)
+	DeleteSession(context.Context, *MirrorDeleteSessionRequest) (*MirrorDeleteSessionResponse, error)
+	Export(*MirrorExportRequest, grpc.ServerStreamingServer[MirrorExportChunk]) error
 	mustEmbedUnimplementedMirrorServiceServer()
 }
 
@@ -448,6 +535,24 @@ func (UnimplementedMirrorServiceServer) Publish(grpc.BidiStreamingServer[MirrorF
 }
 func (UnimplementedMirrorServiceServer) Subscribe(*MirrorSubscribeRequest, grpc.ServerStreamingServer[MirrorFrame]) error {
 	return status.Error(codes.Unimplemented, "method Subscribe not implemented")
+}
+func (UnimplementedMirrorServiceServer) ListSessions(context.Context, *MirrorListSessionsRequest) (*MirrorListSessionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSessions not implemented")
+}
+func (UnimplementedMirrorServiceServer) GetSession(context.Context, *MirrorGetSessionRequest) (*MirrorSession, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSession not implemented")
+}
+func (UnimplementedMirrorServiceServer) SetSessionMeta(context.Context, *MirrorSetSessionMetaRequest) (*MirrorSession, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetSessionMeta not implemented")
+}
+func (UnimplementedMirrorServiceServer) SetSessionStatus(context.Context, *MirrorSetSessionStatusRequest) (*MirrorSession, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetSessionStatus not implemented")
+}
+func (UnimplementedMirrorServiceServer) DeleteSession(context.Context, *MirrorDeleteSessionRequest) (*MirrorDeleteSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSession not implemented")
+}
+func (UnimplementedMirrorServiceServer) Export(*MirrorExportRequest, grpc.ServerStreamingServer[MirrorExportChunk]) error {
+	return status.Error(codes.Unimplemented, "method Export not implemented")
 }
 func (UnimplementedMirrorServiceServer) mustEmbedUnimplementedMirrorServiceServer() {}
 func (UnimplementedMirrorServiceServer) testEmbeddedByValue()                       {}
@@ -488,13 +593,135 @@ func _MirrorService_Subscribe_Handler(srv interface{}, stream grpc.ServerStream)
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MirrorService_SubscribeServer = grpc.ServerStreamingServer[MirrorFrame]
 
+func _MirrorService_ListSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MirrorListSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MirrorServiceServer).ListSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MirrorService_ListSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MirrorServiceServer).ListSessions(ctx, req.(*MirrorListSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MirrorService_GetSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MirrorGetSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MirrorServiceServer).GetSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MirrorService_GetSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MirrorServiceServer).GetSession(ctx, req.(*MirrorGetSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MirrorService_SetSessionMeta_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MirrorSetSessionMetaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MirrorServiceServer).SetSessionMeta(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MirrorService_SetSessionMeta_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MirrorServiceServer).SetSessionMeta(ctx, req.(*MirrorSetSessionMetaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MirrorService_SetSessionStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MirrorSetSessionStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MirrorServiceServer).SetSessionStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MirrorService_SetSessionStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MirrorServiceServer).SetSessionStatus(ctx, req.(*MirrorSetSessionStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MirrorService_DeleteSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MirrorDeleteSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MirrorServiceServer).DeleteSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MirrorService_DeleteSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MirrorServiceServer).DeleteSession(ctx, req.(*MirrorDeleteSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MirrorService_Export_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(MirrorExportRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MirrorServiceServer).Export(m, &grpc.GenericServerStream[MirrorExportRequest, MirrorExportChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MirrorService_ExportServer = grpc.ServerStreamingServer[MirrorExportChunk]
+
 // MirrorService_ServiceDesc is the grpc.ServiceDesc for MirrorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var MirrorService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "ktl.api.v1.MirrorService",
 	HandlerType: (*MirrorServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListSessions",
+			Handler:    _MirrorService_ListSessions_Handler,
+		},
+		{
+			MethodName: "GetSession",
+			Handler:    _MirrorService_GetSession_Handler,
+		},
+		{
+			MethodName: "SetSessionMeta",
+			Handler:    _MirrorService_SetSessionMeta_Handler,
+		},
+		{
+			MethodName: "SetSessionStatus",
+			Handler:    _MirrorService_SetSessionStatus_Handler,
+		},
+		{
+			MethodName: "DeleteSession",
+			Handler:    _MirrorService_DeleteSession_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Publish",
@@ -505,6 +732,11 @@ var MirrorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "Subscribe",
 			Handler:       _MirrorService_Subscribe_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "Export",
+			Handler:       _MirrorService_Export_Handler,
 			ServerStreams: true,
 		},
 	},
@@ -613,5 +845,107 @@ var VerifyService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
+	Metadata: "ktl/api/v1/agent.proto",
+}
+
+const (
+	AgentInfoService_GetInfo_FullMethodName = "/ktl.api.v1.AgentInfoService/GetInfo"
+)
+
+// AgentInfoServiceClient is the client API for AgentInfoService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type AgentInfoServiceClient interface {
+	GetInfo(ctx context.Context, in *AgentInfoRequest, opts ...grpc.CallOption) (*AgentInfo, error)
+}
+
+type agentInfoServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAgentInfoServiceClient(cc grpc.ClientConnInterface) AgentInfoServiceClient {
+	return &agentInfoServiceClient{cc}
+}
+
+func (c *agentInfoServiceClient) GetInfo(ctx context.Context, in *AgentInfoRequest, opts ...grpc.CallOption) (*AgentInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AgentInfo)
+	err := c.cc.Invoke(ctx, AgentInfoService_GetInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AgentInfoServiceServer is the server API for AgentInfoService service.
+// All implementations must embed UnimplementedAgentInfoServiceServer
+// for forward compatibility.
+type AgentInfoServiceServer interface {
+	GetInfo(context.Context, *AgentInfoRequest) (*AgentInfo, error)
+	mustEmbedUnimplementedAgentInfoServiceServer()
+}
+
+// UnimplementedAgentInfoServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAgentInfoServiceServer struct{}
+
+func (UnimplementedAgentInfoServiceServer) GetInfo(context.Context, *AgentInfoRequest) (*AgentInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetInfo not implemented")
+}
+func (UnimplementedAgentInfoServiceServer) mustEmbedUnimplementedAgentInfoServiceServer() {}
+func (UnimplementedAgentInfoServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeAgentInfoServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AgentInfoServiceServer will
+// result in compilation errors.
+type UnsafeAgentInfoServiceServer interface {
+	mustEmbedUnimplementedAgentInfoServiceServer()
+}
+
+func RegisterAgentInfoServiceServer(s grpc.ServiceRegistrar, srv AgentInfoServiceServer) {
+	// If the following call panics, it indicates UnimplementedAgentInfoServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AgentInfoService_ServiceDesc, srv)
+}
+
+func _AgentInfoService_GetInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AgentInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentInfoServiceServer).GetInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentInfoService_GetInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentInfoServiceServer).GetInfo(ctx, req.(*AgentInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AgentInfoService_ServiceDesc is the grpc.ServiceDesc for AgentInfoService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AgentInfoService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "ktl.api.v1.AgentInfoService",
+	HandlerType: (*AgentInfoServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetInfo",
+			Handler:    _AgentInfoService_GetInfo_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "ktl/api/v1/agent.proto",
 }

@@ -1,72 +1,79 @@
-# KTL Agent Playbook
+# Agent Playbook (Humans + AI Agents)
 
-Golden paths + validation commands for contributors (humans and AI agents). Keep this doc short and practical: how to make a change without breaking CLI UX, integrations, or the HTML viewers.
+Start here when you want a change to land cleanly:
 
-## Repo Map (What Goes Where)
+1. Read `AGENTS.md` (repo guardrails, golden paths, release flow).
+2. Skim `docs/architecture.md` (repo layout and package ownership).
 
-- `cmd/`: Cobra wiring, flags, CLI UX. Keep it thin.
-- `internal/`: core logic packages. Prefer threading options structs + `context.Context`.
-- `pkg/`: reusable exported libs (and generated API stubs under `pkg/api/v1`).
+## Preflight
+
+Run early and always before you push:
+
+```bash
+make preflight # fmt + lint + unit tests
+```
+
+If you changed user-facing behavior (flags/output/config parsing), also do a local smoke:
+
+```bash
+make build
+./bin/ktl --help
+```
+
+## Repo Map
+
+- `cmd/`: Cobra wiring, flags, CLI UX.
+- `internal/`: core logic packages.
+- `pkg/`: reusable exported libs (generated API stubs live under `pkg/api/`).
 - `testdata/`: fixtures and goldens (charts, stacks, render fixtures).
 - `integration/`: live-cluster harnesses (opt-in; guarded by env/tags).
+- `docs/`: contributor docs and embedded help-ui content (see `docs/embed.go`).
 
 ## Golden Paths
 
-### Add a Flag
+### Add a CLI flag
 
-1. Add flag wiring under `cmd/ktl/*`.
-2. Thread into an options struct under `internal/*` (avoid global vars).
-3. Validate behavior with a focused unit test (usually `go test ./cmd/ktl -run <TestName>`).
+1. Add Cobra flag wiring under `cmd/ktl/*`.
+2. Thread into an options struct under `internal/*`.
+3. Add/extend a unit test near the behavior.
 4. If user-facing: update help-ui search/examples under `internal/helpui/`.
 
-### Add a Subcommand
+### Add a subcommand
 
 1. Cobra wiring: `cmd/ktl/*` only.
-2. Logic: new/extended package under `internal/*`.
-3. Tests: start with `go test ./cmd/ktl`, then expand to `go test ./...` before review.
+2. Logic: implement in `internal/*`.
+3. Tests: start with `go test ./cmd/ktl/...`, then run `make test` before review.
 
-### Touch Deploy / UI Surfaces
+### Touch HTML/CSS/UI
 
-- Design rules live in `AGENTS.md` (Frontend Design System) and `DESIGN.md`.
-- Extend tokens/components first, then ship UI changes.
-- Ensure print/export behavior stays correct (`@media print` rules).
+Source of truth: `DESIGN.md`.
 
-### Update Protobuf / API Stubs
+- Prefer extending tokens and existing components over one-off styles.
+- Verify the relevant surface manually (`ktl help --ui`, `ktl apply --ui`, `ktl delete --ui`).
 
-1. Lint: `make proto-lint`
-2. Generate: `make proto`
-3. Ensure the tree is clean: `git diff --exit-code`
-
-## Validation (What Reviewers Expect)
-
-Local (fast loop):
+### Update protobuf / API stubs
 
 ```bash
-go test ./cmd/ktl -run TestName
+make proto-lint
+make proto
+git diff --exit-code
 ```
 
-Before opening a PR:
+## Testing Map
 
-```bash
-make fmt
-make lint
-make test
-```
-
-Single entrypoint (fmt + lint + unit + smoke):
-
-```bash
-./scripts/testpoint.sh
-```
-
-Optional suites:
-
-- Tagged integration: `./scripts/testpoint.sh --integration`
-- Chart verify allowlist: `./scripts/testpoint.sh --charts-e2e`
+- Unit tests: `make test` (or `go test ./...`).
+- CI parity: `make test-ci` (fmt + lint + tests + package/verify smoke).
+- Live-cluster integration suite (requires `kubectl` + kubeconfig): `KTL_TEST_KUBECONFIG=$HOME/.kube/config go test ./integration/...` (example kubeconfig: `$HOME/.kube/archimedes.yaml`).
 
 ## Guardrails
 
-- Do not commit build outputs: `bin/`, `dist/`.
+- Do not commit build outputs (`bin/`, `dist/`).
 - Keep secrets out of the repo (kubeconfigs, captured logs, rendered manifests with real values).
-- Prefer deterministic outputs: when generating code or updating goldens, include the exact command you ran.
+- When generating code or goldens, include the exact command you ran in the PR description.
 
+## References
+
+- gRPC agent API (ktl-agent): `docs/grpc-agent.md`
+- Dependency map (generated): `docs/deps.md` (refresh via `make deps`)
+- Troubleshooting: `docs/troubleshooting.md`
+- Sandbox policy: `sandbox/*.cfg`

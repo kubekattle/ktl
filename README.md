@@ -65,7 +65,10 @@ ktl help --ui
 ## Development
 
 ```bash
-make fmt
-make lint
-make test
+make preflight # fmt + lint + unit tests
+make test      # go test ./...
+make fmt       # gofmt
+make lint      # go vet ./...
 ```
+
+See `AGENTS.md` for contributor guidance.

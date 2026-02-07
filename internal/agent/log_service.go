@@ -6,7 +6,11 @@
 package agent
 
 import (
+	"context"
+	"errors"
 	"io"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -27,7 +31,7 @@ type LogServer struct {
 }
 
 // StreamLogs executes a tailer instance and streams log lines to clients.
-func (s *LogServer) StreamLogs(req *apiv1.LogRequest, stream apiv1.LogService_StreamLogsServer) error {
+func (s *LogServer) StreamLogs(req *apiv1.LogRequest, stream apiv1.LogService_StreamLogsServer) (retErr error) {
 	if s == nil {
 		return status.Error(codes.Unavailable, "log server unavailable")
 	}
@@ -49,6 +53,42 @@ func (s *LogServer) StreamLogs(req *apiv1.LogRequest, stream apiv1.LogService_St
 	}
 	opts.KubeConfigPath = kubeconfig
 	opts.Context = kubeContext
+
+	sessionID := strings.TrimSpace(req.GetSessionId())
+	if s.Mirror != nil && sessionID != "" {
+		meta := MirrorSessionMeta{
+			Requester:   strings.TrimSpace(req.GetRequester()),
+			KubeContext: strings.TrimSpace(kubeContext),
+		}
+		if !req.GetAllNamespaces() && len(req.GetNamespaces()) == 1 {
+			meta.Namespace = strings.TrimSpace(req.GetNamespaces()[0])
+		}
+		tags := map[string]string{
+			"logs.pod_query": strings.TrimSpace(opts.PodQuery),
+		}
+		_ = s.Mirror.UpsertSessionMeta(ctx, sessionID, meta, tags)
+		_ = s.Mirror.UpsertSessionStatus(ctx, sessionID, MirrorSessionStatus{State: MirrorSessionStateRunning})
+		defer func() {
+			st := MirrorSessionStatus{
+				State:             MirrorSessionStateDone,
+				ExitCode:          0,
+				CompletedUnixNano: time.Now().UTC().UnixNano(),
+			}
+			if retErr != nil {
+				if errors.Is(retErr, context.Canceled) {
+					// Client disconnected or canceled; treat as a normal shutdown for log streams.
+					st.State = MirrorSessionStateDone
+					st.ExitCode = 0
+				} else {
+					st.State = MirrorSessionStateError
+					st.ExitCode = 1
+					st.ErrorMessage = retErr.Error()
+				}
+			}
+			_ = s.Mirror.UpsertSessionStatus(context.Background(), sessionID, st)
+		}()
+	}
+
 	client, err := kube.New(ctx, kubeconfig, kubeContext)
 	if err != nil {
 		return err
@@ -57,7 +97,11 @@ func (s *LogServer) StreamLogs(req *apiv1.LogRequest, stream apiv1.LogService_St
 	if logger.GetSink() == nil {
 		logger = logr.Logger{}
 	}
-	observer := &logStreamObserver{stream: stream}
+	producer := "logs"
+	if strings.TrimSpace(req.GetRequester()) != "" {
+		producer = "logs:" + strings.TrimSpace(req.GetRequester())
+	}
+	observer := &logStreamObserver{stream: stream, mirror: s.Mirror, sessionID: sessionID, producer: producer}
 	tailerOpts := []tailer.Option{tailer.WithLogObserver(observer), tailer.WithOutput(io.Discard)}
 	t, err := tailer.New(client.Clientset, opts, logger, tailerOpts...)
 	if err != nil {
@@ -67,7 +111,10 @@ func (s *LogServer) StreamLogs(req *apiv1.LogRequest, stream apiv1.LogService_St
 }
 
 type logStreamObserver struct {
-	stream apiv1.LogService_StreamLogsServer
+	stream    apiv1.LogService_StreamLogsServer
+	mirror    *MirrorServer
+	sessionID string
+	producer  string
 }
 
 func (l *logStreamObserver) ObserveLog(rec tailer.LogRecord) {
@@ -76,4 +123,11 @@ func (l *logStreamObserver) ObserveLog(rec tailer.LogRecord) {
 	}
 	line := convert.ToProtoLogRecord(rec)
 	_ = l.stream.Send(line)
+	if l.mirror != nil && l.sessionID != "" {
+		_, _, _ = l.mirror.ingestFrame(context.Background(), &apiv1.MirrorFrame{
+			SessionId: l.sessionID,
+			Producer:  l.producer,
+			Payload:   &apiv1.MirrorFrame_Log{Log: line},
+		})
+	}
 }
