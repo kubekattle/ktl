@@ -16,6 +16,7 @@ type Evidence struct {
 	Events          []corev1.Event    // Events related to the pod
 	NamespaceEvents []corev1.Event    // Recent events in the namespace (for context)
 	Logs            map[string]string // ContainerName -> Last N lines of logs
+	SourceSnippets  []Snippet         // Code snippets linked from stack traces
 	Manifest        string            // YAML representation (optional)
 }
 
@@ -88,12 +89,21 @@ func GatherEvidence(ctx context.Context, client kubernetes.Interface, namespace,
 		}
 	}
 
+	// 4. Source Code Correlation (The Magic)
+	// We scan the collected logs for stack traces and try to find matching code in the CWD
+	var snippets []Snippet
+	for _, log := range logs {
+		s := FindSourceSnippets(log)
+		snippets = append(snippets, s...)
+	}
+
 	return &Evidence{
 		Pod:             pod,
 		Node:            node,
 		Events:          events.Items,
 		NamespaceEvents: nsEvents,
 		Logs:            logs,
+		SourceSnippets:  snippets,
 	}, nil
 }
 

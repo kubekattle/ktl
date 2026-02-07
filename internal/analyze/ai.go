@@ -161,6 +161,16 @@ func buildPrompt(e *Evidence) string {
 		redacted := secrets.RedactText(truncated)
 		b.WriteString(fmt.Sprintf("Container: %s\n%s\n", c, redacted))
 	}
+
+	// 6. Source Code Snippets (Log-to-Code Correlation)
+	if len(e.SourceSnippets) > 0 {
+		b.WriteString("\n--- Source Code Context (Found in Local Workspace) ---\n")
+		b.WriteString("I found stack traces in the logs that match files in your current workspace. Use this code to explain the crash.\n")
+		for _, s := range e.SourceSnippets {
+			b.WriteString(fmt.Sprintf("File: %s:%d\n```go\n%s\n```\n", s.File, s.Line, s.Content))
+		}
+	}
+
 	b.WriteString("\nProvide response in JSON format with keys: rootCause, suggestion, explanation, confidenceScore (float), patch (optional kubectl patch string or JSON patch).")
 	return b.String()
 }
