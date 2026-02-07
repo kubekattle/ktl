@@ -11,10 +11,12 @@ import (
 
 // Evidence collects all relevant data for analysis
 type Evidence struct {
-	Pod      *corev1.Pod
-	Events   []corev1.Event
-	Logs     map[string]string // ContainerName -> Last N lines of logs
-	Manifest string            // YAML representation (optional)
+	Pod             *corev1.Pod
+	Node            *corev1.Node      // Details of the node running the pod
+	Events          []corev1.Event    // Events related to the pod
+	NamespaceEvents []corev1.Event    // Recent events in the namespace (for context)
+	Logs            map[string]string // ContainerName -> Last N lines of logs
+	Manifest        string            // YAML representation (optional)
 }
 
 // Diagnosis represents the result of an analysis
@@ -37,11 +39,34 @@ func GatherEvidence(ctx context.Context, client kubernetes.Interface, namespace,
 		return nil, fmt.Errorf("failed to get pod: %w", err)
 	}
 
+	// 1. Get Pod Events
 	events, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("involvedObject.name=%s", podName),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get events: %w", err)
+	}
+
+	// 2. Get Node Info (if scheduled)
+	var node *corev1.Node
+	if pod.Spec.NodeName != "" {
+		n, err := client.CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{})
+		if err == nil {
+			node = n
+		}
+	}
+
+	// 3. Get Recent Namespace Events (Contextual Clues)
+	// We grab the last 20 warning events in the namespace to see if there's a wider issue
+	// (e.g. Quota exceeded, PVC binding issues unrelated to this specific pod object ref)
+	nsEventsList, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		Limit: 20,
+	})
+	var nsEvents []corev1.Event
+	if err == nil {
+		// Simple filter for Warnings or recent stuff could be done here.
+		// For now, we just pass them all, and let the analyzer filter.
+		nsEvents = nsEventsList.Items
 	}
 
 	logs := make(map[string]string)
@@ -64,9 +89,11 @@ func GatherEvidence(ctx context.Context, client kubernetes.Interface, namespace,
 	}
 
 	return &Evidence{
-		Pod:    pod,
-		Events: events.Items,
-		Logs:   logs,
+		Pod:             pod,
+		Node:            node,
+		Events:          events.Items,
+		NamespaceEvents: nsEvents,
+		Logs:            logs,
 	}, nil
 }
 

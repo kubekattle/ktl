@@ -102,22 +102,64 @@ func (a *AIAnalyzer) callOpenAI(ctx context.Context, evidence *Evidence) (*Diagn
 
 func buildPrompt(e *Evidence) string {
 	var b strings.Builder
-	b.WriteString("Analyze this pod failure.\n")
+	b.WriteString("Analyze this pod failure with holistic cluster context.\n")
+
+	// 1. Pod Context
 	if e.Pod != nil {
-		b.WriteString(fmt.Sprintf("Pod: %s (Status: %s)\n", e.Pod.Name, e.Pod.Status.Phase))
+		b.WriteString(fmt.Sprintf("Target Pod: %s (Phase: %s, Node: %s)\n", e.Pod.Name, e.Pod.Status.Phase, e.Pod.Spec.NodeName))
 	}
-	b.WriteString("Events:\n")
+
+	// 2. Node Context (Infrastructure Health)
+	if e.Node != nil {
+		b.WriteString("\n--- Infrastructure Context (Node) ---\n")
+		b.WriteString(fmt.Sprintf("Node Name: %s\n", e.Node.Name))
+		for _, cond := range e.Node.Status.Conditions {
+			if cond.Status == "True" && cond.Type != "Ready" {
+				b.WriteString(fmt.Sprintf("WARNING: Node Condition %s is True (Reason: %s, Msg: %s)\n", cond.Type, cond.Reason, cond.Message))
+			} else if cond.Type == "Ready" && cond.Status != "True" {
+				b.WriteString(fmt.Sprintf("CRITICAL: Node is NOT Ready (Reason: %s)\n", cond.Reason))
+			}
+		}
+		// Check allocatable vs capacity? (Omitted for brevity, AI can infer from OOMKilled events)
+	}
+
+	// 3. Direct Events
+	b.WriteString("\n--- Pod Events ---\n")
 	for _, ev := range e.Events {
 		// Redact events too, just in case
 		msg := secrets.RedactText(ev.Message)
-		b.WriteString(fmt.Sprintf("- %s: %s\n", ev.Reason, msg))
+		b.WriteString(fmt.Sprintf("- [%s] %s: %s\n", ev.Type, ev.Reason, msg))
 	}
-	b.WriteString("Logs:\n")
+
+	// 4. Neighborhood Context (Namespace Events)
+	// Filter out events we already showed for the pod to reduce noise
+	b.WriteString("\n--- Namespace Context (Potential Noisy Neighbors / Quotas) ---\n")
+	shownEvents := make(map[string]bool)
+	for _, ev := range e.Events {
+		shownEvents[string(ev.UID)] = true
+	}
+	count := 0
+	for _, ev := range e.NamespaceEvents {
+		if shownEvents[string(ev.UID)] {
+			continue
+		}
+		if ev.Type == "Warning" { // Only show warnings from others to save tokens
+			msg := secrets.RedactText(ev.Message)
+			b.WriteString(fmt.Sprintf("- [%s] %s (on %s): %s\n", ev.Type, ev.Reason, ev.InvolvedObject.Name, msg))
+			count++
+		}
+		if count >= 10 {
+			break
+		} // Limit to top 10 external warnings
+	}
+
+	// 5. Logs
+	b.WriteString("\n--- Container Logs ---\n")
 	for c, l := range e.Logs {
 		// Smart truncation: keep last 20 lines + any lines with "error", "fatal", "panic"
 		truncated := smartTruncateLogs(l, 50)
 		redacted := secrets.RedactText(truncated)
-		b.WriteString(fmt.Sprintf("--- Container %s ---\n%s\n", c, redacted))
+		b.WriteString(fmt.Sprintf("Container: %s\n%s\n", c, redacted))
 	}
 	b.WriteString("\nProvide response in JSON format with keys: rootCause, suggestion, explanation, confidenceScore (float), patch (optional kubectl patch string or JSON patch).")
 	return b.String()
@@ -171,12 +213,27 @@ func (a *AIAnalyzer) mockAnalysis(evidence *Evidence) *Diagnosis {
 		Patch:           `{"spec": {"containers": [{"name": "db", "env": [{"name": "DB_PASSWORD", "valueFrom": {"secretKeyRef": {"name": "db-secret", "key": "password"}}}]}]}}`,
 	}
 
-	// Make it slightly dynamic based on input logs to prove we "looked" at them
+	// 1. Check Node Health (Holistic Check)
+	if evidence.Node != nil {
+		for _, cond := range evidence.Node.Status.Conditions {
+			if cond.Type == "DiskPressure" && cond.Status == "True" {
+				return &Diagnosis{
+					ConfidenceScore: 0.95,
+					RootCause:       "Infrastructure Failure: Node Disk Pressure",
+					Suggestion:      "Free up disk space on node " + evidence.Node.Name + " or evict low-priority pods.",
+					Explanation:     fmt.Sprintf("The pod is failing because the underlying node (%s) is under Disk Pressure. This is an infrastructure issue, not a pod configuration issue.", evidence.Node.Name),
+				}
+			}
+		}
+	}
+
+	// 2. Check Logs
 	for _, log := range evidence.Logs {
 		if strings.Contains(log, "cgroup") {
 			d.RootCause = "Simulated AI Analysis: Cgroup v2 Incompatibility"
 			d.Suggestion = "Mount /sys/fs/cgroup from host or use a privileged security context."
 			d.Explanation = "Logs indicate a failure to access cgroup controllers, common in nested container environments on modern Linux kernels."
+			d.Patch = "" // No easy patch for this one
 			return d
 		}
 	}
