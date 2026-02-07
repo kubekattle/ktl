@@ -1,0 +1,114 @@
+name: Publish GHCR image
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.25.7'
+          cache: true
+
+      - name: Build linux binaries (amd64/arm64)
+        run: |
+          set -euo pipefail
+          mkdir -p docker/bin
+
+          commit="$(git rev-parse --short=12 HEAD)"
+          source_date_epoch="$(git show -s --format=%ct HEAD)"
+          build_date="$(date -u -d "@${source_date_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
+
+          ldflags="-s -w \
+            -X github.com/example/ktl/internal/version.Version=${{ github.ref_name }} \
+            -X github.com/example/ktl/internal/version.GitCommit=${commit} \
+            -X github.com/example/ktl/internal/version.GitTreeState=clean \
+            -X github.com/example/ktl/internal/version.BuildDate=${build_date}"
+
+          for arch in amd64 arm64; do
+            out="docker/bin/ktl-linux-${arch}"
+            echo ">> building linux/${arch} -> ${out}"
+            GOOS=linux GOARCH="${arch}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "${ldflags}" -o "${out}" ./cmd/ktl
+          done
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=ref,event=branch
+            type=sha
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: docker
+          file: docker/ktl.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+
+      - name: Sign image (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${image}"
+
+      - name: Verify image signature
+        run: |
+          set -euo pipefail
+          issuer="https://token.actions.githubusercontent.com"
+          identity_re="^https://github.com/${{ github.repository }}/.github/workflows/publish-ghcr\\.yml@${{ github.ref }}$"
+          image="ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+          cosign verify \
+            --certificate-identity-regexp "${identity_re}" \
+            --certificate-oidc-issuer "${issuer}" \
+            "${image}" >/dev/null
+
+      - name: Attest build provenance (registry)
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
