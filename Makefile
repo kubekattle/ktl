@@ -51,8 +51,8 @@ LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/example/ktl/cmd/ktl.buildMode=$(LOGS_BU
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e
- 
+.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
+
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
 
@@ -248,6 +248,27 @@ test-ci: ## Run fmt, lint, test, and package/verify smoke (CI parity)
 
 verify-charts-e2e: ## Run verify across all charts in testdata/charts (requires verify binary)
 	VERIFY_BIN="$(BIN_DIR)/verify" ./integration/verify_charts_e2e.sh
+
+testpoint: ## Single entrypoint for fmt/lint/tests (scripts/testpoint.sh)
+	./scripts/testpoint.sh
+
+testpoint-ci: ## CI-flavored testpoint run (format check, go mod verify, unit tests + smoke)
+	./scripts/testpoint.sh --ci --json-out /tmp/go-test.json
+
+testpoint-unit: ## Unit testpoint run (fmt + lint + unit + smoke)
+	./scripts/testpoint.sh
+
+testpoint-integration: ## Integration testpoint run (adds tagged integration tests)
+	./scripts/testpoint.sh --integration
+
+testpoint-charts-e2e: ## Chart verify e2e (allowlist) via integration/verify_charts_e2e.sh
+	./scripts/testpoint.sh --charts-e2e
+
+testpoint-e2e-real: ## Real-cluster e2e (requires env; see scripts/testpoint.sh --help)
+	./scripts/testpoint.sh --e2e-real
+
+testpoint-all: ## Full testpoint run (unit + integration + charts-e2e)
+	./scripts/testpoint.sh --integration --charts-e2e
 
 fmt: ## Format all Go files in the module
 	@echo ">> go fmt ./..."

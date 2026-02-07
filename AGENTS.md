@@ -48,6 +48,8 @@ If you’re an AI agent (or using one), start with:
 | `make build` | Compile `ktl` for the host platform into `bin/ktl`. |
 | `make install` | `go install ./cmd/ktl` to `$GOBIN`. |
 | `make test` / `go test ./...` | Run unit + package tests. Prefer targeted packages when iterating, but run the full suite before PR. |
+| `./scripts/testpoint.sh` / `make testpoint` | Single entrypoint: fmt, lint, unit tests, and smoke packaging (plus optional integration/e2e flags). |
+| `make testpoint-all` | Unit + integration-tagged tests + chart verify e2e (allowlist). |
 | `go test -tags=integration ./cmd/ktl -run TestBuildDockerfileFixtures` | Builds all Dockerfile fixtures in `testdata/build/dockerfiles/*`; requires Docker on Linux. |
 | `go test -tags=integration ./cmd/ktl -run TestBuildComposeFixtures` | Builds every Compose stack under `testdata/build/compose/`; requires Docker + docker compose. |
 | `go test -tags=integration ./cmd/ktl -run TestBuildRunsInsideSandbox` | Linux + Docker + sandbox runtime required; proves `ktl build` re-execs inside the sandbox end-to-end. |
