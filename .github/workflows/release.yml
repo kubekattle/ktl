@@ -133,6 +133,7 @@ jobs:
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        continue-on-error: true
         with:
           subject-path: |
             dist/*.tar.gz
@@ -142,18 +143,21 @@ jobs:
 
       - name: Attest SBOM (ktl)
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        continue-on-error: true
         with:
           subject-path: dist/ktl-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
           sbom-path: dist/ktl-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
 
       - name: Attest SBOM (verify)
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        continue-on-error: true
         with:
           subject-path: dist/verify-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
           sbom-path: dist/verify-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
 
       - name: Attest SBOM (package)
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        continue-on-error: true
         with:
           subject-path: dist/package-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
           sbom-path: dist/package-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
@@ -249,6 +253,7 @@ jobs:
 
       - name: Attest build provenance (packages)
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        continue-on-error: true
         with:
           subject-path: |
             dist/*.deb
@@ -259,12 +264,14 @@ jobs:
 
       - name: Attest SBOM (deb)
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        continue-on-error: true
         with:
           subject-path: dist/ktl_${{ github.ref_name }}_amd64.deb
           sbom-path: dist/ktl_${{ github.ref_name }}_amd64.deb.sbom.spdx.json
 
       - name: Attest SBOM (rpm)
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        continue-on-error: true
         with:
           subject-path: dist/ktl-${{ github.ref_name }}-1.x86_64.rpm
           sbom-path: dist/ktl-${{ github.ref_name }}-1.x86_64.rpm.sbom.spdx.json

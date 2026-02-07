@@ -4,7 +4,7 @@ This project publishes release assets with:
 
 - `*.sha256` files and `checksums-*.txt` (SHA256)
 - `*.sigstore.json` (cosign keyless bundles)
-- GitHub artifact attestations (SLSA provenance + SBOM)
+- GitHub artifact attestations (SLSA provenance + SBOM) when supported by the repo (plan/visibility)
 
 ## Verify Checksums
 
@@ -36,6 +36,9 @@ cosign verify-blob \
 ```
 
 ## Verify GitHub Attestations
+
+Note: GitHub attestation verification only works if the workflow successfully published attestations.
+Some GitHub plans/visibility settings (for example, user-owned private repos) do not support artifact attestations; in that case, rely on the checksum + cosign verification above.
 
 Provenance attestation verification:
 
