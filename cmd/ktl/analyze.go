@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/example/ktl/internal/analyze"
@@ -129,17 +131,63 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 	if diagnosis.Patch != "" {
 		fmt.Println()
 		if confirmFix() {
-			// Apply fix logic
-			// Note: This requires parsing the patch and applying it.
-			// For simplicity, we assume it's a kubectl patch string for now or we just print it.
-			// Real implementation would use dynamic client patch.
 			fmt.Println("Applying patch...")
 			// TODO: Implement actual patch application using kClient.Dynamic()
 			// For now, we simulate it.
 			fmt.Printf("Successfully applied patch to %s/%s\n", namespace, podName)
 		}
 	}
+
+	// 7. Interactive Chat (Iteration 5)
+	if aiAnalyzer, ok := analyzer.(*analyze.AIAnalyzer); ok && (useAI || provider != "heuristic") {
+		startChatLoop(ctx, aiAnalyzer, diagnosis)
+	}
+
 	return nil
+}
+
+func startChatLoop(ctx context.Context, ai *analyze.AIAnalyzer, initialDiagnosis *analyze.Diagnosis) {
+	fmt.Println()
+	color.New(color.FgMagenta, color.Bold).Println(" INTERACTIVE CHAT MODE ")
+	fmt.Println("Ask follow-up questions about the pod, logs, or diagnosis. Type 'exit' to quit.")
+	fmt.Println(strings.Repeat("-", 40))
+
+	// Initial history
+	history := []analyze.Message{
+		{Role: "system", Content: "You are a Kubernetes Assistant. You have just provided a diagnosis for a failing pod. Answer user follow-up questions based on the evidence provided earlier."},
+		{Role: "assistant", Content: fmt.Sprintf("Diagnosis: %s. %s", initialDiagnosis.RootCause, initialDiagnosis.Explanation)},
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		color.New(color.FgCyan).Print("\n> ")
+		if !scanner.Scan() {
+			break
+		}
+		query := strings.TrimSpace(scanner.Text())
+		if query == "" {
+			continue
+		}
+		if query == "exit" || query == "quit" {
+			break
+		}
+
+		// User message
+		history = append(history, analyze.Message{Role: "user", Content: query})
+
+		// Call AI
+		fmt.Print("Thinking...")
+		response, err := ai.Chat(ctx, history)
+		fmt.Print("\r") // Clear "Thinking..."
+		if err != nil {
+			color.New(color.FgRed).Printf("Error: %v\n", err)
+			continue
+		}
+
+		// Assistant response
+		fmt.Println(response)
+		history = append(history, analyze.Message{Role: "assistant", Content: response})
+	}
 }
 
 func confirmFix() bool {
@@ -154,14 +202,14 @@ func isPodHealthy(pod metav1.Object) bool {
 	// Since we don't have full access to the struct in this helper without importing corev1,
 	// we will rely on the caller or just implement basic logic in GatherEvidence.
 	// For now, let's assume the user provides the pod name or we find one.
-	return false 
+	return false
 }
 
 func printDiagnosis(d *analyze.Diagnosis) {
 	fmt.Println()
 	color.New(color.FgCyan, color.Bold).Println(" ANALYSIS REPORT ")
 	fmt.Println(strings.Repeat("=", 40))
-	
+
 	color.New(color.FgYellow).Printf("Root Cause: ")
 	fmt.Printf("%s\n\n", d.RootCause)
 
@@ -171,7 +219,7 @@ func printDiagnosis(d *analyze.Diagnosis) {
 	if d.ConfidenceScore > 0 {
 		fmt.Printf("Confidence: %.0f%%\n", d.ConfidenceScore*100)
 	}
-	
+
 	if d.Explanation != "" {
 		fmt.Println("\nExplanation:")
 		fmt.Println(d.Explanation)

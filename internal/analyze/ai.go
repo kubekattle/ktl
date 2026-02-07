@@ -13,6 +13,11 @@ import (
 	"github.com/example/ktl/internal/secrets"
 )
 
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 type AIAnalyzer struct {
 	Provider string
 	Model    string
@@ -100,6 +105,70 @@ func (a *AIAnalyzer) callOpenAI(ctx context.Context, evidence *Evidence) (*Diagn
 	return &d, nil
 }
 
+func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error) {
+	if a.Provider == "mock" {
+		return "This is a mock response. In real mode, I would answer your question based on the pod context.", nil
+	}
+
+	key := os.Getenv("OPENAI_API_KEY")
+	if key == "" {
+		return "", fmt.Errorf("OPENAI_API_KEY not set")
+	}
+
+	model := a.Model
+	if model == "" {
+		model = "gpt-4-turbo-preview"
+	}
+
+	// Convert our Message struct to map for JSON
+	var messages []map[string]string
+	for _, m := range history {
+		messages = append(messages, map[string]string{"role": m.Role, "content": m.Content})
+	}
+
+	reqBody := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+	}
+
+	jsonBody, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("OpenAI API error: %s", string(body))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("no response from AI")
+	}
+
+	return result.Choices[0].Message.Content, nil
+}
+
 func buildPrompt(e *Evidence) string {
 	var b strings.Builder
 	b.WriteString("Analyze this pod failure with holistic cluster context.\n")
@@ -153,13 +222,90 @@ func buildPrompt(e *Evidence) string {
 		} // Limit to top 10 external warnings
 	}
 
+	// 4.5 Configuration Validation
+	if len(e.ConfigWarnings) > 0 {
+		b.WriteString("\n--- Configuration Validation (Missing Resources) ---\n")
+		for _, w := range e.ConfigWarnings {
+			b.WriteString(fmt.Sprintf("CRITICAL: %s\n", w))
+		}
+	}
+
+	// 4.6 Network Reachability
+	if len(e.NetworkContext) > 0 {
+		b.WriteString("\n--- Network Reachability Context ---\n")
+		for _, n := range e.NetworkContext {
+			b.WriteString(fmt.Sprintf("%s\n", n))
+		}
+	}
+
+	// 4.65 Resource Analysis
+	if len(e.ResourceInfo) > 0 {
+		b.WriteString("\n--- Resource Analysis (QoS / Limits) ---\n")
+		for _, r := range e.ResourceInfo {
+			b.WriteString(fmt.Sprintf("%s\n", r))
+		}
+	}
+
+	// 4.7 Image Analysis
+	if len(e.ImageAnalysis) > 0 {
+		b.WriteString("\n--- Image Analysis ---\n")
+		for _, i := range e.ImageAnalysis {
+			b.WriteString(fmt.Sprintf("%s\n", i))
+		}
+	}
+
+	// 4.8 Security Audit
+	if len(e.SecurityAudit) > 0 {
+		b.WriteString("\n--- Security Audit ---\n")
+		for _, s := range e.SecurityAudit {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+	}
+
+	// 4.9 Availability Context (PDB)
+	if len(e.Availability) > 0 {
+		b.WriteString("\n--- Availability Context (PDB) ---\n")
+		for _, a := range e.Availability {
+			b.WriteString(fmt.Sprintf("%s\n", a))
+		}
+	}
+
+	// 4.10 Change Detection (Diff)
+	if len(e.ChangeDiff) > 0 {
+		b.WriteString("\n--- Change Detection (Recent Deployments) ---\n")
+		for _, c := range e.ChangeDiff {
+			b.WriteString(fmt.Sprintf("%s\n", c))
+		}
+	}
+
+	// 5. Local Knowledge Base
+	if e.LocalDocs != "" {
+		b.WriteString("\n--- Local Knowledge Base (Company Runbook) ---\n")
+		// Truncate to avoid token explosion
+		docs := e.LocalDocs
+		if len(docs) > 2000 {
+			docs = docs[:2000] + "...(truncated)"
+		}
+		b.WriteString(docs + "\n")
+	}
+
 	// 5. Logs
 	b.WriteString("\n--- Container Logs ---\n")
 	for c, l := range e.Logs {
-		// Smart truncation: keep last 20 lines + any lines with "error", "fatal", "panic"
+		// Smart truncation
 		truncated := smartTruncateLogs(l, 50)
 		redacted := secrets.RedactText(truncated)
 		b.WriteString(fmt.Sprintf("Container: %s\n%s\n", c, redacted))
+	}
+
+	// 5.1 Previous Logs (Time Travel)
+	if len(e.PreviousLogs) > 0 {
+		b.WriteString("\n--- Previous Container Logs (CRASH HISTORY) ---\n")
+		for c, l := range e.PreviousLogs {
+			truncated := smartTruncateLogs(l, 50)
+			redacted := secrets.RedactText(truncated)
+			b.WriteString(fmt.Sprintf("Container: %s (PREVIOUS INSTANCE)\n%s\n", c, redacted))
+		}
 	}
 
 	// 6. Source Code Snippets (Log-to-Code Correlation)
