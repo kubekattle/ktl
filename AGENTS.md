@@ -32,7 +32,7 @@ If you’re an AI agent (or using one), start with:
 - Profiles/app config: global `~/.ktl/config.yaml`, repo `.ktl.yaml`; validate with `go test ./cmd/ktl -run TestBuildProfile`.
 - Update fixtures: edit `testdata/...`, refresh goldens, and rerun the closest tests.
 - UI work: follow `DESIGN.md`; extend tokens/components first.
-- Tags & GitHub Releases: create/push an annotated tag (`git tag -a vX.Y.Z -m "vX.Y.Z"`, then `git push origin vX.Y.Z`) and publish a matching GitHub Release (required by `.github/workflows/release-guard.yml`). CI uploads release artifacts with SHA256 checksums, SBOMs, cosign bundle signatures, and GitHub artifact attestations (SLSA provenance + SBOM).
+- Tags & GitHub Releases: create/push an annotated tag (`git tag -a vX.Y.Z -m "vX.Y.Z"`, then `git push origin vX.Y.Z`) and publish a matching GitHub Release (required by `.github/workflows/release-guard.yml`). CI uploads release artifacts (tarballs + `.deb`/`.rpm`) with SHA256 checksums, SBOMs, cosign bundle signatures, and GitHub artifact attestations (SLSA provenance + SBOM). See `docs/release-verification.md` for verification commands.
 - When adding a new CLI surface, update `internal/helpui/examples.go` so help-ui search stays aligned with README/recipes.
 
 ## Repository Structure
@@ -127,6 +127,7 @@ export KTL_SANDBOX_CONFIG="$(pwd)/sandbox/linux-ci.cfg"
 - Never commit kubeconfigs, captured logs, or `dist/*.k8s` artifacts—treat them as secrets.
 - When pointing to production-like clusters, scope access via dedicated contexts and prefer `KTL_*` env overrides instead of hardcoded credentials.
 - Sanitize fixtures so Secrets/ConfigMaps contain placeholders, and document any required environment variables in the module README before asking for review.
+- GitHub settings (not in-repo): protect `main`/`dev` with required PRs, required status checks, and required CODEOWNERS review for `.github/workflows/*` to block drive-by workflow changes.
 
 ## UI Design System
 

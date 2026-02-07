@@ -1,0 +1,4 @@
+# Require reviews for workflow changes (enforced when branch protection enables
+# "Require review from Code Owners").
+.github/workflows/* @avkcode
+.github/dependabot.yml @avkcode

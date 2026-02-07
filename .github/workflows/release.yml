@@ -43,7 +43,9 @@ jobs:
         run: |
           set -euo pipefail
           commit="$(git rev-parse --short=12 HEAD)"
-          build_date="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          source_date_epoch="$(git show -s --format=%ct HEAD)"
+          build_date="$(date -u -d "@${source_date_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
+          export SOURCE_DATE_EPOCH="${source_date_epoch}"
           ldflags="-s -w \
             -X github.com/example/ktl/internal/version.Version=${{ github.ref_name }} \
             -X github.com/example/ktl/internal/version.GitCommit=${commit} \
@@ -63,7 +65,13 @@ jobs:
               <tool> --version
             TXT
             tarball="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz"
-            tar -C "${outdir}" -czf "${tarball}" .
+            # Reproducible tar.gz:
+            # - stable ordering (--sort=name)
+            # - stable timestamps (--mtime, via SOURCE_DATE_EPOCH)
+            # - stable ownership metadata (--owner/--group)
+            # - gzip without embedding mtime (gzip -n)
+            tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner \
+              -C "${outdir}" -cf - . | gzip -n > "${tarball}"
           done
 
       - name: Download syft
@@ -87,12 +95,13 @@ jobs:
       - name: Generate checksums
         run: |
           set -euo pipefail
+          checksum_file="checksums-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.txt"
           (
             cd dist
             for f in *.tar.gz *.sbom.*.json; do
               sha256sum "$f" > "$f.sha256"
             done
-            cat *.sha256 > checksums.txt
+            ls -1 *.sha256 | LC_ALL=C sort | xargs cat > "${checksum_file}"
           )
 
       - name: Sign artifacts (keyless)
@@ -100,9 +109,24 @@ jobs:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           set -euo pipefail
-          for f in dist/*.tar.gz dist/*.sbom.*.json dist/checksums.txt; do
+          checksum_file="dist/checksums-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.txt"
+          for f in dist/*.tar.gz dist/*.sbom.*.json "${checksum_file}"; do
             # Use a bundle so verification doesn't depend on fetching the cert/rekor entry later.
             cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+
+      - name: Verify cosign bundles
+        run: |
+          set -euo pipefail
+          issuer="https://token.actions.githubusercontent.com"
+          identity_re="^https://github.com/${{ github.repository }}/.github/workflows/release\\.yml@refs/tags/${{ github.ref_name }}$"
+          checksum_file="dist/checksums-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.txt"
+          for f in dist/*.tar.gz dist/*.sbom.*.json "${checksum_file}"; do
+            cosign verify-blob \
+              --bundle "${f}.sigstore.json" \
+              --certificate-identity-regexp "${identity_re}" \
+              --certificate-oidc-issuer "${issuer}" \
+              "${f}" >/dev/null
           done
 
       - name: Attest build provenance
@@ -111,7 +135,8 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/*.sbom.*.json
-            dist/checksums.txt
+            dist/*.sha256
+            dist/checksums-*.txt
 
       - name: Attest SBOM (ktl)
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
@@ -138,7 +163,117 @@ jobs:
             dist/*.tar.gz
             dist/*.sbom.*.json
             dist/*.sha256
-            dist/checksums.txt
+            dist/checksums-*.txt
+            dist/*.sigstore.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  package-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+
+      - name: Build .deb/.rpm packages
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          source_date_epoch="$(git show -s --format=%ct HEAD)"
+          build_date="$(date -u -d "@${source_date_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
+          make package VERSION="${tag}" BUILD_DATE="${build_date}" PACKAGE_PLATFORMS="linux/amd64"
+
+      - name: Download syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@28d71544de8eaf1b958d335707167c5f783590ad # v0
+        with:
+          syft-version: v1.41.2
+
+      - name: Generate SBOMs for packages (SPDX + CycloneDX)
+        run: |
+          set -euo pipefail
+          syft="${{ steps.syft.outputs.cmd }}"
+          for pkg in dist/*.deb dist/*.rpm; do
+            base="$(basename "${pkg}")"
+            "${syft}" "file:${pkg}" -o "spdx-json=dist/${base}.sbom.spdx.json" -o "cyclonedx-json=dist/${base}.sbom.cdx.json"
+          done
+
+      - name: Generate checksums (packages)
+        run: |
+          set -euo pipefail
+          checksum_file="checksums-linux-packages-${{ github.ref_name }}.txt"
+          (
+            cd dist
+            for f in *.deb *.rpm *.sbom.*.json; do
+              sha256sum "$f" > "$f.sha256"
+            done
+            ls -1 *.sha256 | LC_ALL=C sort | xargs cat > "${checksum_file}"
+          )
+
+      - name: Sign packages (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          checksum_file="dist/checksums-linux-packages-${{ github.ref_name }}.txt"
+          for f in dist/*.deb dist/*.rpm dist/*.sbom.*.json "${checksum_file}"; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+
+      - name: Verify cosign bundles (packages)
+        run: |
+          set -euo pipefail
+          issuer="https://token.actions.githubusercontent.com"
+          identity_re="^https://github.com/${{ github.repository }}/.github/workflows/release\\.yml@refs/tags/${{ github.ref_name }}$"
+          checksum_file="dist/checksums-linux-packages-${{ github.ref_name }}.txt"
+          for f in dist/*.deb dist/*.rpm dist/*.sbom.*.json "${checksum_file}"; do
+            cosign verify-blob \
+              --bundle "${f}.sigstore.json" \
+              --certificate-identity-regexp "${identity_re}" \
+              --certificate-oidc-issuer "${issuer}" \
+              "${f}" >/dev/null
+          done
+
+      - name: Attest build provenance (packages)
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.sbom.*.json
+            dist/*.sha256
+            dist/checksums-linux-packages-*.txt
+
+      - name: Attest SBOM (deb)
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-path: dist/ktl_${{ github.ref_name }}_amd64.deb
+          sbom-path: dist/ktl_${{ github.ref_name }}_amd64.deb.sbom.spdx.json
+
+      - name: Attest SBOM (rpm)
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-path: dist/ktl-${{ github.ref_name }}-1.x86_64.rpm
+          sbom-path: dist/ktl-${{ github.ref_name }}-1.x86_64.rpm.sbom.spdx.json
+
+      - name: Upload package assets
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.sbom.*.json
+            dist/*.sha256
+            dist/checksums-linux-packages-*.txt
             dist/*.sigstore.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
