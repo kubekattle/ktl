@@ -17,7 +17,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF##*/}"
-          if ! gh release view "$tag" >/dev/null 2>&1; then
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release for $tag not found. Create it with 'gh release create $tag ...'."
             exit 1
           fi
