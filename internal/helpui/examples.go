@@ -108,8 +108,8 @@ var curatedExamples = map[string][]string{
 		"# Export a specific run ID\nktl stack export --config ./stacks/prod --run-id 2025-12-30T12-34-56.000000000Z --out ./exports/run.tgz",
 	},
 	"ktl stack seal": {
-		"# Seal a plan directory for CI (plan.json + attestation.json)\nktl stack seal --config ./stacks/prod --out ./.ktl/stack/sealed --command apply",
-		"# Include the inputs bundle (inputs.tar.gz) for fully offline execution\nktl stack seal --config ./stacks/prod --out ./.ktl/stack/sealed --include-bundle --command apply",
+		"# Seal a plan directory for CI (includes inputs bundle by default)\nktl stack seal --config ./stacks/prod --out ./.ktl/stack/sealed --command apply",
+		"# Seal without bundling inputs\nktl stack seal --config ./stacks/prod --out ./.ktl/stack/sealed --bundle=false --command apply",
 	},
 	"ktl stack rerun-failed": {
 		"# Resume the most recent run and schedule only failed nodes\nktl stack rerun-failed --config ./stacks/prod --yes",

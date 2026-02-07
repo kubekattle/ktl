@@ -23,6 +23,7 @@ func newSecretsCommand() *cobra.Command {
 	cmd.AddCommand(newSecretsTestCommand())
 	cmd.AddCommand(newSecretsListCommand())
 	cmd.AddCommand(newSecretsDiscoverCommand())
+	decorateCommandHelp(cmd, "Secrets Flags")
 	return cmd
 }
 
@@ -78,6 +79,7 @@ func newSecretsTestCommand() *cobra.Command {
 	cmd.Flags().StringVar(&ref, "ref", "", "Secret reference (secret://provider/path#key)")
 	cmd.Flags().StringVar(&path, "path", "", "Secret path (when not using --ref)")
 	cmd.Flags().StringVar(&key, "key", "", "Secret key (optional when not using --ref)")
+	decorateCommandHelp(cmd, "Test Flags")
 	return cmd
 }
 
@@ -126,6 +128,7 @@ func newSecretsListCommand() *cobra.Command {
 	cmd.Flags().StringVar(&secretConfig, "secret-config", "", "Secrets provider config file (defaults to ~/.ktl/config.yaml and repo .ktl.yaml)")
 	cmd.Flags().StringVar(&path, "path", "", "Secret path to list (default: provider root)")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format: text or json")
+	decorateCommandHelp(cmd, "List Flags")
 	return cmd
 }
 

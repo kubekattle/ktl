@@ -8,8 +8,6 @@ on:
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    env:
-      LDFLAGS: "-s -w -X github.com/example/ktl/internal/version.Version=${{ github.ref_name }}"
     strategy:
       matrix:
         include:
@@ -28,7 +26,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.x'
+          go-version: '1.25.7'
           cache: true
 
       - name: Install cosign
@@ -37,12 +35,19 @@ jobs:
       - name: Build binaries
         run: |
           set -euo pipefail
+          commit="$(git rev-parse --short=12 HEAD)"
+          build_date="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          ldflags="-s -w \
+            -X github.com/example/ktl/internal/version.Version=${{ github.ref_name }} \
+            -X github.com/example/ktl/internal/version.GitCommit=${commit} \
+            -X github.com/example/ktl/internal/version.GitTreeState=clean \
+            -X github.com/example/ktl/internal/version.BuildDate=${build_date}"
           mkdir -p dist
           for tool in ktl verify package; do
             outdir="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}"
             mkdir -p "${outdir}"
             GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 \
-              go build -ldflags "${LDFLAGS}" -o "${outdir}/${tool}" "./cmd/${tool}"
+              go build -ldflags "${ldflags}" -o "${outdir}/${tool}" "./cmd/${tool}"
             cat > "${outdir}/README.txt" <<'TXT'
             This archive contains a single binary built from https://github.com/example/ktl
             Install:

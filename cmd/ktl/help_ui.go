@@ -48,6 +48,7 @@ func newHelpCommand(root *cobra.Command) *cobra.Command {
 		flag.NoOptDefVal = ":8080"
 	}
 	cmd.Flags().BoolVar(&showAll, "all", false, "Include hidden/internal flags and env vars")
+	decorateCommandHelp(cmd, "Help Flags")
 	return cmd
 }
 

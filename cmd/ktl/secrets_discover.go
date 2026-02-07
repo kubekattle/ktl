@@ -316,6 +316,7 @@ func newSecretsDiscoverCommand() *cobra.Command {
 	cmd.Flags().StringVar(&output, "output", "table", "Output format: table or json")
 	cmd.Flags().BoolVar(&includeUnused, "include-unused", false, "Include configured but unused secret providers")
 	cmd.Flags().BoolVar(&includeOrphaned, "include-orphaned", false, "Include invalid or unconfigured secret references")
+	decorateCommandHelp(cmd, "Discover Flags")
 	return cmd
 }
 

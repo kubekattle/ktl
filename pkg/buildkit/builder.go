@@ -198,7 +198,8 @@ func BuildDockerfile(ctx context.Context, opts DockerfileBuildOptions) (*BuildRe
 		}
 	}
 
-	pw, err := progresswriter.NewPrinter(context.TODO(), opts.ProgressOutput, opts.ProgressMode)
+	// Use the solve context so progress UI respects cancellation/timeouts.
+	pw, err := progresswriter.NewPrinter(clientCtx, opts.ProgressOutput, opts.ProgressMode)
 	if err != nil {
 		return nil, fmt.Errorf("create progress UI: %w", err)
 	}

@@ -10,15 +10,18 @@ This repo is a single-module Go CLI with an optional companion agent.
 - `testdata/*`: fixtures and golden files.
 
 ## Main Commands (wired today)
-- `logs`
+- `init`
 - `build`
-- `plan`
+- `apply` (and `apply plan`)
+- `delete`
+- `stack`
+- `revert`
 - `list`
 - `lint`
-- `package`
-- `apply`
-- `delete`
-- `mirror`
+- `logs`
+- `env`
+- `secrets`
+- `version`
 
 The root command wiring lives in `cmd/ktl/main.go`.
 

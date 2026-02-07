@@ -31,7 +31,7 @@ If you’re an AI agent (or using one), start with:
 - Profiles/app config: global `~/.ktl/config.yaml`, repo `.ktl.yaml`; validate with `go test ./cmd/ktl -run TestBuildProfile`.
 - Update fixtures: edit `testdata/...`, refresh goldens, and rerun the closest tests.
 - UI work: follow the Frontend Design System (below); extend tokens/components first.
-- Tags & GitHub Releases: create annotated tags (`git tag -a vX.Y.Z -m "vX.Y.Z"`), push them (`git push origin vX.Y.Z`), then publish a matching GitHub Release (e.g., `gh release create vX.Y.Z --title "vX.Y.Z" --notes "<summary>" [assets...]`) so tags and releases stay in sync.
+- Tags & GitHub Releases: create/push an annotated tag (`git tag -a vX.Y.Z -m "vX.Y.Z"`, then `git push origin vX.Y.Z`) and ensure a matching GitHub Release exists for the same tag (enforced by `.github/workflows/release-guard.yml`). CI uploads the release artifacts.
 - When adding a new CLI surface, update `internal/helpui/examples.go` so help-ui search stays aligned with README/recipes.
 
 ## Repository Structure
