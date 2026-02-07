@@ -9,14 +9,20 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/example/ktl/internal/secrets"
 )
 
 type AIAnalyzer struct {
 	Provider string
+	Model    string
 }
 
 func NewAIAnalyzer(provider string) *AIAnalyzer {
-	return &AIAnalyzer{Provider: provider}
+	return &AIAnalyzer{
+		Provider: provider,
+		Model:    os.Getenv("KTL_AI_MODEL"),
+	}
 }
 
 func (a *AIAnalyzer) Analyze(ctx context.Context, evidence *Evidence) (*Diagnosis, error) {
@@ -35,10 +41,15 @@ func (a *AIAnalyzer) callOpenAI(ctx context.Context, evidence *Evidence) (*Diagn
 		return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
 	}
 
+	model := a.Model
+	if model == "" {
+		model = "gpt-4-turbo-preview"
+	}
+
 	prompt := buildPrompt(evidence)
 
 	reqBody := map[string]interface{}{
-		"model": "gpt-4-turbo-preview", // Use a smart model
+		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": "You are a Kubernetes Expert. Analyze the provided pod logs, events, and status to diagnose the failure. Output JSON only."},
 			{"role": "user", "content": prompt},
@@ -97,14 +108,57 @@ func buildPrompt(e *Evidence) string {
 	}
 	b.WriteString("Events:\n")
 	for _, ev := range e.Events {
-		b.WriteString(fmt.Sprintf("- %s: %s\n", ev.Reason, ev.Message))
+		// Redact events too, just in case
+		msg := secrets.RedactText(ev.Message)
+		b.WriteString(fmt.Sprintf("- %s: %s\n", ev.Reason, msg))
 	}
 	b.WriteString("Logs:\n")
 	for c, l := range e.Logs {
-		b.WriteString(fmt.Sprintf("--- Container %s ---\n%s\n", c, l))
+		// Smart truncation: keep last 20 lines + any lines with "error", "fatal", "panic"
+		truncated := smartTruncateLogs(l, 50)
+		redacted := secrets.RedactText(truncated)
+		b.WriteString(fmt.Sprintf("--- Container %s ---\n%s\n", c, redacted))
 	}
 	b.WriteString("\nProvide response in JSON format with keys: rootCause, suggestion, explanation, confidenceScore (float), patch (optional kubectl patch string or JSON patch).")
 	return b.String()
+}
+
+func smartTruncateLogs(logs string, maxLines int) string {
+	lines := strings.Split(logs, "\n")
+	if len(lines) <= maxLines {
+		return logs
+	}
+
+	var importantLines []string
+	// Always keep last N/2 lines
+	tailSize := maxLines / 2
+	if tailSize < 1 {
+		tailSize = 1
+	}
+
+	// Scan first part for keywords
+	keywordLimit := maxLines - tailSize
+	found := 0
+	for _, line := range lines[:len(lines)-tailSize] {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "error") || strings.Contains(lower, "fatal") || strings.Contains(lower, "panic") || strings.Contains(lower, "exception") {
+			importantLines = append(importantLines, line)
+			found++
+			if found >= keywordLimit {
+				break
+			}
+		}
+	}
+
+	// Add separator if we skipped lines
+	if len(importantLines) < len(lines)-tailSize {
+		importantLines = append(importantLines, "... (skipped non-error lines) ...")
+	}
+
+	// Add tail
+	importantLines = append(importantLines, lines[len(lines)-tailSize:]...)
+
+	return strings.Join(importantLines, "\n")
 }
 
 func (a *AIAnalyzer) mockAnalysis(evidence *Evidence) *Diagnosis {
