@@ -26,7 +26,7 @@ trap 'rm -rf "${work}"' EXIT
 bin="${work}/ktl"
 echo ">> building ktl ${VERSION} for ${TARGETOS}/${TARGETARCH}"
 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" CGO_ENABLED=0 \
-  go build -trimpath -ldflags "${LDFLAGS}" -o "${bin}" ./cmd/ktl
+  go build -trimpath -buildvcs=false -ldflags "${LDFLAGS}" -o "${bin}" ./cmd/ktl
 
 root="${work}/root"
 install -d "${root}/usr/bin"

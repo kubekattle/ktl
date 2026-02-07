@@ -110,7 +110,8 @@ jobs:
         run: |
           set -euo pipefail
           checksum_file="dist/checksums-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.txt"
-          for f in dist/*.tar.gz dist/*.sbom.*.json "${checksum_file}"; do
+          subjects=(dist/*.tar.gz dist/*.sbom.spdx.json dist/*.sbom.cdx.json "${checksum_file}")
+          for f in "${subjects[@]}"; do
             # Use a bundle so verification doesn't depend on fetching the cert/rekor entry later.
             cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           done
@@ -121,7 +122,8 @@ jobs:
           issuer="https://token.actions.githubusercontent.com"
           identity_re="^https://github.com/${{ github.repository }}/.github/workflows/release\\.yml@refs/tags/${{ github.ref_name }}$"
           checksum_file="dist/checksums-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.txt"
-          for f in dist/*.tar.gz dist/*.sbom.*.json "${checksum_file}"; do
+          subjects=(dist/*.tar.gz dist/*.sbom.spdx.json dist/*.sbom.cdx.json "${checksum_file}")
+          for f in "${subjects[@]}"; do
             cosign verify-blob \
               --bundle "${f}.sigstore.json" \
               --certificate-identity-regexp "${identity_re}" \
@@ -225,7 +227,8 @@ jobs:
         run: |
           set -euo pipefail
           checksum_file="dist/checksums-linux-packages-${{ github.ref_name }}.txt"
-          for f in dist/*.deb dist/*.rpm dist/*.sbom.*.json "${checksum_file}"; do
+          subjects=(dist/*.deb dist/*.rpm dist/*.sbom.spdx.json dist/*.sbom.cdx.json "${checksum_file}")
+          for f in "${subjects[@]}"; do
             cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           done
 
@@ -235,7 +238,8 @@ jobs:
           issuer="https://token.actions.githubusercontent.com"
           identity_re="^https://github.com/${{ github.repository }}/.github/workflows/release\\.yml@refs/tags/${{ github.ref_name }}$"
           checksum_file="dist/checksums-linux-packages-${{ github.ref_name }}.txt"
-          for f in dist/*.deb dist/*.rpm dist/*.sbom.*.json "${checksum_file}"; do
+          subjects=(dist/*.deb dist/*.rpm dist/*.sbom.spdx.json dist/*.sbom.cdx.json "${checksum_file}")
+          for f in "${subjects[@]}"; do
             cosign verify-blob \
               --bundle "${f}.sigstore.json" \
               --certificate-identity-regexp "${identity_re}" \
