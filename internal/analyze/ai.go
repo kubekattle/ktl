@@ -278,6 +278,86 @@ func buildPrompt(e *Evidence) string {
 		}
 	}
 
+	// 4.11 Ingress Context
+	if len(e.IngressInfo) > 0 {
+		b.WriteString("\n--- Ingress Context (External Access) ---\n")
+		for _, i := range e.IngressInfo {
+			b.WriteString(fmt.Sprintf("%s\n", i))
+		}
+	}
+
+	// 4.12 Scaling Context (HPA)
+	if len(e.ScalingInfo) > 0 {
+		b.WriteString("\n--- Scaling Context (HPA) ---\n")
+		for _, s := range e.ScalingInfo {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+	}
+
+	// 4.13 Storage Context (PVC)
+	if len(e.StorageInfo) > 0 {
+		b.WriteString("\n--- Storage Context (PVC) ---\n")
+		for _, s := range e.StorageInfo {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+	}
+
+	// 4.14 Scheduling Context
+	if len(e.SchedulingInfo) > 0 {
+		b.WriteString("\n--- Scheduling Context (Taints/Affinity) ---\n")
+		for _, s := range e.SchedulingInfo {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+	}
+
+	// 4.15 Lifecycle Context
+	if len(e.LifecycleInfo) > 0 {
+		b.WriteString("\n--- Lifecycle Hooks ---\n")
+		for _, l := range e.LifecycleInfo {
+			b.WriteString(fmt.Sprintf("%s\n", l))
+		}
+	}
+
+	// 4.16 Probe Context
+	if len(e.ProbeInfo) > 0 {
+		b.WriteString("\n--- Probes (Liveness/Readiness) ---\n")
+		for _, p := range e.ProbeInfo {
+			b.WriteString(fmt.Sprintf("%s\n", p))
+		}
+	}
+
+	// 4.17 Secret Validation
+	if len(e.SecretValidation) > 0 {
+		b.WriteString("\n--- Secret Validation (Deep) ---\n")
+		for _, s := range e.SecretValidation {
+			b.WriteString(fmt.Sprintf("%s\n", s))
+		}
+	}
+
+	// 4.18 Mesh Context
+	if len(e.MeshInfo) > 0 {
+		b.WriteString("\n--- Service Mesh Sidecar ---\n")
+		for _, m := range e.MeshInfo {
+			b.WriteString(fmt.Sprintf("%s\n", m))
+		}
+	}
+
+	// 4.19 Init Exit Codes
+	if len(e.InitExitInfo) > 0 {
+		b.WriteString("\n--- Init Container Failures ---\n")
+		for _, i := range e.InitExitInfo {
+			b.WriteString(fmt.Sprintf("%s\n", i))
+		}
+	}
+
+	// 4.20 Owner Chain
+	if len(e.OwnerChain) > 0 {
+		b.WriteString("\n--- Ownership Hierarchy ---\n")
+		for _, o := range e.OwnerChain {
+			b.WriteString(fmt.Sprintf("%s\n", o))
+		}
+	}
+
 	// 5. Local Knowledge Base
 	if e.LocalDocs != "" {
 		b.WriteString("\n--- Local Knowledge Base (Company Runbook) ---\n")

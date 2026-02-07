@@ -14,22 +14,32 @@ import (
 
 // Evidence collects all relevant data for analysis
 type Evidence struct {
-	Pod             *corev1.Pod
-	Node            *corev1.Node      // Details of the node running the pod
-	Events          []corev1.Event    // Events related to the pod
-	NamespaceEvents []corev1.Event    // Recent events in the namespace (for context)
-	Logs            map[string]string // ContainerName -> Last N lines of logs
-	PreviousLogs    map[string]string // ContainerName -> Last N lines of previous logs (if crashed)
-	ConfigWarnings  []string          // Missing ConfigMaps, Secrets, etc.
-	NetworkContext  []string          // Services, Endpoints status
-	ResourceInfo    []string          // QoS, Limits, OOMKilled history
-	ImageAnalysis   []string          // Tag validation, known vulnerabilities
-	SecurityAudit   []string          // ServiceAccount, SecurityContext
-	Availability    []string          // PDB status
-	ChangeDiff      []string          // Diff vs previous revision
-	LocalDocs       string            // Content of local troubleshooting docs
-	SourceSnippets  []Snippet         // Code snippets linked from stack traces
-	Manifest        string            // YAML representation (optional)
+	Pod              *corev1.Pod
+	Node             *corev1.Node      // Details of the node running the pod
+	Events           []corev1.Event    // Events related to the pod
+	NamespaceEvents  []corev1.Event    // Recent events in the namespace (for context)
+	Logs             map[string]string // ContainerName -> Last N lines of logs
+	PreviousLogs     map[string]string // ContainerName -> Last N lines of previous logs (if crashed)
+	ConfigWarnings   []string          // Missing ConfigMaps, Secrets, etc.
+	NetworkContext   []string          // Services, Endpoints status
+	ResourceInfo     []string          // QoS, Limits, OOMKilled history
+	ImageAnalysis    []string          // Tag validation, known vulnerabilities
+	SecurityAudit    []string          // ServiceAccount, SecurityContext
+	Availability     []string          // PDB status
+	ChangeDiff       []string          // Diff vs previous revision
+	IngressInfo      []string          // Ingress details
+	ScalingInfo      []string          // HPA details
+	StorageInfo      []string          // PVC details
+	SchedulingInfo   []string          // Taints/Affinity
+	LifecycleInfo    []string          // Hooks
+	ProbeInfo        []string          // Liveness/Readiness issues
+	SecretValidation []string          // Content checks (trailing newlines)
+	MeshInfo         []string          // Sidecar status
+	InitExitInfo     []string          // Init container exit codes
+	OwnerChain       []string          // Hierarchy
+	LocalDocs        string            // Content of local troubleshooting docs
+	SourceSnippets   []Snippet         // Code snippets linked from stack traces
+	Manifest         string            // YAML representation (optional)
 }
 
 // Diagnosis represents the result of an analysis
@@ -103,6 +113,36 @@ func GatherEvidence(ctx context.Context, client kubernetes.Interface, namespace,
 	// 3.12 Change Detection (Iteration 10)
 	changeDiff := checkChanges(ctx, client, namespace, pod)
 
+	// Iteration 11: Ingress
+	ingressInfo := checkIngress(ctx, client, namespace, pod)
+
+	// Iteration 12: HPA
+	scalingInfo := checkHPA(ctx, client, namespace, pod)
+
+	// Iteration 13: PVC
+	storageInfo := checkStorage(ctx, client, namespace, pod)
+
+	// Iteration 14: Scheduling
+	schedulingInfo := checkScheduling(pod, node)
+
+	// Iteration 15: Lifecycle
+	lifecycleInfo := checkLifecycle(pod)
+
+	// Iteration 16: Probes
+	probeInfo := checkProbes(pod)
+
+	// Iteration 17: Secret Validation (Deep)
+	secretVal := checkSecretsDeep(ctx, client, namespace, pod)
+
+	// Iteration 18: Mesh
+	meshInfo := checkMesh(pod)
+
+	// Iteration 19: Init Exit Codes
+	initExit := checkInitExit(pod)
+
+	// Iteration 20: Owner Chain
+	ownerChain := checkOwnerChain(ctx, client, namespace, pod)
+
 	// 3.7 Local Knowledge Base (Iteration 4)
 	localDocs := findLocalDocs()
 
@@ -154,22 +194,283 @@ func GatherEvidence(ctx context.Context, client kubernetes.Interface, namespace,
 	}
 
 	return &Evidence{
-		Pod:             pod,
-		Node:            node,
-		Events:          events.Items,
-		NamespaceEvents: nsEvents,
-		Logs:            logs,
-		PreviousLogs:    prevLogs,
-		ConfigWarnings:  configWarnings,
-		NetworkContext:  networkContext,
-		ResourceInfo:    resourceInfo,
-		ImageAnalysis:   imageAnalysis,
-		SecurityAudit:   securityAudit,
-		Availability:    availability,
-		ChangeDiff:      changeDiff,
-		LocalDocs:       localDocs,
-		SourceSnippets:  snippets,
+		Pod:              pod,
+		Node:             node,
+		Events:           events.Items,
+		NamespaceEvents:  nsEvents,
+		Logs:             logs,
+		PreviousLogs:     prevLogs,
+		ConfigWarnings:   configWarnings,
+		NetworkContext:   networkContext,
+		ResourceInfo:     resourceInfo,
+		ImageAnalysis:    imageAnalysis,
+		SecurityAudit:    securityAudit,
+		Availability:     availability,
+		ChangeDiff:       changeDiff,
+		IngressInfo:      ingressInfo,
+		ScalingInfo:      scalingInfo,
+		StorageInfo:      storageInfo,
+		SchedulingInfo:   schedulingInfo,
+		LifecycleInfo:    lifecycleInfo,
+		ProbeInfo:        probeInfo,
+		SecretValidation: secretVal,
+		MeshInfo:         meshInfo,
+		InitExitInfo:     initExit,
+		OwnerChain:       ownerChain,
+		LocalDocs:        localDocs,
+		SourceSnippets:   snippets,
 	}, nil
+}
+
+func checkProbes(pod *corev1.Pod) []string {
+	var info []string
+	for _, c := range pod.Spec.Containers {
+		if c.LivenessProbe != nil {
+			if c.LivenessProbe.TimeoutSeconds > c.LivenessProbe.PeriodSeconds {
+				info = append(info, fmt.Sprintf("WARNING: Container '%s' LivenessProbe Timeout (%ds) > Period (%ds).", c.Name, c.LivenessProbe.TimeoutSeconds, c.LivenessProbe.PeriodSeconds))
+			}
+		} else {
+			info = append(info, fmt.Sprintf("NOTE: Container '%s' has NO LivenessProbe.", c.Name))
+		}
+		if c.ReadinessProbe == nil {
+			info = append(info, fmt.Sprintf("NOTE: Container '%s' has NO ReadinessProbe.", c.Name))
+		}
+	}
+	return info
+}
+
+func checkSecretsDeep(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	// Check env vars referencing secrets
+	for _, c := range pod.Spec.Containers {
+		for _, env := range c.Env {
+			if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+				secretName := env.ValueFrom.SecretKeyRef.Name
+				key := env.ValueFrom.SecretKeyRef.Key
+
+				secret, err := client.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+				if err != nil {
+					continue // Already handled by validateConfigs
+				}
+
+				valBytes, ok := secret.Data[key]
+				if !ok {
+					continue
+				}
+				val := string(valBytes)
+
+				if strings.HasSuffix(val, "\n") || strings.HasSuffix(val, "\r") {
+					info = append(info, fmt.Sprintf("WARNING: Secret '%s' key '%s' has a trailing newline. This often breaks apps.", secretName, key))
+				}
+				if strings.Contains(val, " ") && (strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "pass")) {
+					info = append(info, fmt.Sprintf("NOTE: Secret '%s' key '%s' contains spaces. Verify this is intended.", secretName, key))
+				}
+			}
+		}
+	}
+	return info
+}
+
+func checkMesh(pod *corev1.Pod) []string {
+	var info []string
+	for _, c := range pod.Spec.Containers {
+		if c.Name == "istio-proxy" || c.Name == "linkerd-proxy" {
+			info = append(info, fmt.Sprintf("Service Mesh Sidecar detected: %s", c.Name))
+			// Find status
+			status := getContainerStatus(pod, c.Name)
+			if status != nil {
+				if !status.Ready {
+					info = append(info, fmt.Sprintf("CRITICAL: Mesh Sidecar '%s' is NOT Ready.", c.Name))
+				}
+				if status.RestartCount > 0 {
+					info = append(info, fmt.Sprintf("WARNING: Mesh Sidecar '%s' has restarted %d times.", c.Name, status.RestartCount))
+				}
+			}
+		}
+	}
+	return info
+}
+
+func checkInitExit(pod *corev1.Pod) []string {
+	var info []string
+	for _, s := range pod.Status.InitContainerStatuses {
+		if s.State.Terminated != nil && s.State.Terminated.ExitCode != 0 {
+			info = append(info, fmt.Sprintf("CRITICAL: InitContainer '%s' failed with ExitCode %d (Reason: %s).", s.Name, s.State.Terminated.ExitCode, s.State.Terminated.Reason))
+		}
+	}
+	return info
+}
+
+func checkOwnerChain(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var chain []string
+	current := metav1.Object(pod)
+
+	for {
+		owners := current.GetOwnerReferences()
+		if len(owners) == 0 {
+			break
+		}
+		// Follow first owner
+		ref := owners[0]
+		chain = append(chain, fmt.Sprintf("%s/%s", ref.Kind, ref.Name))
+
+		if ref.Kind == "ReplicaSet" {
+			rs, err := client.AppsV1().ReplicaSets(namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+			if err == nil {
+				current = rs
+				continue
+			}
+		} else if ref.Kind == "Deployment" {
+			// Stop at deployment usually
+			break
+		} else if ref.Kind == "Job" {
+			// Could go to CronJob
+			break
+		}
+		break
+	}
+	return chain
+}
+
+func checkIngress(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	ingresses, err := client.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return info
+	}
+
+	// Find Service name first (simplified from checkNetwork)
+	var svcName string
+	svcs, _ := client.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
+	for _, svc := range svcs.Items {
+		match := true
+		for k, v := range svc.Spec.Selector {
+			if pod.Labels[k] != v {
+				match = false
+				break
+			}
+		}
+		if match && len(svc.Spec.Selector) > 0 {
+			svcName = svc.Name
+			break
+		}
+	}
+
+	if svcName == "" {
+		return info
+	}
+
+	for _, ing := range ingresses.Items {
+		for _, rule := range ing.Spec.Rules {
+			if rule.HTTP == nil {
+				continue
+			}
+			for _, path := range rule.HTTP.Paths {
+				if path.Backend.Service != nil && path.Backend.Service.Name == svcName {
+					info = append(info, fmt.Sprintf("Ingress '%s' routes host '%s' path '%s' to service '%s'.", ing.Name, rule.Host, path.Path, svcName))
+				}
+			}
+		}
+	}
+	return info
+}
+
+func checkHPA(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	// Assume Pod -> RS -> Deploy
+	var deployName string
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "ReplicaSet" {
+			rs, err := client.AppsV1().ReplicaSets(namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+			if err == nil {
+				for _, rsRef := range rs.OwnerReferences {
+					if rsRef.Kind == "Deployment" {
+						deployName = rsRef.Name
+					}
+				}
+			}
+		}
+	}
+
+	if deployName == "" {
+		return info
+	}
+
+	hpas, err := client.AutoscalingV1().HorizontalPodAutoscalers(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return info
+	}
+
+	for _, hpa := range hpas.Items {
+		if hpa.Spec.ScaleTargetRef.Kind == "Deployment" && hpa.Spec.ScaleTargetRef.Name == deployName {
+			info = append(info, fmt.Sprintf("HPA '%s' targets this deployment. Min: %d, Max: %d, Current: %d.", hpa.Name, *hpa.Spec.MinReplicas, hpa.Spec.MaxReplicas, hpa.Status.CurrentReplicas))
+			if hpa.Status.CurrentReplicas >= hpa.Spec.MaxReplicas {
+				info = append(info, "WARNING: HPA is at MAX replicas. Scaling might be capped.")
+			}
+		}
+	}
+	return info
+}
+
+func checkStorage(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
+	var info []string
+	for _, vol := range pod.Spec.Volumes {
+		if vol.PersistentVolumeClaim != nil {
+			pvc, err := client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, vol.PersistentVolumeClaim.ClaimName, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+			status := pvc.Status.Phase
+			info = append(info, fmt.Sprintf("PVC '%s' is %s.", pvc.Name, status))
+			if status != corev1.ClaimBound {
+				info = append(info, fmt.Sprintf("CRITICAL: PVC '%s' is NOT Bound.", pvc.Name))
+			}
+			// Capacity check requires metrics, but we can list capacity
+			if cap, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
+				info = append(info, fmt.Sprintf("PVC Capacity: %s", cap.String()))
+			}
+		}
+	}
+	return info
+}
+
+func checkScheduling(pod *corev1.Pod, node *corev1.Node) []string {
+	var info []string
+	if pod.Status.Phase == corev1.PodPending {
+		info = append(info, "Pod is PENDING.")
+		// Check Tolerations vs Node Taints (if node is known, but usually pending means no node)
+		// If Node is nil, we can't check specific node taints, but we can list general issues.
+	}
+	if node != nil {
+		for _, taint := range node.Spec.Taints {
+			tolerated := false
+			for _, tol := range pod.Spec.Tolerations {
+				if tol.ToleratesTaint(&taint) {
+					tolerated = true
+					break
+				}
+			}
+			if !tolerated {
+				info = append(info, fmt.Sprintf("WARNING: Node has taint '%s=%s:%s' which is NOT tolerated by pod.", taint.Key, taint.Value, taint.Effect))
+			}
+		}
+	}
+	return info
+}
+
+func checkLifecycle(pod *corev1.Pod) []string {
+	var info []string
+	for _, c := range pod.Spec.Containers {
+		if c.Lifecycle != nil {
+			if c.Lifecycle.PostStart != nil {
+				info = append(info, fmt.Sprintf("Container '%s' has PostStart hook.", c.Name))
+			}
+			if c.Lifecycle.PreStop != nil {
+				info = append(info, fmt.Sprintf("Container '%s' has PreStop hook.", c.Name))
+			}
+		}
+	}
+	return info
 }
 
 func checkChanges(ctx context.Context, client kubernetes.Interface, namespace string, pod *corev1.Pod) []string {
