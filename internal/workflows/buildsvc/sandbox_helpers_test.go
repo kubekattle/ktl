@@ -21,7 +21,13 @@ func TestBuildSandboxBinds(t *testing.T) {
 		t.Fatalf("write fake builder socket: %v", err)
 	}
 
-	binds := buildSandboxBinds("/workspace", "/cache", "unix://"+builderSock, builderSock, "", []string{"/tmp/data:/tmp/data"})
+	binds := buildSandboxBinds(
+		"/workspace", "/workspace",
+		"/cache", "/cache",
+		"unix://"+builderSock,
+		false, "",
+		[]string{"/tmp/data:/tmp/data"},
+	)
 	if len(binds) < 4 {
 		t.Fatalf("expected at least 4 binds, got %d", len(binds))
 	}
@@ -49,7 +55,13 @@ func TestBuildSandboxBindsAddsDockerSocket(t *testing.T) {
 	dockerSocketCandidates = []string{socket}
 	t.Cleanup(func() { dockerSocketCandidates = original })
 
-	binds := buildSandboxBinds("/workspace", "/cache", "unix:///run/buildkit.sock", "", "", nil)
+	binds := buildSandboxBinds(
+		"/workspace", "/workspace",
+		"/cache", "/cache",
+		"unix:///run/buildkit.sock",
+		false, "",
+		nil,
+	)
 	found := false
 	for _, bind := range binds {
 		if bind.spec == socket+":"+socket {
