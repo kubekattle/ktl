@@ -167,7 +167,8 @@ jobs:
         with:
           files: |
             dist/*.tar.gz
-            dist/*.sbom.*.json
+            dist/*.sbom.spdx.json
+            dist/*.sbom.cdx.json
             dist/*.sha256
             dist/checksums-*.txt
             dist/*.sigstore.json
@@ -282,7 +283,8 @@ jobs:
           files: |
             dist/*.deb
             dist/*.rpm
-            dist/*.sbom.*.json
+            dist/*.sbom.spdx.json
+            dist/*.sbom.cdx.json
             dist/*.sha256
             dist/checksums-linux-packages-*.txt
             dist/*.sigstore.json
