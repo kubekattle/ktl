@@ -204,6 +204,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	logsCmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)
 	initCmd := newInitCommand(&kubeconfigPath, &kubeContext, &globalProfile)
 	buildCmd := newBuildCommandWithService(buildService, &globalProfile, &logLevel, &kubeconfigPath, &kubeContext)
+	analyzeCmd := newAnalyzeCommand(&kubeconfigPath, &kubeContext)
 	listCmd := newListCommand(&kubeconfigPath, &kubeContext)
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
 	envCmd := newEnvCommand()
@@ -216,6 +217,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	cmd.AddCommand(
 		initCmd,
 		buildCmd,
+		analyzeCmd,
 		revertCmd,
 		applyCmd,
 		deleteCmd,
