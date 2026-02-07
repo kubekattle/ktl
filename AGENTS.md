@@ -32,7 +32,7 @@ If you’re an AI agent (or using one), start with:
 - Profiles/app config: global `~/.ktl/config.yaml`, repo `.ktl.yaml`; validate with `go test ./cmd/ktl -run TestBuildProfile`.
 - Update fixtures: edit `testdata/...`, refresh goldens, and rerun the closest tests.
 - UI work: follow `DESIGN.md`; extend tokens/components first.
-- Tags & GitHub Releases: create/push an annotated tag (`git tag -a vX.Y.Z -m "vX.Y.Z"`, then `git push origin vX.Y.Z`) and publish a matching GitHub Release (required by `.github/workflows/release-guard.yml`). CI uploads the release artifacts.
+- Tags & GitHub Releases: create/push an annotated tag (`git tag -a vX.Y.Z -m "vX.Y.Z"`, then `git push origin vX.Y.Z`) and publish a matching GitHub Release (required by `.github/workflows/release-guard.yml`). CI uploads release artifacts with SHA256 checksums, SBOMs, cosign bundle signatures, and GitHub artifact attestations (SLSA provenance + SBOM).
 - When adding a new CLI surface, update `internal/helpui/examples.go` so help-ui search stays aligned with README/recipes.
 
 ## Repository Structure
@@ -57,7 +57,11 @@ If you’re an AI agent (or using one), start with:
 | `make fmt` / `make lint` | Enforce gofmt + `go vet`. No manual whitespace tweaks. |
 | `make preflight` | Alias for `make verify` (fmt + lint + unit tests). |
 | `make release` | Cross-platform builds under `dist/`; only on clean tags. For ad-hoc GOOS/GOARCH, follow the README recipe. |
+| `make dist-checksums` | Generate `dist/checksums.txt` + per-file `dist/*.sha256` for local release binaries. |
+| `make dist-checksums-all` | Generate `dist/checksums.txt` + per-file `dist/*.sha256` for local release binaries and `.deb`/`.rpm` packages. |
 | `make package` | Build Linux `.deb` + `.rpm` packages into `dist/` via Docker (see `packaging/`). |
+| `make gh-release` | Publish release binaries + checksums to GitHub Releases (via `gh`). |
+| `make gh-release-all` | Publish release binaries + `.deb`/`.rpm` + checksums to GitHub Releases (via `gh`). |
 | `ktl build ... --ws-listen :9085` | Expose the build stream over WebSocket (for external consumers). |
 | `ktl apply ... --ui :8080 --ws-listen :9086` | Mirror Helm rollouts with the deploy viewer (phase timeline, resource readiness grid, manifest diff, event feed) so reviewers can follow along remotely. |
 | `ktl apply ...` (TTY) | Auto-enables the deploy console: metadata banner, inline phase badges, sticky warning rail, and adaptive resource table (use `--console-wide` to force the 100+ col layout). |

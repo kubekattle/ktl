@@ -17,13 +17,17 @@ LDFLAGS ?= -s -w \
 	-X github.com/example/ktl/internal/version.GitTreeState=$(GIT_TREE_STATE) \
 	-X github.com/example/ktl/internal/version.BuildDate=$(BUILD_DATE)
 RELEASE_PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
-RELEASE_ARTIFACTS := $(foreach platform,$(RELEASE_PLATFORMS),$(DIST_DIR)/$(BINARY)-$(subst /,-,$(platform)))
+RELEASE_TOOLS ?= $(BINARY) verify package
+RELEASE_ARTIFACTS := $(foreach platform,$(RELEASE_PLATFORMS),$(foreach tool,$(RELEASE_TOOLS),$(DIST_DIR)/$(tool)-$(subst /,-,$(platform))))
 GH ?= gh
 RELEASE_TAG ?= $(VERSION)
 GH_RELEASE_TITLE ?= $(BINARY) $(RELEASE_TAG)
 GH_RELEASE_NOTES ?= Automated release for $(RELEASE_TAG)
 GH_RELEASE_NOTES_FILE ?=
+GH_RELEASE_REPO ?=
 GH_RELEASE_FLAGS ?=
+GH_RELEASE_UPLOAD_FLAGS ?= --clobber
+GH_RELEASE_PACKAGE_GLOBS ?= $(DIST_DIR)/*.deb $(DIST_DIR)/*.rpm
 BUF_VERSION ?= v1.61.0
 BUF ?= $(GO) run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 GO_TEST_FLAGS ?= $(GOFLAGS)
@@ -45,7 +49,7 @@ LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/example/ktl/cmd/ktl.buildMode=$(LOGS_BU
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release gh-release tag-release push-release changelog test test-short test-integration fmt lint tidy verify preflight docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
+.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release dist-checksums dist-checksums-all gh-release gh-release-all tag-release push-release changelog test test-short test-integration fmt lint tidy verify preflight docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
 
@@ -125,16 +129,53 @@ release: ## Cross-build release artifacts into ./dist
 		out="$(DIST_DIR)/$(BINARY)-$$os-$$arch"; \
 		if [ "$$os" = "windows" ]; then out="$$out.exe"; fi; \
 		echo "   - $$os/$$arch -> $$out"; \
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $$out $(PKG); \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $$out $(PKG); \
 		for tool in verify package; do \
 			out2="$(DIST_DIR)/$$tool-$$os-$$arch"; \
 			if [ "$$os" = "windows" ]; then out2="$$out2.exe"; fi; \
 			echo "   - $$os/$$arch -> $$out2"; \
-			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $$out2 ./cmd/$$tool; \
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $$out2 ./cmd/$$tool; \
 		done; \
 	done
 
-gh-release: release ## Publish release artifacts to GitHub via gh CLI
+dist-checksums: release ## Generate sha256 checksums for release artifacts in ./dist
+	@mkdir -p "$(DIST_DIR)"
+	@echo ">> generating checksums for release artifacts"
+	@rm -f "$(DIST_DIR)"/*.sha256 "$(DIST_DIR)/checksums.txt"
+	@sha_cmd=""; \
+	if command -v sha256sum >/dev/null 2>&1; then sha_cmd="sha256sum"; \
+	elif command -v shasum >/dev/null 2>&1; then sha_cmd="shasum -a 256"; \
+	else echo "error: sha256sum or shasum not found in PATH" >&2; exit 1; fi; \
+	cd "$(DIST_DIR)"; \
+	for f in $(notdir $(RELEASE_ARTIFACTS)); do \
+		if [ ! -f "$$f" ]; then echo "error: missing $(DIST_DIR)/$$f (expected from make release)" >&2; exit 1; fi; \
+		$$sha_cmd "$$f" > "$$f.sha256"; \
+	done; \
+	cat *.sha256 > checksums.txt
+
+dist-checksums-all: release package ## Generate sha256 checksums for release artifacts + .deb/.rpm in ./dist
+	@mkdir -p "$(DIST_DIR)"
+	@echo ">> generating checksums for release artifacts + packages"
+	@rm -f "$(DIST_DIR)"/*.sha256 "$(DIST_DIR)/checksums.txt"
+	@sha_cmd=""; \
+	if command -v sha256sum >/dev/null 2>&1; then sha_cmd="sha256sum"; \
+	elif command -v shasum >/dev/null 2>&1; then sha_cmd="shasum -a 256"; \
+	else echo "error: sha256sum or shasum not found in PATH" >&2; exit 1; fi; \
+	cd "$(DIST_DIR)"; \
+	files=""; \
+	for f in $(notdir $(RELEASE_ARTIFACTS)); do \
+		if [ ! -f "$$f" ]; then echo "error: missing $(DIST_DIR)/$$f (expected from make release)" >&2; exit 1; fi; \
+		files="$$files $$f"; \
+	done; \
+	for f in *.deb *.rpm; do \
+		if [ -f "$$f" ]; then files="$$files $$f"; fi; \
+	done; \
+	for f in $$files; do \
+		$$sha_cmd "$$f" > "$$f.sha256"; \
+	done; \
+	cat *.sha256 > checksums.txt
+
+gh-release: dist-checksums ## Publish release artifacts to GitHub via gh CLI
 	@if ! command -v $(GH) >/dev/null 2>&1; then \
 		echo "error: GitHub CLI '$(GH)' not found in PATH"; \
 		exit 1; \
@@ -145,7 +186,37 @@ gh-release: release ## Publish release artifacts to GitHub via gh CLI
 		notes_value="$(GH_RELEASE_NOTES_FILE)"; \
 	fi; \
 	echo ">> creating GitHub release $(RELEASE_TAG)"; \
-	$(GH) release create $(RELEASE_TAG) $(RELEASE_ARTIFACTS) --title "$(GH_RELEASE_TITLE)" $$notes_flag "$$notes_value" $(GH_RELEASE_FLAGS)
+	repo_flag=""; \
+	if [ -n "$(GH_RELEASE_REPO)" ]; then repo_flag="--repo $(GH_RELEASE_REPO)"; fi; \
+	$(GH) release create $$repo_flag $(RELEASE_TAG) $(RELEASE_ARTIFACTS) $(DIST_DIR)/checksums.txt $(DIST_DIR)/*.sha256 --title "$(GH_RELEASE_TITLE)" $$notes_flag "$$notes_value" $(GH_RELEASE_FLAGS)
+
+gh-release-all: dist-checksums-all ## Publish release artifacts + .deb/.rpm to GitHub via gh CLI
+	@if ! command -v $(GH) >/dev/null 2>&1; then \
+		echo "error: GitHub CLI '$(GH)' not found in PATH"; \
+		exit 1; \
+	fi
+	@notes_flag="--notes"; notes_value="$(GH_RELEASE_NOTES)"; \
+	if [ -n "$(GH_RELEASE_NOTES_FILE)" ]; then \
+		notes_flag="--notes-file"; \
+		notes_value="$(GH_RELEASE_NOTES_FILE)"; \
+	fi; \
+	repo_flag=""; \
+	if [ -n "$(GH_RELEASE_REPO)" ]; then repo_flag="--repo $(GH_RELEASE_REPO)"; fi; \
+	echo ">> preparing GitHub release assets for $(RELEASE_TAG)"; \
+	set -- $(RELEASE_ARTIFACTS); \
+	for f in $(GH_RELEASE_PACKAGE_GLOBS); do \
+		if [ -f "$$f" ]; then set -- "$$@" "$$f"; fi; \
+	done; \
+	for f in $(DIST_DIR)/checksums.txt $(DIST_DIR)/*.sha256; do \
+		if [ -f "$$f" ]; then set -- "$$@" "$$f"; fi; \
+	done; \
+	if $(GH) release view $$repo_flag "$(RELEASE_TAG)" >/dev/null 2>&1; then \
+		echo ">> uploading assets to existing GitHub release $(RELEASE_TAG)"; \
+		$(GH) release upload $$repo_flag "$(RELEASE_TAG)" "$$@" $(GH_RELEASE_UPLOAD_FLAGS); \
+	else \
+		echo ">> creating GitHub release $(RELEASE_TAG)"; \
+		$(GH) release create $$repo_flag "$(RELEASE_TAG)" "$$@" --title "$(GH_RELEASE_TITLE)" $$notes_flag "$$notes_value" $(GH_RELEASE_FLAGS); \
+	fi
 
 tag-release: ## Create an annotated git tag for $(RELEASE_TAG)
 	@if [ -z "$(RELEASE_TAG)" ]; then \

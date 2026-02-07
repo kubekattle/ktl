@@ -8,6 +8,11 @@ on:
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     strategy:
       matrix:
         include:
@@ -21,16 +26,18 @@ jobs:
             arch: arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.25.7'
           cache: true
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3.7.0
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
 
       - name: Build binaries
         run: |
@@ -47,7 +54,7 @@ jobs:
             outdir="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}"
             mkdir -p "${outdir}"
             GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 \
-              go build -ldflags "${ldflags}" -o "${outdir}/${tool}" "./cmd/${tool}"
+              go build -trimpath -ldflags "${ldflags}" -o "${outdir}/${tool}" "./cmd/${tool}"
             cat > "${outdir}/README.txt" <<'TXT'
             This archive contains a single binary built from https://github.com/example/ktl
             Install:
@@ -57,26 +64,81 @@ jobs:
             TXT
             tarball="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz"
             tar -C "${outdir}" -czf "${tarball}" .
-            sha256sum "${tarball}" > "${tarball}.sha256"
           done
-          cat dist/*.sha256 > dist/checksums.txt
+
+      - name: Download syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@28d71544de8eaf1b958d335707167c5f783590ad # v0
+        with:
+          syft-version: v1.41.2
+
+      - name: Generate SBOMs (SPDX + CycloneDX)
+        run: |
+          set -euo pipefail
+          syft="${{ steps.syft.outputs.cmd }}"
+          tag="${{ github.ref_name }}"
+          for tool in ktl verify package; do
+            bin="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${tag}/${tool}"
+            spdx="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${tag}.sbom.spdx.json"
+            cdx="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${tag}.sbom.cdx.json"
+            "${syft}" "file:${bin}" -o "spdx-json=${spdx}" -o "cyclonedx-json=${cdx}"
+          done
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          (
+            cd dist
+            for f in *.tar.gz *.sbom.*.json; do
+              sha256sum "$f" > "$f.sha256"
+            done
+            cat *.sha256 > checksums.txt
+          )
 
       - name: Sign artifacts (keyless)
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
           set -euo pipefail
-          for f in dist/*.tar.gz dist/checksums.txt; do
-            cosign sign-blob --yes "$f" --output-signature "$f.sig"
+          for f in dist/*.tar.gz dist/*.sbom.*.json dist/checksums.txt; do
+            # Use a bundle so verification doesn't depend on fetching the cert/rekor entry later.
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           done
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.sbom.*.json
+            dist/checksums.txt
+
+      - name: Attest SBOM (ktl)
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-path: dist/ktl-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
+          sbom-path: dist/ktl-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
+
+      - name: Attest SBOM (verify)
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-path: dist/verify-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
+          sbom-path: dist/verify-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
+
+      - name: Attest SBOM (package)
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-path: dist/package-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
+          sbom-path: dist/package-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
+
       - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           files: |
             dist/*.tar.gz
-            dist/*.tar.gz.sha256
+            dist/*.sbom.*.json
+            dist/*.sha256
             dist/checksums.txt
-            dist/*.sig
+            dist/*.sigstore.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

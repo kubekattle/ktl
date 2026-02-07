@@ -8,6 +8,8 @@ on:
 jobs:
   ensure-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Check release exists
         env:
