@@ -23,6 +23,7 @@ type Diagnosis struct {
 	Suggestion      string
 	Explanation     string
 	ConfidenceScore float64 // 0.0 to 1.0
+	Patch           string  // Optional: Patch to apply
 }
 
 type Analyzer interface {

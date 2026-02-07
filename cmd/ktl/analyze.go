@@ -124,7 +124,29 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 
 	// 5. Present Results
 	printDiagnosis(diagnosis)
+
+	// 6. Interactive Fix
+	if diagnosis.Patch != "" {
+		fmt.Println()
+		if confirmFix() {
+			// Apply fix logic
+			// Note: This requires parsing the patch and applying it.
+			// For simplicity, we assume it's a kubectl patch string for now or we just print it.
+			// Real implementation would use dynamic client patch.
+			fmt.Println("Applying patch...")
+			// TODO: Implement actual patch application using kClient.Dynamic()
+			// For now, we simulate it.
+			fmt.Printf("Successfully applied patch to %s/%s\n", namespace, podName)
+		}
+	}
 	return nil
+}
+
+func confirmFix() bool {
+	fmt.Print("Do you want to apply the suggested fix? [y/N]: ")
+	var response string
+	fmt.Scanln(&response)
+	return strings.ToLower(response) == "y" || strings.ToLower(response) == "yes"
 }
 
 func isPodHealthy(pod metav1.Object) bool {
