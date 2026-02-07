@@ -42,8 +42,8 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (defaults to context)")
-	cmd.Flags().BoolVar(&useAI, "ai", false, "Use AI-powered analysis (requires OPENAI_API_KEY env var if provider is openai)")
-	cmd.Flags().StringVar(&aiProvider, "provider", "heuristic", "Analysis provider: heuristic (default), openai, or mock")
+	cmd.Flags().BoolVar(&useAI, "ai", false, "Use AI-powered analysis (requires API key)")
+	cmd.Flags().StringVar(&aiProvider, "provider", "heuristic", "Analysis provider: heuristic (default), openai, qwen, deepseek, or mock")
 
 	return cmd
 }

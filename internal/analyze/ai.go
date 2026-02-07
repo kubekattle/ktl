@@ -21,36 +21,55 @@ type Message struct {
 type AIAnalyzer struct {
 	Provider string
 	Model    string
+	BaseURL  string
+	APIKey   string
 }
 
 func NewAIAnalyzer(provider string) *AIAnalyzer {
-	return &AIAnalyzer{
+	a := &AIAnalyzer{
 		Provider: provider,
 		Model:    os.Getenv("KTL_AI_MODEL"),
 	}
+
+	switch provider {
+	case "openai":
+		a.BaseURL = "https://api.openai.com/v1"
+		a.APIKey = os.Getenv("OPENAI_API_KEY")
+		if a.Model == "" {
+			a.Model = "gpt-4-turbo-preview"
+		}
+	case "qwen":
+		a.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+		a.APIKey = os.Getenv("DASHSCOPE_API_KEY")
+		if a.APIKey == "" {
+			a.APIKey = os.Getenv("QWEN_API_KEY")
+		}
+		if a.Model == "" {
+			a.Model = "qwen-max"
+		}
+	case "deepseek":
+		a.BaseURL = "https://api.deepseek.com"
+		a.APIKey = os.Getenv("DEEPSEEK_API_KEY")
+		if a.Model == "" {
+			a.Model = "deepseek-chat"
+		}
+	}
+	return a
 }
 
 func (a *AIAnalyzer) Analyze(ctx context.Context, evidence *Evidence) (*Diagnosis, error) {
 	if a.Provider == "mock" {
 		return a.mockAnalysis(evidence), nil
 	}
-	if a.Provider == "openai" {
-		return a.callOpenAI(ctx, evidence)
-	}
-	return nil, fmt.Errorf("unknown provider: %s", a.Provider)
+	return a.callLLM(ctx, evidence)
 }
 
-func (a *AIAnalyzer) callOpenAI(ctx context.Context, evidence *Evidence) (*Diagnosis, error) {
-	key := os.Getenv("OPENAI_API_KEY")
-	if key == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+func (a *AIAnalyzer) callLLM(ctx context.Context, evidence *Evidence) (*Diagnosis, error) {
+	if a.APIKey == "" {
+		return nil, fmt.Errorf("API Key not set for provider %s. Please set %s_API_KEY", a.Provider, strings.ToUpper(a.Provider))
 	}
 
 	model := a.Model
-	if model == "" {
-		model = "gpt-4-turbo-preview"
-	}
-
 	prompt := buildPrompt(evidence)
 
 	reqBody := map[string]interface{}{
@@ -62,12 +81,19 @@ func (a *AIAnalyzer) callOpenAI(ctx context.Context, evidence *Evidence) (*Diagn
 		"response_format": map[string]string{"type": "json_object"},
 	}
 
+	// DeepSeek and Qwen might not support "response_format": {"type": "json_object"} strictly in the same way,
+	// or might require it. OpenAI does.
+	// For now we keep it, as most "compatible" APIs try to support it or ignore it.
+	// However, if it fails for others, we might need to make it conditional.
+	// DeepSeek V2 supports JSON mode. Qwen also supports it.
+
 	jsonBody, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonBody))
+	url := fmt.Sprintf("%s/chat/completions", strings.TrimRight(a.BaseURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Authorization", "Bearer "+a.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -79,7 +105,7 @@ func (a *AIAnalyzer) callOpenAI(ctx context.Context, evidence *Evidence) (*Diagn
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("OpenAI API error: %s", string(body))
+		return nil, fmt.Errorf("AI Provider (%s) API error: %s", a.Provider, string(body))
 	}
 
 	var result struct {
@@ -98,9 +124,15 @@ func (a *AIAnalyzer) callOpenAI(ctx context.Context, evidence *Evidence) (*Diagn
 	}
 
 	content := result.Choices[0].Message.Content
+
+	// Strip markdown code blocks if present (some models might add them despite JSON instruction)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+
 	var d Diagnosis
 	if err := json.Unmarshal([]byte(content), &d); err != nil {
-		return nil, fmt.Errorf("failed to parse AI response: %w", err)
+		return nil, fmt.Errorf("failed to parse AI response: %w. Content: %s", err, content)
 	}
 	return &d, nil
 }
@@ -110,15 +142,11 @@ func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error
 		return "This is a mock response. In real mode, I would answer your question based on the pod context.", nil
 	}
 
-	key := os.Getenv("OPENAI_API_KEY")
-	if key == "" {
-		return "", fmt.Errorf("OPENAI_API_KEY not set")
+	if a.APIKey == "" {
+		return "", fmt.Errorf("API Key not set for provider %s. Please set %s_API_KEY", a.Provider, strings.ToUpper(a.Provider))
 	}
 
 	model := a.Model
-	if model == "" {
-		model = "gpt-4-turbo-preview"
-	}
 
 	// Convert our Message struct to map for JSON
 	var messages []map[string]string
@@ -132,11 +160,12 @@ func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error
 	}
 
 	jsonBody, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonBody))
+	url := fmt.Sprintf("%s/chat/completions", strings.TrimRight(a.BaseURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Authorization", "Bearer "+a.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -148,7 +177,7 @@ func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("OpenAI API error: %s", string(body))
+		return "", fmt.Errorf("AI Provider (%s) API error: %s", a.Provider, string(body))
 	}
 
 	var result struct {
