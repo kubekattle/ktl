@@ -20,9 +20,11 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/example/ktl/internal/api/convert"
+	"github.com/example/ktl/internal/build/remote"
 	"github.com/example/ktl/internal/caststream"
 	"github.com/example/ktl/internal/castutil"
 	"github.com/example/ktl/internal/grpcutil"
+	"github.com/example/ktl/internal/kube"
 	"github.com/example/ktl/internal/logging"
 	"github.com/example/ktl/internal/mirrorbus"
 	"github.com/example/ktl/internal/tailer"
@@ -30,9 +32,12 @@ import (
 	"github.com/example/ktl/internal/workflows/buildsvc"
 	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
 	"github.com/example/ktl/pkg/buildkit"
+	"k8s.io/klog/v2"
 )
 
 type buildCLIOptions struct {
+	kubeconfig       *string
+	kubeContext      *string
 	contextDir       string
 	dockerfile       string
 	tags             []string
@@ -97,6 +102,7 @@ type buildCLIOptions struct {
 	output           string
 	wsListenAddr     string
 	remoteAddr       string
+	remote           string
 }
 
 var defaultBuildService buildsvc.Service = buildsvc.New(buildsvc.Dependencies{})
@@ -104,10 +110,10 @@ var defaultBuildService buildsvc.Service = buildsvc.New(buildsvc.Dependencies{})
 func newBuildCommand() *cobra.Command {
 	profile := "dev"
 	logLevel := "info"
-	return newBuildCommandWithService(defaultBuildService, &profile, &logLevel)
+	return newBuildCommandWithService(defaultBuildService, &profile, &logLevel, nil, nil)
 }
 
-func newBuildCommandWithService(service buildsvc.Service, globalProfile *string, globalLogLevel *string) *cobra.Command {
+func newBuildCommandWithService(service buildsvc.Service, globalProfile *string, globalLogLevel *string, kubeconfig *string, kubeContext *string) *cobra.Command {
 	if service == nil {
 		service = defaultBuildService
 	}
@@ -120,6 +126,8 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string,
 		globalLogLevel = &fallback
 	}
 	opts := buildCLIOptions{
+		kubeconfig:       kubeconfig,
+		kubeContext:      kubeContext,
 		contextDir:       ".",
 		dockerfile:       "Dockerfile",
 		builder:          buildkit.DefaultBuilderAddress(),
@@ -259,6 +267,7 @@ func newBuildCommandWithService(service buildsvc.Service, globalProfile *string,
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.sandboxProbePath, name: "--sandbox-probe-path", allowEmpty: true, validator: nil}, "sandbox-probe-path", "Probe filesystem visibility before building by attempting to stat this host path")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.wsListenAddr, name: "--ws-listen", allowEmpty: true, validator: validateWSListenAddr}, "ws-listen", "Serve the raw BuildKit event stream over WebSocket at this address (e.g. :9085)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.remoteAddr, name: "--remote-build", allowEmpty: true, validator: validateRemoteAddr}, "remote-build", "Execute this build via a remote ktl-agent gRPC endpoint (host:port)")
+	cmd.Flags().Var(&validatedStringValue{dest: &opts.remote, name: "--remote", allowEmpty: true, validator: nil}, "remote", "Remote builder address or 'auto' to provision ephemeral builder")
 	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.authFile, name: "--authfile", allowEmpty: true, validator: nil}, "authfile", "Path to the authentication file (Docker config.json)")
 	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxConfig, name: "--sandbox-config", allowEmpty: true, validator: nil}, "sandbox-config", "Path to a sandbox runtime config file")
 	cmd.PersistentFlags().Var(&validatedStringValue{dest: &opts.sandboxBin, name: "--sandbox-bin", allowEmpty: true, validator: nil}, "sandbox-bin", "Path to the sandbox runtime binary")
@@ -342,6 +351,48 @@ func runBuildCommand(cmd *cobra.Command, service buildsvc.Service, opts buildCLI
 	if requestedHelp(opts.wsListenAddr) {
 		return cmd.Help()
 	}
+
+	// Handle ephemeral remote builder
+	if opts.remote != "" {
+		useRemote := false
+		if opts.remote == "auto" {
+			if !remote.IsLocalDockerAvailable() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Local docker not found, provisioning remote builder...")
+				useRemote = true
+			} else {
+				klog.V(1).Infof("Local docker found, skipping remote builder")
+			}
+		} else {
+			// specific address provided via --remote
+			opts.builder = opts.remote
+		}
+
+		if useRemote {
+			ctx := cmd.Context()
+			var kc, kctx string
+			if opts.kubeconfig != nil {
+				kc = *opts.kubeconfig
+			}
+			if opts.kubeContext != nil {
+				kctx = *opts.kubeContext
+			}
+
+			kClient, err := kube.New(ctx, kc, kctx)
+			if err != nil {
+				return fmt.Errorf("failed to init kube client for remote builder: %w", err)
+			}
+
+			manager := remote.NewBuilderManager(kClient.Clientset, kClient.RESTConfig, kClient.Namespace, cmd.OutOrStdout())
+			addr, cleanup, err := manager.ProvisionEphemeralBuilder(ctx)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			opts.builder = addr
+			fmt.Fprintf(cmd.OutOrStdout(), "Building on remote: %s\n", addr)
+		}
+	}
+
 	if addr := strings.TrimSpace(opts.remoteAddr); addr != "" {
 		return runRemoteBuild(cmd, opts, addr)
 	}

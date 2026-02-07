@@ -6,8 +6,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -35,7 +33,6 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	helmkube "helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
-	"helm.sh/helm/v3/pkg/storage/driver"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -225,67 +222,33 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			secretOptions := &deploy.SecretOptions{Resolver: secretResolver, AuditSink: auditSink}
 
 			if driftGuard {
-				getAction := action.NewGet(actionCfg)
-				current, err := getAction.Run(releaseName)
-				if err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
-					return fmt.Errorf("drift guard: read current release manifest: %w", err)
+				driftOpts := deploy.InstallOptions{
+					Chart:           chart,
+					Version:         version,
+					ReleaseName:     releaseName,
+					Namespace:       resolvedNamespace,
+					ValuesFiles:     valuesFiles,
+					SetValues:       setValues,
+					SetStringValues: setStringValues,
+					SetFileValues:   setFileValues,
+					Secrets:         secretOptions,
+					Timeout:         timeout,
+					Wait:            false,
+					Atomic:          false,
+					CreateNamespace: createNamespace,
+					DryRun:          true,
+					Diff:            false,
+					UpgradeOnly:     upgrade,
 				}
-				mode := strings.ToLower(strings.TrimSpace(driftGuardMode))
-				switch mode {
-				case "", "last-applied":
-					if current != nil && strings.TrimSpace(current.Manifest) != "" {
-						report, derr := deploy.CheckReleaseDrift(ctx, releaseName, current.Manifest, deploy.DriftLiveGetterFromKube(kubeClient))
-						if derr != nil {
-							return fmt.Errorf("drift guard: %w", derr)
-						}
-						if !report.Empty() {
-							return fmt.Errorf("drift detected for release %s in ns/%s (%d objects)\n%s", releaseName, resolvedNamespace, len(report.Items), deploy.FormatDriftReport(report, 6, 80))
-						}
-					}
-				case "desired":
-					preview, previewErr := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
-						Chart:           chart,
-						Version:         version,
-						ReleaseName:     releaseName,
-						Namespace:       resolvedNamespace,
-						ValuesFiles:     valuesFiles,
-						SetValues:       setValues,
-						SetStringValues: setStringValues,
-						SetFileValues:   setFileValues,
-						Secrets:         secretOptions,
-						Timeout:         timeout,
-						Wait:            false,
-						Atomic:          false,
-						CreateNamespace: createNamespace,
-						DryRun:          true,
-						Diff:            false,
-						UpgradeOnly:     upgrade,
-					})
-					if previewErr != nil {
-						return fmt.Errorf("drift guard: render desired: %w", previewErr)
-					}
-					if preview != nil && preview.Release != nil && strings.TrimSpace(preview.Release.Manifest) != "" {
-						report, derr := deploy.CheckReleaseDriftWithOptions(ctx, releaseName, preview.Release.Manifest, deploy.DriftLiveGetterFromKube(kubeClient), deploy.DriftOptions{
-							RequireHelmOwnership: true,
-							IgnoreMissing:        true,
-							MaxConcurrency:       8,
-						})
-						if derr != nil {
-							return fmt.Errorf("drift guard: %w", derr)
-						}
-						if !report.Empty() {
-							return fmt.Errorf("drift detected against desired state for release %s in ns/%s (%d objects)\n%s", releaseName, resolvedNamespace, len(report.Items), deploy.FormatDriftReport(report, 6, 80))
-						}
-					}
-				default:
-					return fmt.Errorf("invalid --drift-guard-mode %q (expected last-applied or desired)", driftGuardMode)
+				if err := deploy.RunDriftCheck(ctx, actionCfg, settings, kubeClient, driftGuardMode, releaseName, driftOpts); err != nil {
+					return err
 				}
 			}
 
 			// Terraform-like safety rail: show a concise plan summary and ask for confirmation
 			// before making any cluster changes (unless --auto-approve or in dry-run mode).
 			if !dryRun && !autoApprove {
-				preview, previewErr := deploy.InstallOrUpgrade(ctx, actionCfg, settings, deploy.InstallOptions{
+				preview, previewErr := deploy.GeneratePlanPreview(ctx, actionCfg, settings, kubeClient, deploy.InstallOptions{
 					Chart:           chart,
 					Version:         version,
 					ReleaseName:     releaseName,
@@ -302,29 +265,9 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					DryRun:          true,
 					Diff:            true,
 					UpgradeOnly:     upgrade,
-				})
+				}, planServer)
 				if previewErr != nil {
 					return previewErr
-				}
-				if planServer && preview != nil && preview.Release != nil && preview.PlanSummary != nil {
-					hints, hintErr := deploy.DetectServerSideReplaceKeys(ctx, kubeClient, preview.Release.Manifest, deploy.ServerPlanOptions{FieldManager: "ktl-plan", Force: true})
-					if hintErr != nil && shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
-						fmt.Fprintf(errOut, "Warning: server-side plan check failed: %v\n", hintErr)
-					}
-					if len(hints) > 0 {
-						for i := range preview.PlanSummary.Changes {
-							ch := preview.PlanSummary.Changes[i]
-							if ch.IsHook || ch.Action != deploy.PlanUpdate {
-								continue
-							}
-							key := fmt.Sprintf("%s/%s/%s/%s/%s", strings.ToLower(strings.TrimSpace(ch.Group)), strings.ToLower(strings.TrimSpace(ch.Version)), strings.ToLower(strings.TrimSpace(ch.Kind)), strings.TrimSpace(ch.Namespace), strings.TrimSpace(ch.Name))
-							if hints[key] {
-								preview.PlanSummary.Changes[i].Action = deploy.PlanReplace
-								preview.PlanSummary.Change--
-								preview.PlanSummary.Replace++
-							}
-						}
-					}
 				}
 				if preview != nil && preview.PlanSummary != nil {
 					fmt.Fprintf(errOut, "Plan: %d to add, %d to change, %d to replace, %d to destroy.\n", preview.PlanSummary.Add, preview.PlanSummary.Change, preview.PlanSummary.Replace, preview.PlanSummary.Destroy)
@@ -455,16 +398,16 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					}
 				}
 				summary.Secrets = cloneSecretRefs(secretRefs)
-				historyCopy := cloneBreadcrumbs(historyBreadcrumbs)
-				lastSuccessCopy := cloneBreadcrumbPointer(lastSuccessful)
+				historyCopy := deploy.CloneBreadcrumbs(historyBreadcrumbs)
+				lastSuccessCopy := deploy.CloneBreadcrumbPointer(lastSuccessful)
 				if deployedRelease != nil {
-					if crumb, ok := breadcrumbFromRelease(deployedRelease); ok {
-						historyCopy = prependBreadcrumb(historyCopy, crumb, historyBreadcrumbLimit)
-						if isSuccessfulStatus(summary.Status) {
+					if crumb, ok := deploy.BreadcrumbFromRelease(deployedRelease); ok {
+						historyCopy = deploy.PrependBreadcrumb(historyCopy, crumb, historyBreadcrumbLimit)
+						if deploy.IsSuccessfulStatus(summary.Status) {
 							c := crumb
 							lastSuccessCopy = &c
 						}
-						actionHeadline = describeDeployAction(actionDescriptor{
+						actionHeadline = deploy.DescribeDeployAction(deploy.ActionDescriptor{
 							Release:   releaseName,
 							Chart:     crumb.Chart,
 							Version:   crumb.Version,
@@ -475,7 +418,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 					}
 				}
 				if actionHeadline == "" {
-					actionHeadline = describeDeployAction(actionDescriptor{
+					actionHeadline = deploy.DescribeDeployAction(deploy.ActionDescriptor{
 						Release:   releaseName,
 						Chart:     summary.Chart,
 						Version:   summary.Version,
@@ -494,11 +437,11 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 			}()
 
 			var historyErr error
-			historyBreadcrumbs, lastSuccessful, historyErr = releaseHistoryBreadcrumbs(actionCfg, releaseName, historyBreadcrumbLimit)
+			historyBreadcrumbs, lastSuccessful, historyErr = deploy.ReleaseHistoryBreadcrumbs(actionCfg, releaseName, historyBreadcrumbLimit)
 			if historyErr != nil && shouldLogAtLevel(currentLogLevel, zapcore.WarnLevel) {
 				fmt.Fprintf(errOut, "Warning: unable to load release history for %s: %v\n", releaseName, historyErr)
 			}
-			actionHeadline = describeDeployAction(actionDescriptor{
+			actionHeadline = deploy.DescribeDeployAction(deploy.ActionDescriptor{
 				Release:   releaseName,
 				Chart:     chart,
 				Version:   version,
@@ -527,7 +470,7 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.set_values_json", captureJSON(setValues))
 				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.set_string_values_json", captureJSON(setStringValues))
 				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.set_file_values_json", captureJSON(setFileValues))
-				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.values_files_json", captureJSON(hashFiles(valuesFiles)))
+				_ = captureRecorder.RecordArtifact(ctx, "apply.inputs.values_files_json", captureJSON(deploy.HashFiles(valuesFiles)))
 			}
 
 			if stream != nil && (strings.TrimSpace(uiAddr) != "" || strings.TrimSpace(wsListenAddr) != "") {
@@ -570,8 +513,8 @@ func newDeployApplyCommand(namespace *string, kubeconfig *string, kubeContext *s
 				if actionHeadline != "" {
 					initialSummary.Action = actionHeadline
 				}
-				initialSummary.History = cloneBreadcrumbs(historyBreadcrumbs)
-				initialSummary.LastSuccessful = cloneBreadcrumbPointer(lastSuccessful)
+				initialSummary.History = deploy.CloneBreadcrumbs(historyBreadcrumbs)
+				initialSummary.LastSuccessful = deploy.CloneBreadcrumbPointer(lastSuccessful)
 				initialSummary.Secrets = cloneSecretRefs(secretRefs)
 				stream.EmitSummary(initialSummary)
 			}
@@ -1087,7 +1030,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 
 			shouldPreview := dryRun || (!autoApprove && !keepHistory)
 			if dryRun || !autoApprove {
-				manifest, reason := fetchLatestReleaseManifest(actionCfg, release)
+				manifest, reason := deploy.FetchLatestReleaseManifest(actionCfg, release)
 				if strings.TrimSpace(manifest) == "" {
 					fmt.Fprintf(errOut, "Plan: 0 to add, 0 to change, 0 to replace, 0 to destroy.\n")
 					fmt.Fprintf(errOut, "Destroy preview unavailable: %s\n", reason)
@@ -1136,7 +1079,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				}
 			}
 
-			historyBreadcrumbs, lastSuccessful, err = releaseHistoryBreadcrumbs(actionCfg, release, historyBreadcrumbLimit)
+			historyBreadcrumbs, lastSuccessful, err = deploy.ReleaseHistoryBreadcrumbs(actionCfg, release, historyBreadcrumbLimit)
 			if err != nil {
 				fmt.Fprintf(errOut, "Warning: unable to load release history for %s: %v\n", release, err)
 			}
@@ -1146,7 +1089,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				historyChart = historyBreadcrumbs[0].Chart
 				historyVersion = historyBreadcrumbs[0].Version
 			}
-			actionHeadline = describeDeployAction(actionDescriptor{
+			actionHeadline = deploy.DescribeDeployAction(deploy.ActionDescriptor{
 				Release:   release,
 				Chart:     historyChart,
 				Version:   historyVersion,
@@ -1170,8 +1113,8 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 				if keepHistory {
 					summary.Notes = "Release history retained"
 				}
-				historyCopy := cloneBreadcrumbs(historyBreadcrumbs)
-				lastSuccessCopy := cloneBreadcrumbPointer(lastSuccessful)
+				historyCopy := deploy.CloneBreadcrumbs(historyBreadcrumbs)
+				lastSuccessCopy := deploy.CloneBreadcrumbPointer(lastSuccessful)
 				if len(historyCopy) > 0 {
 					if summary.Chart == "" {
 						summary.Chart = historyCopy[0].Chart
@@ -1181,7 +1124,7 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 					}
 				}
 				if actionHeadline == "" {
-					actionHeadline = describeDeployAction(actionDescriptor{
+					actionHeadline = deploy.DescribeDeployAction(deploy.ActionDescriptor{
 						Release:   release,
 						Chart:     summary.Chart,
 						Version:   summary.Version,
@@ -1352,226 +1295,6 @@ func newDeployRemovalCommand(cfg deployRemovalConfig, namespace *string, kubecon
 	}
 	decorateCommandHelp(cmd, label)
 	return cmd
-}
-
-type actionDescriptor struct {
-	Release   string
-	Chart     string
-	Version   string
-	Namespace string
-	DryRun    bool
-	Diff      bool
-	Destroy   bool
-}
-
-func describeDeployAction(desc actionDescriptor) string {
-	ns := strings.TrimSpace(desc.Namespace)
-	if ns == "" {
-		ns = "default"
-	}
-	target := strings.TrimSpace(desc.Chart)
-	version := strings.TrimSpace(desc.Version)
-	if target == "" {
-		target = strings.TrimSpace(desc.Release)
-	}
-	if target == "" {
-		target = "release"
-	}
-	if version != "" {
-		target = fmt.Sprintf("%s %s", target, version)
-	}
-	var verb string
-	switch {
-	case desc.Destroy:
-		verb = "Destroying"
-	case desc.Diff:
-		verb = "Diffing"
-	case desc.DryRun:
-		verb = "Rendering"
-	default:
-		verb = "Deploying"
-	}
-	return fmt.Sprintf("%s %s into ns/%s", verb, target, ns)
-}
-
-func fetchLatestReleaseManifest(actionCfg *action.Configuration, releaseName string) (string, string) {
-	if actionCfg == nil || strings.TrimSpace(releaseName) == "" {
-		return "", "release name missing"
-	}
-	getAction := action.NewGet(actionCfg)
-	if rel, err := getAction.Run(releaseName); err == nil && rel != nil && strings.TrimSpace(rel.Manifest) != "" {
-		return rel.Manifest, "from helm get"
-	}
-	historyAction := action.NewHistory(actionCfg)
-	historyAction.Max = 20
-	revisions, err := historyAction.Run(releaseName)
-	if err != nil {
-		if errors.Is(err, driver.ErrReleaseNotFound) {
-			return "", "release not found (no deployed release or history)"
-		}
-		return "", fmt.Sprintf("unable to read release history: %v", err)
-	}
-	for i := len(revisions) - 1; i >= 0; i-- {
-		if revisions[i] != nil && strings.TrimSpace(revisions[i].Manifest) != "" {
-			return revisions[i].Manifest, "from latest release history"
-		}
-	}
-	return "", "release history has no manifest"
-}
-
-type captureFileHash struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
-	Error  string `json:"error,omitempty"`
-}
-
-func hashFiles(paths []string) []captureFileHash {
-	out := make([]captureFileHash, 0, len(paths))
-	for _, p := range paths {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		h := captureFileHash{Path: p}
-		info, err := os.Stat(p)
-		if err != nil {
-			h.Error = err.Error()
-			out = append(out, h)
-			continue
-		}
-		h.Size = info.Size()
-		data, err := os.ReadFile(p)
-		if err != nil {
-			h.Error = err.Error()
-			out = append(out, h)
-			continue
-		}
-		sum := sha256.Sum256(data)
-		h.SHA256 = hex.EncodeToString(sum[:])
-		out = append(out, h)
-	}
-	return out
-}
-
-func releaseHistoryBreadcrumbs(actionCfg *action.Configuration, releaseName string, limit int) ([]deploy.HistoryBreadcrumb, *deploy.HistoryBreadcrumb, error) {
-	if actionCfg == nil || strings.TrimSpace(releaseName) == "" || limit <= 0 {
-		return nil, nil, nil
-	}
-	historyAction := action.NewHistory(actionCfg)
-	fetchLimit := limit * 3
-	if fetchLimit < limit {
-		fetchLimit = limit
-	}
-	if fetchLimit < 10 {
-		fetchLimit = 10
-	}
-	historyAction.Max = fetchLimit
-	revisions, err := historyAction.Run(releaseName)
-	if err != nil {
-		if errors.Is(err, driver.ErrReleaseNotFound) {
-			return nil, nil, nil
-		}
-		return nil, nil, err
-	}
-	var breadcrumbs []deploy.HistoryBreadcrumb
-	var lastSuccessful *deploy.HistoryBreadcrumb
-	for i := len(revisions) - 1; i >= 0; i-- {
-		crumb, ok := breadcrumbFromRelease(revisions[i])
-		if !ok {
-			continue
-		}
-		if lastSuccessful == nil && strings.EqualFold(crumb.Status, release.StatusDeployed.String()) {
-			c := crumb
-			lastSuccessful = &c
-		}
-		if len(breadcrumbs) < limit {
-			breadcrumbs = append(breadcrumbs, crumb)
-		}
-	}
-	return breadcrumbs, lastSuccessful, nil
-}
-
-func breadcrumbFromRelease(rel *release.Release) (deploy.HistoryBreadcrumb, bool) {
-	if rel == nil {
-		return deploy.HistoryBreadcrumb{}, false
-	}
-	crumb := deploy.HistoryBreadcrumb{
-		Revision: rel.Version,
-		Status:   "",
-	}
-	if rel.Info != nil {
-		if rel.Info.Status != "" {
-			crumb.Status = rel.Info.Status.String()
-		}
-		if desc := strings.TrimSpace(rel.Info.Description); desc != "" {
-			crumb.Description = desc
-		}
-		if !rel.Info.LastDeployed.IsZero() {
-			crumb.DeployedAt = rel.Info.LastDeployed.UTC().Format(time.RFC3339Nano)
-		}
-	}
-	if crumb.Status == "" && rel.Info != nil {
-		crumb.Status = rel.Info.Status.String()
-	}
-	if rel.Chart != nil && rel.Chart.Metadata != nil {
-		crumb.Chart = rel.Chart.Metadata.Name
-		crumb.Version = rel.Chart.Metadata.Version
-		crumb.AppVersion = rel.Chart.Metadata.AppVersion
-	}
-	if crumb.Status == "" && rel.Info != nil {
-		crumb.Status = rel.Info.Status.String()
-	}
-	if crumb.Revision == 0 && crumb.Chart == "" && crumb.Status == "" {
-		return deploy.HistoryBreadcrumb{}, false
-	}
-	return crumb, true
-}
-
-func prependBreadcrumb(history []deploy.HistoryBreadcrumb, crumb deploy.HistoryBreadcrumb, limit int) []deploy.HistoryBreadcrumb {
-	if limit <= 0 {
-		return cloneBreadcrumbs(history)
-	}
-	out := make([]deploy.HistoryBreadcrumb, 0, limit)
-	out = append(out, crumb)
-	for _, existing := range history {
-		if len(out) >= limit {
-			break
-		}
-		if existing.Revision == crumb.Revision {
-			continue
-		}
-		out = append(out, existing)
-	}
-	return out
-}
-
-func cloneBreadcrumbs(history []deploy.HistoryBreadcrumb) []deploy.HistoryBreadcrumb {
-	if len(history) == 0 {
-		return nil
-	}
-	out := make([]deploy.HistoryBreadcrumb, len(history))
-	copy(out, history)
-	return out
-}
-
-func cloneBreadcrumbPointer(crumb *deploy.HistoryBreadcrumb) *deploy.HistoryBreadcrumb {
-	if crumb == nil {
-		return nil
-	}
-	c := *crumb
-	return &c
-}
-
-func isSuccessfulStatus(status string) bool {
-	status = strings.ToLower(strings.TrimSpace(status))
-	if status == "" {
-		return false
-	}
-	if status == "succeeded" || status == "success" || status == release.StatusDeployed.String() {
-		return true
-	}
-	return false
 }
 
 func renderManifestForTracking(ctx context.Context, settings *cli.EnvSettings, namespace, chart, version, release string, valuesFiles, setValues, setStringValues, setFileValues []string, secrets *deploy.SecretOptions) (string, error) {

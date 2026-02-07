@@ -21,3 +21,5 @@ dist/
 .ktl/
 
 .bin/
+ktl
+kubeconfig-lab
