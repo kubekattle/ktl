@@ -87,6 +87,7 @@ func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var deps bool
 	var hosts bool
 	var execCmd string
+	var envFrom string
 	var stackConfig string
 	cmd := &cobra.Command{
 		Use:   "tunnel [SERVICE_OR_POD...]",
@@ -96,9 +97,10 @@ Examples:
   ktl tunnel app --share         # Listen on 0.0.0.0 (share with LAN)
   ktl tunnel app --deps          # Also tunnel to app's dependencies (from stack.yaml)
   ktl tunnel app --hosts         # Add 'app.local' to /etc/hosts (requires sudo)
-  ktl tunnel db --exec "npm run migrate"  # Run script when tunnel is ready`,
+  ktl tunnel db --exec "npm run migrate"  # Run script when tunnel is ready
+  ktl tunnel db --env-from deployment/app --exec "go run ." # Run local app with remote env`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, execCmd, stackConfig)
+			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, execCmd, envFrom, stackConfig)
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
@@ -106,6 +108,7 @@ Examples:
 	cmd.Flags().BoolVar(&deps, "deps", false, "Recursively tunnel to dependencies defined in stack.yaml")
 	cmd.Flags().BoolVar(&hosts, "hosts", false, "Update /etc/hosts with .local aliases (requires sudo)")
 	cmd.Flags().StringVar(&execCmd, "exec", "", "Command to run when all tunnels are active")
+	cmd.Flags().StringVar(&envFrom, "env-from", "", "Fetch environment variables from workload (e.g. deployment/app)")
 	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
 	
 	cmd.AddCommand(newTunnelSaveCommand())
@@ -149,7 +152,7 @@ func newTunnelListCommand() *cobra.Command {
 	}
 }
 
-func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, execCmd string, stackConfig string) error {
+func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, execCmd string, envFrom string, stackConfig string) error {
 	// Check for profile expansion
 	if len(targets) == 1 {
 		profiles, _ := loadTunnelProfiles()
@@ -186,6 +189,18 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 		if namespace == "" {
 			namespace = "default"
 		}
+	}
+
+	// Fetch Env if requested
+	var fetchedEnv []string
+	if envFrom != "" {
+		fmt.Printf("Fetching environment from %s...\n", envFrom)
+		var err error
+		fetchedEnv, err = kube.FetchWorkloadEnv(ctx, kClient, namespace, envFrom)
+		if err != nil {
+			return fmt.Errorf("failed to fetch env: %w", err)
+		}
+		fmt.Printf("Loaded %d environment variables.\n", len(fetchedEnv))
 	}
 
 	if len(targets) == 0 {
@@ -303,6 +318,14 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 						logEvent("Executing: %s", execCmd)
 						parts := strings.Fields(execCmd)
 						cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+						
+						// Inject Env
+						if len(fetchedEnv) > 0 {
+							cmd.Env = append(os.Environ(), fetchedEnv...)
+						} else {
+							cmd.Env = os.Environ()
+						}
+						
 						// We can't share stdout/stderr easily with TUI running.
 						// Capture output and log it?
 						out, err := cmd.CombinedOutput()
