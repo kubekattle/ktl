@@ -1,12 +1,12 @@
 Output showcase.gif
 
-Set FontSize 22
-Set Width 1600
-Set Height 1000
-Set Padding 40
-Set FontFamily "JetBrains Mono"
-Set LineHeight 1.2
-Set Theme "TokyoNight"
+Set FontSize 32
+Set Width 1800
+Set Height 1200
+Set Padding 60
+Set FontFamily "Hack Nerd Font"
+Set LineHeight 1.4
+Set Theme "Dracula"
 
 # Setup environment
 Hide
