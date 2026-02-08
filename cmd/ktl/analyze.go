@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/example/ktl/internal/analyze"
@@ -21,6 +22,7 @@ func newAnalyzeCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	var aiProvider string
 	var drift bool
 	var cost bool
+	var fix bool
 
 	cmd := &cobra.Command{
 		Use:   "analyze [POD_NAME]",
@@ -39,13 +41,16 @@ Examples:
   ktl analyze my-app-pod-123 --drift
   
   # Estimate monthly cost
-  ktl analyze my-app-pod-123 --cost`,
+  ktl analyze my-app-pod-123 --cost
+  
+  # Automatically apply AI-suggested fixes (Use with caution)
+  ktl analyze my-app-pod-123 --ai --fix`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				targetPod = args[0]
 			}
-			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost)
+			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost, fix)
 		},
 	}
 
@@ -54,11 +59,12 @@ Examples:
 	cmd.Flags().StringVar(&aiProvider, "provider", "heuristic", "Analysis provider: heuristic (default), openai, qwen, deepseek, or mock")
 	cmd.Flags().BoolVar(&drift, "drift", false, "Check for configuration drift against 'kubectl.kubernetes.io/last-applied-configuration'")
 	cmd.Flags().BoolVar(&cost, "cost", false, "Estimate monthly cost of the pod based on resource requests")
+	cmd.Flags().BoolVar(&fix, "fix", false, "Automatically apply the suggested patch if available")
 
 	return cmd
 }
 
-func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool) error {
+func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool, fix bool) error {
 	// 1. Setup Kube Client
 	var kc, kctx string
 	if kubeconfig != nil {
@@ -158,12 +164,61 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 
 	// 6. Interactive Fix
 	if diagnosis.Patch != "" {
-		fmt.Println()
-		if confirmFix() {
+		fmt.Println("\n--- Auto-Remediation ---")
+		fmt.Printf("Suggested Patch:\n%s\n", diagnosis.Patch)
+
+		apply := fix
+		if !fix {
+			fmt.Print("Apply this patch? [y/N]: ")
+			reader := bufio.NewReader(os.Stdin)
+			input, _ := reader.ReadString('\n')
+			if strings.ToLower(strings.TrimSpace(input)) == "y" {
+				apply = true
+			}
+		}
+
+		if apply {
 			fmt.Println("Applying patch...")
-			// TODO: Implement actual patch application using kClient.Dynamic()
-			// For now, we simulate it.
-			fmt.Printf("Successfully applied patch to %s/%s\n", namespace, podName)
+			// Use kubectl patch
+			// We need to know the resource kind. Assuming Pod for now, but usually we patch the owner (Deployment).
+			// If we patch the Pod, it might be ephemeral if owned by RS.
+			// Ideally we patch the owner.
+			// Let's check owner references from evidence.
+
+			targetKind := "Pod"
+			targetName := podName
+
+			if len(evidence.Pod.OwnerReferences) > 0 {
+				owner := evidence.Pod.OwnerReferences[0]
+				if owner.Kind == "ReplicaSet" {
+					// Need to find Deployment
+					// We don't have RS object handy here easily unless we fetch it.
+					// But we have kClient.
+					rs, err := kClient.Clientset.AppsV1().ReplicaSets(namespace).Get(ctx, owner.Name, metav1.GetOptions{})
+					if err == nil && len(rs.OwnerReferences) > 0 {
+						targetKind = rs.OwnerReferences[0].Kind
+						targetName = rs.OwnerReferences[0].Name
+					} else {
+						// Patch RS? Usually bad idea.
+						fmt.Println("Warning: Pod is owned by ReplicaSet but could not find Deployment. Patching Pod directly (might be lost).")
+					}
+				} else {
+					targetKind = owner.Kind
+					targetName = owner.Name
+				}
+			}
+
+			fmt.Printf("Targeting %s/%s\n", targetKind, targetName)
+
+			// kubectl patch kind name --patch '...'
+			cmd := exec.Command("kubectl", "patch", targetKind, targetName, "-n", namespace, "--patch", diagnosis.Patch)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				color.New(color.FgRed).Printf("Patch failed: %v\n%s\n", err, string(out))
+			} else {
+				color.New(color.FgGreen).Println("Patch applied successfully!")
+				fmt.Println(string(out))
+			}
 		}
 	}
 
