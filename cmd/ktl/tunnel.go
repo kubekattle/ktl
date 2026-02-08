@@ -28,6 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/portforward"
@@ -153,8 +154,120 @@ Examples:
 	cmd.AddCommand(newTunnelReverseCommand(kubeconfig, kubeContext))
 	cmd.AddCommand(newTunnelInterceptCommand(kubeconfig, kubeContext))
 	cmd.AddCommand(newSyncCommand(kubeconfig, kubeContext))
+	cmd.AddCommand(newShareCommand(kubeconfig, kubeContext))
 	
 	return cmd
+}
+
+func newShareCommand(kubeconfig, kubeContext *string) *cobra.Command {
+	var namespace string
+	var host string
+	cmd := &cobra.Command{
+		Use:   "share [LOCAL_PORT]",
+		Short: "Expose a local port to the internet via Cluster Ingress",
+		Long: `Creates a reverse tunnel to the cluster and exposes it via a temporary Ingress resource.
+This effectively makes your local service accessible via a public URL (if the cluster has an Ingress Controller).
+
+Example:
+  ktl tunnel share 3000 --host my-app.dev.example.com`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			localPort, err := strconv.Atoi(args[0])
+			if err != nil {
+				return fmt.Errorf("invalid local port: %w", err)
+			}
+			return runShare(cmd.Context(), kubeconfig, kubeContext, namespace, localPort, host)
+		},
+	}
+	cmd.Flags().StringVar(&host, "host", "", "Public hostname for the ingress (e.g. my-app.example.com)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
+	return cmd
+}
+
+func runShare(ctx context.Context, kubeconfig, kubeContext *string, namespace string, localPort int, host string) error {
+	// 1. Setup Client
+	kClient, err := kube.New(ctx, *kubeconfig, *kubeContext)
+	if err != nil {
+		return err
+	}
+	if namespace == "" {
+		namespace = kClient.Namespace
+		if namespace == "" {
+			namespace = "default"
+		}
+	}
+
+	// 2. Generate Names
+	runID := fmt.Sprintf("share-%d", time.Now().UnixNano()%10000)
+	serviceName := "ktl-" + runID
+	
+	if host == "" {
+		// Try to guess a wildcard domain or use nip.io if allowed?
+		// For now, require host or default to something that might not work without /etc/hosts
+		host = fmt.Sprintf("%s.127.0.0.1.nip.io", serviceName) // Local loopback trick for testing
+		fmt.Printf("No host provided. Using magic DNS: %s\n", host)
+	}
+
+	// 3. Start Reverse Tunnel (Reusing logic)
+	// We run this in a goroutine or blocking?
+	// Reverse tunnel is blocking. We need to setup Ingress first.
+	
+	fmt.Printf("Sharing localhost:%d via http://%s ...\n", localPort, host)
+
+	// 4. Create Ingress
+	pathType := networkingv1.PathTypePrefix
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: namespace,
+			Annotations: map[string]string{
+				"kubernetes.io/ingress.class": "nginx", // Default attempt
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: host,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathType,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: serviceName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: 80,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	
+	fmt.Println("Creating Ingress...")
+	_, err = kClient.Clientset.NetworkingV1().Ingresses(namespace).Create(ctx, ingress, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create ingress: %w", err)
+	}
+	
+	// Cleanup on exit
+	defer func() {
+		fmt.Println("\nCleaning up Ingress...")
+		kClient.Clientset.NetworkingV1().Ingresses(namespace).Delete(context.Background(), serviceName, metav1.DeleteOptions{})
+	}()
+
+	// 5. Run Reverse Tunnel (This creates the Service and Pod)
+	// We reuse runReverseTunnel but we need to ensure the Service Name matches what we put in Ingress.
+	// runReverseTunnel takes `serviceName`.
+	
+	return runReverseTunnel(ctx, kubeconfig, kubeContext, namespace, serviceName, localPort)
 }
 
 func newSyncCommand(kubeconfig, kubeContext *string) *cobra.Command {
