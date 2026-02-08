@@ -11,6 +11,10 @@ Core commands:
 - Secure access to cluster services: `ktl tunnel`
 - HTML viewers: `ktl help --ui`, `ktl apply --ui`, `ktl delete --ui`
 
+## Showcase
+
+![Stack Apply Showcase](showcase.gif)
+
 ## Why ktl?
 
 `ktl` is designed to be a single binary that bridges the gap between **interactive developer workflows** and **headless CI pipelines**. It is suitable for both daily development and rigorous CI/CD steps.
