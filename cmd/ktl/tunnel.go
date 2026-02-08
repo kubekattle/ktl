@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/portforward"
@@ -76,10 +78,58 @@ Examples:
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
 	cmd.Flags().BoolVar(&share, "share", false, "Listen on all interfaces (0.0.0.0) to share with LAN")
+	
+	cmd.AddCommand(newTunnelSaveCommand())
+	cmd.AddCommand(newTunnelListCommand())
+	
 	return cmd
 }
 
+func newTunnelSaveCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "save NAME TARGET...",
+		Short: "Save a tunnel profile",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			targets := args[1:]
+			return saveTunnelProfile(name, targets)
+		},
+	}
+}
+
+func newTunnelListCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List saved tunnel profiles",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profiles, err := loadTunnelProfiles()
+			if err != nil {
+				return err
+			}
+			if len(profiles) == 0 {
+				fmt.Println("No saved profiles.")
+				return nil
+			}
+			fmt.Println("Saved Profiles:")
+			for name, targets := range profiles {
+				fmt.Printf("  - %s: %s\n", name, strings.Join(targets, " "))
+			}
+			return nil
+		},
+	}
+}
+
 func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool) error {
+	// Check for profile expansion
+	if len(targets) == 1 {
+		profiles, _ := loadTunnelProfiles()
+		if expanded, ok := profiles[targets[0]]; ok {
+			fmt.Printf("Loaded profile '%s': %s\n", targets[0], strings.Join(expanded, ", "))
+			targets = expanded
+		}
+	}
+
 	var kc, kctx string
 	if kubeconfig != nil {
 		kc = *kubeconfig
@@ -545,6 +595,49 @@ func formatBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func loadTunnelProfiles() (map[string][]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(home, ".ktl", "tunnels.yaml")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return make(map[string][]string), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var profiles map[string][]string
+	if err := yaml.Unmarshal(data, &profiles); err != nil {
+		return nil, err
+	}
+	return profiles, nil
+}
+
+func saveTunnelProfile(name string, targets []string) error {
+	profiles, err := loadTunnelProfiles()
+	if err != nil {
+		return err
+	}
+	profiles[name] = targets
+	
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".ktl")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	
+	data, err := yaml.Marshal(profiles)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "tunnels.yaml"), data, 0644)
 }
 
 func inferProtocol(port int) string {
