@@ -37,6 +37,10 @@ import (
 	"gopkg.in/yaml.v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
+
+	"github.com/example/ktl/internal/kube"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var klogInitOnce sync.Once
@@ -210,7 +214,8 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	lintCmd := newLintCommand(&kubeconfigPath, &kubeContext)
 	envCmd := newEnvCommand()
 	versionCmd := newVersionCommand()
-	secretsCmd := newSecretsCommand()
+	secretsCmd := newSecretsCommand(&kubeconfigPath, &kubeContext)
+	waitCmd := newWaitCommand(&kubeconfigPath, &kubeContext)
 	revertCmd := newRevertCommand(&kubeconfigPath, &kubeContext, &logLevel)
 	tunnelCmd := newTunnelCommand(&kubeconfigPath, &kubeContext)
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
@@ -233,6 +238,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		secretsCmd,
 		versionCmd,
 		upCmd,
+		waitCmd,
 	)
 	cmd.SetHelpCommand(newHelpCommand(cmd))
 	cmd.Example = `  # Tail checkout pods in prod-payments and highlight errors
@@ -686,3 +692,112 @@ func runUp(ctx context.Context, kubeconfig, kubeContext *string) error {
 	<-ctx.Done()
 	return nil
 }
+
+func newWaitCommand(kubeconfig, kubeContext *string) *cobra.Command {
+	var timeout time.Duration
+	var logPattern string
+	var namespace string
+
+	cmd := &cobra.Command{
+		Use:   "wait [POD_NAME_PATTERN]",
+		Short: "Wait for a pod to be ready AND match a log pattern",
+		Long: `Wait for a pod to satisfy conditions that are harder to check with kubectl wait.
+Useful for CI/CD pipelines where you need to wait for an app to be "business ready" (e.g. "Server started on port 8080").
+
+Example:
+  ktl wait my-app --for-log "Server started" --timeout 60s`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pattern := ""
+			if len(args) > 0 {
+				pattern = args[0]
+			}
+			return runWait(cmd.Context(), kubeconfig, kubeContext, namespace, pattern, logPattern, timeout)
+		},
+	}
+	
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
+	cmd.Flags().StringVar(&logPattern, "for-log", "", "Wait until this string appears in the logs")
+	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Timeout for the wait")
+	
+	return cmd
+}
+
+func runWait(ctx context.Context, kubeconfig, kubeContext *string, namespace string, namePattern string, logPattern string, timeout time.Duration) error {
+	kClient, err := kube.New(ctx, *kubeconfig, *kubeContext)
+	if err != nil {
+		return err
+	}
+	if namespace == "" {
+		namespace = kClient.Namespace
+		if namespace == "" {
+			namespace = "default"
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	fmt.Printf("Waiting for pod '%s' in %s... (Timeout: %s)\n", namePattern, namespace, timeout)
+
+	// Polling loop
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for pod")
+		case <-ticker.C:
+			// Find Pod
+			pods, err := kClient.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+			if err != nil {
+				continue
+			}
+			
+			var target *corev1.Pod
+			for _, p := range pods.Items {
+				if strings.Contains(p.Name, namePattern) {
+					target = &p
+					break
+				}
+			}
+			
+			if target == nil {
+				continue
+			}
+			
+			// Check Readiness
+			ready := false
+			for _, c := range target.Status.Conditions {
+				if c.Type == "Ready" && c.Status == "True" {
+					ready = true
+					break
+				}
+			}
+			
+			if !ready {
+				fmt.Printf("\rPod %s is not ready...", target.Name)
+				continue
+			}
+			
+			// Check Logs
+			if logPattern != "" {
+				fmt.Printf("\rPod %s is ready. Checking logs for '%s'...", target.Name, logPattern)
+				req := kClient.Clientset.CoreV1().Pods(namespace).GetLogs(target.Name, &corev1.PodLogOptions{})
+				logs, err := req.Do(ctx).Raw()
+				if err == nil {
+					if strings.Contains(string(logs), logPattern) {
+						fmt.Printf("\nSuccess! Log pattern found.\n")
+						return nil
+					}
+				}
+			} else {
+				fmt.Printf("\nSuccess! Pod is ready.\n")
+				return nil
+			}
+		}
+	}
+}
+
+

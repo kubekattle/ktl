@@ -1,17 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
+	"github.com/example/ktl/internal/kube"
 	"github.com/example/ktl/internal/secretstore"
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func newSecretsCommand() *cobra.Command {
+func newSecretsCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
 		Short: "Inspect and validate deploy-time secret providers",
@@ -23,8 +28,71 @@ func newSecretsCommand() *cobra.Command {
 	cmd.AddCommand(newSecretsTestCommand())
 	cmd.AddCommand(newSecretsListCommand())
 	cmd.AddCommand(newSecretsDiscoverCommand())
+	cmd.AddCommand(newSecretsExecCommand(kubeconfig, kubeContext))
 	decorateCommandHelp(cmd, "Secrets Flags")
 	return cmd
+}
+
+func newSecretsExecCommand(kubeconfig, kubeContext *string) *cobra.Command {
+	var namespace string
+	cmd := &cobra.Command{
+		Use:   "exec [SECRET_NAME] -- [COMMAND]...",
+		Short: "Execute a command with secrets injected as environment variables",
+		Long: `Injects all keys from a Kubernetes Secret as environment variables into a local command.
+Keys are automatically capitalized and sanitized (e.g. "db.password" -> "DB_PASSWORD").
+
+Example:
+  ktl secrets exec my-db-secret -- ./start-app`,
+		Args: cobra.MinimumNArgs(2), // secret + command
+		RunE: func(cmd *cobra.Command, args []string) error {
+			secretName := args[0]
+			// Find "--"
+			dashIdx := cmd.ArgsLenAtDash()
+			if dashIdx == -1 || dashIdx == len(args) {
+				return fmt.Errorf("command must be separated by --")
+			}
+			execArgs := args[dashIdx:]
+			
+			return runSecretsExec(cmd.Context(), kubeconfig, kubeContext, namespace, secretName, execArgs)
+		},
+	}
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
+	return cmd
+}
+
+func runSecretsExec(ctx context.Context, kubeconfig, kubeContext *string, namespace string, secretName string, execArgs []string) error {
+	kClient, err := kube.New(ctx, *kubeconfig, *kubeContext)
+	if err != nil {
+		return err
+	}
+	if namespace == "" {
+		namespace = kClient.Namespace
+		if namespace == "" {
+			namespace = "default"
+		}
+	}
+	
+	secret, err := kClient.Clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get secret: %w", err)
+	}
+	
+	env := os.Environ()
+	for k, v := range secret.Data {
+		// Sanitize Key
+		key := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(k, ".", "_"), "-", "_"))
+		env = append(env, fmt.Sprintf("%s=%s", key, string(v)))
+	}
+	
+	fmt.Printf("Injecting %d secrets from %s...\n", len(secret.Data), secretName)
+	
+	cmd := exec.CommandContext(ctx, execArgs[0], execArgs[1:]...)
+	cmd.Env = env
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	return cmd.Run()
 }
 
 func newSecretsTestCommand() *cobra.Command {
