@@ -74,6 +74,32 @@ ktl tunnel service/my-app 8080:80
 ktl help --ui
 ```
 
+## Verification
+
+`ktl` provides powerful verification tools for your Kubernetes resources.
+
+### Stack Verification
+
+Verify a stack's deployment status and health:
+
+```bash
+ktl stack verify --config stack.yaml
+```
+
+### Configuration Verification
+
+The standalone `verify` tool checks your manifests against policies and best practices.
+
+```bash
+go install ./cmd/verify
+
+# Verify a Helm chart
+verify --chart ./chart --release my-app -n default
+
+# Verify a manifest
+verify --manifest ./rendered.yaml
+```
+
 ## Docs
 
 - Recipes: `docs/recipes.md`
