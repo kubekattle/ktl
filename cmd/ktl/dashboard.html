@@ -110,6 +110,7 @@
                         <th>URL</th>
                         <th>Status</th>
                         <th>Duration</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody id="request-rows">
@@ -190,6 +191,7 @@
                             <td>${r.url}</td>
                             <td style="color: ${r.status >= 400 ? 'var(--error)' : 'var(--success)'}">${r.status}</td>
                             <td>${r.duration}</td>
+                            <td><button onclick="replay('${r.id}')" style="cursor: pointer; background: var(--primary); border: none; border-radius: 4px; color: #fff; padding: 2px 6px;">Replay</button></td>
                         </tr>
                     `).join('');
                 }
@@ -203,6 +205,19 @@
                 
             } catch (e) {
                 console.error(e);
+            }
+        }
+
+        async function replay(id) {
+            try {
+                await fetch('/api/replay', {
+                    method: 'POST',
+                    body: JSON.stringify({id: id})
+                });
+                alert('Request replayed!');
+                // We don't refresh immediately; the loop will catch the new request log
+            } catch (e) {
+                alert('Replay failed: ' + e);
             }
         }
 
