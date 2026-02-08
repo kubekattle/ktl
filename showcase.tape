@@ -20,6 +20,13 @@ Show
 Type "# 1. Applying a basic stack chain"
 Sleep 1s
 Enter
+Type "bat testdata/stack/e2e/01-basic-chain/stack.yaml"
+Sleep 500ms
+Enter
+Sleep 5s
+Type "# Notice the 'needs' dependency..."
+Sleep 2s
+Enter
 Type "./bin/ktl stack apply --config testdata/stack/e2e/01-basic-chain"
 Sleep 500ms
 Enter
@@ -32,6 +39,13 @@ Enter
 # 2. Large Graph Apply (Parallelism)
 Type "# 2. Applying a large graph with dependencies"
 Sleep 1s
+Enter
+Type "bat testdata/stack/e2e/10-large-graph/stack.yaml"
+Sleep 500ms
+Enter
+Sleep 5s
+Type "# Releases without dependencies run in PARALLEL"
+Sleep 2s
 Enter
 Type "./bin/ktl stack apply --config testdata/stack/e2e/10-large-graph"
 Sleep 500ms
