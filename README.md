@@ -13,7 +13,13 @@ Core commands:
 
 ## Showcase
 
+### Stack Apply & Logs
+
 ![Stack Apply Showcase](showcase.gif)
+
+### Analyze & Diagnostics
+
+![Analyze Showcase](showcase-analyze.gif)
 
 ## Why ktl?
 

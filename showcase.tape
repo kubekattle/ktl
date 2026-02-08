@@ -4,7 +4,7 @@ Set FontSize 32
 Set Width 1800
 Set Height 1200
 Set Padding 60
-Set FontFamily "Helvetica"
+Set FontFamily "SF Mono"
 Set LineHeight 1.4
 Set Theme "Dracula"
 
