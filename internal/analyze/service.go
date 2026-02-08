@@ -1405,4 +1405,79 @@ func getContainerStatus(pod *corev1.Pod, name string) *corev1.ContainerStatus {
 	return nil
 }
 
+func CheckDrift(pod *corev1.Pod) []string {
+	var report []string
+	lastApplied := pod.Annotations["kubectl.kubernetes.io/last-applied-configuration"]
+	if lastApplied == "" {
+		return []string{"No last-applied-configuration annotation found. Cannot check drift."}
+	}
+
+	var appliedSpec corev1.Pod
+	if err := json.Unmarshal([]byte(lastApplied), &appliedSpec); err != nil {
+		return []string{fmt.Sprintf("Failed to parse last-applied-configuration: %v", err)}
+	}
+
+	// Simple check: Containers
+	if len(pod.Spec.Containers) != len(appliedSpec.Spec.Containers) {
+		report = append(report, fmt.Sprintf("Container count mismatch: Live=%d, GitOps=%d", len(pod.Spec.Containers), len(appliedSpec.Spec.Containers)))
+	}
+
+	for i, c := range appliedSpec.Spec.Containers {
+		if i >= len(pod.Spec.Containers) {
+			break
+		}
+		live := pod.Spec.Containers[i]
+		if c.Image != live.Image {
+			report = append(report, fmt.Sprintf("Image Drift (%s): GitOps=%s, Live=%s", c.Name, c.Image, live.Image))
+		}
+		// Check limits
+		if !equality(c.Resources.Limits, live.Resources.Limits) {
+			report = append(report, fmt.Sprintf("Resource Limits Drift (%s)", c.Name))
+		}
+	}
+
+	return report
+}
+
+func equality(a, b corev1.ResourceList) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if v2, ok := b[k]; !ok || v.Cmp(v2) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func EstimateCost(pod *corev1.Pod) float64 {
+	// Simple cost model:
+	// CPU: $0.04 per vCPU/hour
+	// Memory: $0.004 per GB/hour
+	// Monthly = Hourly * 730
+
+	var totalCPU float64 // cores
+	var totalMem float64 // GB
+
+	for _, c := range pod.Spec.Containers {
+		// Use Requests if set, else Limits, else default (0.1 core, 0.1 GB)
+		req := c.Resources.Requests
+		if req.Cpu().IsZero() {
+			totalCPU += 0.1
+		} else {
+			totalCPU += float64(req.Cpu().MilliValue()) / 1000.0
+		}
+
+		if req.Memory().IsZero() {
+			totalMem += 0.1
+		} else {
+			totalMem += float64(req.Memory().Value()) / (1024 * 1024 * 1024)
+		}
+	}
+
+	hourly := (totalCPU * 0.04) + (totalMem * 0.004)
+	return hourly * 730
+}
+
 func int64Ptr(i int64) *int64 { return &i }

@@ -19,6 +19,8 @@ func newAnalyzeCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	var namespace string
 	var useAI bool
 	var aiProvider string
+	var drift bool
+	var cost bool
 
 	cmd := &cobra.Command{
 		Use:   "analyze [POD_NAME]",
@@ -31,24 +33,32 @@ Examples:
   ktl analyze my-app-pod-123
 
   # Analyze a pod in a different namespace with AI enabled
-  ktl analyze my-app-pod-123 -n prod --ai`,
+  ktl analyze my-app-pod-123 -n prod --ai
+  
+  # Check for configuration drift (manual changes)
+  ktl analyze my-app-pod-123 --drift
+  
+  # Estimate monthly cost
+  ktl analyze my-app-pod-123 --cost`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				targetPod = args[0]
 			}
-			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider)
+			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost)
 		},
 	}
 
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (defaults to context)")
 	cmd.Flags().BoolVar(&useAI, "ai", false, "Use AI-powered analysis (requires API key)")
 	cmd.Flags().StringVar(&aiProvider, "provider", "heuristic", "Analysis provider: heuristic (default), openai, qwen, deepseek, or mock")
+	cmd.Flags().BoolVar(&drift, "drift", false, "Check for configuration drift against 'kubectl.kubernetes.io/last-applied-configuration'")
+	cmd.Flags().BoolVar(&cost, "cost", false, "Estimate monthly cost of the pod based on resource requests")
 
 	return cmd
 }
 
-func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string) error {
+func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool) error {
 	// 1. Setup Kube Client
 	var kc, kctx string
 	if kubeconfig != nil {
@@ -126,6 +136,25 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 
 	// 5. Present Results
 	printDiagnosis(diagnosis)
+
+	if drift {
+		driftReport := analyze.CheckDrift(evidence.Pod)
+		if len(driftReport) > 0 {
+			color.New(color.FgRed, color.Bold).Println("\n DRIFT DETECTED ")
+			for _, line := range driftReport {
+				fmt.Println(line)
+			}
+		} else {
+			color.New(color.FgGreen).Println("\nNo configuration drift detected.")
+		}
+	}
+
+	if cost {
+		monthlyCost := analyze.EstimateCost(evidence.Pod)
+		color.New(color.FgCyan, color.Bold).Println("\n COST ESTIMATION ")
+		fmt.Printf("Estimated Monthly Cost: $%.2f\n", monthlyCost)
+		fmt.Println("(Based on generic cloud pricing: $0.04/vCPU/hr, $0.004/GB/hr)")
+	}
 
 	// 6. Interactive Fix
 	if diagnosis.Patch != "" {
