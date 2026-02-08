@@ -21,6 +21,10 @@ Core commands:
 
 ![Analyze Showcase](showcase-analyze.gif)
 
+### Build & Sandbox
+
+![Build Showcase](showcase-build.gif)
+
 ## Why ktl?
 
 `ktl` is designed to be a single binary that bridges the gap between **interactive developer workflows** and **headless CI pipelines**. It is suitable for both daily development and rigorous CI/CD steps.
