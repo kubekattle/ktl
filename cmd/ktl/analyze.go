@@ -23,6 +23,7 @@ func newAnalyzeCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	var drift bool
 	var cost bool
 	var fix bool
+	var cluster bool
 
 	cmd := &cobra.Command{
 		Use:   "analyze [POD_NAME]",
@@ -44,13 +45,16 @@ Examples:
   ktl analyze my-app-pod-123 --cost
   
   # Automatically apply AI-suggested fixes (Use with caution)
-  ktl analyze my-app-pod-123 --ai --fix`,
+  ktl analyze my-app-pod-123 --ai --fix
+  
+  # Analyze Cluster Health (Nodes, Global Events)
+  ktl analyze --cluster`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				targetPod = args[0]
 			}
-			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost, fix)
+			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost, fix, cluster)
 		},
 	}
 
@@ -60,11 +64,12 @@ Examples:
 	cmd.Flags().BoolVar(&drift, "drift", false, "Check for configuration drift against 'kubectl.kubernetes.io/last-applied-configuration'")
 	cmd.Flags().BoolVar(&cost, "cost", false, "Estimate monthly cost of the pod based on resource requests")
 	cmd.Flags().BoolVar(&fix, "fix", false, "Automatically apply the suggested patch if available")
+	cmd.Flags().BoolVar(&cluster, "cluster", false, "Run cluster-wide health checks (nodes, system pods)")
 
 	return cmd
 }
 
-func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool, fix bool) error {
+func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool, fix bool, cluster bool) error {
 	// 1. Setup Kube Client
 	var kc, kctx string
 	if kubeconfig != nil {
@@ -81,29 +86,44 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 	// 2. Resolve Namespace/Pod
 	if namespace == "" {
 		namespace = kClient.Namespace
-	}
-	if namespace == "" {
-		namespace = "default"
+		if namespace == "" {
+			namespace = "default"
+		}
 	}
 
-	if podName == "" {
-		// Auto-detect failing pods?
-		fmt.Printf("No pod specified. Scanning namespace '%s' for failing pods...\n", namespace)
-		pods, err := kClient.Clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	// Cluster Analysis Mode
+	if cluster {
+		fmt.Println("Analyzing Cluster Health...")
+		nodes, err := kClient.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		if err != nil {
 			return err
 		}
-		for _, p := range pods.Items {
-			if !isPodHealthy(&p) {
-				fmt.Printf("Found failing pod: %s\n", p.Name)
-				podName = p.Name
-				break
+
+		fmt.Printf("Checked %d nodes.\n", len(nodes.Items))
+		for _, n := range nodes.Items {
+			ready := false
+			for _, c := range n.Status.Conditions {
+				if c.Type == "Ready" && c.Status == "True" {
+					ready = true
+					break
+				}
+			}
+			if !ready {
+				color.New(color.FgRed).Printf("Node %s is NOT READY\n", n.Name)
+			}
+
+			// Check Pressure
+			for _, c := range n.Status.Conditions {
+				if c.Status == "True" && c.Type != "Ready" {
+					color.New(color.FgYellow).Printf("Node %s has %s\n", n.Name, c.Type)
+				}
 			}
 		}
-		if podName == "" {
-			fmt.Println("No failing pods found in namespace.")
-			return nil
-		}
+		return nil
+	}
+
+	if podName == "" {
+		return fmt.Errorf("pod name required (or use --cluster)")
 	}
 
 	fmt.Printf("Analyzing pod %s/%s...\n", namespace, podName)
