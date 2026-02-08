@@ -40,6 +40,22 @@ type Tunnel struct {
 	Protocol    string // http, https, postgres, redis, mysql, etc.
 }
 
+var (
+	logBuffer []string
+	logMu     sync.Mutex
+)
+
+func logEvent(format string, args ...interface{}) {
+	logMu.Lock()
+	defer logMu.Unlock()
+	ts := time.Now().Format("15:04:05")
+	msg := fmt.Sprintf(format, args...)
+	logBuffer = append(logBuffer, fmt.Sprintf("%s %s", color.New(color.FgHiBlack).Sprint(ts), msg))
+	if len(logBuffer) > 10 {
+		logBuffer = logBuffer[len(logBuffer)-10:]
+	}
+}
+
 func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var namespace string
 	cmd := &cobra.Command{
@@ -214,6 +230,7 @@ func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
 		if err != nil {
 			t.Status = "Error"
 			t.Error = err
+			logEvent("Failed to resolve %s: %v", t.Name, err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -240,6 +257,7 @@ func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
 			if !found {
 				t.Status = "Port Busy"
 				t.Error = fmt.Errorf("local port %d (and next 10) in use", originalPort)
+				logEvent("Local port %d busy for %s", originalPort, t.Name)
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -248,16 +266,19 @@ func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
 		t.Status = "Connecting..."
 		t.Error = nil
 		
+		logEvent("Tunneling %s :%d -> %s:%d", t.Name, t.LocalPort, podName, t.RemotePort)
 		err = startPortForward(ctx, kClient, podName, t)
 		if err != nil {
 			t.Status = "Failed"
 			t.Error = err
 			t.RetryCount++
+			logEvent("Tunnel %s failed: %v", t.Name, err)
 			time.Sleep(3 * time.Second)
 		} else {
 			// If we return cleanly, it means connection closed (e.g. pod died)
 			t.Status = "Disconnected"
 			t.RetryCount++
+			logEvent("Tunnel %s disconnected (pod maybe dead?)", t.Name)
 			time.Sleep(1 * time.Second)
 		}
 	}
@@ -490,6 +511,14 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 	}
 	fmt.Println(strings.Repeat("-", 90))
 	fmt.Println("Keys: [j/k] Select | [o] Open Browser | [c] Copy Address | [q] Quit")
+	
+	fmt.Println(strings.Repeat("-", 90))
+	fmt.Println("EVENT LOG:")
+	logMu.Lock()
+	defer logMu.Unlock()
+	for _, line := range logBuffer {
+		fmt.Println(line)
+	}
 }
 
 func formatBytes(b int64) string {
