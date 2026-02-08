@@ -42,7 +42,7 @@ VERIFY_BINARY ?= verify
 VERIFY_PKG ?= ./cmd/verify
 PACKAGECLI_BINARY ?= package
 PACKAGECLI_PKG ?= ./cmd/package
-LOGS_BINARY ?= ktl-logs
+LOGS_BINARY ?= logs
 LOGS_PKG ?= ./cmd/ktl
 LOGS_BUILD_MODE ?= logs-only
 LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/example/ktl/cmd/ktl.buildMode=$(LOGS_BUILD_MODE)
