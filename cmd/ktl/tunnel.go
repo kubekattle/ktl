@@ -43,6 +43,7 @@ type Tunnel struct {
 	Protocol    string // http, https, postgres, redis, mysql, etc.
 	ListenAddr  string
 	KubeContext string
+	Health      string // "OK", "FAIL", or empty
 }
 
 var (
@@ -437,6 +438,10 @@ func startPortForward(ctx context.Context, kClient *kube.Client, podName string,
 		t.Status = "Active"
 		t.Error = nil
 		t.RetryCount = 0
+		
+		// Start Health Check Loop
+		go monitorHealth(ctx, t)
+		
 	case err := <-errChan:
 		return err
 	case <-ctx.Done():
@@ -444,6 +449,54 @@ func startPortForward(ctx context.Context, kClient *kube.Client, podName string,
 	}
 
 	return <-errChan
+}
+
+func monitorHealth(ctx context.Context, t *Tunnel) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	check := func() {
+		addr := fmt.Sprintf("127.0.0.1:%d", t.LocalPort)
+		if t.ListenAddr == "0.0.0.0" {
+			addr = fmt.Sprintf("127.0.0.1:%d", t.LocalPort)
+		}
+
+		if strings.HasPrefix(t.Protocol, "http") {
+			client := http.Client{Timeout: 2 * time.Second}
+			resp, err := client.Head(fmt.Sprintf("%s://%s", t.Protocol, addr))
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode < 500 {
+					t.Health = "OK"
+				} else {
+					t.Health = fmt.Sprintf("HTTP %d", resp.StatusCode)
+				}
+			} else {
+				t.Health = "FAIL"
+			}
+		} else {
+			// TCP Check
+			conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+			if err == nil {
+				conn.Close()
+				t.Health = "OK"
+			} else {
+				t.Health = "FAIL"
+			}
+		}
+	}
+
+	check() // Initial check
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.StopChan:
+			return
+		case <-ticker.C:
+			check()
+		}
+	}
 }
 
 func resolveTarget(ctx context.Context, kClient *kube.Client, t *Tunnel) (string, int, error) {
@@ -701,12 +754,21 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 			targetDisplay += "@" + t.KubeContext
 		}
 
+		statusStr := t.Status
+		if t.Status == "Active" && t.Health != "" {
+			if t.Health == "OK" {
+				statusStr += " ✅"
+			} else {
+				statusStr += " ❌ " + t.Health
+			}
+		}
+
 		fmt.Printf("%s %-20s %-20s %-10s %-15s %-10s %-10s\n", 
 			marker,
 			targetDisplay, 
 			mapping,
 			t.Protocol,
-			statusColor.Sprint(t.Status),
+			statusColor.Sprint(statusStr),
 			formatBytes(t.BytesIn),
 			formatBytes(t.BytesOut),
 		)
