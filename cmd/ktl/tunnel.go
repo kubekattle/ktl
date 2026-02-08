@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ import (
 	"github.com/example/ktl/internal/kube"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/portforward"
@@ -95,7 +98,15 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 
 	// TUI Loop
 	fmt.Print("\033[H\033[2J") // Clear screen
-	printTable(tunnels)
+	
+	// Enable Raw Mode for interactive keys
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err == nil {
+		defer term.Restore(int(os.Stdin.Fd()), oldState)
+	}
+
+	selectedIndex := 0
+	printTable(tunnels, selectedIndex)
 
 	var wg sync.WaitGroup
 	for _, t := range tunnels {
@@ -106,6 +117,43 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 		}(t)
 	}
 
+	// Input Loop
+	go func() {
+		buf := make([]byte, 1)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil || n == 0 {
+				return
+			}
+			key := buf[0]
+			
+			switch key {
+			case 'q', 3: // q or Ctrl+C
+				// Restore terminal before exiting
+				term.Restore(int(os.Stdin.Fd()), oldState)
+				os.Exit(0)
+			case 'j', 's': // Down
+				if selectedIndex < len(tunnels)-1 {
+					selectedIndex++
+					printTable(tunnels, selectedIndex)
+				}
+			case 'k', 'w': // Up
+				if selectedIndex > 0 {
+					selectedIndex--
+					printTable(tunnels, selectedIndex)
+				}
+			case 'o': // Open
+				t := tunnels[selectedIndex]
+				if strings.HasPrefix(t.Protocol, "http") {
+					openBrowser(fmt.Sprintf("%s://localhost:%d", t.Protocol, t.LocalPort))
+				}
+			case 'c': // Copy
+				t := tunnels[selectedIndex]
+				copyToClipboard(fmt.Sprintf("localhost:%d", t.LocalPort))
+			}
+		}
+	}()
+
 	// Refresher loop
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
@@ -115,13 +163,42 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				printTable(tunnels)
+				printTable(tunnels, selectedIndex)
 			}
 		}
 	}()
 
 	wg.Wait()
 	return nil
+}
+
+func openBrowser(url string) {
+	var err error
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	}
+	if err != nil {
+		// ignore
+	}
+}
+
+func copyToClipboard(text string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		cmd = exec.Command("xclip", "-selection", "c")
+	default:
+		return
+	}
+	cmd.Stdin = strings.NewReader(text)
+	_ = cmd.Run()
 }
 
 func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
@@ -374,13 +451,13 @@ func (cw *counterWriter) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
-func printTable(tunnels []*Tunnel) {
+func printTable(tunnels []*Tunnel, selectedIndex int) {
 	fmt.Print("\033[H\033[2J")
 	color.New(color.FgCyan, color.Bold).Println(" KTL TUNNEL MANAGER ")
 	fmt.Println(strings.Repeat("-", 90))
-	fmt.Printf("%-20s %-20s %-10s %-15s %-10s %-10s\n", "TARGET", "MAPPING", "PROTO", "STATUS", "TX", "RX")
+	fmt.Printf("%-3s %-20s %-20s %-10s %-15s %-10s %-10s\n", "", "TARGET", "MAPPING", "PROTO", "STATUS", "TX", "RX")
 	
-	for _, t := range tunnels {
+	for i, t := range tunnels {
 		statusColor := color.New(color.FgYellow)
 		if t.Status == "Active" {
 			statusColor = color.New(color.FgGreen)
@@ -393,7 +470,13 @@ func printTable(tunnels []*Tunnel) {
 			mapping = "resolving..."
 		}
 		
-		fmt.Printf("%-20s %-20s %-10s %-15s %-10s %-10s\n", 
+		marker := "   "
+		if i == selectedIndex {
+			marker = " > "
+		}
+
+		fmt.Printf("%s %-20s %-20s %-10s %-15s %-10s %-10s\n", 
+			marker,
 			t.Name, 
 			mapping,
 			t.Protocol,
@@ -402,11 +485,11 @@ func printTable(tunnels []*Tunnel) {
 			formatBytes(t.BytesOut),
 		)
 		if t.Error != nil {
-			color.New(color.FgRed).Printf("  └─ %v\n", t.Error)
+			color.New(color.FgRed).Printf("     └─ %v\n", t.Error)
 		}
 	}
-	fmt.Println(strings.Repeat("-", 80))
-	fmt.Println("Press Ctrl+C to stop all tunnels.")
+	fmt.Println(strings.Repeat("-", 90))
+	fmt.Println("Keys: [j/k] Select | [o] Open Browser | [c] Copy Address | [q] Quit")
 }
 
 func formatBytes(b int64) string {
