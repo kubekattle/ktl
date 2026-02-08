@@ -1,11 +1,12 @@
 Output showcase.gif
 
-Set FontSize 18
+Set FontSize 22
 Set Width 1600
 Set Height 1000
 Set Padding 40
-Set FontFamily "SF Mono"
-Set Theme "Catppuccin Mocha"
+Set FontFamily "JetBrains Mono"
+Set LineHeight 1.2
+Set Theme "TokyoNight"
 
 # Setup environment
 Hide
