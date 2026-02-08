@@ -127,6 +127,12 @@
         <div id="analysis" class="card" style="margin-top: 20px;">
             Loading diagnosis...
         </div>
+
+        <h3>Service Map</h3>
+        <div id="topology" class="card" style="height: 300px; display: flex; align-items: center; justify-content: center; position: relative;">
+            <!-- Simple Canvas/SVG rendering -->
+            <svg id="topo-svg" width="100%" height="100%" style="overflow: visible;"></svg>
+        </div>
     </div>
 
     <script>
@@ -218,9 +224,82 @@
                     <p style="font-size: 0.9em; color: #888">${analysis.explanation}</p>
                 `;
 
+                // Fetch Topology
+                const topoRes = await fetch('/api/topology');
+                const topo = await topoRes.json();
+                renderTopology(topo);
+
             } catch (e) {
                 console.error(e);
             }
+        }
+
+        function renderTopology(data) {
+            const svg = document.getElementById('topo-svg');
+            if (!svg) return;
+            svg.innerHTML = '';
+            
+            // Simple Star Layout
+            const cx = svg.clientWidth / 2;
+            const cy = svg.clientHeight / 2;
+            const radius = 100;
+            
+            // Draw Center
+            drawNode(svg, cx, cy, "Local", "#fff");
+            
+            // Draw Satellites
+            const count = data.nodes.length - 1;
+            if (count <= 0) return;
+            
+            const angleStep = (2 * Math.PI) / count;
+            
+            let i = 0;
+            data.nodes.forEach(n => {
+                if (n.id === 'local') return;
+                const angle = i * angleStep;
+                const x = cx + radius * Math.cos(angle);
+                const y = cy + radius * Math.sin(angle);
+                
+                // Draw Line
+                drawLine(svg, cx, cy, x, y);
+                // Draw Node
+                drawNode(svg, x, y, n.id, "var(--primary)");
+                i++;
+            });
+        }
+
+        function drawNode(svg, x, y, label, color) {
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            c.setAttribute("cx", x);
+            c.setAttribute("cy", y);
+            c.setAttribute("r", 20);
+            c.setAttribute("fill", "#24283b");
+            c.setAttribute("stroke", color);
+            c.setAttribute("stroke-width", 2);
+            
+            const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            t.setAttribute("x", x);
+            t.setAttribute("y", y + 5);
+            t.setAttribute("text-anchor", "middle");
+            t.setAttribute("fill", "#fff");
+            t.setAttribute("font-size", "10px");
+            t.textContent = label;
+            
+            g.appendChild(c);
+            g.appendChild(t);
+            svg.appendChild(g);
+        }
+
+        function drawLine(svg, x1, y1, x2, y2) {
+            const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            l.setAttribute("x1", x1);
+            l.setAttribute("y1", y1);
+            l.setAttribute("x2", x2);
+            l.setAttribute("y2", y2);
+            l.setAttribute("stroke", "#414868");
+            l.setAttribute("stroke-width", 2);
+            svg.prepend(l);
         }
 
         async function replay(id) {

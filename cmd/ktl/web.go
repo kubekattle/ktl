@@ -25,6 +25,7 @@ func startWebServer(port int) {
 	mux.HandleFunc("/api/requests", handleRequests)
 	mux.HandleFunc("/api/replay", handleReplay)
 	mux.HandleFunc("/api/analysis", handleAnalysis)
+	mux.HandleFunc("/api/topology", handleTopology)
 
 	addr := fmt.Sprintf(":%d", port)
 	color.New(color.FgGreen).Printf("Starting dashboard on %s\n", addr)
@@ -158,4 +159,48 @@ func handleAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	json.NewEncoder(w).Encode(diagnosis)
+}
+
+func handleTopology(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	tunnelsMu.RLock()
+	defer tunnelsMu.RUnlock()
+
+	// Build Graph
+	// Nodes: Localhost, Tunnels (Services)
+	// Edges: Localhost -> Tunnels
+	
+	type Node struct {
+		ID    string `json:"id"`
+		Label string `json:"label"`
+		Type  string `json:"type"` // "local", "service", "db"
+	}
+	type Edge struct {
+		Source string `json:"source"`
+		Target string `json:"target"`
+	}
+	
+	nodes := []Node{
+		{ID: "local", Label: "My Machine", Type: "local"},
+	}
+	edges := []Edge{}
+	
+	for _, t := range tunnels {
+		nodes = append(nodes, Node{
+			ID:    t.Name,
+			Label: fmt.Sprintf("%s\n:%d", t.Name, t.LocalPort),
+			Type:  "service",
+		})
+		edges = append(edges, Edge{
+			Source: "local",
+			Target: t.Name,
+		})
+	}
+	
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"nodes": nodes,
+		"edges": edges,
+	})
 }
