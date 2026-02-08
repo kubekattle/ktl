@@ -40,15 +40,18 @@ type Tunnel struct {
 	RetryCount  int
 	BytesIn     int64
 	BytesOut    int64
-	Protocol    string // http, https, postgres, redis, mysql, etc.
-	ListenAddr  string
-	KubeContext string
-	Health      string // "OK", "FAIL", or empty
+	Protocol    string `json:"protocol"`
+	ListenAddr  string `json:"listenAddr"`
+	KubeContext string `json:"kubeContext"`
+	Health      string `json:"health"`
 }
 
 var (
 	logBuffer []string
 	logMu     sync.Mutex
+	tunnels   []*Tunnel
+	tunnelsMu sync.RWMutex
+	
 	clientCache = make(map[string]*kube.Client)
 	clientMu    sync.Mutex
 )
@@ -88,6 +91,7 @@ func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var hosts bool
 	var execCmd string
 	var envFrom string
+	var web bool
 	var stackConfig string
 	cmd := &cobra.Command{
 		Use:   "tunnel [SERVICE_OR_POD...]",
@@ -98,9 +102,10 @@ Examples:
   ktl tunnel app --deps          # Also tunnel to app's dependencies (from stack.yaml)
   ktl tunnel app --hosts         # Add 'app.local' to /etc/hosts (requires sudo)
   ktl tunnel db --exec "npm run migrate"  # Run script when tunnel is ready
-  ktl tunnel db --env-from deployment/app --exec "go run ." # Run local app with remote env`,
+  ktl tunnel db --env-from deployment/app --exec "go run ." # Run local app with remote env
+  ktl tunnel app --web           # Start web dashboard`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, execCmd, envFrom, stackConfig)
+			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, execCmd, envFrom, web, stackConfig)
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
@@ -109,6 +114,7 @@ Examples:
 	cmd.Flags().BoolVar(&hosts, "hosts", false, "Update /etc/hosts with .local aliases (requires sudo)")
 	cmd.Flags().StringVar(&execCmd, "exec", "", "Command to run when all tunnels are active")
 	cmd.Flags().StringVar(&envFrom, "env-from", "", "Fetch environment variables from workload (e.g. deployment/app)")
+	cmd.Flags().BoolVar(&web, "web", false, "Start web dashboard on port 4545")
 	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
 	
 	cmd.AddCommand(newTunnelSaveCommand())
@@ -152,7 +158,7 @@ func newTunnelListCommand() *cobra.Command {
 	}
 }
 
-func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, execCmd string, envFrom string, stackConfig string) error {
+func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, execCmd string, envFrom string, web bool, stackConfig string) error {
 	// Check for profile expansion
 	if len(targets) == 1 {
 		profiles, _ := loadTunnelProfiles()
@@ -214,7 +220,8 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 		}
 	}
 
-	tunnels := make([]*Tunnel, len(targets))
+	tunnelsMu.Lock()
+	tunnels = make([]*Tunnel, len(targets))
 	for i, t := range targets {
 		tunnels[i] = parseTarget(t, namespace)
 		if share {
@@ -223,6 +230,7 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 			tunnels[i].ListenAddr = "127.0.0.1"
 		}
 	}
+	tunnelsMu.Unlock()
 
 	if hosts {
 		if err := updateHostsFile(tunnels); err != nil {
@@ -244,7 +252,12 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 	}
 
 	selectedIndex := 0
-	printTable(tunnels, selectedIndex)
+	if !web {
+		printTable(tunnels, selectedIndex)
+	} else {
+		fmt.Println("Web Dashboard enabled at http://localhost:4545")
+		go startWebServer(4545)
+	}
 
 	var wg sync.WaitGroup
 	for _, t := range tunnels {
@@ -256,41 +269,60 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 	}
 
 	// Input Loop
-	go func() {
-		buf := make([]byte, 1)
-		for {
-			n, err := os.Stdin.Read(buf)
-			if err != nil || n == 0 {
-				return
+	if !web {
+		go func() {
+			buf := make([]byte, 1)
+			for {
+				n, err := os.Stdin.Read(buf)
+				if err != nil || n == 0 {
+					return
+				}
+				key := buf[0]
+				
+				switch key {
+				case 'q', 3: // q or Ctrl+C
+					// Restore terminal before exiting
+					term.Restore(int(os.Stdin.Fd()), oldState)
+					os.Exit(0)
+				case 'j', 's': // Down
+					tunnelsMu.RLock()
+					if selectedIndex < len(tunnels)-1 {
+						selectedIndex++
+						printTable(tunnels, selectedIndex)
+					}
+					tunnelsMu.RUnlock()
+				case 'k', 'w': // Up
+					if selectedIndex > 0 {
+						selectedIndex--
+						tunnelsMu.RLock()
+						printTable(tunnels, selectedIndex)
+						tunnelsMu.RUnlock()
+					}
+				case 'o': // Open
+					tunnelsMu.RLock()
+					t := tunnels[selectedIndex]
+					tunnelsMu.RUnlock()
+					if strings.HasPrefix(t.Protocol, "http") {
+						openBrowser(fmt.Sprintf("%s://localhost:%d", t.Protocol, t.LocalPort))
+					}
+				case 'c': // Copy
+					tunnelsMu.RLock()
+					t := tunnels[selectedIndex]
+					tunnelsMu.RUnlock()
+					copyToClipboard(fmt.Sprintf("localhost:%d", t.LocalPort))
+				}
 			}
-			key := buf[0]
-			
-			switch key {
-			case 'q', 3: // q or Ctrl+C
-				// Restore terminal before exiting
-				term.Restore(int(os.Stdin.Fd()), oldState)
-				os.Exit(0)
-			case 'j', 's': // Down
-				if selectedIndex < len(tunnels)-1 {
-					selectedIndex++
-					printTable(tunnels, selectedIndex)
-				}
-			case 'k', 'w': // Up
-				if selectedIndex > 0 {
-					selectedIndex--
-					printTable(tunnels, selectedIndex)
-				}
-			case 'o': // Open
-				t := tunnels[selectedIndex]
-				if strings.HasPrefix(t.Protocol, "http") {
-					openBrowser(fmt.Sprintf("%s://localhost:%d", t.Protocol, t.LocalPort))
-				}
-			case 'c': // Copy
-				t := tunnels[selectedIndex]
-				copyToClipboard(fmt.Sprintf("localhost:%d", t.LocalPort))
-			}
-		}
-	}()
+		}()
+	} else {
+		// Just handle Ctrl+C signal
+		go func() {
+			c := make(chan os.Signal, 1)
+			_ = c
+			// signal.Notify(c, os.Interrupt) ... (cobra handles this usually but let's be safe if we want custom cleanup)
+			// For now, assume user just hits Ctrl+C and it kills process.
+			// But we need to keep main loop alive.
+		}()
+	}
 
 	// Refresher loop
 	executed := false
@@ -302,7 +334,11 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				printTable(tunnels, selectedIndex)
+				if !web {
+					tunnelsMu.RLock()
+					printTable(tunnels, selectedIndex)
+					tunnelsMu.RUnlock()
+				}
 				
 				// Check for exec
 				if execCmd != "" && !executed {

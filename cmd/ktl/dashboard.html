@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KTL Tunnel Dashboard</title>
+    <style>
+        :root {
+            --bg: #1a1b26;
+            --card: #24283b;
+            --text: #c0caf5;
+            --primary: #7aa2f7;
+            --success: #9ece6a;
+            --error: #f7768e;
+            --border: #414868;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+        h1 { margin: 0; color: var(--primary); }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background-color: var(--card);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .status-active { background-color: rgba(158, 206, 106, 0.2); color: var(--success); }
+        .status-error { background-color: rgba(247, 118, 142, 0.2); color: var(--error); }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        .log-panel {
+            background-color: #000;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            height: 300px;
+            overflow-y: auto;
+            margin-top: 40px;
+            border: 1px solid var(--border);
+        }
+        .log-entry {
+            margin-bottom: 4px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 2px;
+        }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>KTL Tunnel Dashboard</h1>
+            <div id="connection-status">Connected</div>
+        </header>
+
+        <div id="tunnels" class="grid">
+            <!-- Tunnels injected here -->
+        </div>
+
+        <h3>Event Log</h3>
+        <div id="logs" class="log-panel">
+            <!-- Logs injected here -->
+        </div>
+    </div>
+
+    <script>
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function update() {
+            try {
+                // Fetch Tunnels
+                const tRes = await fetch('/api/tunnels');
+                const tunnels = await tRes.json();
+                
+                const grid = document.getElementById('tunnels');
+                grid.innerHTML = tunnels.map(t => {
+                    const statusClass = t.health === 'OK' || t.Status === 'Active' ? 'status-active' : 'status-error';
+                    const link = t.protocol.startsWith('http') 
+                        ? `<a href="${t.protocol}://localhost:${t.LocalPort}" target="_blank">Open</a>`
+                        : '';
+                    
+                    return `
+                    <div class="card">
+                        <div class="card-header">
+                            <strong>${t.Name}</strong>
+                            <span class="status-badge ${statusClass}">${t.Status} ${t.health ? '('+t.health+')' : ''}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Local</span>
+                            <span>localhost:${t.LocalPort}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Remote</span>
+                            <span>${t.Target}:${t.RemotePort}</span>
+                        </div>
+                         <div class="metric">
+                            <span>Context</span>
+                            <span>${t.kubeContext || 'default'}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Protocol</span>
+                            <span>${t.protocol}</span>
+                        </div>
+                        <div class="metric" style="margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+                            <span>TX: ${formatBytes(t.BytesOut)}</span>
+                            <span>RX: ${formatBytes(t.BytesIn)}</span>
+                        </div>
+                        <div style="margin-top: 10px; text-align: right;">
+                            ${link}
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+
+                // Fetch Logs
+                const lRes = await fetch('/api/logs');
+                const logs = await lRes.json();
+                const logPanel = document.getElementById('logs');
+                // Only update if changed to avoid scroll jumping? simpler to just replace for now
+                logPanel.innerHTML = logs.map(l => `<div class="log-entry">${l}</div>`).join('');
+                
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        setInterval(update, 1000);
+        update();
+    </script>
+</body>
+</html>
