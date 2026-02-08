@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	"github.com/example/ktl/internal/kube"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -24,6 +27,8 @@ func newAnalyzeCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	var cost bool
 	var fix bool
 	var cluster bool
+	var profile bool
+	var rbac bool
 
 	cmd := &cobra.Command{
 		Use:   "analyze [POD_NAME]",
@@ -44,6 +49,12 @@ Examples:
   # Estimate monthly cost
   ktl analyze my-app-pod-123 --cost
   
+  # Profile resource usage vs requests
+  ktl analyze my-app-pod-123 --profile
+  
+  # Audit RBAC permissions for the pod
+  ktl analyze my-app-pod-123 --rbac
+  
   # Automatically apply AI-suggested fixes (Use with caution)
   ktl analyze my-app-pod-123 --ai --fix
   
@@ -54,7 +65,7 @@ Examples:
 			if len(args) > 0 {
 				targetPod = args[0]
 			}
-			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost, fix, cluster)
+			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost, fix, cluster, profile, rbac)
 		},
 	}
 
@@ -65,11 +76,13 @@ Examples:
 	cmd.Flags().BoolVar(&cost, "cost", false, "Estimate monthly cost of the pod based on resource requests")
 	cmd.Flags().BoolVar(&fix, "fix", false, "Automatically apply the suggested patch if available")
 	cmd.Flags().BoolVar(&cluster, "cluster", false, "Run cluster-wide health checks (nodes, system pods)")
+	cmd.Flags().BoolVar(&profile, "profile", false, "Profile resource usage (requires metrics-server)")
+	cmd.Flags().BoolVar(&rbac, "rbac", false, "Audit RBAC permissions for the pod's ServiceAccount")
 
 	return cmd
 }
 
-func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool, fix bool, cluster bool) error {
+func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool, fix bool, cluster bool, profile bool, rbac bool) error {
 	// 1. Setup Kube Client
 	var kc, kctx string
 	if kubeconfig != nil {
@@ -142,6 +155,127 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 		} else {
 			return fmt.Errorf("failed to gather evidence: %w", err)
 		}
+	}
+
+	// RBAC Audit
+	if rbac {
+		if evidence.Pod == nil {
+			fmt.Println("Error: Cannot audit RBAC without pod details.")
+			return nil
+		}
+		saName := evidence.Pod.Spec.ServiceAccountName
+		fmt.Printf("Auditing RBAC for ServiceAccount %s/%s...\n", namespace, saName)
+
+		// List RoleBindings
+		rbs, err := kClient.Clientset.RbacV1().RoleBindings(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return err
+		}
+
+		var roles []string
+		for _, rb := range rbs.Items {
+			for _, s := range rb.Subjects {
+				if s.Kind == "ServiceAccount" && s.Name == saName && (s.Namespace == "" || s.Namespace == namespace) {
+					roles = append(roles, fmt.Sprintf("Role/%s", rb.RoleRef.Name))
+
+					// Fetch Role to show rules
+					role, err := kClient.Clientset.RbacV1().Roles(namespace).Get(ctx, rb.RoleRef.Name, metav1.GetOptions{})
+					if err == nil {
+						fmt.Printf("  Role: %s\n", rb.RoleRef.Name)
+						for _, rule := range role.Rules {
+							fmt.Printf("    - %v %v\n", rule.Verbs, rule.Resources)
+						}
+					}
+				}
+			}
+		}
+
+		// List ClusterRoleBindings
+		crbs, err := kClient.Clientset.RbacV1().ClusterRoleBindings().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return err
+		}
+		for _, crb := range crbs.Items {
+			for _, s := range crb.Subjects {
+				if s.Kind == "ServiceAccount" && s.Name == saName && (s.Namespace == "" || s.Namespace == namespace) {
+					roles = append(roles, fmt.Sprintf("ClusterRole/%s", crb.RoleRef.Name))
+
+					// Fetch ClusterRole
+					role, err := kClient.Clientset.RbacV1().ClusterRoles().Get(ctx, crb.RoleRef.Name, metav1.GetOptions{})
+					if err == nil {
+						fmt.Printf("  ClusterRole: %s\n", crb.RoleRef.Name)
+						for _, rule := range role.Rules {
+							fmt.Printf("    - %v %v\n", rule.Verbs, rule.Resources)
+						}
+					}
+				}
+			}
+		}
+
+		if len(roles) == 0 {
+			fmt.Println("No explicit roles found (ServiceAccount might have no permissions).")
+		}
+		return nil
+	}
+
+	// Profiler
+	if profile {
+		if evidence.Pod == nil {
+			fmt.Println("Error: Cannot profile without pod details.")
+			return nil
+		}
+		fmt.Println("Profiling resource usage (fetching metrics)...")
+		path := fmt.Sprintf("/apis/metrics.k8s.io/v1beta1/namespaces/%s/pods/%s", namespace, podName)
+		data, err := kClient.Clientset.CoreV1().RESTClient().Get().AbsPath(path).DoRaw(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to fetch metrics (is metrics-server installed?): %w", err)
+		}
+
+		type PodMetrics struct {
+			Containers []struct {
+				Name  string `json:"name"`
+				Usage struct {
+					CPU    string `json:"cpu"`
+					Memory string `json:"memory"`
+				} `json:"usage"`
+			} `json:"containers"`
+		}
+
+		var metrics PodMetrics
+		if err := json.Unmarshal(data, &metrics); err != nil {
+			return fmt.Errorf("failed to parse metrics: %w", err)
+		}
+
+		for _, c := range metrics.Containers {
+			fmt.Printf("Container: %s\n", c.Name)
+
+			// Parse Usage
+			cpuUsage, _ := resource.ParseQuantity(c.Usage.CPU)
+			memUsage, _ := resource.ParseQuantity(c.Usage.Memory)
+
+			fmt.Printf("  Usage:    CPU: %s, Mem: %s\n", c.Usage.CPU, c.Usage.Memory)
+
+			// Find Spec
+			for _, specC := range evidence.Pod.Spec.Containers {
+				if specC.Name == c.Name {
+					// Requests
+					if req, ok := specC.Resources.Requests[corev1.ResourceCPU]; ok {
+						fmt.Printf("  Request:  CPU: %s (Usage: %.0f%%)\n", req.String(), float64(cpuUsage.MilliValue())/float64(req.MilliValue())*100)
+					}
+					if req, ok := specC.Resources.Requests[corev1.ResourceMemory]; ok {
+						fmt.Printf("  Request:  Mem: %s (Usage: %.0f%%)\n", req.String(), float64(memUsage.Value())/float64(req.Value())*100)
+					}
+					// Limits
+					if lim, ok := specC.Resources.Limits[corev1.ResourceCPU]; ok {
+						fmt.Printf("  Limit:    CPU: %s (Usage: %.0f%%)\n", lim.String(), float64(cpuUsage.MilliValue())/float64(lim.MilliValue())*100)
+					}
+					if lim, ok := specC.Resources.Limits[corev1.ResourceMemory]; ok {
+						fmt.Printf("  Limit:    Mem: %s (Usage: %.0f%%)\n", lim.String(), float64(memUsage.Value())/float64(lim.Value())*100)
+					}
+				}
+			}
+		}
+		return nil
 	}
 
 	// 4. Run Analysis
