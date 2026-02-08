@@ -85,6 +85,7 @@ func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var namespace string
 	var share bool
 	var deps bool
+	var hosts bool
 	var stackConfig string
 	cmd := &cobra.Command{
 		Use:   "tunnel [SERVICE_OR_POD...]",
@@ -92,18 +93,17 @@ func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 		Long: `Auto-detects ports and manages multiple resilient tunnels.
 Examples:
   ktl tunnel my-app              # Auto-detect port for service 'my-app'
-  ktl tunnel db:5432             # Forward local 5432 to service 'db' (auto-detect remote)
-  ktl tunnel 8080:app:80         # Explicit local:remote
-  ktl tunnel app redis postgres  # Open 3 tunnels at once
   ktl tunnel app --share         # Listen on 0.0.0.0 (share with LAN)
-  ktl tunnel app --deps          # Also tunnel to app's dependencies (from stack.yaml)`,
+  ktl tunnel app --deps          # Also tunnel to app's dependencies (from stack.yaml)
+  ktl tunnel app --hosts         # Add 'app.local' to /etc/hosts (requires sudo)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, stackConfig)
+			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, stackConfig)
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
 	cmd.Flags().BoolVar(&share, "share", false, "Listen on all interfaces (0.0.0.0) to share with LAN")
 	cmd.Flags().BoolVar(&deps, "deps", false, "Recursively tunnel to dependencies defined in stack.yaml")
+	cmd.Flags().BoolVar(&hosts, "hosts", false, "Update /etc/hosts with .local aliases (requires sudo)")
 	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
 	
 	cmd.AddCommand(newTunnelSaveCommand())
@@ -147,7 +147,7 @@ func newTunnelListCommand() *cobra.Command {
 	}
 }
 
-func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, stackConfig string) error {
+func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, stackConfig string) error {
 	// Check for profile expansion
 	if len(targets) == 1 {
 		profiles, _ := loadTunnelProfiles()
@@ -204,6 +204,16 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 			tunnels[i].ListenAddr = "0.0.0.0"
 		} else {
 			tunnels[i].ListenAddr = "127.0.0.1"
+		}
+	}
+
+	if hosts {
+		if err := updateHostsFile(tunnels); err != nil {
+			fmt.Printf("Warning: failed to update /etc/hosts: %v\n", err)
+			fmt.Println("Try running with sudo if you want DNS aliases.")
+			time.Sleep(2 * time.Second)
+		} else {
+			defer restoreHostsFile()
 		}
 	}
 
@@ -865,4 +875,85 @@ func inferProtocol(port int) string {
 	default:
 		return "tcp"
 	}
+}
+
+const hostsStartMarker = "# ktl-tunnel-start"
+const hostsEndMarker = "# ktl-tunnel-end"
+
+func updateHostsFile(tunnels []*Tunnel) error {
+	path := "/etc/hosts"
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	inBlock := false
+	
+	for _, line := range lines {
+		if strings.TrimSpace(line) == hostsStartMarker {
+			inBlock = true
+			continue
+		}
+		if strings.TrimSpace(line) == hostsEndMarker {
+			inBlock = false
+			continue
+		}
+		if !inBlock {
+			newLines = append(newLines, line)
+		}
+	}
+	
+	// Remove trailing empty lines to be clean
+	for len(newLines) > 0 && newLines[len(newLines)-1] == "" {
+		newLines = newLines[:len(newLines)-1]
+	}
+	
+	newLines = append(newLines, hostsStartMarker)
+	for _, t := range tunnels {
+		// Use t.Name + .local
+		// If t.Name has dots or slashes, sanitize?
+		// Usually service names are simple.
+		name := t.Name
+		if strings.Contains(name, "/") {
+			parts := strings.Split(name, "/")
+			name = parts[len(parts)-1]
+		}
+		name = strings.Split(name, ":")[0] // handle port:name
+		
+		newLines = append(newLines, fmt.Sprintf("127.0.0.1 %s.local", name))
+	}
+	newLines = append(newLines, hostsEndMarker)
+	newLines = append(newLines, "") // newline at end
+	
+	return os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0644)
+}
+
+func restoreHostsFile() {
+	path := "/etc/hosts"
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	inBlock := false
+	
+	for _, line := range lines {
+		if strings.TrimSpace(line) == hostsStartMarker {
+			inBlock = true
+			continue
+		}
+		if strings.TrimSpace(line) == hostsEndMarker {
+			inBlock = false
+			continue
+		}
+		if !inBlock {
+			newLines = append(newLines, line)
+		}
+	}
+	
+	_ = os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0644)
 }
