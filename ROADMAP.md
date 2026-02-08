@@ -6,9 +6,19 @@ To make `ktl` the irreplaceable Kubernetes companion, we propose these 10 outsta
 **Concept**: A wrapper around `kubectl debug` that automatically injects a "Swiss Army Knife" sidecar (netshoot, curl, vim, htop) into crashing pods.
 **Why**: Debugging `CrashLoopBackOff` is painful because you can't `exec`. Ephemeral containers are the answer, but the syntax is verbose. `ktl debug <pod>` should just work.
 
-## 2. `ktl tunnel` (Smart Port Forwarding)
-**Concept**: Auto-detect ports from Service/Pod specs and forward them. Support multi-service forwarding (e.g., `ktl tunnel app db redis`).
-**Why**: Developers hate looking up port numbers. They just want to access the service. "It just works" local access.
+## 2. `ktl tunnel` 2.0 (The Connectivity Hub)
+*Implemented v1 with multi-tunneling & auto-fix.*
+**Next Steps (The "Perfect 10" Improvements):**
+1.  **Profiles**: `ktl tunnel save backend` / `ktl tunnel load backend` to restore complex sets of tunnels.
+2.  **Traffic Stats**: Live TUI columns for TX/RX bytes and Request/sec.
+3.  **Local DNS**: Map `http://my-app.local` to the tunnel (bypassing localhost port chaos).
+4.  **Reverse Tunnel**: Expose a local port *to* the cluster (great for testing webhooks).
+5.  **Smart Connect**: Detect Redis/Postgres and offer to launch `redis-cli` or `psql` connected to the tunnel.
+6.  **Auto-Open**: `--open` flag to launch the default browser when the tunnel is ready.
+7.  **LAN Share**: `--share` (bind 0.0.0.0) to let colleagues on the WiFi access your tunnel.
+8.  **Multi-Cluster**: Tunnel to `prod/db` and `dev/app` simultaneously (mixed contexts).
+9.  **Dependency Walking**: "Tunnel to X and all its dependencies" (using `ktl stack` graph).
+10. **Hooks**: Run a local script (e.g., `npm start`) only after tunnels are healthy.
 
 ## 3. `ktl cost` (Namespace FinOps)
 **Concept**: Estimate the monthly cost of the current namespace based on CPU/Memory requests and Cloud Provider pricing APIs (AWS/GCP/Azure).
