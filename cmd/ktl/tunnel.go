@@ -86,24 +86,26 @@ func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var share bool
 	var deps bool
 	var hosts bool
+	var execCmd string
 	var stackConfig string
 	cmd := &cobra.Command{
 		Use:   "tunnel [SERVICE_OR_POD...]",
 		Short: "Smart, resilient port-forwarding for multiple services",
 		Long: `Auto-detects ports and manages multiple resilient tunnels.
 Examples:
-  ktl tunnel my-app              # Auto-detect port for service 'my-app'
   ktl tunnel app --share         # Listen on 0.0.0.0 (share with LAN)
   ktl tunnel app --deps          # Also tunnel to app's dependencies (from stack.yaml)
-  ktl tunnel app --hosts         # Add 'app.local' to /etc/hosts (requires sudo)`,
+  ktl tunnel app --hosts         # Add 'app.local' to /etc/hosts (requires sudo)
+  ktl tunnel db --exec "npm run migrate"  # Run script when tunnel is ready`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, stackConfig)
+			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, execCmd, stackConfig)
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
 	cmd.Flags().BoolVar(&share, "share", false, "Listen on all interfaces (0.0.0.0) to share with LAN")
 	cmd.Flags().BoolVar(&deps, "deps", false, "Recursively tunnel to dependencies defined in stack.yaml")
 	cmd.Flags().BoolVar(&hosts, "hosts", false, "Update /etc/hosts with .local aliases (requires sudo)")
+	cmd.Flags().StringVar(&execCmd, "exec", "", "Command to run when all tunnels are active")
 	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
 	
 	cmd.AddCommand(newTunnelSaveCommand())
@@ -147,7 +149,7 @@ func newTunnelListCommand() *cobra.Command {
 	}
 }
 
-func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, stackConfig string) error {
+func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, execCmd string, stackConfig string) error {
 	// Check for profile expansion
 	if len(targets) == 1 {
 		profiles, _ := loadTunnelProfiles()
@@ -276,6 +278,7 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 	}()
 
 	// Refresher loop
+	executed := false
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
@@ -285,6 +288,40 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 				return
 			case <-ticker.C:
 				printTable(tunnels, selectedIndex)
+				
+				// Check for exec
+				if execCmd != "" && !executed {
+					allReady := true
+					for _, t := range tunnels {
+						if t.Status != "Active" || t.LocalPort == 0 {
+							allReady = false
+							break
+						}
+					}
+					if allReady {
+						executed = true
+						logEvent("Executing: %s", execCmd)
+						parts := strings.Fields(execCmd)
+						cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+						// We can't share stdout/stderr easily with TUI running.
+						// Capture output and log it?
+						out, err := cmd.CombinedOutput()
+						if err != nil {
+							logEvent("Exec failed: %v", err)
+						} else {
+							logEvent("Exec success (output hidden)")
+						}
+						// If output is short, maybe log it?
+						if len(out) > 0 {
+							lines := strings.Split(string(out), "\n")
+							for _, line := range lines {
+								if strings.TrimSpace(line) != "" {
+									logEvent("> %s", line)
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}()
