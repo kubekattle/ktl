@@ -22,6 +22,7 @@ import (
 	"sync"
 	"text/template"
 	"time"
+	"encoding/json"
 
 	"github.com/example/ktl/internal/config"
 	"github.com/fatih/color"
@@ -74,6 +75,7 @@ type Tailer struct {
 	selectionObservers []SelectionObserver
 	nodeLogs           *nodeLogManager
 	defaultTemplate    bool
+	jsonFilter         map[string]string
 }
 
 // LogRecord captures a single log line emitted by the tailer along with contextual metadata.
@@ -157,6 +159,13 @@ func WithPodFilter(filter func(*corev1.Pod) bool) Option {
 		if filter != nil {
 			t.podFilter = filter
 		}
+	}
+}
+
+// WithJSONFilter sets key-value pairs to filter structured logs.
+func WithJSONFilter(filters map[string]string) Option {
+	return func(t *Tailer) {
+		t.jsonFilter = filters
 	}
 }
 
@@ -862,6 +871,13 @@ func (t *Tailer) streamContainer(ctx context.Context, pod *corev1.Pod, container
 			if t.opts.ExcludeLineRegex != nil && t.opts.ExcludeLineRegex.MatchString(line) {
 				continue
 			}
+			
+			if len(t.jsonFilter) > 0 {
+				if !matchJSONFilter(line, t.jsonFilter) {
+					continue
+				}
+			}
+			
 			t.outputLine(sourcePod, pod.Namespace, pod.Name, container, line)
 		}
 		scanErr := scanner.Err()
@@ -900,6 +916,39 @@ func (t *Tailer) streamContainer(ctx context.Context, pod *corev1.Pod, container
 			return
 		}
 	}
+}
+
+func matchJSONFilter(line string, filters map[string]string) bool {
+	// Fast check: must look like JSON
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "{") {
+		return false
+	}
+	
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
+		return false // Not JSON
+	}
+	
+	for k, v := range filters {
+		val, ok := data[k]
+		if !ok {
+			return false
+		}
+		
+		// String comparison
+		if strVal, ok := val.(string); ok {
+			if strVal != v {
+				return false
+			}
+		} else {
+			// Try basic string conversion for numbers/bools
+			if fmt.Sprintf("%v", val) != v {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func isRetryableLogStreamErr(err error) bool {

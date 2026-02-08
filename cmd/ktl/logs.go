@@ -37,8 +37,9 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 	var deployPruneGrace time.Duration
 	var deps bool
 	var stackConfig string
+	var jsonQuery string
 	cmd := &cobra.Command{
-		Use:           "logs [POD_QUERY]",
+		Use:   "logs [POD_QUERY]",
 		Aliases:       []string{"tail"},
 		Short:         "Tail Kubernetes pod logs",
 		Long:          "Stream pod logs with ktl's high-performance tailer. Accepts the same query/flag set as the legacy ktl entrypoint.",
@@ -46,7 +47,7 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus, capturePath, captureTags, deployPin, deployMode, deployRefresh, deployPruneGrace, deps, stackConfig)
+			return runLogs(cmd, args, opts, kubeconfigPath, kubeContext, logLevel, remoteAgent, mirrorBus, capturePath, captureTags, deployPin, deployMode, deployRefresh, deployPruneGrace, deps, stackConfig, jsonQuery)
 		},
 	}
 
@@ -62,11 +63,12 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 	cmd.Flags().DurationVar(&deployPruneGrace, "deploy-prune-grace", 15*time.Second, "When using deploy/<name>, keep tailed pods for this long after they fall out of the selected replica sets")
 	cmd.Flags().BoolVar(&deps, "deps", false, "Include logs from dependencies defined in stack.yaml")
 	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
+	cmd.Flags().StringVar(&jsonQuery, "filter", "", "Filter JSON logs by key=value (e.g. level=error, status=500)")
 	decorateCommandHelp(cmd, "Log Flags")
 	return cmd
 }
 
-func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string, capturePath string, captureTags []string, deployPin string, deployMode string, deployRefresh time.Duration, deployPruneGrace time.Duration, deps bool, stackConfig string) error {
+func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string, capturePath string, captureTags []string, deployPin string, deployMode string, deployRefresh time.Duration, deployPruneGrace time.Duration, deps bool, stackConfig string, jsonQuery string) error {
 	if requestedHelp(opts.WSListenAddr) {
 		return cmd.Help()
 	}
@@ -315,6 +317,21 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		}
 		tailerOpts = append(tailerOpts, tailer.WithLogObserver(wsServer))
 		fmt.Fprintf(cmd.ErrOrStderr(), "Serving ktl websocket stream on %s\n", addr)
+	}
+
+	if jsonQuery != "" {
+		// Parse query: "key=val,key2=val2"
+		parts := strings.Split(jsonQuery, ",")
+		filters := make(map[string]string)
+		for _, p := range parts {
+			kv := strings.SplitN(p, "=", 2)
+			if len(kv) == 2 {
+				filters[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+			}
+		}
+		
+		// Add filter option
+		tailerOpts = append(tailerOpts, tailer.WithJSONFilter(filters))
 	}
 
 	t, err := tailer.New(kubeClient.Clientset, tailerOptions, logger, tailerOpts...)
