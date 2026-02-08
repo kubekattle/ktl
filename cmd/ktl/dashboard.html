@@ -100,6 +100,23 @@
             <!-- Tunnels injected here -->
         </div>
 
+        <h3>HTTP Traffic Inspector</h3>
+        <div id="requests" class="log-panel" style="height: 200px; margin-top: 20px;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="text-align: left; border-bottom: 1px solid #333;">
+                        <th>Time</th>
+                        <th>Method</th>
+                        <th>URL</th>
+                        <th>Status</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody id="request-rows">
+                </tbody>
+            </table>
+        </div>
+
         <h3>Event Log</h3>
         <div id="logs" class="log-panel">
             <!-- Logs injected here -->
@@ -160,6 +177,22 @@
                     </div>
                     `;
                 }).join('');
+
+                // Fetch Requests
+                const rRes = await fetch('/api/requests');
+                const requests = await rRes.json();
+                const reqRows = document.getElementById('request-rows');
+                if (requests) {
+                    reqRows.innerHTML = requests.reverse().map(r => `
+                        <tr>
+                            <td>${new Date(r.timestamp).toLocaleTimeString()}</td>
+                            <td style="color: var(--primary)">${r.method}</td>
+                            <td>${r.url}</td>
+                            <td style="color: ${r.status >= 400 ? 'var(--error)' : 'var(--success)'}">${r.status}</td>
+                            <td>${r.duration}</td>
+                        </tr>
+                    `).join('');
+                }
 
                 // Fetch Logs
                 const lRes = await fetch('/api/logs');

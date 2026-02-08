@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +25,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -47,6 +50,19 @@ type Tunnel struct {
 	ListenAddr  string `json:"listenAddr"`
 	KubeContext string `json:"kubeContext"`
 	Health      string `json:"health"`
+	
+	// Internal for Proxy
+	proxyPort int
+}
+
+type HTTPRequestLog struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Method    string    `json:"method"`
+	URL       string    `json:"url"`
+	Status    int       `json:"status"`
+	Duration  string    `json:"duration"`
+	Tunnel    string    `json:"tunnel"`
 }
 
 var (
@@ -55,6 +71,9 @@ var (
 	tunnels   []*Tunnel
 	tunnelsMu sync.RWMutex
 	
+	requestLog   []HTTPRequestLog
+	requestLogMu sync.Mutex
+
 	clientCache = make(map[string]*kube.Client)
 	clientMu    sync.Mutex
 )
@@ -1011,10 +1030,28 @@ func startPortForward(ctx context.Context, kClient *kube.Client, podName string,
 	inStream := &counterWriter{target: &t.BytesIn}
 
 	// Redirect output to discard to keep TUI clean
+	// Interception Logic for HTTP Inspector
+	listenAddresses := []string{t.ListenAddr}
+	listenPorts := []string{fmt.Sprintf("%d:%d", t.LocalPort, t.RemotePort)}
+	
+	if strings.HasPrefix(t.Protocol, "http") {
+		// Start HTTP Proxy on t.LocalPort
+		// And PF on a random ephemeral port
+		ephemeralPort, err := getFreePort()
+		if err == nil {
+			t.proxyPort = ephemeralPort
+			listenPorts = []string{fmt.Sprintf("%d:%d", ephemeralPort, t.RemotePort)}
+			// Start Proxy
+			go startHTTPInspector(t.ListenAddr, t.LocalPort, ephemeralPort, t)
+		} else {
+			logEvent("Inspector failed: %v", err)
+		}
+	}
+
 	pf, err := portforward.NewOnAddresses(
 		dialer,
-		[]string{t.ListenAddr},
-		[]string{fmt.Sprintf("%d:%d", t.LocalPort, t.RemotePort)},
+		listenAddresses,
+		listenPorts,
 		t.StopChan,
 		t.ReadyChan,
 		outStream, // Remote -> Local (BytesOut)
@@ -1146,6 +1183,72 @@ func resolvePod(ctx context.Context, kClient *kube.Client, name string, t *Tunne
 		return pod.Name, int(pod.Spec.Containers[0].Ports[0].ContainerPort), nil
 	}
 	return pod.Name, 80, nil // Fallback
+}
+
+func getFreePort() (int, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+func startHTTPInspector(listenAddr string, localPort, targetPort int, t *Tunnel) {
+	targetURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", targetPort))
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	
+	// Middleware for Logging
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		// Fix headers
+		req.Header.Set("X-KTL-Inspect", "true")
+	}
+	
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		// Log Request
+		logRequest(resp.Request, resp)
+		return nil
+	}
+
+	server := &http.Server{
+		Addr: fmt.Sprintf("%s:%d", listenAddr, localPort),
+		Handler: proxy,
+	}
+
+	go func() {
+		// We ignore error as it will fail on shutdown
+		server.ListenAndServe()
+	}()
+	
+	<-t.StopChan
+	server.Close()
+}
+
+func logRequest(req *http.Request, resp *http.Response) {
+	requestLogMu.Lock()
+	defer requestLogMu.Unlock()
+	
+	log := HTTPRequestLog{
+		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
+		Timestamp: time.Now(),
+		Method:    req.Method,
+		URL:       req.URL.String(),
+		Status:    resp.StatusCode,
+		Duration:  "0ms", // TODO: Measure duration
+		Tunnel:    fmt.Sprintf("%s", req.Host),
+	}
+	
+	// Keep last 100
+	if len(requestLog) > 100 {
+		requestLog = requestLog[1:]
+	}
+	requestLog = append(requestLog, log)
 }
 
 func parseTarget(raw, ns string) *Tunnel {

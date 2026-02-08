@@ -21,6 +21,7 @@ func startWebServer(port int) {
 	// API Endpoints
 	mux.HandleFunc("/api/tunnels", handleTunnels)
 	mux.HandleFunc("/api/logs", handleLogs)
+	mux.HandleFunc("/api/requests", handleRequests)
 
 	addr := fmt.Sprintf(":%d", port)
 	color.New(color.FgGreen).Printf("Starting dashboard on %s\n", addr)
@@ -50,6 +51,18 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	defer logMu.Unlock()
 	
 	if err := json.NewEncoder(w).Encode(logBuffer); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func handleRequests(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	requestLogMu.Lock()
+	defer requestLogMu.Unlock()
+	
+	if err := json.NewEncoder(w).Encode(requestLog); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
