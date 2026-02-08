@@ -47,6 +47,16 @@ func Catalog() []VarInfo {
 			Description: "Kubernetes client-go verbosity (klog -v). At >=6 enables HTTP request/response tracing.",
 		},
 		{
+			Category:    "Kubernetes",
+			Name:        "KUBERNETES_MASTER",
+			Description: "Address of the Kubernetes API server (overrides kubeconfig).",
+		},
+		{
+			Category:    "Kubernetes",
+			Name:        "KUBECONFIG",
+			Description: "Path to the kubeconfig file (defaults to ~/.kube/config).",
+		},
+		{
 			Category:    "Profiling",
 			Name:        "KTL_PROFILE",
 			Description: "Enable profiling modes for ktl itself (e.g. startup writes CPU/heap profiles to the working directory).",

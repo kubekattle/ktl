@@ -7,6 +7,7 @@ package kube
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -41,7 +42,14 @@ func New(ctx context.Context, kubeconfigPath, contextName string) (*Client, erro
 		if err != nil {
 			return nil, fmt.Errorf("expand kubeconfig path: %w", err)
 		}
-		loadingRules.Precedence = []string{filepath.Clean(expanded)}
+		cleanPath := filepath.Clean(expanded)
+		if _, err := os.Stat(cleanPath); err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("kubeconfig file not found: %s", cleanPath)
+			}
+			return nil, fmt.Errorf("stat kubeconfig file %s: %w", cleanPath, err)
+		}
+		loadingRules.Precedence = []string{cleanPath}
 	}
 
 	overrides := &clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: ""}}
