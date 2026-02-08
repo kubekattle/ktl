@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/example/ktl/internal/kube"
+	"github.com/example/ktl/internal/stack"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -62,6 +63,8 @@ func logEvent(format string, args ...interface{}) {
 func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var namespace string
 	var share bool
+	var deps bool
+	var stackConfig string
 	cmd := &cobra.Command{
 		Use:   "tunnel [SERVICE_OR_POD...]",
 		Short: "Smart, resilient port-forwarding for multiple services",
@@ -71,13 +74,16 @@ Examples:
   ktl tunnel db:5432             # Forward local 5432 to service 'db' (auto-detect remote)
   ktl tunnel 8080:app:80         # Explicit local:remote
   ktl tunnel app redis postgres  # Open 3 tunnels at once
-  ktl tunnel app --share         # Listen on 0.0.0.0 (share with LAN)`,
+  ktl tunnel app --share         # Listen on 0.0.0.0 (share with LAN)
+  ktl tunnel app --deps          # Also tunnel to app's dependencies (from stack.yaml)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share)
+			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, stackConfig)
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
 	cmd.Flags().BoolVar(&share, "share", false, "Listen on all interfaces (0.0.0.0) to share with LAN")
+	cmd.Flags().BoolVar(&deps, "deps", false, "Recursively tunnel to dependencies defined in stack.yaml")
+	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
 	
 	cmd.AddCommand(newTunnelSaveCommand())
 	cmd.AddCommand(newTunnelListCommand())
@@ -120,7 +126,7 @@ func newTunnelListCommand() *cobra.Command {
 	}
 }
 
-func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool) error {
+func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, stackConfig string) error {
 	// Check for profile expansion
 	if len(targets) == 1 {
 		profiles, _ := loadTunnelProfiles()
@@ -128,6 +134,15 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 			fmt.Printf("Loaded profile '%s': %s\n", targets[0], strings.Join(expanded, ", "))
 			targets = expanded
 		}
+	}
+
+	if deps {
+		var err error
+		targets, err = expandDependencies(ctx, targets, stackConfig)
+		if err != nil {
+			return fmt.Errorf("failed to expand dependencies: %w", err)
+		}
+		fmt.Printf("Expanded targets with dependencies: %s\n", strings.Join(targets, ", "))
 	}
 
 	var kc, kctx string
@@ -481,6 +496,86 @@ func isPortAvailable(port int, addr string) bool {
 	}
 	ln.Close()
 	return true
+}
+
+func expandDependencies(ctx context.Context, targets []string, configPath string) ([]string, error) {
+	// If no config path provided, look for stack.yaml in current dir
+	if configPath == "" {
+		if _, err := os.Stat("stack.yaml"); err == nil {
+			configPath = "stack.yaml"
+		} else if _, err := os.Stat("release.yaml"); err == nil {
+			configPath = "release.yaml"
+		} else {
+			return targets, fmt.Errorf("stack.yaml not found (pass --config)")
+		}
+	}
+
+	root, _ := filepath.Abs(filepath.Dir(configPath))
+	u, err := stack.Discover(root)
+	if err != nil {
+		return targets, err
+	}
+	p, err := stack.Compile(u, stack.CompileOptions{})
+	if err != nil {
+		return targets, err
+	}
+	g, err := stack.BuildGraph(p)
+	if err != nil {
+		return targets, err
+	}
+
+	// Map simple names to IDs for lookup
+	// We assume we are operating on the current context/cluster, so we filter by that if possible.
+	// But for now, let's just match by Name.
+	nameToID := make(map[string]string)
+	idToName := make(map[string]string)
+	for _, n := range p.Nodes {
+		nameToID[n.Name] = n.ID
+		idToName[n.ID] = n.Name
+	}
+
+	expanded := make(map[string]struct{})
+	var result []string
+
+	var visit func(name string)
+	visit = func(name string) {
+		if _, seen := expanded[name]; seen {
+			return
+		}
+		expanded[name] = struct{}{}
+		result = append(result, name)
+
+		id, ok := nameToID[name]
+		if !ok {
+			return // Not in stack
+		}
+		
+		deps := g.DepsOf(id)
+		for _, depID := range deps {
+			if depName, ok := idToName[depID]; ok {
+				visit(depName)
+			}
+		}
+	}
+
+	for _, t := range targets {
+		parts := strings.Split(t, ":")
+		// Handle "port:name" or "name:port" or "name"
+		var name string
+		if len(parts) > 1 {
+			// Heuristic: if first part is int, name is second
+			if _, err := strconv.Atoi(parts[0]); err == nil {
+				name = parts[1]
+			} else {
+				name = parts[0]
+			}
+		} else {
+			name = parts[0]
+		}
+		visit(name)
+	}
+	
+	return result, nil
 }
 
 func selectTargets(ctx context.Context, kClient *kube.Client, namespace string) ([]string, error) {
