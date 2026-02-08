@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -50,6 +51,10 @@ type Tunnel struct {
 	ListenAddr  string `json:"listenAddr"`
 	KubeContext string `json:"kubeContext"`
 	Health      string `json:"health"`
+	
+	// Chaos
+	Latency   time.Duration `json:"latency"`
+	ErrorRate float64       `json:"errorRate"`
 	
 	// Internal for Proxy
 	proxyPort int
@@ -115,6 +120,8 @@ func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var envFrom string
 	var web bool
 	var stackConfig string
+	var latency time.Duration
+	var errorRate float64
 	cmd := &cobra.Command{
 		Use:   "tunnel [SERVICE_OR_POD...]",
 		Short: "Smart, resilient port-forwarding for multiple services",
@@ -127,7 +134,7 @@ Examples:
   ktl tunnel db --env-from deployment/app --exec "go run ." # Run local app with remote env
   ktl tunnel app --web           # Start web dashboard`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, execCmd, envFrom, web, stackConfig)
+			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share, deps, hosts, execCmd, envFrom, web, stackConfig, latency, errorRate)
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
@@ -138,6 +145,8 @@ Examples:
 	cmd.Flags().StringVar(&envFrom, "env-from", "", "Fetch environment variables from workload (e.g. deployment/app)")
 	cmd.Flags().BoolVar(&web, "web", false, "Start web dashboard on port 4545")
 	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
+	cmd.Flags().DurationVar(&latency, "latency", 0, "Inject artificial latency (e.g. 500ms)")
+	cmd.Flags().Float64Var(&errorRate, "error-rate", 0, "Inject artificial errors (0.0 - 1.0)")
 	
 	cmd.AddCommand(newTunnelSaveCommand())
 	cmd.AddCommand(newTunnelListCommand())
@@ -761,6 +770,22 @@ func runSSHReverseTunnel(sshPort, localTargetPort int, user, pass string) error 
 	}
 }
 
+type ChaosTransport struct {
+	Base      http.RoundTripper
+	Latency   time.Duration
+	ErrorRate float64
+}
+
+func (t *ChaosTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.Latency > 0 {
+		time.Sleep(t.Latency)
+	}
+	if t.ErrorRate > 0 && rand.Float64() < t.ErrorRate {
+		return nil, fmt.Errorf("chaos: simulated network error")
+	}
+	return t.Base.RoundTrip(req)
+}
+
 func newTunnelSaveCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "save NAME TARGET...",
@@ -796,7 +821,7 @@ func newTunnelListCommand() *cobra.Command {
 	}
 }
 
-func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, execCmd string, envFrom string, web bool, stackConfig string) error {
+func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool, deps bool, hosts bool, execCmd string, envFrom string, web bool, stackConfig string, latency time.Duration, errorRate float64) error {
 	// Check for profile expansion
 	if len(targets) == 1 {
 		profiles, _ := loadTunnelProfiles()
@@ -867,6 +892,8 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 		} else {
 			tunnels[i].ListenAddr = "127.0.0.1"
 		}
+		tunnels[i].Latency = latency
+		tunnels[i].ErrorRate = errorRate
 	}
 	tunnelsMu.Unlock()
 
@@ -1337,6 +1364,13 @@ func startHTTPInspector(listenAddr string, localPort, targetPort int, t *Tunnel)
 		originalDirector(req)
 		// Fix headers
 		req.Header.Set("X-KTL-Inspect", "true")
+	}
+	
+	// Network Chaos Middleware
+	proxy.Transport = &ChaosTransport{
+		Base:      http.DefaultTransport,
+		Latency:   t.Latency,
+		ErrorRate: t.ErrorRate,
 	}
 	
 	proxy.ModifyResponse = func(resp *http.Response) error {
