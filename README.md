@@ -1,4 +1,7 @@
-# ktl
+<div align="center">
+  <img src="docs/assets/logo.svg" alt="ktl logo" width="400" />
+  <h1>ktl</h1>
+</div>
 
 `ktl` is a Kubernetes-focused CLI for logs, Helm workflows, and BuildKit builds.
 

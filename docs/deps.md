@@ -1,12 +1,6 @@
-# Dependency Map (Generated)
+# Dependency Map
 
-This file is generated. Do not edit by hand.
-
-Regenerate with:
-
-```bash
-make deps
-```
+This file tracks the dependency graph of the project.
 
 ## `github.com/example/ktl/cmd/capture`
 
