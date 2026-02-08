@@ -38,6 +38,7 @@ type Tunnel struct {
 	BytesIn     int64
 	BytesOut    int64
 	Protocol    string // http, https, postgres, redis, mysql, etc.
+	ListenAddr  string
 }
 
 var (
@@ -58,6 +59,7 @@ func logEvent(format string, args ...interface{}) {
 
 func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
 	var namespace string
+	var share bool
 	cmd := &cobra.Command{
 		Use:   "tunnel [SERVICE_OR_POD...]",
 		Short: "Smart, resilient port-forwarding for multiple services",
@@ -66,16 +68,18 @@ Examples:
   ktl tunnel my-app              # Auto-detect port for service 'my-app'
   ktl tunnel db:5432             # Forward local 5432 to service 'db' (auto-detect remote)
   ktl tunnel 8080:app:80         # Explicit local:remote
-  ktl tunnel app redis postgres  # Open 3 tunnels at once`,
+  ktl tunnel app redis postgres  # Open 3 tunnels at once
+  ktl tunnel app --share         # Listen on 0.0.0.0 (share with LAN)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args)
+			return runTunnel(cmd.Context(), kubeconfig, kubeContext, namespace, args, share)
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
+	cmd.Flags().BoolVar(&share, "share", false, "Listen on all interfaces (0.0.0.0) to share with LAN")
 	return cmd
 }
 
-func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string) error {
+func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace string, targets []string, share bool) error {
 	var kc, kctx string
 	if kubeconfig != nil {
 		kc = *kubeconfig
@@ -110,6 +114,11 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 	tunnels := make([]*Tunnel, len(targets))
 	for i, t := range targets {
 		tunnels[i] = parseTarget(t, namespace)
+		if share {
+			tunnels[i].ListenAddr = "0.0.0.0"
+		} else {
+			tunnels[i].ListenAddr = "127.0.0.1"
+		}
 	}
 
 	// TUI Loop
@@ -242,13 +251,13 @@ func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
 		}
 
 		// Check if local port is available
-		if !isPortAvailable(t.LocalPort) {
+		if !isPortAvailable(t.LocalPort, t.ListenAddr) {
 			// Auto-fix: try next ports
 			found := false
 			originalPort := t.LocalPort
 			for i := 1; i <= 10; i++ {
 				next := originalPort + i
-				if isPortAvailable(next) {
+				if isPortAvailable(next, t.ListenAddr) {
 					t.LocalPort = next
 					found = true
 					break
@@ -306,8 +315,9 @@ func startPortForward(ctx context.Context, kClient *kube.Client, podName string,
 	inStream := &counterWriter{target: &t.BytesIn}
 
 	// Redirect output to discard to keep TUI clean
-	pf, err := portforward.New(
+	pf, err := portforward.NewOnAddresses(
 		dialer,
+		[]string{t.ListenAddr},
 		[]string{fmt.Sprintf("%d:%d", t.LocalPort, t.RemotePort)},
 		t.StopChan,
 		t.ReadyChan,
@@ -411,8 +421,11 @@ func parseTarget(raw, ns string) *Tunnel {
 	return t
 }
 
-func isPortAvailable(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func isPortAvailable(port int, addr string) bool {
+	if addr == "" {
+		addr = "127.0.0.1"
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", addr, port))
 	if err != nil {
 		return false
 	}
@@ -486,7 +499,7 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 			statusColor = color.New(color.FgRed)
 		}
 		
-		mapping := fmt.Sprintf(":%d -> :%d", t.LocalPort, t.RemotePort)
+		mapping := fmt.Sprintf("%s:%d -> :%d", t.ListenAddr, t.LocalPort, t.RemotePort)
 		if t.LocalPort == 0 {
 			mapping = "resolving..."
 		}
