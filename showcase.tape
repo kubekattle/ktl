@@ -4,7 +4,7 @@ Set FontSize 32
 Set Width 1800
 Set Height 1200
 Set Padding 60
-Set FontFamily "Hack Nerd Font"
+Set FontFamily "Helvetica"
 Set LineHeight 1.4
 Set Theme "Dracula"
 
