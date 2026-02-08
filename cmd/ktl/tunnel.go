@@ -34,6 +34,7 @@ type Tunnel struct {
 	RetryCount  int
 	BytesIn     int64
 	BytesOut    int64
+	Protocol    string // http, https, postgres, redis, mysql, etc.
 }
 
 func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
@@ -140,6 +141,7 @@ func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
 			continue
 		}
 		t.RemotePort = remotePort
+		t.Protocol = inferProtocol(t.RemotePort)
 
 		if t.LocalPort == 0 {
 			t.LocalPort = t.RemotePort // Default to same port
@@ -375,8 +377,8 @@ func (cw *counterWriter) Write(p []byte) (n int, err error) {
 func printTable(tunnels []*Tunnel) {
 	fmt.Print("\033[H\033[2J")
 	color.New(color.FgCyan, color.Bold).Println(" KTL TUNNEL MANAGER ")
-	fmt.Println(strings.Repeat("-", 80))
-	fmt.Printf("%-20s %-20s %-15s %-10s %-10s\n", "TARGET", "MAPPING", "STATUS", "TX", "RX")
+	fmt.Println(strings.Repeat("-", 90))
+	fmt.Printf("%-20s %-20s %-10s %-15s %-10s %-10s\n", "TARGET", "MAPPING", "PROTO", "STATUS", "TX", "RX")
 	
 	for _, t := range tunnels {
 		statusColor := color.New(color.FgYellow)
@@ -391,9 +393,10 @@ func printTable(tunnels []*Tunnel) {
 			mapping = "resolving..."
 		}
 		
-		fmt.Printf("%-20s %-20s %-15s %-10s %-10s\n", 
+		fmt.Printf("%-20s %-20s %-10s %-15s %-10s %-10s\n", 
 			t.Name, 
 			mapping,
+			t.Protocol,
 			statusColor.Sprint(t.Status),
 			formatBytes(t.BytesIn),
 			formatBytes(t.BytesOut),
@@ -417,4 +420,27 @@ func formatBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func inferProtocol(port int) string {
+	switch port {
+	case 80, 8080, 3000, 5000, 8000:
+		return "http"
+	case 443, 8443:
+		return "https"
+	case 5432:
+		return "postgres"
+	case 3306:
+		return "mysql"
+	case 6379:
+		return "redis"
+	case 27017:
+		return "mongo"
+	case 9090:
+		return "prometheus"
+	case 22, 2222:
+		return "ssh"
+	default:
+		return "tcp"
+	}
 }
