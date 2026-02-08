@@ -122,6 +122,11 @@
         <div id="logs" class="log-panel">
             <!-- Logs injected here -->
         </div>
+
+        <h3>AI Diagnosis</h3>
+        <div id="analysis" class="card" style="margin-top: 20px;">
+            Loading diagnosis...
+        </div>
     </div>
 
     <script>
@@ -203,6 +208,16 @@
                 // Only update if changed to avoid scroll jumping? simpler to just replace for now
                 logPanel.innerHTML = logs.map(l => `<div class="log-entry">${l}</div>`).join('');
                 
+                // Fetch Analysis (Mock)
+                const aRes = await fetch('/api/analysis');
+                const analysis = await aRes.json();
+                const analysisPanel = document.getElementById('analysis');
+                analysisPanel.innerHTML = `
+                    <h4 style="color: var(--error)">${analysis.rootCause}</h4>
+                    <p><strong>Suggestion:</strong> ${analysis.suggestion}</p>
+                    <p style="font-size: 0.9em; color: #888">${analysis.explanation}</p>
+                `;
+
             } catch (e) {
                 console.error(e);
             }

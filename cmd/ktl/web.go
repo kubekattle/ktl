@@ -24,6 +24,7 @@ func startWebServer(port int) {
 	mux.HandleFunc("/api/logs", handleLogs)
 	mux.HandleFunc("/api/requests", handleRequests)
 	mux.HandleFunc("/api/replay", handleReplay)
+	mux.HandleFunc("/api/analysis", handleAnalysis)
 
 	addr := fmt.Sprintf(":%d", port)
 	color.New(color.FgGreen).Printf("Starting dashboard on %s\n", addr)
@@ -138,4 +139,23 @@ func handleReplay(w http.ResponseWriter, r *http.Request) {
 		"status": "replayed",
 		"code":   resp.StatusCode,
 	})
+}
+
+func handleAnalysis(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Mock Analysis for Web Dashboard MVP
+	// In reality, this should trigger 'analyze.go' logic, but that is CLI-based.
+	// We would need to refactor analyze to be callable here.
+	// For now, return a mock diagnosis.
+	
+	diagnosis := map[string]interface{}{
+		"rootCause": "Example Root Cause: Connection Refused",
+		"suggestion": "Check if the database service is running.",
+		"explanation": "The logs show a TCP dial error to db:5432.",
+		"confidenceScore": 0.95,
+	}
+	
+	json.NewEncoder(w).Encode(diagnosis)
 }
