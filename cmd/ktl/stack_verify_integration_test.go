@@ -18,8 +18,9 @@ func TestStackVerify_E2E_RealCluster(t *testing.T) {
 		t.Skip("KUBECONFIG not set")
 	}
 
-	cmd := exec.Command("bash", "./scripts/stack-verify-e2e-real.sh")
-	cmd.Env = os.Environ()
+	cmd := exec.Command("bash", repoScript("stack-verify-e2e-real.sh"))
+	cmd.Dir = intTestRepoRoot
+	cmd.Env = append(os.Environ(), "KUBECONFIG_PATH="+os.Getenv("KUBECONFIG"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

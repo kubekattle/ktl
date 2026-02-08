@@ -14,7 +14,7 @@ import (
 func FetchWorkloadEnv(ctx context.Context, client *Client, namespace, target string) ([]string, error) {
 	kind := "deployment"
 	name := target
-	
+
 	if strings.Contains(target, "/") {
 		parts := strings.SplitN(target, "/", 2)
 		kind = strings.ToLower(parts[0])
@@ -53,7 +53,7 @@ func FetchWorkloadEnv(ctx context.Context, client *Client, namespace, target str
 	// Use the first container for now
 	// TODO: Allow selecting container?
 	container := podSpec.Containers[0]
-	
+
 	return resolveEnv(ctx, client, namespace, container)
 }
 

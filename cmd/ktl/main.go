@@ -641,7 +641,7 @@ func runUp(ctx context.Context, kubeconfig, kubeContext *string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read ktl.yaml: %w", err)
 	}
-	
+
 	type TunnelConfig struct {
 		Target string `yaml:"target"`
 		Local  int    `yaml:"local"`
@@ -653,25 +653,25 @@ func runUp(ctx context.Context, kubeconfig, kubeContext *string) error {
 		Tunnels []TunnelConfig `yaml:"tunnels"`
 		Logs    []LogConfig    `yaml:"logs"`
 	}
-	
+
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("invalid ktl.yaml: %w", err)
 	}
-	
+
 	// Start Tunnels
 	// We need to run them in background.
 	// This is a complex orchestrator.
 	// For MVP, we just start tunnels in goroutines and block.
-	
+
 	fmt.Printf("Starting %d tunnels...\n", len(cfg.Tunnels))
-	
+
 	// Reuse runTunnel logic? runTunnel blocks.
 	// We need to refactor runTunnel to be non-blocking or spawn it.
 	// Ideally we use the TunnelManager we built for the Dashboard.
-	
+
 	// Let's just spawn separate goroutines for now, but we need to handle stdout/err.
-	
+
 	for _, t := range cfg.Tunnels {
 		go func(tc TunnelConfig) {
 			// Construct args
@@ -687,7 +687,7 @@ func runUp(ctx context.Context, kubeconfig, kubeContext *string) error {
 			// This would block this goroutine.
 		}(t)
 	}
-	
+
 	fmt.Println("Workspace started. Press Ctrl+C to stop.")
 	<-ctx.Done()
 	return nil
@@ -715,11 +715,11 @@ Example:
 			return runWait(cmd.Context(), kubeconfig, kubeContext, namespace, pattern, logPattern, timeout)
 		},
 	}
-	
+
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace")
 	cmd.Flags().StringVar(&logPattern, "for-log", "", "Wait until this string appears in the logs")
 	cmd.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "Timeout for the wait")
-	
+
 	return cmd
 }
 
@@ -754,7 +754,7 @@ func runWait(ctx context.Context, kubeconfig, kubeContext *string, namespace str
 			if err != nil {
 				continue
 			}
-			
+
 			var target *corev1.Pod
 			for _, p := range pods.Items {
 				if strings.Contains(p.Name, namePattern) {
@@ -762,11 +762,11 @@ func runWait(ctx context.Context, kubeconfig, kubeContext *string, namespace str
 					break
 				}
 			}
-			
+
 			if target == nil {
 				continue
 			}
-			
+
 			// Check Readiness
 			ready := false
 			for _, c := range target.Status.Conditions {
@@ -775,12 +775,12 @@ func runWait(ctx context.Context, kubeconfig, kubeContext *string, namespace str
 					break
 				}
 			}
-			
+
 			if !ready {
 				fmt.Printf("\rPod %s is not ready...", target.Name)
 				continue
 			}
-			
+
 			// Check Logs
 			if logPattern != "" {
 				fmt.Printf("\rPod %s is ready. Checking logs for '%s'...", target.Name, logPattern)
@@ -799,5 +799,3 @@ func runWait(ctx context.Context, kubeconfig, kubeContext *string, namespace str
 		}
 	}
 }
-
-

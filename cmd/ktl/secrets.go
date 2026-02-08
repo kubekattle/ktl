@@ -52,7 +52,7 @@ Example:
 				return fmt.Errorf("command must be separated by --")
 			}
 			execArgs := args[dashIdx:]
-			
+
 			return runSecretsExec(cmd.Context(), kubeconfig, kubeContext, namespace, secretName, execArgs)
 		},
 	}
@@ -71,27 +71,27 @@ func runSecretsExec(ctx context.Context, kubeconfig, kubeContext *string, namesp
 			namespace = "default"
 		}
 	}
-	
+
 	secret, err := kClient.Clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get secret: %w", err)
 	}
-	
+
 	env := os.Environ()
 	for k, v := range secret.Data {
 		// Sanitize Key
 		key := strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(k, ".", "_"), "-", "_"))
 		env = append(env, fmt.Sprintf("%s=%s", key, string(v)))
 	}
-	
+
 	fmt.Printf("Injecting %d secrets from %s...\n", len(secret.Data), secretName)
-	
+
 	cmd := exec.CommandContext(ctx, execArgs[0], execArgs[1:]...)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	return cmd.Run()
 }
 

@@ -29,7 +29,7 @@ func startWebServer(port int) {
 
 	addr := fmt.Sprintf(":%d", port)
 	color.New(color.FgGreen).Printf("Starting dashboard on %s\n", addr)
-	
+
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		logEvent("Web server error: %v", err)
 	}
@@ -41,7 +41,7 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 
 	tunnelsMu.RLock()
 	defer tunnelsMu.RUnlock()
-	
+
 	if err := json.NewEncoder(w).Encode(tunnels); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -53,7 +53,7 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	logMu.Lock()
 	defer logMu.Unlock()
-	
+
 	if err := json.NewEncoder(w).Encode(logBuffer); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -65,7 +65,7 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 
 	requestLogMu.Lock()
 	defer requestLogMu.Unlock()
-	
+
 	if err := json.NewEncoder(w).Encode(requestLog); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -110,20 +110,20 @@ func handleReplay(w http.ResponseWriter, r *http.Request) {
 	// In tunnel.go logRequest: URL: req.URL.String() (e.g. /foo?bar=1)
 	// Tunnel: req.Host (e.g. localhost:8080)
 	// We construct full URL: http://Tunnel + URL
-	
+
 	fullURL := fmt.Sprintf("http://%s%s", targetLog.Tunnel, targetLog.URL)
-	
+
 	// Create Request
 	// TODO: Store body/headers in HTTPRequestLog to allow full replay?
 	// For MVP, we just replay GET/POST to same URL with empty body if we didn't save it.
 	// Let's assume GET for now or empty body.
-	
+
 	newReq, err := http.NewRequest(targetLog.Method, fullURL, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Set headers? We didn't save them.
 	// Add a marker header
 	newReq.Header.Set("X-KTL-Replay", "true")
@@ -150,14 +150,14 @@ func handleAnalysis(w http.ResponseWriter, r *http.Request) {
 	// In reality, this should trigger 'analyze.go' logic, but that is CLI-based.
 	// We would need to refactor analyze to be callable here.
 	// For now, return a mock diagnosis.
-	
+
 	diagnosis := map[string]interface{}{
-		"rootCause": "Example Root Cause: Connection Refused",
-		"suggestion": "Check if the database service is running.",
-		"explanation": "The logs show a TCP dial error to db:5432.",
+		"rootCause":       "Example Root Cause: Connection Refused",
+		"suggestion":      "Check if the database service is running.",
+		"explanation":     "The logs show a TCP dial error to db:5432.",
 		"confidenceScore": 0.95,
 	}
-	
+
 	json.NewEncoder(w).Encode(diagnosis)
 }
 
@@ -171,7 +171,7 @@ func handleTopology(w http.ResponseWriter, r *http.Request) {
 	// Build Graph
 	// Nodes: Localhost, Tunnels (Services)
 	// Edges: Localhost -> Tunnels
-	
+
 	type Node struct {
 		ID    string `json:"id"`
 		Label string `json:"label"`
@@ -181,12 +181,12 @@ func handleTopology(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 		Target string `json:"target"`
 	}
-	
+
 	nodes := []Node{
 		{ID: "local", Label: "My Machine", Type: "local"},
 	}
 	edges := []Edge{}
-	
+
 	for _, t := range tunnels {
 		nodes = append(nodes, Node{
 			ID:    t.Name,
@@ -198,7 +198,7 @@ func handleTopology(w http.ResponseWriter, r *http.Request) {
 			Target: t.Name,
 		})
 	}
-	
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"nodes": nodes,
 		"edges": edges,

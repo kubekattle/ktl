@@ -8,7 +8,23 @@ Core commands:
 - Helm preview/apply/delete/revert: `ktl apply plan`, `ktl apply`, `ktl delete`, `ktl revert`
 - Build images with BuildKit: `ktl build`
 - Orchestrate many releases as a DAG: `ktl stack`
+- Secure access to cluster services: `ktl tunnel`
 - HTML viewers: `ktl help --ui`, `ktl apply --ui`, `ktl delete --ui`
+
+## Why ktl?
+
+`ktl` is designed to be a single binary that bridges the gap between **interactive developer workflows** and **headless CI pipelines**. It is suitable for both daily development and rigorous CI/CD steps.
+
+| Tool | Difference |
+| --- | --- |
+| **ArgoCD / Flux** | These are GitOps operators that run *inside* the cluster. `ktl` is a CLI that runs *outside* (on your laptop or in GitHub Actions) to render, validate, and apply changes. It complements GitOps by providing a way to "dry run" and debug charts locally before pushing. |
+| **Helmfile** | `ktl stack` offers similar multi-release orchestration but adds a DAG-aware scheduler, concurrent execution, and a rich interactive TUI/HTML viewer for debugging complex dependencies. |
+| **Tilt / Skaffold** | These are primarily "inner loop" dev tools that watch files and auto-deploy. `ktl` focuses on explicit, predictable operations that work exactly the same way in CI as they do on your machine, reducing "it works on my machine" issues. |
+
+**Key Features:**
+- **Hybrid Runtime**: Works as a rich TUI for devs and a structured JSON/log emitter for CI.
+- **Unified Stack**: Bundles logging (`ktl logs`), building (`ktl build`), and deploying (`ktl apply`) in one cohesive toolchain.
+- **Observability**: Built-in HTML viewers for plans, deployments, and help docs.
 
 ## Install
 
@@ -50,6 +66,9 @@ ktl delete --release my-app -n default --ui
 
 # Build an image with BuildKit
 ktl build . -t ghcr.io/acme/app:dev
+
+# Open a tunnel to a service
+ktl tunnel service/my-app 8080:80
 
 # Searchable interactive help
 ktl help --ui

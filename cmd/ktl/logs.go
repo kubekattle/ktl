@@ -39,7 +39,7 @@ func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *s
 	var stackConfig string
 	var jsonQuery string
 	cmd := &cobra.Command{
-		Use:   "logs [POD_QUERY]",
+		Use:           "logs [POD_QUERY]",
 		Aliases:       []string{"tail"},
 		Short:         "Tail Kubernetes pod logs",
 		Long:          "Stream pod logs with ktl's high-performance tailer. Accepts the same query/flag set as the legacy ktl entrypoint.",
@@ -103,41 +103,41 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		// We duplicate logic from tunnel.go for now, but in future we should move to shared util.
 		// Since we can't easily modify internal/stack from here without moving code, we use what's available.
 		// Assuming stack.Discover/Compile/BuildGraph exists.
-		
+
 		// Note: We need absolute path for stack.Discover usually
 		// But let's check what `stack` package exposes.
 		// In tunnel.go we used: stack.Discover(root) -> Compile -> BuildGraph
-		
+
 		// For Logs, we want to construct a PodQuery that matches multiple pods.
 		// Current PodQuery supports regex or simple string match.
 		// If we have "app" and "redis", we want logs from both.
 		// The tailer supports `PodQuery` which is matched against Pod Name.
 		// We can construct a regex: "(app|redis|postgres)"
-		
+
 		// Let's resolve dependencies
 		// ... (Logic similar to tunnel.go expandDependencies but simpler)
 		// We need to resolve names to a list of strings.
-		
+
 		// For simplicity in this iteration, let's assume we just want to ADD dependencies to the query.
 		// If user queried "app", and app depends on "redis", we change query to "(app|redis)".
-		
+
 		// However, loading the stack graph is non-trivial without copying the code or importing it.
 		// Since we imported "github.com/example/ktl/internal/stack", let's use it.
-		
+
 		// Minimal Stack Load:
 		// We need to find the node matching "opts.PodQuery" and get its deps.
 		// But PodQuery might be a fuzzy match.
 		// Let's assume PodQuery is the Service Name for dependency resolution.
-		
+
 		root, _ := os.Getwd()
 		if stackConfig != "" {
 			// adjust root
 			// root = filepath.Dir(stackConfig) ...
 		}
-		
+
 		// We'll skip complex graph loading here to avoid massive code dup and assume a simple helper exists or
 		// we just do a best-effort "smart logs" by checking if stack.yaml exists and grepping it? No, that's bad.
-		
+
 		// Let's do it properly using stack package.
 		u, err := stack.Discover(root)
 		if err == nil {
@@ -151,7 +151,7 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 					if targetName == "" {
 						// Default to all?
 					}
-					
+
 					// Find ID
 					var targetID string
 					for _, n := range p.Nodes {
@@ -160,7 +160,7 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 							break
 						}
 					}
-					
+
 					if targetID != "" {
 						deps := g.DepsOf(targetID)
 						names := []string{targetName}
@@ -329,7 +329,7 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 				filters[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
 			}
 		}
-		
+
 		// Add filter option
 		tailerOpts = append(tailerOpts, tailer.WithJSONFilter(filters))
 	}

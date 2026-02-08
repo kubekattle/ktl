@@ -36,7 +36,7 @@ func FindSourceSnippets(logs string) []Snippet {
 	scanner := bufio.NewScanner(strings.NewReader(logs))
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		// Try Go
 		if matches := goTraceRe.FindStringSubmatch(line); len(matches) == 3 {
 			s := tryExtractSnippet(matches[1], matches[2])
@@ -75,7 +75,7 @@ func tryExtractSnippet(pathStr, lineStr string) *Snippet {
 	// We need to find it in the current workspace.
 	// Strategy: Take the basename and search for it.
 	filename := filepath.Base(pathStr)
-	
+
 	// Fast search in current directory (recursive)
 	// Limiting depth for performance
 	foundPath := findFileInCwd(filename)
@@ -98,7 +98,7 @@ func tryExtractSnippet(pathStr, lineStr string) *Snippet {
 func findFileInCwd(targetName string) string {
 	cwd, _ := os.Getwd()
 	var match string
-	
+
 	// Walk current directory
 	_ = filepath.Walk(cwd, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -117,7 +117,7 @@ func findFileInCwd(targetName string) string {
 		}
 		return nil
 	})
-	
+
 	return match
 }
 
@@ -147,10 +147,10 @@ func readLinesAround(path string, targetLine, radius int) (string, error) {
 			break
 		}
 	}
-	
+
 	if len(lines) == 0 {
 		return "", fmt.Errorf("line not found")
 	}
-	
+
 	return strings.Join(lines, "\n"), nil
 }

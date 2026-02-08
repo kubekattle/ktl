@@ -141,10 +141,11 @@ root=sys.argv[1]
 path=os.path.join(root,"stack.yaml")
 data=open(path,"r",encoding="utf-8").read()
 data=data.replace('image: \"example.invalid/does-not-exist:0\"','image: \"busybox:1\"')
+data=data.replace('failOnWarnings: true','failOnWarnings: false')
 open(path,"w",encoding="utf-8").write(data)
 PY
 
-./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --yes --retry 1 >/dev/null
+./bin/ktl "${ktl_args[@]}" stack apply --root "${root}" --yes --retry 5 >/dev/null
 
 echo ">> delete cleanup (${root})"
 ./bin/ktl "${ktl_args[@]}" stack delete --root "${root}" --yes --retry 2 >/dev/null

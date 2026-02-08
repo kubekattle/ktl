@@ -54,7 +54,7 @@ func TestDriftGuardDetectsManualChange(t *testing.T) {
 	root.SetErr(&errOut)
 	root.SetArgs([]string{
 		"apply",
-		"--chart", "testdata/charts/drift-guard",
+		"--chart", repoTestdata("charts", "drift-guard"),
 		"--release", release,
 		"--namespace", ns,
 		"--kubeconfig", kubeconfig,
@@ -69,6 +69,13 @@ func TestDriftGuardDetectsManualChange(t *testing.T) {
 		t.Fatalf("patch configmap: %v", err)
 	}
 
+	// Verify patch
+	cm, err := client.Clientset.CoreV1().ConfigMaps(ns).Get(ctx, release+"-cm", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get configmap: %v", err)
+	}
+	t.Logf("Patched ConfigMap data: %v", cm.Data)
+
 	root = newRootCommand()
 	out.Reset()
 	errOut.Reset()
@@ -76,7 +83,7 @@ func TestDriftGuardDetectsManualChange(t *testing.T) {
 	root.SetErr(&errOut)
 	root.SetArgs([]string{
 		"apply",
-		"--chart", "testdata/charts/drift-guard",
+		"--chart", repoTestdata("charts", "drift-guard"),
 		"--release", release,
 		"--namespace", ns,
 		"--kubeconfig", kubeconfig,
@@ -86,13 +93,15 @@ func TestDriftGuardDetectsManualChange(t *testing.T) {
 	})
 	err = root.ExecuteContext(ctx)
 	if err == nil {
+		t.Logf("stderr:\n%s", errOut.String())
+		t.Logf("stdout:\n%s", out.String())
 		t.Fatalf("expected drift guard to fail, got nil error")
 	}
-	got := errOut.String()
+	got := err.Error()
 	if !strings.Contains(got, "drift detected") {
-		t.Fatalf("expected drift message in stderr, got:\n%s", got)
+		t.Fatalf("expected drift message in error, got:\n%s", got)
 	}
 	if !strings.Contains(got, "ConfigMap") || !strings.Contains(got, "changed") {
-		t.Fatalf("expected drift item mention in stderr, got:\n%s", got)
+		t.Fatalf("expected drift item mention in error, got:\n%s", got)
 	}
 }

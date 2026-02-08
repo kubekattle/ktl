@@ -54,7 +54,7 @@ func TestRevertSelectsLastKnownGood(t *testing.T) {
 		root.SetErr(&errOut)
 		root.SetArgs([]string{
 			"apply",
-			"--chart", "testdata/charts/drift-guard",
+			"--chart", repoTestdata("charts", "drift-guard"),
 			"--release", release,
 			"--namespace", ns,
 			"--kubeconfig", kubeconfig,

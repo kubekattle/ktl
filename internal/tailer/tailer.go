@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -22,7 +23,6 @@ import (
 	"sync"
 	"text/template"
 	"time"
-	"encoding/json"
 
 	"github.com/example/ktl/internal/config"
 	"github.com/fatih/color"
@@ -871,13 +871,13 @@ func (t *Tailer) streamContainer(ctx context.Context, pod *corev1.Pod, container
 			if t.opts.ExcludeLineRegex != nil && t.opts.ExcludeLineRegex.MatchString(line) {
 				continue
 			}
-			
+
 			if len(t.jsonFilter) > 0 {
 				if !matchJSONFilter(line, t.jsonFilter) {
 					continue
 				}
 			}
-			
+
 			t.outputLine(sourcePod, pod.Namespace, pod.Name, container, line)
 		}
 		scanErr := scanner.Err()
@@ -924,18 +924,18 @@ func matchJSONFilter(line string, filters map[string]string) bool {
 	if !strings.HasPrefix(trimmed, "{") {
 		return false
 	}
-	
+
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
 		return false // Not JSON
 	}
-	
+
 	for k, v := range filters {
 		val, ok := data[k]
 		if !ok {
 			return false
 		}
-		
+
 		// String comparison
 		if strVal, ok := val.(string); ok {
 			if strVal != v {

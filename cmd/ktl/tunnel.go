@@ -52,11 +52,11 @@ type Tunnel struct {
 	ListenAddr  string `json:"listenAddr"`
 	KubeContext string `json:"kubeContext"`
 	Health      string `json:"health"`
-	
+
 	// Chaos
 	Latency   time.Duration `json:"latency"`
 	ErrorRate float64       `json:"errorRate"`
-	
+
 	// Internal for Proxy
 	proxyPort int
 }
@@ -76,7 +76,7 @@ var (
 	logMu     sync.Mutex
 	tunnels   []*Tunnel
 	tunnelsMu sync.RWMutex
-	
+
 	requestLog   []HTTPRequestLog
 	requestLogMu sync.Mutex
 
@@ -87,12 +87,12 @@ var (
 func getClient(ctx context.Context, kubeconfig, kubeContext string) (*kube.Client, error) {
 	clientMu.Lock()
 	defer clientMu.Unlock()
-	
+
 	key := fmt.Sprintf("%s|%s", kubeconfig, kubeContext)
 	if c, ok := clientCache[key]; ok {
 		return c, nil
 	}
-	
+
 	c, err := kube.New(ctx, kubeconfig, kubeContext)
 	if err != nil {
 		return nil, err
@@ -148,14 +148,14 @@ Examples:
 	cmd.Flags().StringVar(&stackConfig, "config", "", "Path to stack.yaml (used with --deps)")
 	cmd.Flags().DurationVar(&latency, "latency", 0, "Inject artificial latency (e.g. 500ms)")
 	cmd.Flags().Float64Var(&errorRate, "error-rate", 0, "Inject artificial errors (0.0 - 1.0)")
-	
+
 	cmd.AddCommand(newTunnelSaveCommand())
 	cmd.AddCommand(newTunnelListCommand())
 	cmd.AddCommand(newTunnelReverseCommand(kubeconfig, kubeContext))
 	cmd.AddCommand(newTunnelInterceptCommand(kubeconfig, kubeContext))
 	cmd.AddCommand(newSyncCommand(kubeconfig, kubeContext))
 	cmd.AddCommand(newShareCommand(kubeconfig, kubeContext))
-	
+
 	return cmd
 }
 
@@ -200,7 +200,7 @@ func runShare(ctx context.Context, kubeconfig, kubeContext *string, namespace st
 	// 2. Generate Names
 	runID := fmt.Sprintf("share-%d", time.Now().UnixNano()%10000)
 	serviceName := "ktl-" + runID
-	
+
 	if host == "" {
 		// Try to guess a wildcard domain or use nip.io if allowed?
 		// For now, require host or default to something that might not work without /etc/hosts
@@ -211,7 +211,7 @@ func runShare(ctx context.Context, kubeconfig, kubeContext *string, namespace st
 	// 3. Start Reverse Tunnel (Reusing logic)
 	// We run this in a goroutine or blocking?
 	// Reverse tunnel is blocking. We need to setup Ingress first.
-	
+
 	fmt.Printf("Sharing localhost:%d via http://%s ...\n", localPort, host)
 
 	// 4. Create Ingress
@@ -250,13 +250,13 @@ func runShare(ctx context.Context, kubeconfig, kubeContext *string, namespace st
 			},
 		},
 	}
-	
+
 	fmt.Println("Creating Ingress...")
 	_, err = kClient.Clientset.NetworkingV1().Ingresses(namespace).Create(ctx, ingress, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create ingress: %w", err)
 	}
-	
+
 	// Cleanup on exit
 	defer func() {
 		fmt.Println("\nCleaning up Ingress...")
@@ -266,7 +266,7 @@ func runShare(ctx context.Context, kubeconfig, kubeContext *string, namespace st
 	// 5. Run Reverse Tunnel (This creates the Service and Pod)
 	// We reuse runReverseTunnel but we need to ensure the Service Name matches what we put in Ingress.
 	// runReverseTunnel takes `serviceName`.
-	
+
 	return runReverseTunnel(ctx, kubeconfig, kubeContext, namespace, serviceName, localPort)
 }
 
@@ -289,7 +289,7 @@ Example:
 			}
 			podName := remoteParts[0]
 			remoteDir := remoteParts[1]
-			
+
 			return runSync(cmd.Context(), kubeconfig, kubeContext, namespace, localDir, podName, remoteDir)
 		},
 	}
@@ -324,16 +324,16 @@ func runSync(ctx context.Context, kubeconfig, kubeContext *string, namespace, lo
 	}
 	color.New(color.FgGreen).Println("Initial sync complete.")
 
-	// Watch Loop (Mock implementation since we lack fsnotify in go.mod, 
+	// Watch Loop (Mock implementation since we lack fsnotify in go.mod,
 	// but we can implement a simple poller or just use this command for one-off sync for now.
 	// Actually, let's implement a simple 2-second poller for MVP).
-	
+
 	fmt.Println("Watching for changes (polling every 2s)...")
 	lastMod := time.Now()
-	
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -342,14 +342,16 @@ func runSync(ctx context.Context, kubeconfig, kubeContext *string, namespace, lo
 			// Check if any file changed after lastMod
 			changed := false
 			filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
-				if err != nil { return nil }
+				if err != nil {
+					return nil
+				}
 				if !info.IsDir() && info.ModTime().After(lastMod) {
 					changed = true
 					return io.EOF // Stop walking
 				}
 				return nil
 			})
-			
+
 			if changed {
 				fmt.Println("Change detected. Syncing...")
 				if err := syncDir(ctx, kClient, namespace, podName, localDir, remoteDir); err != nil {
@@ -365,10 +367,10 @@ func runSync(ctx context.Context, kubeconfig, kubeContext *string, namespace, lo
 
 func syncDir(ctx context.Context, kClient *kube.Client, ns, pod, local, remote string) error {
 	// tar -czf - . | kubectl exec -i pod -- tar -xzf - -C remote
-	
+
 	// Create Tar Pipe
 	r, w := io.Pipe()
-	
+
 	go func() {
 		defer w.Close()
 		// Simple tar implementation using "os/exec" tar if available, or go archive/tar
@@ -379,16 +381,16 @@ func syncDir(ctx context.Context, kClient *kube.Client, ns, pod, local, remote s
 			// w.CloseWithError(err)
 		}
 	}()
-	
+
 	// Exec Remote
 	// We need kClient.Exec logic.
 	// We haven't implemented a clean kClient.Exec helper yet in 'kube' package visible here?
 	// The `internal/kube/exec.go` exists. Let's check imports.
 	// `kube` package in `cmd/ktl/tunnel.go` refers to `internal/kube`.
-	
+
 	// We need to implement Exec in `internal/kube` or just use `kubectl` exec wrapper for MVP.
 	// Using kubectl wrapper is safer for a quick feature.
-	
+
 	cmd := exec.Command("kubectl", "exec", "-i", "-n", ns, pod, "--", "tar", "-xzf", "-", "-C", remote)
 	cmd.Stdin = r
 	out, err := cmd.CombinedOutput()
@@ -457,7 +459,7 @@ func runIntercept(ctx context.Context, kubeconfig, kubeContext *string, namespac
 	// Let's create one specific to this intercept.
 	agentName := fmt.Sprintf("ktl-intercept-%s", serviceName)
 	agentLabels := map[string]string{"app": "ktl-intercept", "intercept": serviceName}
-	
+
 	// ... (Deploy Pod Logic similar to Reverse Tunnel) ...
 	// DRY: Extract pod deployment? For now, inline for speed.
 	randomPass := "ktl-secret"
@@ -486,7 +488,7 @@ func runIntercept(ctx context.Context, kubeconfig, kubeContext *string, namespac
 			},
 		},
 	}
-	
+
 	// Create/Get Pod
 	_, err = kClient.Clientset.CoreV1().Pods(namespace).Get(ctx, agentName, metav1.GetOptions{})
 	if err != nil {
@@ -514,7 +516,7 @@ func runIntercept(ctx context.Context, kubeconfig, kubeContext *string, namespac
 	_ = c
 	// signal.Notify(c, os.Interrupt) - handled by context cancellation usually, but we need robust cleanup.
 	// Let's use defer.
-	
+
 	// Function to restore
 	restore := func() {
 		fmt.Println("\nRestoring service selector...")
@@ -552,22 +554,22 @@ func runIntercept(ctx context.Context, kubeconfig, kubeContext *string, namespac
 		RemotePort: 2222,
 		ListenAddr: "127.0.0.1",
 	}
-	
+
 	go func() {
 		err := startPortForward(ctx, kClient, agentName, pfTunnel)
 		if err != nil {
 			logEvent("PF Error: %v", err)
 		}
 	}()
-	
+
 	time.Sleep(2 * time.Second)
-	
+
 	// SSH Reverse
 	// Note: The Service traffic hits the Agent on port 80 (or whatever the service targetPort is).
 	// We assumed 80 in the Pod Spec. If the Service targets 8080, we need to make sure the agent listens on 8080.
 	// For MVP, we assume Service targets port 80.
 	// A better way is to read svc.Spec.Ports[0].TargetPort.
-	
+
 	targetPort := 80
 	if len(svc.Spec.Ports) > 0 {
 		if svc.Spec.Ports[0].TargetPort.IntVal != 0 {
@@ -580,19 +582,19 @@ func runIntercept(ctx context.Context, kubeconfig, kubeContext *string, namespac
 	// For now, we only support port 80 interception or we rely on 'socat' inside the pod to map.
 	// Or we just update our pod spec above to include the target port.
 	// Let's skip dynamic pod spec for now and assume 80.
-	
+
 	// SSH Listen on 0.0.0.0:targetPort -> Local:localPort
-	// Since we can't easily change the listening port of the sshd helper (it listens on 80 via the -R), 
+	// Since we can't easily change the listening port of the sshd helper (it listens on 80 via the -R),
 	// we are relying on the SSH client to tell the server "Listen on port X".
 	// OpenSSH server by default allows "GatewayPorts clientspecified".
 	// The linuxserver image likely has GatewayPorts yes.
-	
+
 	fmt.Printf("Intercepting Traffic (Cluster:%d -> Local:%d)...\n", targetPort, localPort)
-	
+
 	// Run the tunnel blocking
 	// Using our custom go-ssh implementation which supports arbitrary remote listen port?
 	// The runSSHReverseTunnel hardcodes "0.0.0.0:80". Let's update it to support port.
-	
+
 	return runSSHReverseTunnelWithPort(localSSHPort, localPort, targetPort, "ktl", "ktl-secret")
 }
 
@@ -692,7 +694,7 @@ func runReverseTunnel(ctx context.Context, kubeconfig, kubeContext *string, name
 	// 2. Deploy SSH Server Pod
 	podName := fmt.Sprintf("ktl-reverse-%s", serviceName)
 	labels := map[string]string{"app": "ktl-reverse", "instance": serviceName}
-	
+
 	// Check if exists
 	_, err = kClient.Clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err == nil {
@@ -706,13 +708,13 @@ func runReverseTunnel(ctx context.Context, kubeconfig, kubeContext *string, name
 		// For robustness, 'linuxserver/openssh-server' is best but we need to inject keys.
 		// SIMPLIFICATION: Use 'antoniomika/sish' or similar? No, stick to standard tools.
 		// Let's use a custom command in alpine to run sshd with a temporary key.
-		
+
 		// Actually, let's use 'linuxserver/openssh-server' with password auth for simplicity in this demo,
 		// or generate a key pair locally and inject the public key.
 		// For MVP: Password auth with a random password.
-		
+
 		randomPass := "ktl-secret" // In prod, generate this.
-		
+
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      podName,
@@ -742,7 +744,7 @@ func runReverseTunnel(ctx context.Context, kubeconfig, kubeContext *string, name
 		if err != nil {
 			return fmt.Errorf("failed to create pod: %w", err)
 		}
-		
+
 		fmt.Print("Waiting for pod to be ready...")
 		// Wait loop
 		for {
@@ -788,7 +790,7 @@ func runReverseTunnel(ctx context.Context, kubeconfig, kubeContext *string, name
 	// 4. Port Forward to SSH port (2222)
 	// We need a local port for SSH
 	localSSHPort := 22222 // hardcoded for MVP
-	
+
 	// Start background port-forward
 	pfTunnel := &Tunnel{
 		Name:       "ssh-agent",
@@ -798,7 +800,7 @@ func runReverseTunnel(ctx context.Context, kubeconfig, kubeContext *string, name
 		RemotePort: 2222,
 		ListenAddr: "127.0.0.1",
 	}
-	
+
 	go func() {
 		// We reuse the existing logic but simplified
 		fmt.Println("Establishing SSH bridge...")
@@ -807,19 +809,19 @@ func runReverseTunnel(ctx context.Context, kubeconfig, kubeContext *string, name
 			fmt.Printf("SSH bridge failed: %v\n", err)
 		}
 	}()
-	
+
 	// Wait for PF ready
 	time.Sleep(2 * time.Second) // Hacky wait
-	
+
 	// 5. Run SSH Reverse Tunnel
 	// ssh -p 22222 -R 0.0.0.0:80:localhost:LOCAL_PORT ktl@localhost
 	// We use StrictHostKeyChecking=no for automation
 	fmt.Println("Starting reverse tunnel...")
-	
+
 	// We need to pass password. using sshpass is easiest but requires install.
 	// Or use Go's crypto/ssh.
 	// For MVP, let's use Go's crypto/ssh which is robust and doesn't require local ssh binary/sshpass.
-	
+
 	return runSSHReverseTunnel(localSSHPort, localPort, "ktl", "ktl-secret")
 }
 
@@ -1022,7 +1024,7 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 
 	// TUI Loop
 	fmt.Print("\033[H\033[2J") // Clear screen
-	
+
 	// Enable Raw Mode for interactive keys
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err == nil {
@@ -1056,7 +1058,7 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 					return
 				}
 				key := buf[0]
-				
+
 				switch key {
 				case 'q', 3: // q or Ctrl+C
 					// Restore terminal before exiting
@@ -1117,7 +1119,7 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 					printTable(tunnels, selectedIndex)
 					tunnelsMu.RUnlock()
 				}
-				
+
 				// Check for exec
 				if execCmd != "" && !executed {
 					allReady := true
@@ -1132,14 +1134,14 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 						logEvent("Executing: %s", execCmd)
 						parts := strings.Fields(execCmd)
 						cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
-						
+
 						// Inject Env
 						if len(fetchedEnv) > 0 {
 							cmd.Env = append(os.Environ(), fetchedEnv...)
 						} else {
 							cmd.Env = os.Environ()
 						}
-						
+
 						// We can't share stdout/stderr easily with TUI running.
 						// Capture output and log it?
 						out, err := cmd.CombinedOutput()
@@ -1258,7 +1260,7 @@ func maintainTunnel(ctx context.Context, defaultClient *kube.Client, kubeconfig 
 
 		t.Status = "Connecting..."
 		t.Error = nil
-		
+
 		logEvent("Tunneling %s :%d -> %s:%d", t.Name, t.LocalPort, podName, t.RemotePort)
 		err = startPortForward(ctx, kClient, podName, t)
 		if err != nil {
@@ -1302,7 +1304,7 @@ func startPortForward(ctx context.Context, kClient *kube.Client, podName string,
 	// Interception Logic for HTTP Inspector
 	listenAddresses := []string{t.ListenAddr}
 	listenPorts := []string{fmt.Sprintf("%d:%d", t.LocalPort, t.RemotePort)}
-	
+
 	if strings.HasPrefix(t.Protocol, "http") {
 		// Start HTTP Proxy on t.LocalPort
 		// And PF on a random ephemeral port
@@ -1340,10 +1342,10 @@ func startPortForward(ctx context.Context, kClient *kube.Client, podName string,
 		t.Status = "Active"
 		t.Error = nil
 		t.RetryCount = 0
-		
+
 		// Start Health Check Loop
 		go monitorHealth(ctx, t)
-		
+
 	case err := <-errChan:
 		return err
 	case <-ctx.Done():
@@ -1415,15 +1417,15 @@ func resolveTarget(ctx context.Context, kClient *kube.Client, t *Tunnel) (string
 		if len(svc.Spec.Ports) == 0 {
 			return "", 0, fmt.Errorf("service has no ports")
 		}
-		
+
 		// Pick port
 		port := int(svc.Spec.Ports[0].TargetPort.IntVal)
 		if port == 0 {
 			port = int(svc.Spec.Ports[0].Port)
 		}
-		// If user specified remote port (via input parsing logic which we simplified), use it. 
+		// If user specified remote port (via input parsing logic which we simplified), use it.
 		// But here we just take the first one for now or match t.RemotePort if set.
-		
+
 		// Find backing pod
 		selector := metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: svc.Spec.Selector})
 		pods, err := kClient.Clientset.CoreV1().Pods(t.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
@@ -1470,7 +1472,7 @@ func getFreePort() (int, error) {
 func startHTTPInspector(listenAddr string, localPort, targetPort int, t *Tunnel) {
 	targetURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", targetPort))
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-	
+
 	// Middleware for Logging
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
@@ -1478,14 +1480,14 @@ func startHTTPInspector(listenAddr string, localPort, targetPort int, t *Tunnel)
 		// Fix headers
 		req.Header.Set("X-KTL-Inspect", "true")
 	}
-	
+
 	// Network Chaos Middleware
 	proxy.Transport = &ChaosTransport{
 		Base:      http.DefaultTransport,
 		Latency:   t.Latency,
 		ErrorRate: t.ErrorRate,
 	}
-	
+
 	proxy.ModifyResponse = func(resp *http.Response) error {
 		// Log Request
 		logRequest(resp.Request, resp)
@@ -1493,7 +1495,7 @@ func startHTTPInspector(listenAddr string, localPort, targetPort int, t *Tunnel)
 	}
 
 	server := &http.Server{
-		Addr: fmt.Sprintf("%s:%d", listenAddr, localPort),
+		Addr:    fmt.Sprintf("%s:%d", listenAddr, localPort),
 		Handler: proxy,
 	}
 
@@ -1501,7 +1503,7 @@ func startHTTPInspector(listenAddr string, localPort, targetPort int, t *Tunnel)
 		// We ignore error as it will fail on shutdown
 		server.ListenAndServe()
 	}()
-	
+
 	<-t.StopChan
 	server.Close()
 }
@@ -1509,7 +1511,7 @@ func startHTTPInspector(listenAddr string, localPort, targetPort int, t *Tunnel)
 func logRequest(req *http.Request, resp *http.Response) {
 	requestLogMu.Lock()
 	defer requestLogMu.Unlock()
-	
+
 	log := HTTPRequestLog{
 		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
 		Timestamp: time.Now(),
@@ -1519,7 +1521,7 @@ func logRequest(req *http.Request, resp *http.Response) {
 		Duration:  "0ms", // TODO: Measure duration
 		Tunnel:    fmt.Sprintf("%s", req.Host),
 	}
-	
+
 	// Keep last 100
 	if len(requestLog) > 100 {
 		requestLog = requestLog[1:]
@@ -1543,7 +1545,7 @@ func parseTarget(raw, ns string) *Tunnel {
 		Namespace:   ns,
 		KubeContext: ctx,
 	}
-	
+
 	if strings.Contains(raw, ":") {
 		parts := strings.Split(raw, ":")
 		// db:5432 -> local=auto, name=db, remote=5432
@@ -1619,7 +1621,7 @@ func expandDependencies(ctx context.Context, targets []string, configPath string
 		if !ok {
 			return // Not in stack
 		}
-		
+
 		deps := g.DepsOf(id)
 		for _, depID := range deps {
 			if depName, ok := idToName[depID]; ok {
@@ -1644,7 +1646,7 @@ func expandDependencies(ctx context.Context, targets []string, configPath string
 		}
 		visit(name)
 	}
-	
+
 	return result, nil
 }
 
@@ -1705,7 +1707,7 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 	color.New(color.FgCyan, color.Bold).Println(" KTL TUNNEL MANAGER ")
 	fmt.Println(strings.Repeat("-", 90))
 	fmt.Printf("%-3s %-20s %-20s %-10s %-15s %-10s %-10s\n", "", "TARGET", "MAPPING", "PROTO", "STATUS", "TX", "RX")
-	
+
 	for i, t := range tunnels {
 		statusColor := color.New(color.FgYellow)
 		if t.Status == "Active" {
@@ -1713,12 +1715,12 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 		} else if strings.HasPrefix(t.Status, "Error") || strings.HasPrefix(t.Status, "Failed") {
 			statusColor = color.New(color.FgRed)
 		}
-		
+
 		mapping := fmt.Sprintf("%s:%d -> :%d", t.ListenAddr, t.LocalPort, t.RemotePort)
 		if t.LocalPort == 0 {
 			mapping = "resolving..."
 		}
-		
+
 		marker := "   "
 		if i == selectedIndex {
 			marker = " > "
@@ -1738,9 +1740,9 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 			}
 		}
 
-		fmt.Printf("%s %-20s %-20s %-10s %-15s %-10s %-10s\n", 
+		fmt.Printf("%s %-20s %-20s %-10s %-15s %-10s %-10s\n",
 			marker,
-			targetDisplay, 
+			targetDisplay,
 			mapping,
 			t.Protocol,
 			statusColor.Sprint(statusStr),
@@ -1753,7 +1755,7 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 	}
 	fmt.Println(strings.Repeat("-", 90))
 	fmt.Println("Keys: [j/k] Select | [o] Open Browser | [c] Copy Address | [q] Quit")
-	
+
 	fmt.Println(strings.Repeat("-", 90))
 	fmt.Println("EVENT LOG:")
 	logMu.Lock()
@@ -1802,7 +1804,7 @@ func saveTunnelProfile(name string, targets []string) error {
 		return err
 	}
 	profiles[name] = targets
-	
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -1811,7 +1813,7 @@ func saveTunnelProfile(name string, targets []string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	
+
 	data, err := yaml.Marshal(profiles)
 	if err != nil {
 		return err
@@ -1851,11 +1853,11 @@ func updateHostsFile(tunnels []*Tunnel) error {
 	if err != nil {
 		return err
 	}
-	
+
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
 	inBlock := false
-	
+
 	for _, line := range lines {
 		if strings.TrimSpace(line) == hostsStartMarker {
 			inBlock = true
@@ -1869,12 +1871,12 @@ func updateHostsFile(tunnels []*Tunnel) error {
 			newLines = append(newLines, line)
 		}
 	}
-	
+
 	// Remove trailing empty lines to be clean
 	for len(newLines) > 0 && newLines[len(newLines)-1] == "" {
 		newLines = newLines[:len(newLines)-1]
 	}
-	
+
 	newLines = append(newLines, hostsStartMarker)
 	for _, t := range tunnels {
 		// Use t.Name + .local
@@ -1886,12 +1888,12 @@ func updateHostsFile(tunnels []*Tunnel) error {
 			name = parts[len(parts)-1]
 		}
 		name = strings.Split(name, ":")[0] // handle port:name
-		
+
 		newLines = append(newLines, fmt.Sprintf("127.0.0.1 %s.local", name))
 	}
 	newLines = append(newLines, hostsEndMarker)
 	newLines = append(newLines, "") // newline at end
-	
+
 	return os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0644)
 }
 
@@ -1901,11 +1903,11 @@ func restoreHostsFile() {
 	if err != nil {
 		return
 	}
-	
+
 	lines := strings.Split(string(content), "\n")
 	var newLines []string
 	inBlock := false
-	
+
 	for _, line := range lines {
 		if strings.TrimSpace(line) == hostsStartMarker {
 			inBlock = true
@@ -1919,6 +1921,6 @@ func restoreHostsFile() {
 			newLines = append(newLines, line)
 		}
 	}
-	
+
 	_ = os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0644)
 }

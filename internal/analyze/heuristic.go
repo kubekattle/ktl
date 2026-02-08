@@ -69,11 +69,11 @@ func (a *HeuristicAnalyzer) Analyze(ctx context.Context, evidence *Evidence) (*D
 
 func (a *HeuristicAnalyzer) diagnoseContainerState(name string, state corev1.ContainerState, evidence *Evidence) *Diagnosis {
 	d := &Diagnosis{ConfidenceScore: 0.8}
-	
+
 	if state.Waiting != nil {
 		reason := state.Waiting.Reason
 		msg := state.Waiting.Message
-		
+
 		if reason == "ImagePullBackOff" || reason == "ErrImagePull" {
 			d.RootCause = fmt.Sprintf("Container '%s' failed to pull image.", name)
 			d.Suggestion = "Check if the image name/tag is correct and if you have the necessary registry credentials (imagePullSecrets)."
@@ -101,7 +101,7 @@ func (a *HeuristicAnalyzer) diagnoseContainerState(name string, state corev1.Con
 func (a *HeuristicAnalyzer) diagnoseExitCode(name string, exitCode int32, evidence *Evidence) *Diagnosis {
 	d := &Diagnosis{ConfidenceScore: 0.85}
 	d.RootCause = fmt.Sprintf("Container '%s' exited with code %d.", name, exitCode)
-	
+
 	switch exitCode {
 	case 137: // OOMKilled usually
 		d.RootCause = fmt.Sprintf("Container '%s' was OOMKilled (Exit Code 137).", name)
