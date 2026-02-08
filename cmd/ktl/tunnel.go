@@ -42,12 +42,32 @@ type Tunnel struct {
 	BytesOut    int64
 	Protocol    string // http, https, postgres, redis, mysql, etc.
 	ListenAddr  string
+	KubeContext string
 }
 
 var (
 	logBuffer []string
 	logMu     sync.Mutex
+	clientCache = make(map[string]*kube.Client)
+	clientMu    sync.Mutex
 )
+
+func getClient(ctx context.Context, kubeconfig, kubeContext string) (*kube.Client, error) {
+	clientMu.Lock()
+	defer clientMu.Unlock()
+	
+	key := fmt.Sprintf("%s|%s", kubeconfig, kubeContext)
+	if c, ok := clientCache[key]; ok {
+		return c, nil
+	}
+	
+	c, err := kube.New(ctx, kubeconfig, kubeContext)
+	if err != nil {
+		return nil, err
+	}
+	clientCache[key] = c
+	return c, nil
+}
 
 func logEvent(format string, args ...interface{}) {
 	logMu.Lock()
@@ -203,7 +223,7 @@ func runTunnel(ctx context.Context, kubeconfig, kubeContext *string, namespace s
 		wg.Add(1)
 		go func(tun *Tunnel) {
 			defer wg.Done()
-			maintainTunnel(ctx, kClient, tun)
+			maintainTunnel(ctx, kClient, kc, tun)
 		}(t)
 	}
 
@@ -291,12 +311,26 @@ func copyToClipboard(text string) {
 	_ = cmd.Run()
 }
 
-func maintainTunnel(ctx context.Context, kClient *kube.Client, t *Tunnel) {
+func maintainTunnel(ctx context.Context, defaultClient *kube.Client, kubeconfig string, t *Tunnel) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
+		}
+
+		// Resolve Client
+		kClient := defaultClient
+		if t.KubeContext != "" {
+			var err error
+			kClient, err = getClient(ctx, kubeconfig, t.KubeContext)
+			if err != nil {
+				t.Status = "Client Error"
+				t.Error = err
+				logEvent("Failed to get client for context %s: %v", t.KubeContext, err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
 		}
 
 		t.Status = "Resolving..."
@@ -466,12 +500,20 @@ func resolvePod(ctx context.Context, kClient *kube.Client, name string, t *Tunne
 }
 
 func parseTarget(raw, ns string) *Tunnel {
-	// formats: name, port:name, name:port, local:name:remote
-	// Simplified: just name for now
+	// formats: name, port:name, name:port, name@context
+	// 1. Check for context
+	var ctx string
+	if strings.Contains(raw, "@") {
+		parts := strings.Split(raw, "@")
+		raw = parts[0]
+		ctx = parts[1]
+	}
+
 	t := &Tunnel{
-		Name:      raw,
-		Target:    raw,
-		Namespace: ns,
+		Name:        raw,
+		Target:      raw,
+		Namespace:   ns,
+		KubeContext: ctx,
 	}
 	
 	if strings.Contains(raw, ":") {
@@ -654,9 +696,14 @@ func printTable(tunnels []*Tunnel, selectedIndex int) {
 			marker = " > "
 		}
 
+		targetDisplay := t.Name
+		if t.KubeContext != "" {
+			targetDisplay += "@" + t.KubeContext
+		}
+
 		fmt.Printf("%s %-20s %-20s %-10s %-15s %-10s %-10s\n", 
 			marker,
-			t.Name, 
+			targetDisplay, 
 			mapping,
 			t.Protocol,
 			statusColor.Sprint(t.Status),
