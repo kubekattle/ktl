@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -33,6 +32,8 @@ type Tunnel struct {
 	ReadyChan   chan struct{}
 	StopChan    chan struct{}
 	RetryCount  int
+	BytesIn     int64
+	BytesOut    int64
 }
 
 func newTunnelCommand(kubeconfig, kubeContext *string) *cobra.Command {
@@ -200,14 +201,18 @@ func startPortForward(ctx context.Context, kClient *kube.Client, podName string,
 	t.StopChan = make(chan struct{}, 1)
 	t.ReadyChan = make(chan struct{})
 
+	// Traffic counters
+	outStream := &counterWriter{target: &t.BytesOut}
+	inStream := &counterWriter{target: &t.BytesIn}
+
 	// Redirect output to discard to keep TUI clean
 	pf, err := portforward.New(
 		dialer,
 		[]string{fmt.Sprintf("%d:%d", t.LocalPort, t.RemotePort)},
 		t.StopChan,
 		t.ReadyChan,
-		io.Discard,
-		io.Discard,
+		outStream, // Remote -> Local (BytesOut)
+		inStream,  // Local -> Remote (BytesIn)
 	)
 	if err != nil {
 		return err
@@ -357,11 +362,21 @@ func selectTargets(ctx context.Context, kClient *kube.Client, namespace string) 
 	return selected, nil
 }
 
+type counterWriter struct {
+	target *int64
+}
+
+func (cw *counterWriter) Write(p []byte) (n int, err error) {
+	n = len(p)
+	*cw.target += int64(n)
+	return n, nil
+}
+
 func printTable(tunnels []*Tunnel) {
 	fmt.Print("\033[H\033[2J")
 	color.New(color.FgCyan, color.Bold).Println(" KTL TUNNEL MANAGER ")
-	fmt.Println(strings.Repeat("-", 60))
-	fmt.Printf("%-20s %-20s %-15s\n", "TARGET", "MAPPING", "STATUS")
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("%-20s %-20s %-15s %-10s %-10s\n", "TARGET", "MAPPING", "STATUS", "TX", "RX")
 	
 	for _, t := range tunnels {
 		statusColor := color.New(color.FgYellow)
@@ -376,15 +391,30 @@ func printTable(tunnels []*Tunnel) {
 			mapping = "resolving..."
 		}
 		
-		fmt.Printf("%-20s %-20s %s\n", 
+		fmt.Printf("%-20s %-20s %-15s %-10s %-10s\n", 
 			t.Name, 
 			mapping,
 			statusColor.Sprint(t.Status),
+			formatBytes(t.BytesIn),
+			formatBytes(t.BytesOut),
 		)
 		if t.Error != nil {
 			color.New(color.FgRed).Printf("  └─ %v\n", t.Error)
 		}
 	}
-	fmt.Println(strings.Repeat("-", 60))
+	fmt.Println(strings.Repeat("-", 80))
 	fmt.Println("Press Ctrl+C to stop all tunnels.")
+}
+
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
