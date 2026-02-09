@@ -1,11 +1,6 @@
 Output showcase.gif
 
-Set FontSize 32
-Set Width 1800
-Set Height 1200
-Set Padding 60
-Set FontFamily "JetBrains Mono"
-Set LineHeight 1.4
+Set FontSize 18
 Set Theme "Dracula"
 
 # Setup environment
@@ -34,7 +29,7 @@ Enter
 Type "# 1. Stack Apply: A DAG-aware, parallel release orchestrator."
 Sleep 1s
 Enter
-Type "bat testdata/stack/e2e/10-large-graph/stack.yaml"
+Type "cat testdata/stack/e2e/10-large-graph/stack.yaml"
 Sleep 500ms
 Enter
 Sleep 4s
@@ -54,8 +49,24 @@ Sleep 20s
 Type "clear"
 Enter
 
-# 2. Helm Apply with Logs (The "Better Helm Upgrade")
-Type "# 2. Helm Apply + Logs: See what's happening immediately."
+# 2. Resuming & Selective Re-run
+Type "# 2. Smart Resume: Failed? Fix it and resume where you left off."
+Sleep 1s
+Enter
+Type "# ktl knows which nodes succeeded and which failed."
+Sleep 2s
+Enter
+Type "./bin/ktl stack apply --config testdata/stack/e2e/10-large-graph --only e2e10-05"
+Sleep 500ms
+Enter
+Sleep 8s
+
+# Clear for next demo
+Type "clear"
+Enter
+
+# 3. Helm Apply with Logs (The "Better Helm Upgrade")
+Type "# 3. Helm Apply + Logs: See what's happening immediately."
 Sleep 1s
 Enter
 Type "# Standard helm upgrade is silent. ktl apply streams logs instantly."
@@ -70,8 +81,8 @@ Sleep 15s
 Type "clear"
 Enter
 
-# 3. Unified Logs (The "Better Stern")
-Type "# 3. Unified Logs: Multi-pod tailing with zero configuration."
+# 4. Unified Logs (The "Better Stern")
+Type "# 4. Unified Logs: Multi-pod tailing with zero configuration."
 Sleep 1s
 Enter
 Type "# Instantly tail all pods in a deployment, statefulset, or label selector."
