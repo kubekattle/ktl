@@ -25,10 +25,15 @@ type AIAnalyzer struct {
 	APIKey   string
 }
 
-func NewAIAnalyzer(provider string) *AIAnalyzer {
+func NewAIAnalyzer(provider, model string) *AIAnalyzer {
 	a := &AIAnalyzer{
 		Provider: provider,
-		Model:    os.Getenv("KTL_AI_MODEL"),
+		Model:    model,
+	}
+
+	// Fallback to env var if model not provided via CLI
+	if a.Model == "" {
+		a.Model = os.Getenv("KTL_AI_MODEL")
 	}
 
 	switch provider {
@@ -36,7 +41,7 @@ func NewAIAnalyzer(provider string) *AIAnalyzer {
 		a.BaseURL = "https://api.openai.com/v1"
 		a.APIKey = os.Getenv("OPENAI_API_KEY")
 		if a.Model == "" {
-			a.Model = "gpt-4-turbo-preview"
+			a.Model = "gpt-5.2"
 		}
 	case "qwen":
 		a.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"

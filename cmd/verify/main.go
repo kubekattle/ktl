@@ -47,7 +47,6 @@ func newRootCommand() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	cmd.PersistentFlags().BoolVar(&showVersion, "version", false, "Print version and exit")
 	cmd.PersistentFlags().StringVar(&rulesPath, "rules-path", "", "Extra rules.d search paths (comma/colon-separated)")
-	cmd.SetHelpCommand(newHelpCommand(cmd))
 	return cmd
 }
 

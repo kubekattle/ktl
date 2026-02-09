@@ -28,7 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func newLogsCommand(opts *config.Options, kubeconfigPath *string, kubeContext *string, logLevel *string, remoteAgent *string, mirrorBus *string) *cobra.Command {
+func newLogsCommand(opts *config.Options, kubeconfigPath, kubeContext, logLevel, remoteAgent, remoteToken *string, remoteTLS, remoteInsecure *bool, remoteCA, remoteCert, remoteKey, remoteServerName, mirrorBus *string) *cobra.Command {
 	var capturePath string
 	var captureTags []string
 	var deployPin string

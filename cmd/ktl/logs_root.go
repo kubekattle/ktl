@@ -29,9 +29,16 @@ func newLogsRootCommand() *cobra.Command {
 	var noColor bool
 	var featureFlagValues []string
 	var remoteAgentAddr string
+	var remoteToken string
+	var remoteTLS bool
+	var remoteInsecure bool
+	var remoteCA string
+	var remoteCert string
+	var remoteKey string
+	var remoteServerName string
 	var mirrorBusAddr string
 
-	cmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &mirrorBusAddr)
+	cmd := newLogsCommand(opts, &kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr, &remoteToken, &remoteTLS, &remoteInsecure, &remoteCA, &remoteCert, &remoteKey, &remoteServerName, &mirrorBusAddr)
 	cmd.Use = "ktl-logs [POD_QUERY]"
 	cmd.Short = "Tail Kubernetes pod logs"
 	cmd.Long = "Stream pod logs with ktl's high-performance tailer."
@@ -90,6 +97,13 @@ func newLogsRootCommand() *cobra.Command {
 		cobra.CheckErr(err)
 	}
 	cmd.PersistentFlags().StringVar(&remoteAgentAddr, "remote-agent", "", "Forward ktl logs operations to a remote ktl-agent gRPC endpoint")
+	cmd.PersistentFlags().StringVar(&remoteToken, "remote-token", "", "Authentication token for remote gRPC endpoints (also via KTL_REMOTE_TOKEN)")
+	cmd.PersistentFlags().BoolVar(&remoteTLS, "remote-tls", false, "Use TLS for remote gRPC endpoints (also via KTL_REMOTE_TLS=1)")
+	cmd.PersistentFlags().BoolVar(&remoteInsecure, "remote-tls-insecure-skip-verify", false, "Skip TLS verification for remote gRPC (also via KTL_REMOTE_TLS_INSECURE_SKIP_VERIFY=1)")
+	cmd.PersistentFlags().StringVar(&remoteCA, "remote-tls-ca", "", "CA bundle PEM file for remote gRPC TLS (also via KTL_REMOTE_TLS_CA)")
+	cmd.PersistentFlags().StringVar(&remoteCert, "remote-tls-client-cert", "", "Client certificate PEM file for remote gRPC mTLS (also via KTL_REMOTE_TLS_CLIENT_CERT)")
+	cmd.PersistentFlags().StringVar(&remoteKey, "remote-tls-client-key", "", "Client private key PEM file for remote gRPC mTLS (also via KTL_REMOTE_TLS_CLIENT_KEY)")
+	cmd.PersistentFlags().StringVar(&remoteServerName, "remote-tls-server-name", "", "Override remote gRPC TLS server name (also via KTL_REMOTE_TLS_SERVER_NAME)")
 	cmd.PersistentFlags().StringVar(&mirrorBusAddr, "mirror-bus", "", "Publish mirror payloads to a shared gRPC bus (ktl-agent MirrorService)")
 
 	bindViper(cmd)

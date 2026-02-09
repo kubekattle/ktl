@@ -23,6 +23,7 @@ func newAnalyzeCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	var namespace string
 	var useAI bool
 	var aiProvider string
+	var aiModel string
 	var drift bool
 	var cost bool
 	var fix bool
@@ -65,13 +66,14 @@ Examples:
 			if len(args) > 0 {
 				targetPod = args[0]
 			}
-			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, drift, cost, fix, cluster, profile, rbac)
+			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, aiModel, drift, cost, fix, cluster, profile, rbac)
 		},
 	}
 
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (defaults to context)")
 	cmd.Flags().BoolVar(&useAI, "ai", false, "Use AI-powered analysis (requires API key)")
 	cmd.Flags().StringVar(&aiProvider, "provider", "heuristic", "Analysis provider: heuristic (default), openai, qwen, deepseek, or mock")
+	cmd.Flags().StringVar(&aiModel, "model", "", "Override AI model (e.g., gpt-4-turbo, gpt-4o)")
 	cmd.Flags().BoolVar(&drift, "drift", false, "Check for configuration drift against 'kubectl.kubernetes.io/last-applied-configuration'")
 	cmd.Flags().BoolVar(&cost, "cost", false, "Estimate monthly cost of the pod based on resource requests")
 	cmd.Flags().BoolVar(&fix, "fix", false, "Automatically apply the suggested patch if available")
@@ -82,7 +84,7 @@ Examples:
 	return cmd
 }
 
-func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, drift bool, cost bool, fix bool, cluster bool, profile bool, rbac bool) error {
+func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, model string, drift bool, cost bool, fix bool, cluster bool, profile bool, rbac bool) error {
 	// 1. Setup Kube Client
 	var kc, kctx string
 	if kubeconfig != nil {
@@ -228,6 +230,10 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 		path := fmt.Sprintf("/apis/metrics.k8s.io/v1beta1/namespaces/%s/pods/%s", namespace, podName)
 		data, err := kClient.Clientset.CoreV1().RESTClient().Get().AbsPath(path).DoRaw(ctx)
 		if err != nil {
+			if strings.Contains(err.Error(), "the server could not find the requested resource") || strings.Contains(err.Error(), "NotFound") {
+				fmt.Println("Warning: No metrics available for this pod (it might be crashing, too new, or metrics-server is lagging).")
+				return nil
+			}
 			return fmt.Errorf("failed to fetch metrics (is metrics-server installed?): %w", err)
 		}
 
@@ -284,7 +290,7 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 		if provider == "heuristic" {
 			provider = "mock" // Fallback if --ai is set but no provider
 		}
-		analyzer = analyze.NewAIAnalyzer(provider)
+		analyzer = analyze.NewAIAnalyzer(provider, model)
 	} else {
 		analyzer = analyze.NewHeuristicAnalyzer()
 	}
