@@ -125,6 +125,14 @@ Shortcut flags (no YAML):
 				if err != nil {
 					return err
 				}
+
+				// Allow overriding output format/report via flags even when using a config file.
+				if cmd.Flags().Changed("format") {
+					cfg.Output.Format = format
+				}
+				if cmd.Flags().Changed("report") {
+					cfg.Output.Report = reportPath
+				}
 			} else {
 				// Build config from flags, using cwd as base dir for relative paths.
 				cwd, _ := os.Getwd()
