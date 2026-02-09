@@ -41,6 +41,9 @@ Sleep 4s
 Type "# Notice the 'needs' array? ktl calculates the dependency graph automatically."
 Sleep 2s
 Enter
+Type "# It manages complex dependencies so you don't have to write bash scripts."
+Sleep 2s
+Enter
 Type "./bin/ktl stack apply --config testdata/stack/e2e/10-large-graph"
 Sleep 500ms
 Enter
@@ -51,9 +54,28 @@ Sleep 20s
 Type "clear"
 Enter
 
-# 2. Unified Logs (The "Better Stern")
-Type "# 2. Unified Logs: Multi-pod tailing with zero configuration."
+# 2. Helm Apply with Logs (The "Better Helm Upgrade")
+Type "# 2. Helm Apply + Logs: See what's happening immediately."
 Sleep 1s
+Enter
+Type "# Standard helm upgrade is silent. ktl apply streams logs instantly."
+Sleep 2s
+Enter
+Type "./bin/ktl apply --chart testdata/stack/e2e/charts/base --release my-base -n default --watch 10s"
+Sleep 500ms
+Enter
+Sleep 15s
+
+# Clear for next demo
+Type "clear"
+Enter
+
+# 3. Unified Logs (The "Better Stern")
+Type "# 3. Unified Logs: Multi-pod tailing with zero configuration."
+Sleep 1s
+Enter
+Type "# Instantly tail all pods in a deployment, statefulset, or label selector."
+Sleep 2s
 Enter
 Type "./bin/ktl logs -n default --tail 5"
 Sleep 500ms
@@ -66,35 +88,8 @@ Sleep 1s
 Type "clear"
 Enter
 
-# 3. Tunnel (The "Better Port-Forward")
-Type "# 3. Smart Tunnel: Access services with env injection and fault injection."
-Sleep 1s
-Enter
-Type "# Imagine running your local app against a remote DB..."
-Sleep 1s
-Enter
-Type "./bin/ktl tunnel service/kubernetes 6443:443 --env-from deployment/my-app"
-Sleep 500ms
-Enter
-Sleep 5s
-Ctrl+C
-Sleep 1s
-
-# Clear for next demo
-Type "clear"
-Enter
-
-# 4. Build (The "Better Docker Build")
-Type "# 4. Built-in BuildKit: Fast, cached builds without a local Docker daemon."
-Sleep 1s
-Enter
-Type "./bin/ktl build testdata/build/dockerfiles/basic -t ktl.local/demo:latest"
-Sleep 500ms
-Enter
-Sleep 10s
-
 # Conclusion
-Type "# ktl: Build, Deploy, Debug. All in one."
+Type "# ktl: The Unified Toolchain for Kubernetes."
 Sleep 2s
 Enter
 
