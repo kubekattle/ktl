@@ -19,7 +19,7 @@ Core commands:
 
 ### Analyze & Diagnostics
 
-![Analyze Showcase](showcase-analyze.gif)
+![Analyze Showcase](showcase-ai-real.gif)
 
 ### Build & Sandbox
 
