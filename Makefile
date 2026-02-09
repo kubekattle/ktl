@@ -83,10 +83,20 @@ build-logs: ## Build logs-only ktl CLI for the current platform into ./bin/ktl-l
 	@mkdir -p $(BIN_DIR)
 	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LOGS_LDFLAGS)' -o $(BIN_DIR)/$(LOGS_BINARY) $(LOGS_PKG)
 
-build-all: ## Build ktl, verify, and package for the current platform into ./bin/
-	$(MAKE) build
-	$(MAKE) build-verify
-	$(MAKE) build-packagecli
+build-cross: ## Build binaries for all supported platforms (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64)
+	@echo ">> building cross-platform binaries into $(BIN_DIR)"
+	@mkdir -p $(BIN_DIR)
+	@# Linux amd64
+	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY)-linux-amd64 $(PKG)
+	@# Linux arm64
+	GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY)-linux-arm64 $(PKG)
+	@# Darwin amd64
+	GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY)-darwin-amd64 $(PKG)
+	@# Darwin arm64
+	GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY)-darwin-arm64 $(PKG)
+	@# Windows amd64
+	GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(BINARY)-windows-amd64.exe $(PKG)
+	@echo ">> cross-platform build complete"
 
 build-%: ## Build ktl for <os>-<arch> into ./bin/ktl-<os>-<arch>[.exe]
 	@mkdir -p $(BIN_DIR)
