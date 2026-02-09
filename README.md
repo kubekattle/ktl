@@ -13,17 +13,7 @@ Core commands:
 
 ## Showcase
 
-### Stack Apply & Logs
-
-![Stack Apply Showcase](showcase.gif)
-
-### Analyze & Diagnostics
-
-![Analyze Showcase](showcase-ai-real.gif)
-
-### Build & Sandbox
-
-![Build Showcase](showcase-build.gif)
+![Stack Apply Showcase](docs/assets/showcase.gif)
 
 ## Why ktl?
 
