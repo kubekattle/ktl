@@ -3,18 +3,6 @@ Output showcase.gif
 Set FontSize 18
 Set Theme "Dracula"
 
-# Setup environment
-Hide
-Type "export KUBECONFIG=~/.kube/config"
-Enter
-Type "kubectl create deployment my-app --image=nginx --replicas=1 --dry-run=client -o yaml | kubectl apply -f -"
-Enter
-Type "kubectl wait --for=condition=available deployment/my-app --timeout=30s"
-Enter
-Type "clear"
-Enter
-Show
-
 # 1. Stack Apply (The "Better Helmfile")
 Type "# 1. Stack Apply: A DAG-aware, parallel release orchestrator."
 Sleep 1s
