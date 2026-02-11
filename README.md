@@ -118,6 +118,20 @@ ktl help --ui
 
 ---
 
+## Plan HTML Report
+
+`ktl apply plan --visualize` generates a shareable HTML report that summarizes release changes, resource impact, and diff context before apply.
+
+<p align="center">
+  <img src="docs/assets/ktl-plan-html-report.png" alt="ktl plan html report" width="360">
+</p>
+
+```bash
+ktl apply plan --visualize --chart ./chart --release my-app -n default
+```
+
+---
+
 ## Verification
 
 `ktl` provides powerful verification tools for your Kubernetes resources.
@@ -133,6 +147,7 @@ ktl stack verify --config stack.yaml
 ### Configuration Verification
 
 The standalone `verify` tool checks your manifests against policies and best practices.
+`verify` is built and distributed as a separate binary, so you can install and run it independently from `ktl`.
 
 ```bash
 go install ./cmd/verify
@@ -163,12 +178,23 @@ verify --manifest ./rendered.yaml
 
 ## Development
 
+Run the standard local checks before opening a PR:
+
 ```bash
 make preflight # fmt + lint + unit tests
 make test      # go test ./...
 make fmt       # gofmt
 make lint      # go vet ./...
 ```
+
+Command reference:
+
+| Command | Purpose |
+| --- | --- |
+| `make preflight` | Run format, lint, and unit-test checks in one pass. |
+| `make test` | Run the full Go test suite (`go test ./...`). |
+| `make fmt` | Apply formatting (`gofmt`). |
+| `make lint` | Run static checks (`go vet ./...`). |
 
 ---
 
