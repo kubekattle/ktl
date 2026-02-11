@@ -139,20 +139,6 @@ ktl help --ui
 
 ---
 
-## Plan HTML Report
-
-`ktl apply plan --visualize` generates a shareable HTML report that summarizes release changes, resource impact, and diff context before apply.
-
-<p align="center">
-  <img src="docs/assets/ktl-plan-html-report.png" alt="ktl plan html report" width="360">
-</p>
-
-```bash
-ktl apply plan --visualize --chart ./chart --release my-app -n default
-```
-
----
-
 ## Verification
 
 `ktl` provides powerful verification tools for your Kubernetes resources.
