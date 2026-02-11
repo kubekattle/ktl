@@ -49,14 +49,6 @@
 
 ---
 
-## Showcase
-
-<p align="center">
-  <img src="docs/assets/ktl-showcase.gif" alt="Stack Apply Showcase">
-</p>
-
----
-
 ## Why ktl?
 
 `ktl` is designed to be a single binary that bridges the gap between **interactive developer workflows** and **headless CI pipelines**. It is suitable for both daily development and rigorous CI/CD steps.
