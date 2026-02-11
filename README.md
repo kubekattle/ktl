@@ -12,7 +12,7 @@
   <a href="https://github.com/avkcode/ktl/actions/workflows/ci.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/avkcode/ktl/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI Status">
   </a>
-  <a href="https://github.com/avkcode/ktl/actions/workflows/pages.yml">
+  <a href="https://avkcode.github.io/ktl/">
     <img src="https://img.shields.io/github/actions/workflow/status/avkcode/ktl/pages.yml?branch=main&label=Docs%20Site&style=for-the-badge" alt="Docs Site Status">
   </a>
   <a href="https://github.com/avkcode/ktl/releases">
