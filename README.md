@@ -3,7 +3,7 @@
 `ktl` is a Kubernetes-focused CLI for logs, Helm workflows, and BuildKit builds.
 
 <p align="center">
-  <img src="docs/assets/logo/ktl-logo-lockup-dark.png" alt="ktl emblem" width="960">
+  <img src="docs/assets/logo/ktl-logo-lockup.png" alt="ktl emblem" width="960">
 </p>
 
 <p align="center">
