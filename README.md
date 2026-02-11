@@ -104,7 +104,7 @@ verify --chart ./chart --release my-app -n default
 verify --manifest ./rendered.yaml
 ```
 
-## Metadata Storage
+## SQLite Storage
 
 `ktl` uses an embedded **SQLite** database to store session history, logs, and deployment artifacts when the `--capture` flag is used. This allows for offline analysis, auditing, and replaying of deployment events without relying on external logging infrastructure.
 
