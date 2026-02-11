@@ -18,7 +18,7 @@ func TestNewAIAnalyzer(t *testing.T) {
 			envKey:      "OPENAI_API_KEY",
 			envVal:      "test-key",
 			wantBaseURL: "https://api.openai.com/v1",
-			wantModel:   "gpt-4-turbo-preview",
+			wantModel:   "gpt-5",
 		},
 		{
 			provider:    "qwen",
@@ -41,7 +41,7 @@ func TestNewAIAnalyzer(t *testing.T) {
 			os.Setenv(tt.envKey, tt.envVal)
 			defer os.Unsetenv(tt.envKey)
 
-			a := NewAIAnalyzer(tt.provider)
+			a := NewAIAnalyzer(tt.provider, "")
 			if a.BaseURL != tt.wantBaseURL {
 				t.Errorf("NewAIAnalyzer(%q) BaseURL = %q, want %q", tt.provider, a.BaseURL, tt.wantBaseURL)
 			}
@@ -60,7 +60,7 @@ func TestNewAIAnalyzer_QwenFallback(t *testing.T) {
 	os.Setenv("QWEN_API_KEY", "fallback-key")
 	defer os.Unsetenv("QWEN_API_KEY")
 
-	a := NewAIAnalyzer("qwen")
+	a := NewAIAnalyzer("qwen", "")
 	if a.APIKey != "fallback-key" {
 		t.Errorf("NewAIAnalyzer(qwen) fallback APIKey = %q, want %q", a.APIKey, "fallback-key")
 	}
