@@ -1,14 +1,17 @@
 package analyze
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/example/ktl/internal/secrets"
 )
@@ -23,6 +26,33 @@ type AIAnalyzer struct {
 	Model    string
 	BaseURL  string
 	APIKey   string
+	Client   *http.Client
+}
+
+var ErrQuotaExceeded = errors.New("insufficient_quota")
+
+type providerErrorPayload struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error"`
+}
+
+func classifyProviderError(provider string, body []byte) error {
+	var p providerErrorPayload
+	if err := json.Unmarshal(body, &p); err == nil {
+		code := strings.TrimSpace(strings.ToLower(p.Error.Code))
+		typ := strings.TrimSpace(strings.ToLower(p.Error.Type))
+		msg := strings.TrimSpace(p.Error.Message)
+		if code == "insufficient_quota" || typ == "insufficient_quota" {
+			if msg == "" {
+				msg = "provider quota exceeded"
+			}
+			return fmt.Errorf("%w: %s (%s)", ErrQuotaExceeded, msg, provider)
+		}
+	}
+	return fmt.Errorf("AI Provider (%s) API error: %s", provider, string(body))
 }
 
 func NewAIAnalyzer(provider, model string) *AIAnalyzer {
@@ -41,7 +71,7 @@ func NewAIAnalyzer(provider, model string) *AIAnalyzer {
 		a.BaseURL = "https://api.openai.com/v1"
 		a.APIKey = os.Getenv("OPENAI_API_KEY")
 		if a.Model == "" {
-			a.Model = "gpt-5.2"
+			a.Model = "gpt-5"
 		}
 	case "qwen":
 		a.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -58,6 +88,9 @@ func NewAIAnalyzer(provider, model string) *AIAnalyzer {
 		if a.Model == "" {
 			a.Model = "deepseek-chat"
 		}
+	}
+	a.Client = &http.Client{
+		Timeout: 60 * time.Second,
 	}
 	return a
 }
@@ -101,8 +134,7 @@ func (a *AIAnalyzer) callLLM(ctx context.Context, evidence *Evidence) (*Diagnosi
 	req.Header.Set("Authorization", "Bearer "+a.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := a.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +142,7 @@ func (a *AIAnalyzer) callLLM(ctx context.Context, evidence *Evidence) (*Diagnosi
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("AI Provider (%s) API error: %s", a.Provider, string(body))
+		return nil, classifyProviderError(a.Provider, body)
 	}
 
 	var result struct {
@@ -142,7 +174,123 @@ func (a *AIAnalyzer) callLLM(ctx context.Context, evidence *Evidence) (*Diagnosi
 	return &d, nil
 }
 
+// StreamChat sends a chat message and streams the response via a callback.
+func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback func(string)) (string, error) {
+	if a.Provider == "mock" {
+		msg := "This is a mock streaming response. In real mode, I would answer your question based on the pod context."
+		// Simulate typing effect
+		for _, c := range msg {
+			callback(string(c))
+			time.Sleep(20 * time.Millisecond)
+		}
+		return msg, nil
+	}
+
+	if a.APIKey == "" {
+		return "", fmt.Errorf("API Key not set for provider %s. Please set %s_API_KEY", a.Provider, strings.ToUpper(a.Provider))
+	}
+
+	model := a.Model
+	var messages []map[string]string
+	for _, m := range history {
+		messages = append(messages, map[string]string{"role": m.Role, "content": m.Content})
+	}
+
+	reqBody := map[string]interface{}{
+		"model":    model,
+		"messages": messages,
+		"stream":   true,
+	}
+
+	jsonBody, _ := json.Marshal(reqBody)
+	url := fmt.Sprintf("%s/chat/completions", strings.TrimRight(a.BaseURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+a.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Use a separate client for streaming with no timeout or longer timeout if needed,
+	// but standard client is fine if data keeps coming.
+	// Actually, standard client timeout applies to the whole request.
+	// For streaming, we might want a longer timeout or rely on context cancellation.
+	// Let's use a custom client for streaming to avoid the 60s hard limit cutting off long answers.
+	streamClient := &http.Client{
+		Timeout: 0, // No timeout, rely on context
+	}
+
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", classifyProviderError(a.Provider, body)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	var fullResponse strings.Builder
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", err
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			// Ignore malformed chunks
+			continue
+		}
+
+		if len(chunk.Choices) > 0 {
+			content := chunk.Choices[0].Delta.Content
+			if content != "" {
+				callback(content)
+				fullResponse.WriteString(content)
+			}
+		}
+	}
+
+	return fullResponse.String(), nil
+}
+
 func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error) {
+	// Fallback to streaming implementation with no-op callback if we wanted to unify,
+	// but keeping original for backward compat is safer for now.
+	// However, to reduce code dup, let's just implement Chat as a wrapper around StreamChat?
+	// No, StreamChat uses stream=true which returns different format.
+	// Let's keep Chat as legacy non-streaming or update it.
+	// The prompt asked to improve integration. I'll leave Chat as is for non-streaming usage
+	// and add StreamChat for the CLI.
+
 	if a.Provider == "mock" {
 		return "This is a mock response. In real mode, I would answer your question based on the pod context.", nil
 	}
@@ -173,7 +321,9 @@ func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error
 	req.Header.Set("Authorization", "Bearer "+a.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -182,7 +332,7 @@ func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("AI Provider (%s) API error: %s", a.Provider, string(body))
+		return "", classifyProviderError(a.Provider, body)
 	}
 
 	var result struct {

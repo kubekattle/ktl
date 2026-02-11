@@ -4,13 +4,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/example/ktl/internal/analyze"
 	"github.com/example/ktl/internal/kube"
+	"github.com/example/ktl/internal/ui"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -142,6 +145,16 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 	}
 
 	fmt.Printf("Analyzing pod %s/%s...\n", namespace, podName)
+	if useAI || provider != "heuristic" {
+		modelDisplay := model
+		if modelDisplay == "" {
+			modelDisplay = os.Getenv("KTL_AI_MODEL")
+			if modelDisplay == "" {
+				modelDisplay = "default"
+			}
+		}
+		fmt.Printf("Using AI Provider: %s (Model: %s)\n", provider, modelDisplay)
+	}
 
 	// 3. Gather Evidence
 	evidence, err := analyze.GatherEvidence(ctx, kClient.Clientset, namespace, podName)
@@ -295,9 +308,25 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 		analyzer = analyze.NewHeuristicAnalyzer()
 	}
 
+	stop := ui.StartSpinner(os.Stdout, "Running analysis...")
 	diagnosis, err := analyzer.Analyze(ctx, evidence)
 	if err != nil {
-		return fmt.Errorf("analysis failed: %w", err)
+		if errors.Is(err, analyze.ErrQuotaExceeded) {
+			stop(false)
+			fmt.Println("AI provider quota exceeded. Falling back to heuristic analysis.")
+			analyzer = analyze.NewHeuristicAnalyzer()
+			stop = ui.StartSpinner(os.Stdout, "Running heuristic analysis...")
+			diagnosis, err = analyzer.Analyze(ctx, evidence)
+			stop(err == nil)
+			if err != nil {
+				return fmt.Errorf("analysis failed: %w", err)
+			}
+		} else {
+			stop(false)
+			return fmt.Errorf("analysis failed: %w", err)
+		}
+	} else {
+		stop(true)
 	}
 
 	// 5. Present Results
@@ -374,7 +403,24 @@ func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, n
 			cmd := exec.Command("kubectl", "patch", targetKind, targetName, "-n", namespace, "--patch", diagnosis.Patch)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
-				color.New(color.FgRed).Printf("Patch failed: %v\n%s\n", err, string(out))
+				// Try merging patch strategy if default fails (often needed for arrays)
+				cmdMerge := exec.Command("kubectl", "patch", targetKind, targetName, "-n", namespace, "--type=json", "--patch", diagnosis.Patch)
+				outMerge, errMerge := cmdMerge.CombinedOutput()
+				if errMerge == nil {
+					color.New(color.FgGreen).Println("Patch applied successfully (using JSON patch type)!")
+					fmt.Println(string(outMerge))
+				} else {
+					// Fallback to merge patch if JSON patch failed
+					cmdStrategic := exec.Command("kubectl", "patch", targetKind, targetName, "-n", namespace, "--type=strategic", "--patch", diagnosis.Patch)
+					outStrategic, errStrategic := cmdStrategic.CombinedOutput()
+					if errStrategic == nil {
+						color.New(color.FgGreen).Println("Patch applied successfully (using Strategic patch type)!")
+						fmt.Println(string(outStrategic))
+					} else {
+						color.New(color.FgRed).Printf("Patch failed: %v\n%s\n", err, string(out))
+						color.New(color.FgRed).Printf("JSON Patch failed: %v\n%s\n", errMerge, string(outMerge))
+					}
+				}
 			} else {
 				color.New(color.FgGreen).Println("Patch applied successfully!")
 				fmt.Println(string(out))
@@ -420,16 +466,39 @@ func startChatLoop(ctx context.Context, ai *analyze.AIAnalyzer, initialDiagnosis
 		history = append(history, analyze.Message{Role: "user", Content: query})
 
 		// Call AI
-		fmt.Print("Thinking...")
-		response, err := ai.Chat(ctx, history)
-		fmt.Print("\r") // Clear "Thinking..."
+		// Use streaming chat for better UX
+		fmt.Print("\n")
+
+		var responseBuilder strings.Builder
+		response, err := ai.StreamChat(ctx, history, func(chunk string) {
+			fmt.Print(chunk)
+			responseBuilder.WriteString(chunk)
+		})
+
+		fmt.Println() // Newline after stream finishes
+
 		if err != nil {
 			color.New(color.FgRed).Printf("Error: %v\n", err)
 			continue
 		}
 
+		// Render markdown nicely using Glamour
+		// If the response contains markdown features, we re-print the styled version
+		// This might be a bit duplicated, but it's much easier to read for code blocks.
+		if strings.Contains(response, "```") || strings.Contains(response, "# ") {
+			r, _ := glamour.NewTermRenderer(
+				glamour.WithAutoStyle(),
+				glamour.WithWordWrap(100),
+			)
+			out, err := r.Render(response)
+			if err == nil {
+				fmt.Println()
+				color.New(color.FgHiBlack).Println("--- Formatted View ---")
+				fmt.Println(out)
+			}
+		}
+
 		// Assistant response
-		fmt.Println(response)
 		history = append(history, analyze.Message{Role: "assistant", Content: response})
 	}
 }
