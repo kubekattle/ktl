@@ -22,7 +22,9 @@ magick -size 1024x1024 xc:none \
   -draw "polygon 904,512 512,316 512,708" \
   -draw "polygon 512,904 316,512 708,512" \
   -draw "polygon 120,512 512,708 512,316" \
-  -fill "$K8S_BLUE" -draw "circle 512,512 512,468" \
+  -fill "$K8S_BLUE" -draw "circle 512,512 512,464" \
+  -fill "$SURFACE" -draw "circle 512,512 512,486" \
+  -fill "$K8S_BLUE" -draw "circle 512,512 512,498" \
   "$ICON"
 
 magick "$ICON" -resize 256x256 "$ICON_SMALL"
@@ -35,7 +37,9 @@ magick -size 1900x640 xc:none \
   -draw "polygon 1210,320 950,190 950,450" \
   -draw "polygon 950,552 822,320 1078,320" \
   -draw "polygon 690,320 950,450 950,190" \
-  -fill "$K8S_BLUE" -draw "circle 950,320 950,282" \
+  -fill "$K8S_BLUE" -draw "circle 950,320 950,278" \
+  -fill "$SURFACE" -draw "circle 950,320 950,296" \
+  -fill "$K8S_BLUE" -draw "circle 950,320 950,308" \
   "$LOCKUP"
 
 # Dark lockup: same official-color mark.
@@ -46,7 +50,9 @@ magick -size 1900x640 xc:none \
   -draw "polygon 1210,320 950,190 950,450" \
   -draw "polygon 950,552 822,320 1078,320" \
   -draw "polygon 690,320 950,450 950,190" \
-  -fill "$K8S_BLUE" -draw "circle 950,320 950,282" \
+  -fill "$K8S_BLUE" -draw "circle 950,320 950,278" \
+  -fill "$SURFACE" -draw "circle 950,320 950,296" \
+  -fill "$K8S_BLUE" -draw "circle 950,320 950,308" \
   "$LOCKUP_DARK"
 
 printf 'Generated:\n- %s\n- %s\n- %s\n- %s\n' "$ICON" "$ICON_SMALL" "$LOCKUP" "$LOCKUP_DARK"
