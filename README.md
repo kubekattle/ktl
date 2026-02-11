@@ -27,7 +27,7 @@
 
 ## Showcase
 
-![Stack Apply Showcase](docs/assets/showcase.gif)
+![Stack Apply Showcase](docs/assets/ktl-showcase.gif)
 
 ---
 
