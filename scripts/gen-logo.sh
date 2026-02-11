@@ -10,38 +10,40 @@ ICON_SMALL="$OUT_DIR/ktl-logo-icon-256.png"
 LOCKUP="$OUT_DIR/ktl-logo-lockup.png"
 LOCKUP_DARK="$OUT_DIR/ktl-logo-lockup-dark.png"
 
-# Core palette from DESIGN.md.
-ACCENT="#2563eb"
-TEXT="#0f172a"
+# Kubernetes official digital colors.
+K8S_BLUE="#326CE5"
 SURFACE="#ffffff"
 
-# Cross-only mark (no borders, tiles, or other decoration).
+# Icon: white eight-point cross on a Kubernetes blue field.
 magick -size 1024x1024 xc:none \
-  -fill "$ACCENT" -stroke none \
-  -draw "polygon 512,220 628,430 396,430" \
-  -draw "polygon 804,512 594,396 594,628" \
-  -draw "polygon 512,804 396,594 628,594" \
-  -draw "polygon 220,512 430,628 430,396" \
+  -fill "$K8S_BLUE" -stroke none -draw "roundrectangle 64,64 960,960 210,210" \
+  -fill "$SURFACE" -stroke none \
+  -draw "polygon 512,120 708,470 316,470" \
+  -draw "polygon 904,512 512,316 512,708" \
+  -draw "polygon 512,904 316,512 708,512" \
+  -draw "polygon 120,512 512,708 512,316" \
   "$ICON"
 
 magick "$ICON" -resize 256x256 "$ICON_SMALL"
 
-# Light lockup: transparent canvas with centered dark cross.
+# Light lockup: clean Kubernetes blue field with larger centered white cross.
 magick -size 1900x640 xc:none \
-  -fill "$TEXT" -stroke none \
-  -draw "polygon 950,140 1040,300 860,300" \
-  -draw "polygon 1130,320 970,230 970,410" \
-  -draw "polygon 950,500 860,340 1040,340" \
-  -draw "polygon 770,320 930,410 930,230" \
+  -fill "$K8S_BLUE" -stroke none -draw "roundrectangle 120,84 1780,556 80,80" \
+  -fill "$SURFACE" -stroke none \
+  -draw "polygon 950,88 1078,318 822,318" \
+  -draw "polygon 1210,320 950,190 950,450" \
+  -draw "polygon 950,552 822,320 1078,320" \
+  -draw "polygon 690,320 950,450 950,190" \
   "$LOCKUP"
 
-# Dark lockup: transparent canvas with centered light cross.
+# Dark lockup: same official-color mark.
 magick -size 1900x640 xc:none \
+  -fill "$K8S_BLUE" -stroke none -draw "roundrectangle 120,84 1780,556 80,80" \
   -fill "$SURFACE" -stroke none \
-  -draw "polygon 950,140 1040,300 860,300" \
-  -draw "polygon 1130,320 970,230 970,410" \
-  -draw "polygon 950,500 860,340 1040,340" \
-  -draw "polygon 770,320 930,410 930,230" \
+  -draw "polygon 950,88 1078,318 822,318" \
+  -draw "polygon 1210,320 950,190 950,450" \
+  -draw "polygon 950,552 822,320 1078,320" \
+  -draw "polygon 690,320 950,450 950,190" \
   "$LOCKUP_DARK"
 
 printf 'Generated:\n- %s\n- %s\n- %s\n- %s\n' "$ICON" "$ICON_SMALL" "$LOCKUP" "$LOCKUP_DARK"
