@@ -1,0 +1,21 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- restrained helm rim -->
+  <circle cx="100" cy="100" r="85" fill="none" stroke="#326CE5" stroke-width="6" opacity="0.96"/>
+  <circle cx="100" cy="100" r="78" fill="none" stroke="#6B9EFF" stroke-width="1.5" opacity="0.55"/>
+
+  <!-- primary cross axes -->
+  <line x1="100" y1="25" x2="100" y2="175" stroke="#326CE5" stroke-width="7.5" stroke-linecap="round"/>
+  <line x1="25" y1="100" x2="175" y2="100" stroke="#326CE5" stroke-width="7.5" stroke-linecap="round"/>
+
+  <!-- K diagonals -->
+  <line x1="100" y1="100" x2="153" y2="47" stroke="#326CE5" stroke-width="5.5" stroke-linecap="round"/>
+  <line x1="100" y1="100" x2="47" y2="153" stroke="#326CE5" stroke-width="5.5" stroke-linecap="round"/>
+
+  <!-- secondary spokes -->
+  <line x1="100" y1="100" x2="153" y2="153" stroke="#326CE5" stroke-width="4" stroke-linecap="round" opacity="0.82"/>
+  <line x1="100" y1="100" x2="47" y2="47" stroke="#326CE5" stroke-width="4" stroke-linecap="round" opacity="0.82"/>
+
+  <!-- center accent -->
+  <circle cx="100" cy="100" r="6.5" fill="#6B9EFF"/>
+  <circle cx="100" cy="100" r="2.4" fill="#ffffff" opacity="0.95"/>
+</svg>
