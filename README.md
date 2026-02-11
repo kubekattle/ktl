@@ -149,6 +149,10 @@ ktl stack verify --config stack.yaml
 The standalone `verify` tool checks your manifests against policies and best practices.
 `verify` is built and distributed as a separate binary, so you can install and run it independently from `ktl`.
 
+<p align="center">
+  <img src="docs/assets/verify-report.png" alt="verify report" width="960">
+</p>
+
 ```bash
 go install ./cmd/verify
 
