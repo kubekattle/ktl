@@ -1,0 +1,6 @@
+apiVersion: v2
+name: drift-guard
+description: Minimal chart used for ktl drift guard integration tests
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

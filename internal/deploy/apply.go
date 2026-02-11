@@ -1,4 +1,7 @@
-// apply.go wraps Helm install/upgrade hooks so 'ktl deploy' can apply releases.
+// File: internal/deploy/apply.go
+// Brief: Internal deploy package implementation for 'apply'.
+
+// apply.go wraps Helm install/upgrade hooks so ktl can apply releases.
 package deploy
 
 import (
@@ -8,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/example/ktl/internal/secretstore"
 	"github.com/pmezard/go-difflib/difflib"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -15,6 +19,7 @@ import (
 	"helm.sh/helm/v3/pkg/cli"
 	cliValues "helm.sh/helm/v3/pkg/cli/values"
 	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/kube"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage/driver"
 )
@@ -29,6 +34,7 @@ type InstallOptions struct {
 	SetValues         []string
 	SetStringValues   []string
 	SetFileValues     []string
+	Secrets           *SecretOptions
 	Timeout           time.Duration
 	Wait              bool
 	Atomic            bool
@@ -40,8 +46,10 @@ type InstallOptions struct {
 }
 
 type InstallResult struct {
-	Release      *release.Release
-	ManifestDiff string
+	Release            *release.Release
+	ManifestDiff       string
+	PlanSummary        *PlanSummary
+	PlanSummarizeError string
 }
 
 // InstallOrUpgrade renders the chart and applies it using Helm's upgrade --install semantics.
@@ -79,7 +87,7 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 		return nil, fmt.Errorf("chart not installable: %w", err)
 	}
 
-	vals, err := buildValues(settings, opts.ValuesFiles, opts.SetValues, opts.SetStringValues, opts.SetFileValues)
+	vals, err := buildValues(ctx, settings, opts.ValuesFiles, opts.SetValues, opts.SetStringValues, opts.SetFileValues, opts.Secrets)
 	if err != nil {
 		notifyPhaseCompleted(observers, PhaseRender, "failed", err.Error())
 		return nil, err
@@ -156,6 +164,9 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 			if diffEnabled {
 				notifyPhaseCompleted(observers, PhaseDiff, "failed", "Upgrade failed before diff")
 			}
+			if opts.UpgradeOnly && isNoDeployedReleaseErr(err) {
+				return nil, wrapUpgradeOnlyNoDeployedReleaseErr(opts.ReleaseName, namespace, err)
+			}
 			return nil, fmt.Errorf("helm upgrade: %w", err)
 		}
 	} else {
@@ -172,6 +183,20 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 	result := &InstallResult{Release: release}
 	if opts.Diff {
 		result.ManifestDiff = diffManifests(previousManifest, release.Manifest)
+		if kc, ok := actionCfg.KubeClient.(*kube.Client); ok && kc != nil {
+			if summary, err := SummarizeManifestPlanWithHelmKube(kc, previousManifest, release.Manifest); err == nil {
+				result.PlanSummary = summary
+			} else if fallback, ferr := SummarizeManifestPlan(previousManifest, release.Manifest); ferr == nil {
+				result.PlanSummary = fallback
+				result.PlanSummarizeError = err.Error()
+			} else {
+				result.PlanSummarizeError = err.Error()
+			}
+		} else if summary, err := SummarizeManifestPlan(previousManifest, release.Manifest); err == nil {
+			result.PlanSummary = summary
+		} else {
+			result.PlanSummarizeError = err.Error()
+		}
 		notifyEmitDiff(observers, result.ManifestDiff)
 		msg := "No manifest changes"
 		if result.ManifestDiff != "" {
@@ -184,7 +209,7 @@ func InstallOrUpgrade(ctx context.Context, actionCfg *action.Configuration, sett
 	return result, nil
 }
 
-func buildValues(settings *cli.EnvSettings, files, setVals, setStringVals, setFileVals []string) (map[string]interface{}, error) {
+func buildValues(ctx context.Context, settings *cli.EnvSettings, files, setVals, setStringVals, setFileVals []string, secrets *SecretOptions) (map[string]interface{}, error) {
 	valOpts := &cliValues.Options{
 		ValueFiles:   files,
 		Values:       setVals,
@@ -195,6 +220,34 @@ func buildValues(settings *cli.EnvSettings, files, setVals, setStringVals, setFi
 	vals, err := valOpts.MergeValues(providers)
 	if err != nil {
 		return nil, fmt.Errorf("merge values: %w", err)
+	}
+	if secrets == nil || secrets.Resolver == nil {
+		refs := secretstore.FindRefs(vals)
+		if len(refs) > 0 {
+			limit := 3
+			if len(refs) < limit {
+				limit = len(refs)
+			}
+			extra := len(refs) - limit
+			msg := fmt.Sprintf("secret reference(s) detected but no secret provider configured: %s", strings.Join(refs[:limit], ", "))
+			if extra > 0 {
+				msg = fmt.Sprintf("%s (and %d more)", msg, extra)
+			}
+			return nil, fmt.Errorf("%s", msg)
+		}
+		return vals, nil
+	}
+	if secrets.Validate {
+		if err := secretstore.ValidateRefs(ctx, secrets.Resolver, vals, secretstore.ValidationOptions{}); err != nil {
+			return nil, err
+		}
+	}
+	if err := secrets.Resolver.ResolveValues(ctx, vals); err != nil {
+		return nil, err
+	}
+	report := secrets.Resolver.Audit()
+	if !report.Empty() && secrets.AuditSink != nil {
+		secrets.AuditSink(report)
 	}
 	return vals, nil
 }
@@ -236,6 +289,24 @@ func isNoDeployedReleaseErr(err error) bool {
 		return true
 	}
 	return strings.Contains(err.Error(), "has no deployed releases")
+}
+
+func wrapUpgradeOnlyNoDeployedReleaseErr(releaseName, namespace string, err error) error {
+	releaseName = strings.TrimSpace(releaseName)
+	namespace = strings.TrimSpace(namespace)
+	if namespace == "" {
+		namespace = "default"
+	}
+	if releaseName == "" {
+		return fmt.Errorf("helm upgrade: %w", err)
+	}
+	return fmt.Errorf(
+		"helm upgrade: %w; release %q is not deployed in namespace %q (omit --upgrade to allow install fallback, or pick an existing release name from `ktl list --namespace %s`)",
+		err,
+		releaseName,
+		namespace,
+		namespace,
+	)
 }
 
 func notifyPhaseStarted(observers []ProgressObserver, name string) {

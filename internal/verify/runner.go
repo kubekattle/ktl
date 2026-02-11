@@ -1,0 +1,150 @@
+package verify
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type EventType string
+
+const (
+	EventReset    EventType = "reset"
+	EventStarted  EventType = "started"
+	EventProgress EventType = "progress"
+	EventFinding  EventType = "finding"
+	EventSummary  EventType = "summary"
+	EventDone     EventType = "done"
+)
+
+type Event struct {
+	Type       EventType
+	When       time.Time
+	Phase      string
+	Counts     map[string]int
+	Finding    *Finding
+	Summary    *Summary
+	Passed     bool
+	Blocked    bool
+	Target     string
+	Ruleset    string
+	PolicyRef  string
+	PolicyMode string
+}
+
+type Emitter func(Event) error
+
+type Runner struct {
+	RulesDir string
+}
+
+func (r Runner) Verify(ctx context.Context, target string, objects []map[string]any, opts Options, emit Emitter) (*Report, error) {
+	now := opts.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	if opts.Mode == ModeOff {
+		summary := BuildSummary(nil, false)
+		rep := &Report{
+			Tool:        "ktl-verify",
+			Engine:      EngineMeta{Name: "builtin", Ruleset: "off"},
+			Mode:        opts.Mode,
+			Passed:      true,
+			EvaluatedAt: now(),
+			Summary:     summary,
+		}
+		return rep, nil
+	}
+	baseDir := strings.TrimSpace(opts.RulesDir)
+	if baseDir == "" {
+		baseDir = strings.TrimSpace(r.RulesDir)
+	}
+	paths := []string{baseDir}
+	for _, p := range opts.ExtraRules {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	if env := strings.TrimSpace(os.Getenv("KTL_VERIFY_RULES_PATH")); env != "" {
+		for _, p := range splitList(env) {
+			if p != "" {
+				paths = append(paths, p)
+			}
+		}
+	}
+	paths = dedupeStrings(paths)
+	opts.RulesDir = baseDir
+
+	rulesetHash, _ := RulesetDigestMulti(paths)
+	rulesetLabel := nonEmpty("builtin@"+rulesetHash, "builtin")
+	if emit != nil {
+		_ = emit(Event{
+			Type:    EventStarted,
+			When:    now(),
+			Target:  strings.TrimSpace(target),
+			Ruleset: rulesetLabel,
+		})
+	}
+
+	rules, err := LoadRuleset(paths...)
+	if err != nil {
+		return nil, err
+	}
+	commonDirs := make([]string, 0, len(paths))
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		p = strings.TrimSuffix(p, "/")
+		p = strings.TrimSuffix(p, "\\")
+		p = strings.TrimSpace(p)
+		commonDirs = append(commonDirs, filepath.Join(p, "lib"))
+	}
+
+	rep := &Report{
+		Tool:        "ktl-verify",
+		Engine:      EngineMeta{Name: "builtin", Ruleset: rulesetLabel},
+		Mode:        opts.Mode,
+		FailOn:      opts.FailOn,
+		EvaluatedAt: now(),
+	}
+
+	var findings []Finding
+	emitFinding := func(f Finding) {
+		findings = append(findings, f)
+		if emit != nil {
+			ff := f
+			_ = emit(Event{Type: EventFinding, When: now(), Finding: &ff})
+		}
+	}
+
+	if emit != nil {
+		_ = emit(Event{Type: EventProgress, When: now(), Phase: "evaluate"})
+	}
+
+	ruleFindings, err := EvaluateRulesWithSelectors(ctx, rules, objects, commonDirs, opts.Selectors, opts.RuleSelectors)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range filterNamespacedFindings(ruleFindings) {
+		emitFinding(f)
+	}
+
+	sortFindings(findings)
+	blocked := opts.Mode == ModeBlock && hasAtLeast(findings, opts.FailOn)
+	rep.Blocked = blocked
+	rep.Passed = !blocked
+	rep.Summary = BuildSummary(findings, blocked)
+	rep.Findings = findings
+
+	if emit != nil {
+		s := rep.Summary
+		_ = emit(Event{Type: EventSummary, When: now(), Summary: &s})
+		_ = emit(Event{Type: EventDone, When: now(), Passed: rep.Passed, Blocked: rep.Blocked})
+	}
+	return rep, nil
+}

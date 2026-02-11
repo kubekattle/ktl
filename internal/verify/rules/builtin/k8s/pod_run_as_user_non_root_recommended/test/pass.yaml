@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ok
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+    - name: app
+      image: nginx:1.25

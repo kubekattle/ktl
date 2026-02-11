@@ -1,0 +1,9 @@
+# Example secure template for ktl init
+
+build:
+  profile: secure
+  hermetic: true
+  sandbox: true
+  attestDir: dist/attest
+  policyMode: enforce
+  secretsMode: enforce

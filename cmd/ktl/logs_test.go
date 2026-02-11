@@ -1,3 +1,8 @@
+// File: cmd/ktl/logs_test.go
+// Brief: CLI command wiring and implementation for 'logs'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import "testing"

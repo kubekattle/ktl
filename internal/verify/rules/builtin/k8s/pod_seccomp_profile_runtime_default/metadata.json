@@ -1,0 +1,13 @@
+{
+  "id": "bb05ce7a-3c4d-4e57-8c7d-4a9e3a7c7a3e",
+  "queryName": "Workloads Should Configure Seccomp (RuntimeDefault)",
+  "severity": "HIGH",
+  "category": "Pod Security Standards",
+  "descriptionText": "Pods and containers should configure seccompProfile.type (prefer RuntimeDefault) to reduce kernel attack surface.",
+  "descriptionUrl": "https://kubernetes.io/docs/tutorials/security/seccomp/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-pss-03",
+  "cloudProvider": "common",
+  "cwe": "693",
+  "riskScore": "7.0"
+}

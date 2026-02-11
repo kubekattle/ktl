@@ -1,4 +1,7 @@
-// manifestutil.go hosts helper types for parsing/rendering Helm manifests when generating deploy plans and diffs.
+// File: cmd/ktl/manifestutil.go
+// Brief: CLI command wiring and implementation for 'manifestutil'.
+
+// manifestutil.go hosts helper types for parsing/rendering Helm manifests when generating plan reports and diffs.
 package main
 
 import (
@@ -92,63 +95,5 @@ func toResourceKey(obj *unstructured.Unstructured) resourceKey {
 		Kind:      obj.GetKind(),
 		Namespace: obj.GetNamespace(),
 		Name:      obj.GetName(),
-	}
-}
-
-// splitManifests retains the legacy map[string]string behavior used by ktl app package.
-func splitManifests(manifest string) map[string]string {
-	files := releaseutil.SplitManifests(manifest)
-	result := make(map[string]string, len(files))
-	for name, doc := range files {
-		trimmed := strings.TrimSpace(doc)
-		if trimmed == "" {
-			continue
-		}
-		key := manifestKey(name, trimmed)
-		result[key] = trimmed
-	}
-	return result
-}
-
-func manifestKey(defaultName, doc string) string {
-	meta := manifestMeta(doc)
-	kind := strings.ToLower(meta.Kind)
-	name := meta.Name
-	ns := meta.Namespace
-	if kind == "" || name == "" {
-		return defaultName
-	}
-	if ns != "" {
-		return fmt.Sprintf("%s-%s-%s", kind, ns, name)
-	}
-	return fmt.Sprintf("%s-%s", kind, name)
-}
-
-func manifestMeta(doc string) struct {
-	APIVersion string
-	Kind       string
-	Namespace  string
-	Name       string
-} {
-	type meta struct {
-		APIVersion string `yaml:"apiVersion"`
-		Kind       string `yaml:"kind"`
-		Metadata   struct {
-			Namespace string `yaml:"namespace"`
-			Name      string `yaml:"name"`
-		} `yaml:"metadata"`
-	}
-	var m meta
-	_ = yaml.Unmarshal([]byte(doc), &m)
-	return struct {
-		APIVersion string
-		Kind       string
-		Namespace  string
-		Name       string
-	}{
-		APIVersion: m.APIVersion,
-		Kind:       m.Kind,
-		Namespace:  m.Metadata.Namespace,
-		Name:       m.Metadata.Name,
 	}
 }

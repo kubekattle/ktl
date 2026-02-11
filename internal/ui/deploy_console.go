@@ -1,3 +1,8 @@
+// File: internal/ui/deploy_console.go
+// Brief: Internal ui package implementation for 'deploy console'.
+
+// Package ui provides ui helpers.
+
 package ui
 
 import (
@@ -10,7 +15,11 @@ import (
 
 	"github.com/example/ktl/internal/deploy"
 	"github.com/fatih/color"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
+
+var phaseTitleCaser = cases.Title(language.Und, cases.NoLower)
 
 type DeployConsoleOptions struct {
 	Enabled         bool
@@ -272,20 +281,8 @@ func (c *DeployConsole) renderMetadataLinesLocked() []string {
 }
 
 func (c *DeployConsole) shouldRenderDetails() bool {
-	if c.opts.Wide {
-		return true
-	}
-	if c.details {
-		return true
-	}
-	if c.opts.Width <= 0 {
-		return true
-	}
 	const detailWidthThreshold = 100
-	if c.opts.Width >= detailWidthThreshold {
-		return true
-	}
-	return false
+	return c.opts.Wide || c.details || c.opts.Width <= 0 || c.opts.Width >= detailWidthThreshold
 }
 
 func formatMetadataSummary(meta DeployMetadata) string {
@@ -379,7 +376,7 @@ func formatPhases(phases map[string]phaseBadge) string {
 
 func renderPhaseChip(badge phaseBadge) string {
 	state := strings.ToLower(strings.TrimSpace(badge.State))
-	label := strings.Title(strings.TrimSpace(badge.Name))
+	label := phaseTitleCaser.String(strings.TrimSpace(badge.Name))
 	if label == "" {
 		label = "Phase"
 	}

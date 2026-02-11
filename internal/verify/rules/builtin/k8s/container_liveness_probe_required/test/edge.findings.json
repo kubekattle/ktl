@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/container_liveness_probe_required",
+    "severity": "low",
+    "category": "Reliability",
+    "message": "Containers should define a livenessProbe to help Kubernetes restart unhealthy workloads.",
+    "fieldPath": "spec.initContainers.0",
+    "location": "metadata.name={{init-missing-liveness}}.spec.initContainers.name={{init}}.livenessProbe",
+    "resourceKey": "cluster/Pod/init-missing-liveness",
+    "expected": "metadata.name={{init-missing-liveness}}.spec.initContainers.name={{init}}.livenessProbe should be defined",
+    "observed": "metadata.name={{init-missing-liveness}}.spec.initContainers.name={{init}}.livenessProbe is undefined",
+    "subject": {
+      "kind": "Pod",
+      "name": "init-missing-liveness"
+    },
+    "fingerprint": "k8s/container_liveness_probe_required:cluster/Pod/init-missing-liveness:metadata.name={{init-missing-liveness}}.spec.initContainers.name={{init}}.livenessProbe",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.initContainers.0",
+      "kind": "Pod",
+      "name": "init-missing-liveness"
+    }
+  }
+]

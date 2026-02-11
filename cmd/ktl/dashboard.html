@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KTL Tunnel Dashboard</title>
+    <style>
+        :root {
+            --bg: #1a1b26;
+            --card: #24283b;
+            --text: #c0caf5;
+            --primary: #7aa2f7;
+            --success: #9ece6a;
+            --error: #f7768e;
+            --border: #414868;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+        h1 { margin: 0; color: var(--primary); }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background-color: var(--card);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .status-active { background-color: rgba(158, 206, 106, 0.2); color: var(--success); }
+        .status-error { background-color: rgba(247, 118, 142, 0.2); color: var(--error); }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        .log-panel {
+            background-color: #000;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            height: 300px;
+            overflow-y: auto;
+            margin-top: 40px;
+            border: 1px solid var(--border);
+        }
+        .log-entry {
+            margin-bottom: 4px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 2px;
+        }
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>KTL Tunnel Dashboard</h1>
+            <div id="connection-status">Connected</div>
+        </header>
+
+        <div id="tunnels" class="grid">
+            <!-- Tunnels injected here -->
+        </div>
+
+        <h3>HTTP Traffic Inspector</h3>
+        <div id="requests" class="log-panel" style="height: 200px; margin-top: 20px;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="text-align: left; border-bottom: 1px solid #333;">
+                        <th>Time</th>
+                        <th>Method</th>
+                        <th>URL</th>
+                        <th>Status</th>
+                        <th>Duration</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="request-rows">
+                </tbody>
+            </table>
+        </div>
+
+        <h3>Event Log</h3>
+        <div id="logs" class="log-panel">
+            <!-- Logs injected here -->
+        </div>
+
+        <h3>AI Diagnosis</h3>
+        <div id="analysis" class="card" style="margin-top: 20px;">
+            Loading diagnosis...
+        </div>
+
+        <h3>Service Map</h3>
+        <div id="topology" class="card" style="height: 300px; display: flex; align-items: center; justify-content: center; position: relative;">
+            <!-- Simple Canvas/SVG rendering -->
+            <svg id="topo-svg" width="100%" height="100%" style="overflow: visible;"></svg>
+        </div>
+    </div>
+
+    <script>
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        async function update() {
+            try {
+                // Fetch Tunnels
+                const tRes = await fetch('/api/tunnels');
+                const tunnels = await tRes.json();
+                
+                const grid = document.getElementById('tunnels');
+                grid.innerHTML = tunnels.map(t => {
+                    const statusClass = t.health === 'OK' || t.Status === 'Active' ? 'status-active' : 'status-error';
+                    const link = t.protocol.startsWith('http') 
+                        ? `<a href="${t.protocol}://localhost:${t.LocalPort}" target="_blank">Open</a>`
+                        : '';
+                    
+                    return `
+                    <div class="card">
+                        <div class="card-header">
+                            <strong>${t.Name}</strong>
+                            <span class="status-badge ${statusClass}">${t.Status} ${t.health ? '('+t.health+')' : ''}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Local</span>
+                            <span>localhost:${t.LocalPort}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Remote</span>
+                            <span>${t.Target}:${t.RemotePort}</span>
+                        </div>
+                         <div class="metric">
+                            <span>Context</span>
+                            <span>${t.kubeContext || 'default'}</span>
+                        </div>
+                        <div class="metric">
+                            <span>Protocol</span>
+                            <span>${t.protocol}</span>
+                        </div>
+                        <div class="metric" style="margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
+                            <span>TX: ${formatBytes(t.BytesOut)}</span>
+                            <span>RX: ${formatBytes(t.BytesIn)}</span>
+                        </div>
+                        <div style="margin-top: 10px; text-align: right;">
+                            ${link}
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+
+                // Fetch Requests
+                const rRes = await fetch('/api/requests');
+                const requests = await rRes.json();
+                const reqRows = document.getElementById('request-rows');
+                if (requests) {
+                    reqRows.innerHTML = requests.reverse().map(r => `
+                        <tr>
+                            <td>${new Date(r.timestamp).toLocaleTimeString()}</td>
+                            <td style="color: var(--primary)">${r.method}</td>
+                            <td>${r.url}</td>
+                            <td style="color: ${r.status >= 400 ? 'var(--error)' : 'var(--success)'}">${r.status}</td>
+                            <td>${r.duration}</td>
+                            <td><button onclick="replay('${r.id}')" style="cursor: pointer; background: var(--primary); border: none; border-radius: 4px; color: #fff; padding: 2px 6px;">Replay</button></td>
+                        </tr>
+                    `).join('');
+                }
+
+                // Fetch Logs
+                const lRes = await fetch('/api/logs');
+                const logs = await lRes.json();
+                const logPanel = document.getElementById('logs');
+                // Only update if changed to avoid scroll jumping? simpler to just replace for now
+                logPanel.innerHTML = logs.map(l => `<div class="log-entry">${l}</div>`).join('');
+                
+                // Fetch Analysis (Mock)
+                const aRes = await fetch('/api/analysis');
+                const analysis = await aRes.json();
+                const analysisPanel = document.getElementById('analysis');
+                analysisPanel.innerHTML = `
+                    <h4 style="color: var(--error)">${analysis.rootCause}</h4>
+                    <p><strong>Suggestion:</strong> ${analysis.suggestion}</p>
+                    <p style="font-size: 0.9em; color: #888">${analysis.explanation}</p>
+                `;
+
+                // Fetch Topology
+                const topoRes = await fetch('/api/topology');
+                const topo = await topoRes.json();
+                renderTopology(topo);
+
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderTopology(data) {
+            const svg = document.getElementById('topo-svg');
+            if (!svg) return;
+            svg.innerHTML = '';
+            
+            // Simple Star Layout
+            const cx = svg.clientWidth / 2;
+            const cy = svg.clientHeight / 2;
+            const radius = 100;
+            
+            // Draw Center
+            drawNode(svg, cx, cy, "Local", "#fff");
+            
+            // Draw Satellites
+            const count = data.nodes.length - 1;
+            if (count <= 0) return;
+            
+            const angleStep = (2 * Math.PI) / count;
+            
+            let i = 0;
+            data.nodes.forEach(n => {
+                if (n.id === 'local') return;
+                const angle = i * angleStep;
+                const x = cx + radius * Math.cos(angle);
+                const y = cy + radius * Math.sin(angle);
+                
+                // Draw Line
+                drawLine(svg, cx, cy, x, y);
+                // Draw Node
+                drawNode(svg, x, y, n.id, "var(--primary)");
+                i++;
+            });
+        }
+
+        function drawNode(svg, x, y, label, color) {
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            c.setAttribute("cx", x);
+            c.setAttribute("cy", y);
+            c.setAttribute("r", 20);
+            c.setAttribute("fill", "#24283b");
+            c.setAttribute("stroke", color);
+            c.setAttribute("stroke-width", 2);
+            
+            const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            t.setAttribute("x", x);
+            t.setAttribute("y", y + 5);
+            t.setAttribute("text-anchor", "middle");
+            t.setAttribute("fill", "#fff");
+            t.setAttribute("font-size", "10px");
+            t.textContent = label;
+            
+            g.appendChild(c);
+            g.appendChild(t);
+            svg.appendChild(g);
+        }
+
+        function drawLine(svg, x1, y1, x2, y2) {
+            const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            l.setAttribute("x1", x1);
+            l.setAttribute("y1", y1);
+            l.setAttribute("x2", x2);
+            l.setAttribute("y2", y2);
+            l.setAttribute("stroke", "#414868");
+            l.setAttribute("stroke-width", 2);
+            svg.prepend(l);
+        }
+
+        async function replay(id) {
+            try {
+                await fetch('/api/replay', {
+                    method: 'POST',
+                    body: JSON.stringify({id: id})
+                });
+                alert('Request replayed!');
+                // We don't refresh immediately; the loop will catch the new request log
+            } catch (e) {
+                alert('Replay failed: ' + e);
+            }
+        }
+
+        setInterval(update, 1000);
+        update();
+    </script>
+</body>
+</html>

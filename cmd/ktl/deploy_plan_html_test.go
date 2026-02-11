@@ -1,3 +1,8 @@
+// File: cmd/ktl/deploy_plan_html_test.go
+// Brief: CLI command wiring and implementation for 'deploy plan html'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (
@@ -20,7 +25,7 @@ func TestRenderDeployPlanHTML(t *testing.T) {
 		},
 		Warnings:    []string{"Updating demo"},
 		ClusterHost: "https://cluster",
-		InstallCmd:  "ktl deploy apply --chart ./chart --release demo",
+		InstallCmd:  "ktl apply --chart ./chart --release demo",
 		GeneratedAt: time.Now(),
 	}
 
@@ -73,24 +78,51 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 		Summary:       planSummary{Creates: 1, Updates: 2, Deletes: 0, Unchanged: 3},
 		GeneratedAt:   time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
 		Warnings:      []string{"image cache stale"},
-		InstallCmd:    "ktl deploy apply --chart ./chart --release demo",
+		InstallCmd:    "ktl apply --chart ./chart --release demo",
 		Changes: []planResourceChange{
 			{Key: resourceKey{Namespace: "prod", Kind: "Deployment", Name: "web"}, Kind: changeUpdate},
 		},
 		OfflineFallback: false,
 	}
-	html, err := renderDeployVisualizeHTML(result, nil)
+	html, err := renderDeployVisualizeHTML(result, nil, deployVisualizeFeatures{})
 	if err != nil {
 		t.Fatalf("render viz html: %v", err)
 	}
-	if !strings.Contains(html, "ktl Deploy Visualize") {
+	if !strings.Contains(html, "ktl Apply Plan Visualize") {
 		t.Fatalf("missing visualize heading")
 	}
 	if !strings.Contains(html, "Load comparison") {
 		t.Fatalf("missing comparison controls")
 	}
+	if !strings.Contains(html, `id="dataErrorBanner"`) {
+		t.Fatalf("missing data error banner")
+	}
+	if !strings.Contains(html, `id="emptyState"`) {
+		t.Fatalf("missing empty state panel")
+	}
+	if !strings.Contains(html, `id="impactSummary"`) {
+		t.Fatalf("missing impact summary")
+	}
+	if !strings.Contains(html, `id="preflightList"`) {
+		t.Fatalf("missing preflight list")
+	}
+	if !strings.Contains(html, `id="diffToolbar"`) {
+		t.Fatalf("missing diff toolbar")
+	}
+	if !strings.Contains(html, `data-manifest-mode="quota"`) {
+		t.Fatalf("missing quota manifest mode")
+	}
 	if !strings.Contains(html, `id="vizData"`) {
 		t.Fatalf("missing viz data block")
+	}
+	if strings.Contains(html, `helm\\.sh`) {
+		t.Fatalf("expected helm hook heuristic to avoid regex literals, got %q", `helm\\.sh`)
+	}
+	if !strings.Contains(html, `helm.sh/hook:`) {
+		t.Fatalf("expected helm hook heuristic to match on literal key, got %q", `helm.sh/hook:`)
+	}
+	if strings.Contains(html, "__FEATURES__") {
+		t.Fatalf("expected features placeholder to be replaced")
 	}
 	vizData := extractVizData(t, html)
 	var payload deployVisualizePayload
@@ -117,6 +149,54 @@ func TestRenderDeployVisualizeHTML(t *testing.T) {
 	}
 }
 
+func TestBuildDeployVisualizePayloadMatchesEmbeddedJSON(t *testing.T) {
+	result := &deployPlanResult{
+		ReleaseName:   "demo",
+		Namespace:     "prod",
+		ChartRef:      "./chart",
+		GraphNodes:    []deployGraphNode{{ID: "prod|deployment|web", Kind: "Deployment", Name: "web", Namespace: "prod"}},
+		GraphEdges:    []deployGraphEdge{{From: "prod|deployment|web", To: "prod|configmap|cfg"}},
+		ManifestBlobs: map[string]string{"prod|deployment|web": "kind: Deployment\nmetadata:\n  name: web"},
+		ManifestDiffs: map[string]string{"prod|deployment|web": "--- live\n+++ rendered\n"},
+		Changes: []planResourceChange{
+			{Key: resourceKey{Namespace: "prod", Kind: "Deployment", Name: "web"}, Kind: changeUpdate},
+		},
+		GeneratedAt: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+	}
+
+	embeddedHTML, err := renderDeployVisualizeHTML(result, nil, deployVisualizeFeatures{})
+	if err != nil {
+		t.Fatalf("render viz html: %v", err)
+	}
+	var embedded deployVisualizePayload
+	if err := json.Unmarshal([]byte(extractVizData(t, embeddedHTML)), &embedded); err != nil {
+		t.Fatalf("parse embedded payload: %v", err)
+	}
+
+	built, err := buildDeployVisualizePayload(result, nil)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	builtJSON, err := json.Marshal(built)
+	if err != nil {
+		t.Fatalf("marshal built payload: %v", err)
+	}
+	var roundTripped deployVisualizePayload
+	if err := json.Unmarshal(builtJSON, &roundTripped); err != nil {
+		t.Fatalf("round trip built payload: %v", err)
+	}
+
+	if roundTripped.Release != embedded.Release || roundTripped.Namespace != embedded.Namespace || roundTripped.Chart != embedded.Chart {
+		t.Fatalf("mismatched payload identity: built=%+v embedded=%+v", roundTripped, embedded)
+	}
+	if len(roundTripped.Nodes) != len(embedded.Nodes) || len(roundTripped.Manifests) != len(embedded.Manifests) {
+		t.Fatalf("mismatched payload shape: built=%+v embedded=%+v", roundTripped, embedded)
+	}
+	if roundTripped.ChangeKinds["prod|deployment|web"] != embedded.ChangeKinds["prod|deployment|web"] {
+		t.Fatalf("mismatched changeKinds: built=%+v embedded=%+v", roundTripped.ChangeKinds, embedded.ChangeKinds)
+	}
+}
+
 func TestRenderDeployVisualizeHTMLWithCompare(t *testing.T) {
 	base := &deployPlanResult{
 		ReleaseName:   "demo",
@@ -137,7 +217,7 @@ func TestRenderDeployVisualizeHTMLWithCompare(t *testing.T) {
 		ManifestBlobs: map[string]string{"prod|configmap|cfg": "kind: ConfigMap\nmetadata:\n  name: cfg-old"},
 		GeneratedAt:   time.Date(2025, 1, 2, 3, 4, 0, 0, time.UTC),
 	}
-	html, err := renderDeployVisualizeHTML(base, compare)
+	html, err := renderDeployVisualizeHTML(base, compare, deployVisualizeFeatures{})
 	if err != nil {
 		t.Fatalf("render viz html: %v", err)
 	}
@@ -151,6 +231,33 @@ func TestRenderDeployVisualizeHTMLWithCompare(t *testing.T) {
 	}
 	if payload.CompareSummary == "" || !strings.Contains(payload.CompareSummary, "demo-prev") {
 		t.Fatalf("expected compare summary, got %q", payload.CompareSummary)
+	}
+}
+
+func TestRenderDeployVisualizeHTMLWithExplainDiffFeature(t *testing.T) {
+	result := &deployPlanResult{
+		ReleaseName:   "demo",
+		Namespace:     "prod",
+		ChartRef:      "./chart",
+		GraphNodes:    []deployGraphNode{{ID: "prod|deployment|web", Kind: "Deployment", Name: "web", Namespace: "prod"}},
+		ManifestBlobs: map[string]string{"prod|deployment|web": "kind: Deployment\nmetadata:\n  name: web"},
+		ManifestDiffs: map[string]string{"prod|deployment|web": "--- live\n+++ rendered\n+  image: nginx:2\n-  image: nginx:1\n"},
+		Changes: []planResourceChange{
+			{Key: resourceKey{Namespace: "prod", Kind: "Deployment", Name: "web"}, Kind: changeUpdate},
+		},
+	}
+	html, err := renderDeployVisualizeHTML(result, nil, deployVisualizeFeatures{ExplainDiff: true})
+	if err != nil {
+		t.Fatalf("render viz html: %v", err)
+	}
+	if !strings.Contains(html, `id="ktlVizFeatures"`) {
+		t.Fatalf("expected viz features block")
+	}
+	if !strings.Contains(html, `"explainDiff":true`) {
+		t.Fatalf("expected explainDiff feature enabled")
+	}
+	if !strings.Contains(html, `id="manifestModeExplain"`) {
+		t.Fatalf("expected explain button present in template")
 	}
 }
 

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.appName | quote }}
+  annotations:
+    ktl.io/depends-on: {{ .Values.dependsOn | quote }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Values.appName | quote }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Values.appName | quote }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName | quote }}
+      containers:
+        - name: {{ .Values.appName | quote }}
+          image: "busybox:1"
+          command: ["sh","-c","sleep 3600"]
+          env:
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName | quote }}
+                  key: token
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: cfg
+              mountPath: /etc/app
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.pvcName | quote }}
+        - name: cfg
+          configMap:
+            name: {{ .Values.configMapName | quote }}
+---
+apiVersion: {{ printf "%s/%s" "example.com" "v1" | quote }}
+kind: Widget
+metadata:
+  name: {{ .Values.widgetName | quote }}
+spec:
+  owner: {{ .Release.Name | quote }}

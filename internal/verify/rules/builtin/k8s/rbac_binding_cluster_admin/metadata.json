@@ -1,0 +1,13 @@
+{
+  "id": "a7c13f83-6205-4f8c-8e70-636f79db1d20",
+  "queryName": "RBAC Bindings Should Avoid cluster-admin",
+  "severity": "HIGH",
+  "category": "RBAC",
+  "descriptionText": "RoleBinding/ClusterRoleBinding should avoid binding to the built-in cluster-admin role.",
+  "descriptionUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-rbac-03",
+  "cloudProvider": "common",
+  "cwe": "284",
+  "riskScore": "7.5"
+}

@@ -1,16 +1,23 @@
+// File: internal/tailer/tailer_test.go
+// Brief: Internal tailer package implementation for 'tailer'.
+
 // tailer_test.go covers palette/color helpers and other tailer utilities.
 package tailer
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/example/ktl/internal/config"
 	"github.com/fatih/color"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 func TestBuildCustomPaletteSupportsMultiAttribute(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
 	prev := color.NoColor
 	color.NoColor = false
 	t.Cleanup(func() {
@@ -91,14 +98,51 @@ func TestApplyColorsHandlesOverlappingNames(t *testing.T) {
 	}
 }
 
-func TestLogSourceGlyphs(t *testing.T) {
-	if sourcePod.glyph() == "" || sourcePod.label() != "pod" {
-		t.Fatalf("pod glyph/label not set")
+func TestLogSourceLabels(t *testing.T) {
+	if sourcePod.label() != "pod" {
+		t.Fatalf("pod label not set")
 	}
-	if sourceNode.glyph() == "" || sourceNode.label() != "node" {
-		t.Fatalf("node glyph/label not set")
+	if sourceNode.label() != "node" {
+		t.Fatalf("node label not set")
 	}
-	if sourceEvent.glyph() == "" || sourceEvent.label() != "event" {
-		t.Fatalf("event glyph/label not set")
+	if sourceEvent.label() != "event" {
+		t.Fatalf("event label not set")
 	}
+}
+
+func TestIsRetryableLogStreamErr(t *testing.T) {
+	msg := `container "grafana" in pod "grafana-6fc5cbc64b-t5n2j" is waiting to start: ContainerCreating`
+
+	t.Run("plain error string", func(t *testing.T) {
+		if !isRetryableLogStreamErr(errors.New(msg)) {
+			t.Fatalf("expected retryable for %q", msg)
+		}
+	})
+
+	t.Run("k8s StatusError", func(t *testing.T) {
+		err := apierrors.NewBadRequest(msg)
+		if !isRetryableLogStreamErr(err) {
+			t.Fatalf("expected retryable for StatusError: %v", err)
+		}
+	})
+
+	t.Run("wrapped StatusError", func(t *testing.T) {
+		err := fmt.Errorf("wrapped: %w", apierrors.NewBadRequest(msg))
+		if !isRetryableLogStreamErr(err) {
+			t.Fatalf("expected retryable for wrapped StatusError: %v", err)
+		}
+	})
+
+	t.Run("url.Error wrapper", func(t *testing.T) {
+		err := &url.Error{Op: "Get", URL: "https://example.invalid", Err: apierrors.NewBadRequest(msg)}
+		if !isRetryableLogStreamErr(err) {
+			t.Fatalf("expected retryable for url.Error wrapper: %v", err)
+		}
+	})
+
+	t.Run("non-retryable", func(t *testing.T) {
+		if isRetryableLogStreamErr(errors.New("forbidden")) {
+			t.Fatalf("expected non-retryable")
+		}
+	})
 }

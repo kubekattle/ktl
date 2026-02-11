@@ -1,0 +1,99 @@
+[
+  {
+    "ruleId": "k8s/service_account_token_automount_not_disabled",
+    "severity": "medium",
+    "category": "Insecure Defaults",
+    "message": "Service Account Tokens are automatically mounted even if not necessary",
+    "fieldPath": "spec",
+    "location": "metadata.name={{security-context-demo}}.spec",
+    "resourceKey": "cluster/Pod/security-context-demo",
+    "expected": "metadata.name={{security-context-demo}}.spec.automountServiceAccountToken should be defined and set to false",
+    "observed": "metadata.name={{security-context-demo}}.spec.automountServiceAccountToken is undefined",
+    "subject": {
+      "kind": "Pod",
+      "name": "security-context-demo"
+    },
+    "fingerprint": "k8s/service_account_token_automount_not_disabled:cluster/Pod/security-context-demo:metadata.name={{security-context-demo}}.spec",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#use-the-default-service-account-to-access-the-api-server",
+    "evidence": {
+      "containers": [
+        {
+          "image": "busybox",
+          "name": "sec-ctx-demo",
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        }
+      ],
+      "fieldPath": "spec",
+      "kind": "Pod",
+      "name": "security-context-demo"
+    }
+  },
+  {
+    "ruleId": "k8s/service_account_token_automount_not_disabled",
+    "severity": "medium",
+    "category": "Insecure Defaults",
+    "message": "Service Account Tokens are automatically mounted even if not necessary",
+    "fieldPath": "spec.automountServiceAccountToken",
+    "location": "metadata.name={{security.context.demo}}.spec.automountServiceAccountToken",
+    "resourceKey": "cluster/Pod/security.context.demo",
+    "expected": "metadata.name={{security.context.demo}}.spec.automountServiceAccountToken should be set to false",
+    "observed": "metadata.name={{security.context.demo}}.spec.automountServiceAccountToken is true",
+    "subject": {
+      "kind": "Pod",
+      "name": "security.context.demo"
+    },
+    "fingerprint": "k8s/service_account_token_automount_not_disabled:cluster/Pod/security.context.demo:metadata.name={{security.context.demo}}.spec.automountServiceAccountToken",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#use-the-default-service-account-to-access-the-api-server",
+    "evidence": {
+      "automountServiceAccountToken": true,
+      "containers": [
+        {
+          "image": "busybox",
+          "name": "sec-ctx-demo",
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        }
+      ],
+      "fieldPath": "spec.automountServiceAccountToken",
+      "kind": "Pod",
+      "name": "security.context.demo"
+    }
+  },
+  {
+    "ruleId": "k8s/service_account_token_automount_not_disabled",
+    "severity": "medium",
+    "category": "Insecure Defaults",
+    "message": "Service Account Tokens are automatically mounted even if not necessary",
+    "fieldPath": "spec.template.spec.automountServiceAccountToken",
+    "location": "metadata.name={{dummy-config}}.spec.template.spec.automountServiceAccountToken",
+    "resourceKey": "knative-sequence/Configuration/dummy-config",
+    "expected": "metadata.name={{dummy-config}}.spec.template.spec.automountServiceAccountToken should be set to false",
+    "observed": "metadata.name={{dummy-config}}.spec.template.spec.automountServiceAccountToken is true",
+    "subject": {
+      "kind": "Configuration",
+      "namespace": "knative-sequence",
+      "name": "dummy-config"
+    },
+    "fingerprint": "k8s/service_account_token_automount_not_disabled:knative-sequence/Configuration/dummy-config:metadata.name={{dummy-config}}.spec.template.spec.automountServiceAccountToken",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#use-the-default-service-account-to-access-the-api-server",
+    "evidence": {
+      "automountServiceAccountToken": true,
+      "containers": [
+        {
+          "image": "busybox",
+          "name": "sec-ctx-demo",
+          "securityContext": {
+            "allowPrivilegeEscalation": false
+          }
+        }
+      ],
+      "fieldPath": "spec.template.spec.automountServiceAccountToken",
+      "kind": "Configuration",
+      "name": "dummy-config",
+      "namespace": "knative-sequence"
+    }
+  }
+]

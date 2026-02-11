@@ -1,0 +1,13 @@
+{
+  "id": "b8c7a9a7-54f2-4c2f-9d1d-6c6d2e8e4b9a",
+  "queryName": "PSS Restricted Profile (Bundle)",
+  "severity": "CRITICAL",
+  "category": "Pod Security Standards",
+  "descriptionText": "CI gate: require a Kubernetes Pod Security Standards \"restricted\" posture across workloads (no privilege escalation, drop ALL capabilities, no added capabilities, non-root, seccomp RuntimeDefault/Localhost, not Unconfined, not privileged, no host namespaces).",
+  "descriptionUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-pss-bundle-01",
+  "cloudProvider": "common",
+  "cwe": "693",
+  "riskScore": "9.0"
+}

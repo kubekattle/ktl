@@ -46,3 +46,28 @@ func TestEmitDiagnosticsEmitsCacheEvents(t *testing.T) {
 		t.Fatalf("expected second diagnostic to be cache miss, got %s", observer.diags[1].Type)
 	}
 }
+
+func TestEmitDiagnostics_DoesNotCollapseEmptyDigests(t *testing.T) {
+	ch := make(chan *client.SolveStatus)
+	observer := &stubDiagnosticObserver{}
+	done := make(chan struct{})
+
+	go func() {
+		emitDiagnostics(ch, []BuildDiagnosticObserver{observer})
+		close(done)
+	}()
+
+	now := time.Now()
+	ch <- &client.SolveStatus{
+		Vertexes: []*client.Vertex{
+			{Name: "step-1", Completed: &now},
+			{Name: "step-2", Completed: &now},
+		},
+	}
+	close(ch)
+	<-done
+
+	if len(observer.diags) != 2 {
+		t.Fatalf("expected 2 diagnostics, got %d", len(observer.diags))
+	}
+}

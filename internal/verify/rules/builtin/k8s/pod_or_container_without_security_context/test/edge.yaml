@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-has-sc-init-missing
+spec:
+  securityContext:
+    runAsNonRoot: true
+  initContainers:
+    - name: init
+      image: busybox
+      command: ["sh", "-c", "true"]
+      # init container missing securityContext
+  containers:
+    - name: app
+      image: nginx:1.25
+      securityContext:
+        runAsNonRoot: true

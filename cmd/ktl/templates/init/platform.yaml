@@ -1,0 +1,18 @@
+# Example org template for ktl init
+
+build:
+  profile: ci
+  cacheDir: .ktl/cache
+  policyMode: warn
+  sandboxConfig: sandbox/linux-ci.cfg
+
+secrets:
+  defaultProvider: vault
+  providers:
+    vault:
+      type: vault
+      address: https://vault.example.com
+      authMethod: approle
+      authMount: approle
+      mount: secret
+      kvVersion: 2

@@ -1,7 +1,9 @@
-// Package caststream hosts the lightweight remote log “casting” servers used by
-// `ktl logs --ui/--ws-listen`. It mirrors Tailer output to HTML or raw
-// WebSocket clients so responders can follow the same stream without rerunning
-// ktl locally.
+// File: internal/caststream/server.go
+// Brief: Internal caststream package implementation for 'server'.
+
+// Package caststream hosts lightweight remote streaming servers used by ktl.
+// It can expose log streams over WebSocket (e.g. `ktl logs --ws-listen`) and
+// render the deploy viewer HTML shell used by `ktl apply --ui` / `ktl delete --ui`.
 package caststream
 
 import (
@@ -40,7 +42,6 @@ func WithDeployUI() Option {
 		if s == nil {
 			return
 		}
-		s.renderIndex = s.renderDeployIndex
 		s.acceptLogs = false
 		s.acceptDeploy = true
 		if s.deployState == nil {
@@ -49,70 +50,32 @@ func WithDeployUI() Option {
 	}
 }
 
-// WithoutFilters hides the filter/search chrome when rendering the log mirror (used by ktl build UI).
-func WithoutFilters() Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.filtersEnabled = false
-	}
-}
-
-// WithoutClusterInfo hides the contextual subtitle so the log mirror can focus on log content.
-func WithoutClusterInfo() Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.clusterInfo = ""
-	}
-}
-
-// WithoutLogTitle hides the H1 header so embeds can reclaim vertical space.
-func WithoutLogTitle() Option {
-	return func(s *Server) {
-		if s == nil {
-			return
-		}
-		s.logTitle = ""
-	}
-}
-
-// Server exposes a lightweight HTML + WebSocket view of ktl log streams.
+// Server exposes a lightweight HTML + WebSocket view of ktl streams.
 type Server struct {
 	addr           string
 	mode           Mode
 	logger         logr.Logger
 	hub            *hub
 	upgrader       websocket.Upgrader
-	logTitle       string
 	clusterInfo    string
-	renderIndex    func(string) string
-	filtersEnabled bool
 	acceptLogs     bool
 	acceptDeploy   bool
 	deployState    *deployState
-	logTemplate    *template.Template
 	deployTemplate *template.Template
 }
 
 func New(addr string, mode Mode, clusterInfo string, logger logr.Logger, opts ...Option) *Server {
 	server := &Server{
-		addr:           addr,
-		mode:           mode,
-		logger:         logger,
-		hub:            newHub(logger),
-		logTitle:       "ktl Log Mirror",
-		clusterInfo:    clusterInfo,
-		filtersEnabled: true,
-		acceptLogs:     true,
+		addr:        addr,
+		mode:        mode,
+		logger:      logger,
+		hub:         newHub(logger),
+		clusterInfo: clusterInfo,
+		acceptLogs:  true,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
-	server.renderIndex = server.renderLogIndex
-	server.logTemplate = template.Must(template.New("log_mirror").Parse(logMirrorHTML))
 	server.deployTemplate = template.Must(template.New("deploy_viewer").Parse(deployViewerHTML))
 	for _, opt := range opts {
 		if opt != nil {
@@ -177,11 +140,7 @@ func (s *Server) HandleDeployEvent(event deploy.StreamEvent) {
 
 func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	renderer := s.renderIndex
-	if renderer == nil {
-		renderer = s.renderLogIndex
-	}
-	formatted := renderer(template.HTMLEscapeString(s.clusterInfo))
+	formatted := s.renderDeployIndex(template.HTMLEscapeString(s.clusterInfo))
 	_, _ = w.Write([]byte(formatted))
 }
 
@@ -202,26 +161,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type logTemplateData struct {
-	Title          string
-	ClusterInfo    string
-	FiltersEnabled bool
-}
-
 type deployTemplateData struct {
 	ClusterInfo string
-}
-
-func (s *Server) renderLogIndex(info string) string {
-	title := ""
-	if s != nil {
-		title = s.logTitle
-	}
-	return s.renderTemplate(s.logTemplate, logTemplateData{
-		Title:          title,
-		ClusterInfo:    info,
-		FiltersEnabled: s != nil && s.filtersEnabled,
-	})
 }
 
 func (s *Server) renderDeployIndex(info string) string {
@@ -280,6 +221,11 @@ func encodePayload(record tailer.LogRecord) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
+// EncodeLogRecord converts a rendered log record into the JSON payload sent over /ws.
+func EncodeLogRecord(record tailer.LogRecord) ([]byte, error) {
+	return encodePayload(record)
+}
+
 type hub struct {
 	mu      sync.RWMutex
 	clients map[*client]struct{}
@@ -298,9 +244,7 @@ func (h *hub) Register(c *client) {
 
 func (h *hub) Unregister(c *client) {
 	h.mu.Lock()
-	if _, ok := h.clients[c]; ok {
-		delete(h.clients, c)
-	}
+	delete(h.clients, c)
 	h.mu.Unlock()
 	c.Close()
 }
@@ -398,9 +342,6 @@ func (m Mode) String() string {
 
 var (
 	ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-	//go:embed templates/log_mirror.html
-	logMirrorHTML string
 
 	//go:embed templates/deploy_viewer.html
 	deployViewerHTML string

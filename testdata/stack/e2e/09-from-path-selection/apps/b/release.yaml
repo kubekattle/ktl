@@ -1,0 +1,6 @@
+apiVersion: ktl.dev/v1
+kind: Release
+name: e2e09-app-b
+chart: ../../charts/cm
+set: { fixture: "09-app-b" }
+

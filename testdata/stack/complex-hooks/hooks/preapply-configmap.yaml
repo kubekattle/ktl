@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ktl-stack-preapply
+  namespace: __KTL_TEST_NAMESPACE__
+  labels:
+    ktl.dev/e2e: "true"
+data:
+  run: "__KTL_TEST_RUN_ID__"

@@ -88,8 +88,9 @@ func BuildDockerfile(ctx context.Context, opts DockerfileBuildOptions) (*BuildRe
 	cf := buildkitClientFactory{
 		allowFallback: opts.AllowBuilderFallback,
 		logWriter:     opts.ProgressOutput,
+		dockerContext: opts.DockerContext,
 	}
-	c, builderAddr, err := cf.new(clientCtx, builderAddr)
+	c, _, err := cf.new(clientCtx, builderAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -186,8 +187,19 @@ func BuildDockerfile(ctx context.Context, opts DockerfileBuildOptions) (*BuildRe
 		return nil, err
 	}
 	solveOpt.Exports = exports
+	if opts.PhaseEmitter != nil {
+		opts.PhaseEmitter.EmitPhase("solve", "running", "Running BuildKit solve")
+		opts.PhaseEmitter.EmitPhase("export", "running", "Exporting build result")
+		if opts.Push {
+			opts.PhaseEmitter.EmitPhase("push", "running", "Pushing tags")
+		}
+		if opts.LoadToContainerd {
+			opts.PhaseEmitter.EmitPhase("load", "running", "Loading into container runtime")
+		}
+	}
 
-	pw, err := progresswriter.NewPrinter(context.TODO(), opts.ProgressOutput, opts.ProgressMode)
+	// Use the solve context so progress UI respects cancellation/timeouts.
+	pw, err := progresswriter.NewPrinter(clientCtx, opts.ProgressOutput, opts.ProgressMode)
 	if err != nil {
 		return nil, fmt.Errorf("create progress UI: %w", err)
 	}
@@ -215,7 +227,32 @@ func BuildDockerfile(ctx context.Context, opts DockerfileBuildOptions) (*BuildRe
 		err = errors.Join(err, perr)
 	}
 	if err != nil {
+		if opts.PhaseEmitter != nil {
+			msg := err.Error()
+			opts.PhaseEmitter.EmitPhase("solve", "failed", msg)
+			opts.PhaseEmitter.EmitPhase("export", "failed", msg)
+			if opts.Push {
+				opts.PhaseEmitter.EmitPhase("push", "failed", msg)
+			}
+			if opts.LoadToContainerd {
+				opts.PhaseEmitter.EmitPhase("load", "failed", msg)
+			}
+		}
 		return nil, err
+	}
+	if opts.PhaseEmitter != nil {
+		opts.PhaseEmitter.EmitPhase("solve", "completed", "Solve complete")
+		if ociPath != "" {
+			opts.PhaseEmitter.EmitPhase("export", "completed", fmt.Sprintf("OCI layout saved at %s", ociPath))
+		} else {
+			opts.PhaseEmitter.EmitPhase("export", "completed", "Export complete")
+		}
+		if opts.Push {
+			opts.PhaseEmitter.EmitPhase("push", "completed", "Push complete")
+		}
+		if opts.LoadToContainerd {
+			opts.PhaseEmitter.EmitPhase("load", "completed", "Load complete")
+		}
 	}
 
 	digest := resp.ExporterResponse["containerimage.digest"]
@@ -575,6 +612,8 @@ func (d *diagnosticEmitter) consume(status *client.SolveStatus) {
 		var dgst digest.Digest
 		if vertex.Digest != "" {
 			dgst = digest.Digest(vertex.Digest)
+		} else if vertex.Name != "" {
+			dgst = digest.FromString(vertex.Name)
 		}
 		if vertex.Cached {
 			d.emit(BuildDiagnostic{

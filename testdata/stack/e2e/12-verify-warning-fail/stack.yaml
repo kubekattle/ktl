@@ -1,0 +1,18 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-12-verify-warning-fail
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+  verify:
+    enabled: true
+    failOnWarnings: true
+    eventsWindow: 15m
+releases:
+  - name: e2e12-ok
+    chart: ./charts/cm
+    set: { fixture: "12-ok" }
+  - name: e2e12-warn
+    chart: ./charts/warn
+    needs: [e2e12-ok]
+    set: { fixture: "12-warn" }

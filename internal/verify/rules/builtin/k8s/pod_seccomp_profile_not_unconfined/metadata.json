@@ -1,0 +1,13 @@
+{
+  "id": "c0f8c7a8-0c2c-4d5c-9f9a-8f5d4d4f2d01",
+  "queryName": "Workloads Should Not Use seccompProfile.type=Unconfined",
+  "severity": "HIGH",
+  "category": "Pod Security Standards",
+  "descriptionText": "Pods and containers should not set seccompProfile.type to Unconfined.",
+  "descriptionUrl": "https://kubernetes.io/docs/tutorials/security/seccomp/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-pss-06",
+  "cloudProvider": "common",
+  "cwe": "693",
+  "riskScore": "7.0"
+}

@@ -1,0 +1,6 @@
+apiVersion: ktl.dev/v1
+kind: Release
+name: e2e07-a
+chart: ../../charts/cm
+set: { fixture: "07-a" }
+

@@ -1,0 +1,13 @@
+{
+  "id": "4b8cc9cd-6f28-44f1-a1d0-2c58c1a4a2cf",
+  "queryName": "Containers Should Disable Privilege Escalation",
+  "severity": "HIGH",
+  "category": "Pod Security Standards",
+  "descriptionText": "Containers should set securityContext.allowPrivilegeEscalation=false to reduce the risk of privilege escalation.",
+  "descriptionUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-pss-01",
+  "cloudProvider": "common",
+  "cwe": "269",
+  "riskScore": "7.0"
+}

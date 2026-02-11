@@ -1,3 +1,8 @@
+// File: internal/deploy/status.go
+// Brief: Internal deploy package implementation for 'status'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 import (
@@ -20,6 +25,7 @@ type ResourceStatus struct {
 	Name      string `json:"name"`
 	Action    string `json:"action"`
 	Status    string `json:"status"`
+	Reason    string `json:"reason,omitempty"`
 	Message   string `json:"message"`
 }
 
@@ -124,10 +130,10 @@ func podStatus(pod *corev1.Pod) ResourceStatus {
 		rs.Message = "Completed"
 	case corev1.PodFailed:
 		rs.Status = "Failed"
-		rs.Message = describePodFailure(pod)
+		rs.Reason, rs.Message = describePodFailure(pod)
 	case corev1.PodPending:
 		rs.Status = "Pending"
-		rs.Message = renderContainerSummary(pod)
+		rs.Reason, rs.Message = describePodPending(pod)
 	default:
 		rs.Status = string(pod.Status.Phase)
 		rs.Message = renderContainerSummary(pod)
@@ -239,27 +245,67 @@ func renderContainerSummary(pod *corev1.Pod) string {
 	return fmt.Sprintf("%d/%d containers ready", ready, total)
 }
 
-func describePodFailure(pod *corev1.Pod) string {
+func describePodFailure(pod *corev1.Pod) (reason string, message string) {
 	if pod.Status.Message != "" {
-		return pod.Status.Message
+		return strings.TrimSpace(pod.Status.Reason), pod.Status.Message
 	}
 	if pod.Status.Reason != "" {
-		return pod.Status.Reason
+		return strings.TrimSpace(pod.Status.Reason), pod.Status.Reason
 	}
 	for _, cs := range pod.Status.ContainerStatuses {
 		if cs.State.Terminated != nil {
 			state := cs.State.Terminated
 			if state.Message != "" {
-				return state.Message
+				return strings.TrimSpace(state.Reason), state.Message
 			}
 			if state.Reason != "" {
-				return state.Reason
+				return strings.TrimSpace(state.Reason), state.Reason
 			}
-			return fmt.Sprintf("ExitCode %d", state.ExitCode)
+			return "ExitCode", fmt.Sprintf("ExitCode %d", state.ExitCode)
 		}
 		if cs.State.Waiting != nil && cs.State.Waiting.Message != "" {
-			return cs.State.Waiting.Message
+			return strings.TrimSpace(cs.State.Waiting.Reason), cs.State.Waiting.Message
 		}
 	}
-	return "Pod failed"
+	return "", "Pod failed"
+}
+
+func describePodPending(pod *corev1.Pod) (reason string, message string) {
+	if pod == nil {
+		return "", "pending"
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse {
+			if strings.TrimSpace(cond.Reason) != "" || strings.TrimSpace(cond.Message) != "" {
+				return strings.TrimSpace(cond.Reason), strings.TrimSpace(cond.Message)
+			}
+		}
+	}
+	// Prefer explicit container waiting reasons over a generic ready count.
+	type wait struct {
+		reason  string
+		message string
+	}
+	pick := func(cs corev1.ContainerStatus) *wait {
+		if cs.State.Waiting == nil {
+			return nil
+		}
+		r := strings.TrimSpace(cs.State.Waiting.Reason)
+		m := strings.TrimSpace(cs.State.Waiting.Message)
+		if r == "" && m == "" {
+			return nil
+		}
+		return &wait{reason: r, message: m}
+	}
+	for _, cs := range pod.Status.InitContainerStatuses {
+		if w := pick(cs); w != nil {
+			return w.reason, w.message
+		}
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if w := pick(cs); w != nil {
+			return w.reason, w.message
+		}
+	}
+	return "", renderContainerSummary(pod)
 }

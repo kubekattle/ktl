@@ -1,0 +1,17 @@
+version: v1
+
+target:
+  kind: manifest
+  # Relative to this file.
+  manifest: resources.yaml
+
+verify:
+  mode: warn
+  failOn: high
+  # Includes a CRITICAL rule (host namespace isolation).
+  rulesDir: rules
+
+output:
+  format: table
+  report: "-"
+

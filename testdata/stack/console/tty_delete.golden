@@ -1,0 +1,6 @@
+\x1b[1mpayments • delete • runId=r-999 • totals ok=0 fail=0 blocked=1 running=1 • concurrency 2/1 • elapsed 9.9s\x1b[0m
+Node                                       Status       Att Phase                Note
+------------------------------------------------------------------------------------------------------------------------
+dev/a                                      \x1b[2m· PLANNED   \x1b[0m   0 -
+dev/b                                      \x1b[34;1m▶ RUNNING   \x1b[0m   1 delete (8.7s)
+dev/c                                      \x1b[33m⏸ BLOCKED   \x1b[0m   1 -                    blocked by dependency failure: dev/b

@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/pod_fs_group_recommended",
+    "severity": "info",
+    "category": "Pod Security Standards",
+    "message": "Recommend setting pod securityContext.fsGroup to a non-zero GID for volume file ownership defaults.",
+    "fieldPath": "spec.securityContext.fsGroup",
+    "location": "metadata.name={{edge}}.spec.securityContext.fsGroup",
+    "resourceKey": "cluster/Pod/edge",
+    "expected": "fsGroup should be non-zero",
+    "observed": "fsGroup is 0",
+    "subject": {
+      "kind": "Pod",
+      "name": "edge"
+    },
+    "fingerprint": "k8s/pod_fs_group_recommended:cluster/Pod/edge:metadata.name={{edge}}.spec.securityContext.fsGroup",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.securityContext.fsGroup",
+      "kind": "Pod",
+      "name": "edge"
+    }
+  }
+]

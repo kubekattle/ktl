@@ -1,0 +1,13 @@
+{
+  "id": "4d4b4f86-52b9-4b0a-a5b5-8bb51b6cf0c4",
+  "queryName": "Deployments With 3+ Replicas Should Have a Matching PDB (Recommended)",
+  "severity": "INFO",
+  "category": "Availability",
+  "descriptionText": "Deployments with 3 or more replicas should consider a PodDisruptionBudget. This rule only checks within the same manifest render.",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/run-application/configure-pdb/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-avail-01",
+  "cloudProvider": "common",
+  "cwe": "0",
+  "riskScore": "2.0"
+}

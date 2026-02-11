@@ -1,3 +1,8 @@
+// File: internal/featureflags/featureflags.go
+// Brief: Internal featureflags package implementation for 'featureflags'.
+
+// Package featureflags provides featureflags helpers.
+
 package featureflags
 
 import (
@@ -22,7 +27,7 @@ const (
 type Name string
 
 const (
-	// FeatureDeployPlanHTMLV3 guards the in-progress deploy plan visualization refresh.
+	// FeatureDeployPlanHTMLV3 guards the in-progress plan visualization refresh.
 	FeatureDeployPlanHTMLV3 Name = "deploy-plan-html-v3"
 )
 
@@ -37,7 +42,7 @@ type Definition struct {
 var registry = map[Name]Definition{
 	FeatureDeployPlanHTMLV3: {
 		Name:        FeatureDeployPlanHTMLV3,
-		Description: "Switch deploy plan visualize output to the v3 UI components.",
+		Description: "Switch ktl apply plan visualize output to the v3 UI components.",
 		Stage:       StageExperimental,
 		Default:     false,
 	},

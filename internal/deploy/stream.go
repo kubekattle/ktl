@@ -1,3 +1,8 @@
+// File: internal/deploy/stream.go
+// Brief: Internal deploy package implementation for 'stream'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 import (
@@ -7,7 +12,11 @@ import (
 	"time"
 
 	"github.com/example/ktl/internal/tailer"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
+
+var statusTitleCaser = cases.Title(language.Und, cases.NoLower)
 
 // StreamEventKind enumerates the payload types used by the deploy webcast.
 type StreamEventKind string
@@ -91,6 +100,7 @@ type SummaryPayload struct {
 	PhaseDurations map[string]string   `json:"phaseDurations,omitempty"`
 	History        []HistoryBreadcrumb `json:"history,omitempty"`
 	LastSuccessful *HistoryBreadcrumb  `json:"lastSuccessful,omitempty"`
+	Secrets        []SecretRef         `json:"secrets,omitempty"`
 }
 
 // HealthSnapshot aggregates readiness stats for the release.
@@ -484,5 +494,5 @@ func buildResourceLogMessage(row ResourceStatus, status, message string) string 
 	if status == "" {
 		status = "pending"
 	}
-	return fmt.Sprintf("%s: %s", target, strings.Title(status))
+	return fmt.Sprintf("%s: %s", target, statusTitleCaser.String(status))
 }

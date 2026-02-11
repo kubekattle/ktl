@@ -1,6 +1,6 @@
 # Frontend Style Book
 
-Reference manual for every HTML-based `ktl` surface (current `ktl diag report --html`, drift reviews, live timelines, capture replays). Keep this doc open while designing or implementing UI changes, and update it first when the system evolves.
+Reference manual for every HTML-based `ktl` surface (current `ktl apply --ui`, `ktl delete --ui`, and `ktl apply plan --format=html --visualize`). Keep this doc open while designing or implementing UI changes, and update it first when the system evolves.
 
 ---
 
@@ -118,19 +118,13 @@ Reference manual for every HTML-based `ktl` surface (current `ktl diag report --
 ### 3.6 Toast (`#copyToast.toast`)
 - Shared copy-to-clipboard feedback. Toggle `.visible` for <2s messages; reuse instead of inventing new toast patterns.
 
-### 3.7 Log / Build Mirror Filters
+### 3.7 Log Stream Filters
 - Filters live in their own panel above the log stream. The log panel itself should only contain the feed; labels such as “Live log stream” or running counts belong in supporting copy, not above every entry.
 - The search input is additive: pressing `Enter` (or submitting while focused) turns the current text into a removable `.chip-button` rendered inside `#searchChipTray`. Each chip represents exactly one matcher (e.g., `ns:prod` or `!error`) and clicking the chip removes the filter.
 - Namespace and pod filters reuse `.chip-stack` containers. Headings stay uppercase (“NAMESPACES”, “PODS”) with the right-hand meta reading `X ACTIVE` or `Y SELECTED`.
 - Never auto-focus the search input when the page loads; mobile users need to scroll without triggering the keyboard.
 - The log viewer auto-scrolls only while the reader is pinned to the bottom. As soon as they scroll upward, freeze the feed and reveal the `.follow-indicator` icon-only toggle (down-arrow glyph with an `.sr-only` label) at the bottom-right of the panel. Clicking the toggle (or manually returning to the tail) reenables auto-follow and hides the control.
 - Keep the `.log-panel` layout as a flex column: feed first, follow indicator second. This guarantees keyboard/screen-reader users encounter the latest entry list before the optional button.
-- The filter drawer collapses by default. `#filterToggle` owns the `body.filters-collapsed` class; it’s visible for log mirrors and hidden entirely for build mirrors (search stays pinned open there).
-- When `ktl build --ui` sets `data-filters-enabled="false"`, strip the extra chrome (filter headings, hint copy, namespace/pod chip stacks) but keep the search box + chip tray. Build mirrors should literally render “logs + search” so livestream viewers aren’t distracted by pod counters.
-- Build mirrors surface `.build-metrics` chips (Cache hits / Cache misses / Elapsed) directly under the feed. Update hits/misses as diagnostics arrive, parse JSON `summary` lines when present, and keep the elapsed timer running until `build finished in …` lands.
-- Add a color-coded status pill alongside the elapsed chip (`Building` blue, `Success` green, `Failed` red). Update it off the same `Build finished/failed` diagnostics so observers know the build state at a glance, and when the build fails, set the pill’s tooltip/aria-label to the offending vertex or summary message so responders don’t need to scan the feed.
-- Vertex pills (`.graph-node-pill`) mirror build steps. Completed nodes use a low-contrast brushed-metal gradient (light silver, charcoal border, subtle inset highlight) so they read as tactile but flatter than the timeline scrubber.
-- Provide a pop-out control in the header (icon-only button). Clicking it opens the same webcast with `?popout=1`, which hides the header/filter chrome and stretches the log panel so responders can dock a distraction-free tail window on another monitor.
 - Line counters and summaries were intentionally removed from the log chrome. Keep the wording minimal so responders can focus on the tail.
 
 ### 3.8 Deploy Viewer Panels
@@ -144,7 +138,7 @@ Reference manual for every HTML-based `ktl` surface (current `ktl diag report --
 
 | Pattern | Description | Implementation Notes |
 | --- | --- | --- |
-| Filter search | Live filtering across pods/resources/log lines. | Dedicated filter panel hosts the search input. Pressing `Enter` adds a removable chip (`.chip-button`) to `#searchChipTray`; chips reuse `buildSearchToken()` so prefixes like `ns:`/`pod:` behave the same across logs/builds. |
+| Filter search | Live filtering across pods/resources/log lines. | Dedicated filter panel hosts the search input. Pressing `Enter` adds a removable chip (`.chip-button`) to `#searchChipTray`; chips reuse `buildSearchToken()` so prefixes like `ns:`/`pod:` behave the same across viewers. |
 | Chip filters | Multi-select toggles for readiness, namespaces, severities. | Chips carry `data-filter-chip`; active chips mutate shared `filterState`. |
 | Budget widget filter | Single-select focus on namespace groups/app tiers. | Widgets populate `data-namespaces` strings; `applyFilters()` handles highlighting. |
 | Score drilldown | Expandable `<details>` block for supporting bullets/history. | One chevron trigger per card, `.sr-only` summary text required. |
@@ -184,6 +178,6 @@ Add new patterns to this table with a terse description + implementation hook be
 2. Are new components anchored inside `.panel`/`.insight-panel` and registered in Section 3?
 3. Did you update Interaction Patterns or Accessibility rules if behavior changed?
 4. Are print/export rules accurate for the new component?
-5. Have you run the relevant visual tests (manual `ktl diag report --html`, screenshot diffs) and noted them in your PR?
+5. Have you run the relevant visual tests (manual `ktl apply --ui` / `ktl delete --ui`, `ktl apply plan --format=html --visualize`, screenshot diffs) and noted them in your PR?
 
 Only merge once every question above can be answered “yes” or the rationale is recorded here.

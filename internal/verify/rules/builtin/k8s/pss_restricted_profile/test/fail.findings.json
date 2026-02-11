@@ -1,0 +1,41 @@
+[
+  {
+    "ruleId": "k8s/pss_restricted_profile",
+    "severity": "critical",
+    "category": "Pod Security Standards",
+    "message": "PSS restricted profile failed: ape, drop_all, run_as_non_root, seccomp, host_namespaces",
+    "fieldPath": "spec",
+    "location": "metadata.name={{bad}}.spec",
+    "resourceKey": "cluster/Pod/bad",
+    "expected": "restricted profile requirements met",
+    "observed": "PSS restricted profile failed: ape, drop_all, run_as_non_root, seccomp, host_namespaces",
+    "subject": {
+      "kind": "Pod",
+      "name": "bad"
+    },
+    "fingerprint": "k8s/pss_restricted_profile:cluster/Pod/bad:metadata.name={{bad}}.spec",
+    "helpUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+    "evidence": {
+      "checksFailed": [
+        "ape",
+        "drop_all",
+        "run_as_non_root",
+        "seccomp",
+        "host_namespaces"
+      ],
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app",
+          "securityContext": {
+            "allowPrivilegeEscalation": true
+          }
+        }
+      ],
+      "fieldPath": "spec",
+      "hostNetwork": true,
+      "kind": "Pod",
+      "name": "bad"
+    }
+  }
+]

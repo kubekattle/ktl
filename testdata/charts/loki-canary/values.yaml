@@ -103,7 +103,7 @@ extraVolumeMounts: []
 extraVolumes: []
 
 # -- The Loki server URL:Port, e.g. loki:3100
-lokiAddress: null
+lokiAddress: http://loki:3100
 
 # Basic auth configuration
 basicAuth:

@@ -1,0 +1,11 @@
+\x1b[1mpayments • apply • runId=r-helm-1 • totals o=1 f=0 b=0 r=1 • conc 2/1 • elapsed 2.2s • hl n=2 l=5 t=3\x1b[0m
+Node                                       Status       Att Phase                Note
+------------------------------------------------------------------------------------------------------------------------
+dev/a                                      \x1b[32;1m✓ SUCCEEDED \x1b[0m   1 -
+dev/b                                      \x1b[34;1m▶ RUNNING   \x1b[0m   1 - (0s)
+dev/c                                      \x1b[2m· PLANNED   \x1b[0m   0 -
+\x1b[2;1mHELM LOGS\x1b[0m
+\x1b[34;1m▶ RUNNING\x1b[0m \x1b[2;1m─ dev/ns/ns-b/b · a1\x1b[0m
+\x1b[2m  │ 03:04:07.200 getting history for release b\x1b[0m
+\x1b[2m  │ 03:04:07.200 performing update\x1b[0m
+\x1b[2m  │ 03:04:07.200 waiting for resources\x1b[0m

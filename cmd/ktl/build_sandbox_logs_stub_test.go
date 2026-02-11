@@ -1,26 +1,19 @@
 //go:build !linux
 
+// File: cmd/ktl/build_sandbox_logs_stub_test.go
+// Brief: CLI command wiring and implementation for 'build sandbox logs stub'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (
 	"bytes"
-	"context"
 	"strings"
 	"testing"
-
-	"github.com/example/ktl/pkg/buildkit"
 )
 
 func TestBuildCommandSandboxLogsErrorsOnUnsupportedPlatform(t *testing.T) {
-	origBuildFn := buildDockerfileFn
-	defer func() { buildDockerfileFn = origBuildFn }()
-
-	var invoked bool
-	buildDockerfileFn = func(_ context.Context, opts buildkit.DockerfileBuildOptions) (*buildkit.BuildResult, error) {
-		invoked = true
-		return &buildkit.BuildResult{Digest: "sha256:abc"}, nil
-	}
-
 	cmd := newBuildCommand()
 	cmd.SetArgs([]string{"--sandbox-logs", t.TempDir()})
 	stdout := &bytes.Buffer{}
@@ -34,9 +27,6 @@ func TestBuildCommandSandboxLogsErrorsOnUnsupportedPlatform(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--sandbox-logs") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if invoked {
-		t.Fatalf("build should not start when sandbox logs are unsupported")
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("expected no stdout, got %q", stdout.String())

@@ -16,9 +16,9 @@ import (
 	"github.com/containerd/console"
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
+	"github.com/example/ktl/internal/csvutil"
 	"github.com/example/ktl/pkg/buildkit"
 	"github.com/example/ktl/pkg/registry"
-	csvvalue "github.com/tonistiigi/go-csvvalue"
 )
 
 type (
@@ -37,6 +37,8 @@ type ComposeBuildOptions struct {
 	BuilderAddr          string
 	AllowBuilderFallback bool
 	CacheDir             string
+	Hermetic             bool
+	AllowUnpinnedBases   bool
 	Push                 bool
 	Load                 bool
 	NoCache              bool
@@ -177,7 +179,9 @@ func collectBuildableServices(project *composetypes.Project, requested []string)
 		}
 		svc, err := project.GetService(name)
 		if err != nil {
-			return err
+			available := append([]string(nil), project.ServiceNames()...)
+			sort.Strings(available)
+			return fmt.Errorf("unknown compose service %q (available: %s): %w", name, strings.Join(available, ", "), err)
 		}
 		visited[name] = true
 		for dep := range svc.DependsOn {
@@ -360,6 +364,11 @@ func (r *composeRunner) buildComposeService(ctx context.Context, project *compos
 	if inlinePath != "" {
 		defer os.Remove(inlinePath)
 	}
+	if opts.Hermetic {
+		if err := validatePinnedBaseImagesWithOptions(dockerfilePath, opts.AllowUnpinnedBases); err != nil {
+			return ServiceBuildResult{}, fmt.Errorf("service %s: %w", name, err)
+		}
+	}
 
 	servicePlatforms := sliceFromStringList(svc.Build.Platforms)
 	if len(servicePlatforms) == 0 {
@@ -473,6 +482,10 @@ func loadComposeProject(opts ComposeBuildOptions) (*composetypes.Project, error)
 	}
 
 	workingDir := filepath.Dir(opts.Files[0])
+	projectName := strings.TrimSpace(opts.ProjectName)
+	if projectName == "" {
+		projectName = defaultProjectName(workingDir)
+	}
 
 	details := composetypes.ConfigDetails{
 		WorkingDir:  workingDir,
@@ -481,9 +494,7 @@ func loadComposeProject(opts ComposeBuildOptions) (*composetypes.Project, error)
 	}
 
 	project, err := loader.Load(details, func(o *loader.Options) {
-		if opts.ProjectName != "" {
-			o.SetProjectName(opts.ProjectName, true)
-		}
+		o.SetProjectName(projectName, true)
 		if len(opts.Profiles) > 0 {
 			o.Profiles = append(o.Profiles, opts.Profiles...)
 		}
@@ -492,6 +503,37 @@ func loadComposeProject(opts ComposeBuildOptions) (*composetypes.Project, error)
 		return nil, err
 	}
 	return project, nil
+}
+
+func defaultProjectName(workingDir string) string {
+	base := filepath.Base(strings.TrimSpace(workingDir))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		base = "ktl"
+	}
+	base = strings.ToLower(base)
+	var b strings.Builder
+	b.Grow(len(base))
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_' || r == '-':
+			b.WriteRune(r)
+		default:
+			// skip
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return "ktl"
+	}
+	first := out[0]
+	if (first < 'a' || first > 'z') && (first < '0' || first > '9') {
+		return "ktl-" + out
+	}
+	return out
 }
 
 func absolutePaths(paths []string) ([]string, error) {
@@ -566,18 +608,22 @@ func parseCacheSpecsFromList(list composetypes.StringList) ([]CacheSpec, error) 
 }
 
 func parseCacheSpecString(value string) (CacheSpec, error) {
-	fields, err := csvvalue.Fields(value, nil)
+	fields, err := csvutil.SplitFields(value)
 	if err != nil {
 		return CacheSpec{}, err
 	}
 	spec := CacheSpec{Attrs: map[string]string{}}
 	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
 		key, val, ok := strings.Cut(field, "=")
 		if !ok {
 			if spec.Type == "" {
-				spec.Type = strings.TrimSpace(field)
+				spec.Type = field
 			} else {
-				spec.Attrs[strings.TrimSpace(field)] = ""
+				spec.Attrs[field] = ""
 			}
 			continue
 		}

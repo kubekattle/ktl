@@ -1143,6 +1143,14 @@ memcached-metadata:
 minio:
   enabled: true
   accessKey: enterprise-metrics
+  tls:
+    enabled: false
+  mcImage:
+    repository: minio/mc
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    port: 9000
   buckets:
     - name: enterprise-metrics-tsdb
       policy: none

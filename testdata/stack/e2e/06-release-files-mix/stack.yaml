@@ -1,0 +1,11 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-06-release-files-mix
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2e06-inline
+    chart: ./charts/cm
+    set: { fixture: "06-inline" }
+

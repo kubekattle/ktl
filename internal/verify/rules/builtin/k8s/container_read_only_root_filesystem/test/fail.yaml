@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: writable-root
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25
+      securityContext:
+        readOnlyRootFilesystem: false

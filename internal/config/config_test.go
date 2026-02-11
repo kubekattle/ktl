@@ -1,3 +1,6 @@
+// File: internal/config/config_test.go
+// Brief: Internal config package implementation for 'config'.
+
 // config_test.go verifies Options parsing, validation, and template helpers for ktl logs flags.
 package config
 

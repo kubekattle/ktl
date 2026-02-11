@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/pod_seccomp_profile_not_unconfined",
+    "severity": "high",
+    "category": "Pod Security Standards",
+    "message": "Pods and containers should not set seccompProfile.type to Unconfined.",
+    "fieldPath": "spec.securityContext.seccompProfile.type",
+    "location": "metadata.name={{bad}}.spec.securityContext.seccompProfile.type",
+    "resourceKey": "cluster/Pod/bad",
+    "expected": "seccompProfile.type should not be Unconfined",
+    "observed": "seccompProfile.type is Unconfined",
+    "subject": {
+      "kind": "Pod",
+      "name": "bad"
+    },
+    "fingerprint": "k8s/pod_seccomp_profile_not_unconfined:cluster/Pod/bad:metadata.name={{bad}}.spec.securityContext.seccompProfile.type",
+    "helpUrl": "https://kubernetes.io/docs/tutorials/security/seccomp/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.securityContext.seccompProfile.type",
+      "kind": "Pod",
+      "name": "bad"
+    }
+  }
+]

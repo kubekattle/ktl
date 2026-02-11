@@ -1,3 +1,8 @@
+// File: cmd/ktl/build_login_test.go
+// Brief: CLI command wiring and implementation for 'build login'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

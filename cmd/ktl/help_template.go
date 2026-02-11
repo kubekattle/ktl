@@ -1,3 +1,6 @@
+// File: cmd/ktl/help_template.go
+// Brief: CLI command wiring and implementation for 'help template'.
+
 // help_template.go customizes Cobra's help/usage templates so ktl commands share concise, branded flag sections.
 package main
 
@@ -21,8 +24,8 @@ const commandHelpTemplate = `{{with or .Long .Short}}{{. | trimTrailingWhitespac
 Usage:
   {{.UseLine}}
 
-{{if .HasAvailableSubCommands}}Subcommands:
-{{range .Commands}}{{if (and .IsAvailableCommand (ne .Name "help"))}}  {{rpad .Name .NamePadding}} {{.Short}}
+{{if hasNonHelpSubcommands .}}Subcommands:
+{{range .Commands}}{{if (and (ne .Name "help") (not .Hidden))}}  {{rpad .Name .NamePadding}} {{.Short}}
 {{end}}{{end}}
 
 {{end}}
@@ -36,8 +39,9 @@ Usage:
 {{$local}}:
 {{if .HasAvailableFlags}}{{with index .Annotations "localFlagUsages"}}{{.}}{{else}}{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{else}}  (none){{end}}
 
-{{- $hideInherited := and .Annotations (eq (index .Annotations "showInheritedFlags") "false") -}}
-{{if and .HasAvailableInheritedFlags (not $hideInherited)}}Global Flags (inherited from ktl):
+{{ $hideInherited := and .Annotations (eq (index .Annotations "showInheritedFlags") "false") }}
+{{if and .HasAvailableInheritedFlags (not $hideInherited)}}
+Global Flags:
 {{with index .Annotations "inheritedFlagUsages"}}{{.}}{{else}}{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}
 {{end}}
 `
@@ -115,11 +119,21 @@ func shouldShowInheritedFlags(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
 	}
-	if cmd.LocalFlags().NFlag() > 0 {
-		return true
+	if cmd.Annotations != nil {
+		// Allow specific commands to opt-in/out:
+		// - "false" always hides inherited flags
+		// - "true" always shows inherited flags (even for subcommands)
+		if strings.EqualFold(cmd.Annotations[showInheritedKey], "false") {
+			return false
+		}
+		if strings.EqualFold(cmd.Annotations[showInheritedKey], "true") {
+			return true
+		}
 	}
-	if cmd.InheritedFlags().NFlag() > 0 {
-		return true
+	// Only show inherited global flags on the root help output to keep subcommand
+	// help focused and script-friendly.
+	if cmd.Parent() != nil {
+		return false
 	}
-	return false
+	return cmd.HasAvailableInheritedFlags()
 }

@@ -1,0 +1,11 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-x2-missing-dep
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2ex2-app
+    chart: ./charts/cm
+    needs: [e2ex2-db]
+

@@ -1,3 +1,8 @@
+// File: internal/caststream/deploy_state.go
+// Brief: Internal caststream package implementation for 'deploy state'.
+
+// Package caststream provides caststream helpers.
+
 package caststream
 
 import (
@@ -183,6 +188,9 @@ func cloneStreamEvent(event deploy.StreamEvent) deploy.StreamEvent {
 		if event.Summary.LastSuccessful != nil {
 			last := *event.Summary.LastSuccessful
 			cp.LastSuccessful = &last
+		}
+		if len(event.Summary.Secrets) > 0 {
+			cp.Secrets = append([]deploy.SecretRef(nil), event.Summary.Secrets...)
 		}
 		cloned.Summary = &cp
 	}

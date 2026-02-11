@@ -1,0 +1,14 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-x1-cycle
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2ex1-a
+    chart: ./charts/cm
+    needs: [e2ex1-b]
+  - name: e2ex1-b
+    chart: ./charts/cm
+    needs: [e2ex1-a]
+

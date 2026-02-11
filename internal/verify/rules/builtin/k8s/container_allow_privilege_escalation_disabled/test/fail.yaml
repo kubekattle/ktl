@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25
+      # missing allowPrivilegeEscalation -> treated as true
+      securityContext:
+        runAsNonRoot: true

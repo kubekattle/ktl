@@ -1,0 +1,13 @@
+{
+  "id": "2c08f0f0-6ad7-4d55-9f7e-33c55c3e2c01",
+  "queryName": "ClusterRoles Should Not Use Wildcards",
+  "severity": "HIGH",
+  "category": "RBAC",
+  "descriptionText": "ClusterRoles should not grant wildcard verbs or resources (e.g. '*' in verbs/resources). Prefer least-privilege RBAC.",
+  "descriptionUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-rbac-01",
+  "cloudProvider": "common",
+  "cwe": "284",
+  "riskScore": "7.5"
+}

@@ -1,0 +1,104 @@
+[
+  {
+    "ruleId": "k8s/container_image_tag_latest",
+    "severity": "medium",
+    "category": "Supply Chain",
+    "message": "Container images should be pinned to a specific tag or digest instead of using :latest or an implicit latest tag.",
+    "fieldPath": "spec.containers.0.image",
+    "location": "metadata.name={{unpinned-images}}.spec.containers.name={{app}}.image",
+    "resourceKey": "default/Pod/unpinned-images",
+    "expected": "metadata.name={{unpinned-images}}.spec.containers.name={{app}}.image should be pinned to a tag or digest",
+    "observed": "metadata.name={{unpinned-images}}.spec.containers.name={{app}}.image is nginx",
+    "subject": {
+      "kind": "Pod",
+      "namespace": "default",
+      "name": "unpinned-images"
+    },
+    "fingerprint": "k8s/container_image_tag_latest:default/Pod/unpinned-images:metadata.name={{unpinned-images}}.spec.containers.name={{app}}.image",
+    "helpUrl": "https://kubernetes.io/docs/concepts/containers/images/#image-names",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx",
+          "name": "app"
+        },
+        {
+          "image": "alpine:latest",
+          "name": "sidecar"
+        }
+      ],
+      "fieldPath": "spec.containers.0.image",
+      "kind": "Pod",
+      "name": "unpinned-images",
+      "namespace": "default"
+    }
+  },
+  {
+    "ruleId": "k8s/container_image_tag_latest",
+    "severity": "medium",
+    "category": "Supply Chain",
+    "message": "Container images should be pinned to a specific tag or digest instead of using :latest or an implicit latest tag.",
+    "fieldPath": "spec.containers.1.image",
+    "location": "metadata.name={{unpinned-images}}.spec.containers.name={{sidecar}}.image",
+    "resourceKey": "default/Pod/unpinned-images",
+    "expected": "metadata.name={{unpinned-images}}.spec.containers.name={{sidecar}}.image should be pinned to a tag or digest",
+    "observed": "metadata.name={{unpinned-images}}.spec.containers.name={{sidecar}}.image is alpine:latest",
+    "subject": {
+      "kind": "Pod",
+      "namespace": "default",
+      "name": "unpinned-images"
+    },
+    "fingerprint": "k8s/container_image_tag_latest:default/Pod/unpinned-images:metadata.name={{unpinned-images}}.spec.containers.name={{sidecar}}.image",
+    "helpUrl": "https://kubernetes.io/docs/concepts/containers/images/#image-names",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx",
+          "name": "app"
+        },
+        {
+          "image": "alpine:latest",
+          "name": "sidecar"
+        }
+      ],
+      "fieldPath": "spec.containers.1.image",
+      "kind": "Pod",
+      "name": "unpinned-images",
+      "namespace": "default"
+    }
+  },
+  {
+    "ruleId": "k8s/container_image_tag_latest",
+    "severity": "medium",
+    "category": "Supply Chain",
+    "message": "Container images should be pinned to a specific tag or digest instead of using :latest or an implicit latest tag.",
+    "fieldPath": "spec.initContainers.0.image",
+    "location": "metadata.name={{unpinned-images}}.spec.initContainers.name={{init}}.image",
+    "resourceKey": "default/Pod/unpinned-images",
+    "expected": "metadata.name={{unpinned-images}}.spec.initContainers.name={{init}}.image should be pinned to a tag or digest",
+    "observed": "metadata.name={{unpinned-images}}.spec.initContainers.name={{init}}.image is busybox",
+    "subject": {
+      "kind": "Pod",
+      "namespace": "default",
+      "name": "unpinned-images"
+    },
+    "fingerprint": "k8s/container_image_tag_latest:default/Pod/unpinned-images:metadata.name={{unpinned-images}}.spec.initContainers.name={{init}}.image",
+    "helpUrl": "https://kubernetes.io/docs/concepts/containers/images/#image-names",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx",
+          "name": "app"
+        },
+        {
+          "image": "alpine:latest",
+          "name": "sidecar"
+        }
+      ],
+      "fieldPath": "spec.initContainers.0.image",
+      "kind": "Pod",
+      "name": "unpinned-images",
+      "namespace": "default"
+    }
+  }
+]

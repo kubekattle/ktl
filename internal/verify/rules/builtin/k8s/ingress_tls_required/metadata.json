@@ -1,0 +1,13 @@
+{
+  "id": "f8a8c5b2-25f2-4f4e-a2f8-78b0b3d54244",
+  "queryName": "Ingress Should Configure TLS",
+  "severity": "MEDIUM",
+  "category": "Network",
+  "descriptionText": "Ingress resources should configure TLS (spec.tls) to avoid serving traffic over plain HTTP.",
+  "descriptionUrl": "https://kubernetes.io/docs/concepts/services-networking/ingress/#tls",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-net-01",
+  "cloudProvider": "common",
+  "cwe": "319",
+  "riskScore": "5.8"
+}

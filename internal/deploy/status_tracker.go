@@ -1,3 +1,8 @@
+// File: internal/deploy/status_tracker.go
+// Brief: Internal deploy package implementation for 'status tracker'.
+
+// Package deploy provides deploy helpers.
+
 package deploy
 
 import (
@@ -35,6 +40,14 @@ type ResourceTracker struct {
 	updateFn         StatusUpdateFunc
 	targets          []resourceTarget
 	namespaces       []string
+}
+
+// Snapshot returns a point-in-time status listing without starting the tracker loop.
+func (t *ResourceTracker) Snapshot(ctx context.Context) []ResourceStatus {
+	if t == nil {
+		return nil
+	}
+	return t.collect(ctx)
 }
 
 // NewResourceTracker constructs a tracker for the given release.

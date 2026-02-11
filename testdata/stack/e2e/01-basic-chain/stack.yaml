@@ -1,0 +1,15 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-01-basic-chain
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2e01-base
+    chart: ./charts/cm
+    set: { fixture: "01-base" }
+  - name: e2e01-dependent
+    chart: ./charts/cm
+    needs: [e2e01-base]
+    set: { fixture: "01-dependent" }
+

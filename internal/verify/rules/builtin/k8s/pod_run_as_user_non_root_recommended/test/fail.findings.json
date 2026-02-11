@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/pod_run_as_user_non_root_recommended",
+    "severity": "info",
+    "category": "Pod Security Standards",
+    "message": "Recommend setting securityContext.runAsUser to a non-zero UID (defense in depth).",
+    "fieldPath": "spec.securityContext.runAsUser",
+    "location": "metadata.name={{bad}}.spec.securityContext.runAsUser",
+    "resourceKey": "cluster/Pod/bad",
+    "expected": "runAsUser should be set to a non-zero UID",
+    "observed": "runAsUser is undefined",
+    "subject": {
+      "kind": "Pod",
+      "name": "bad"
+    },
+    "fingerprint": "k8s/pod_run_as_user_non_root_recommended:cluster/Pod/bad:metadata.name={{bad}}.spec.securityContext.runAsUser",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.securityContext.runAsUser",
+      "kind": "Pod",
+      "name": "bad"
+    }
+  }
+]

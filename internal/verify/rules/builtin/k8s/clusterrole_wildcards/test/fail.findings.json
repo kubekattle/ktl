@@ -1,0 +1,24 @@
+[
+  {
+    "ruleId": "k8s/clusterrole_wildcards",
+    "severity": "high",
+    "category": "RBAC",
+    "message": "ClusterRoles should not grant wildcard verbs or resources (e.g. '*' in verbs/resources). Prefer least-privilege RBAC.",
+    "fieldPath": "rules.0.resources",
+    "location": "metadata.name={{admin-everything}}.rules",
+    "resourceKey": "cluster/ClusterRole/admin-everything",
+    "expected": "metadata.name={{admin-everything}}.rules[0].resources should not include '*'",
+    "observed": "metadata.name={{admin-everything}}.rules[0].resources includes '*'",
+    "subject": {
+      "kind": "ClusterRole",
+      "name": "admin-everything"
+    },
+    "fingerprint": "k8s/clusterrole_wildcards:cluster/ClusterRole/admin-everything:metadata.name={{admin-everything}}.rules",
+    "helpUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+    "evidence": {
+      "fieldPath": "rules.0.resources",
+      "kind": "ClusterRole",
+      "name": "admin-everything"
+    }
+  }
+]

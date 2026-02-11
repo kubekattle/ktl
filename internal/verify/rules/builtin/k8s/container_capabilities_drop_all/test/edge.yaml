@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: edge
+spec:
+  initContainers:
+    - name: init
+      image: busybox
+      command: ["sh", "-c", "true"]
+      # missing capabilities.drop
+  containers:
+    - name: app
+      image: nginx:1.25
+      securityContext:
+        capabilities:
+          drop: ["ALL"]

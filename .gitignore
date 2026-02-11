@@ -1,5 +1,28 @@
 bin/*
 ktl-report-*
+ktl-capture-*.sqlite
+ktl-capture-*.sqlite-wal
+ktl-capture-*.sqlite-shm
 testdata/build/dockerfile/dist/*
 dist/
+*.deb
+*.rpm
 .DS_Store
+
+# ktl local state
+.ktl/
+# temp verify binaries/logs
+/tmp/verify_*.tmp
+/tmp/v.yaml
+# go build caches (local)
+*.test
+*.out
+# ktl local state
+.ktl/
+
+.bin/
+/ktl
+kubeconfig-lab
+
+# Trae IDE config
+.trae/

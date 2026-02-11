@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ktl Deploy Visualize</title>
+  <title>ktl Apply Plan Visualize</title>
   <style>
     :root {
       color-scheme: light;
@@ -36,7 +36,8 @@
       margin-top:32px;
       align-items:flex-start;
       width:100%;
-      flex-wrap:wrap;
+      flex-direction:column;
+      flex-wrap:nowrap;
     }
     .panel {
       background:var(--surface);
@@ -62,19 +63,21 @@
     }
     .hero-panel > * { position:relative; }
     .tree-panel {
-      flex:0 1 360px;
-      min-height:520px;
+      flex:0 0 auto;
+      width:100%;
+      min-height:auto;
       display:flex;
       flex-direction:column;
       gap:20px;
       position:relative;
     }
     .manifest-panel {
-      flex:1 1 640px;
+      flex:0 0 auto;
+      width:100%;
       min-height:520px;
       display:flex;
       flex-direction:column;
-      gap:24px;
+      gap:28px;
     }
     .hero-panel h3 { margin:0 0 0.6rem; font-size:1rem; }
     .timeline {
@@ -114,15 +117,7 @@
     .timeline li.warn strong { color:var(--warn); }
     .timeline li.fail .dot { background:var(--fail); }
     .timeline li.fail strong { color:var(--fail); }
-    .runbook-card pre.snippet {
-      background:#0f172a;
-      color:#e2e8f0;
-      padding:0.8rem;
-      border-radius:12px;
-      overflow:auto;
-      font-size:0.9rem;
-      font-family:"SFMono-Regular","JetBrains Mono","Menlo","Source Code Pro",monospace;
-    }
+    /* risk/bundle panels removed */
     .cta {
       border:none;
       border-radius:999px;
@@ -135,16 +130,16 @@
     }
     .cta:hover { box-shadow:0 12px 24px rgba(37,99,235,0.25); transform:translateY(-1px); }
     .hero-content {
-      display:flex;
+      display:grid;
+      grid-template-columns:minmax(420px, 1fr) 320px;
       gap:32px;
-      flex-wrap:wrap;
-      align-items:flex-start;
+      align-items:start;
     }
     .hero-main {
       flex:1 1 420px;
       display:flex;
       flex-direction:column;
-      gap:24px;
+      gap:18px;
     }
     .hero-primary { flex:1; }
     .hero-eyebrow {
@@ -158,12 +153,9 @@
       font-size:2.4rem;
       letter-spacing:-0.03em;
       margin:0;
+      font-weight:650;
     }
-    .hero-subtitle {
-      margin:0.35rem 0 0;
-      color:var(--muted);
-      font-size:1rem;
-    }
+    /* hero subtitle removed */
     .hero-chips {
       display:flex;
       flex-wrap:wrap;
@@ -195,10 +187,81 @@
     }
     .hero-card {
       border-radius:20px;
-      padding:16px;
+      padding:14px;
       background:rgba(255,255,255,0.72);
       border:1px solid rgba(15,23,42,0.08);
       box-shadow:inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+    .hero-divider {
+      height:1px;
+      width:100%;
+      background:linear-gradient(90deg, rgba(37,99,235,0.0), rgba(37,99,235,0.12), rgba(37,99,235,0.0));
+      margin:6px 0 14px;
+    }
+    .hero-highlights {
+      border-radius:24px;
+      border:1px solid rgba(15,23,42,0.08);
+      background:rgba(255,255,255,0.65);
+      padding:18px;
+    }
+    .hero-highlights-grid {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px 18px;
+    }
+    .highlight-label {
+      display:block;
+      text-transform:uppercase;
+      letter-spacing:0.18em;
+      font-size:0.72rem;
+      color:var(--muted);
+      margin-bottom:6px;
+    }
+    .highlight-value {
+      display:block;
+      font-size:1.05rem;
+      font-weight:650;
+      color:var(--text);
+      margin:0 0 4px;
+    }
+    .highlight-detail {
+      margin:0;
+      font-size:0.92rem;
+      color:var(--muted);
+      line-height:1.45;
+    }
+    .preflight-list {
+      margin:0;
+      padding:0;
+      list-style:none;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .preflight-list li {
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:baseline;
+      font-size:0.92rem;
+      color:var(--text);
+      border:1px solid rgba(15,23,42,0.08);
+      background:rgba(255,255,255,0.7);
+      border-radius:14px;
+      padding:8px 10px;
+    }
+    .preflight-list .count {
+      font-variant-numeric: tabular-nums;
+      color:var(--muted);
+      letter-spacing:0.1em;
+      text-transform:uppercase;
+      font-size:0.75rem;
+    }
+    @media (max-width: 720px) {
+      .hero-highlights-grid { grid-template-columns:1fr; }
+    }
+    @media (max-width: 1100px) {
+      .hero-content { grid-template-columns:1fr; }
     }
     .hero-card span {
       display:block;
@@ -223,6 +286,73 @@
       padding:12px 18px;
       font-size:0.95rem;
     }
+    .info-banner.error-banner {
+      border-color:rgba(239,68,68,0.55);
+      background:rgba(239,68,68,0.12);
+      color:#7f1d1d;
+    }
+    .viewer-bar {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      margin-bottom:12px;
+      flex-wrap:wrap;
+    }
+    .viewer-meta {
+      font-size:0.82rem;
+      color:var(--muted);
+      letter-spacing:0.12em;
+      text-transform:uppercase;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .viewer-meta .dot {
+      width:4px;
+      height:4px;
+      border-radius:999px;
+      background:rgba(15,23,42,0.25);
+    }
+    .viewer-actions {
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .restore-chip {
+      margin:14px 0 6px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:10px 12px;
+      border-radius:18px;
+      border:1px solid rgba(37,99,235,0.18);
+      background:rgba(37,99,235,0.08);
+      color:var(--text);
+      font-size:0.92rem;
+    }
+    .restore-chip .muted { color:rgba(15,23,42,0.7); }
+    .restore-chip .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .restore-chip button { background:transparent; border:1px solid rgba(15,23,42,0.18); }
+    .restore-chip button:hover { border-color:rgba(37,99,235,0.4); }
+    .empty-state {
+      margin-top:16px;
+      border-radius:20px;
+      border:1px solid rgba(15,23,42,0.1);
+      background:rgba(255,255,255,0.7);
+      padding:18px 18px 16px;
+    }
+    .empty-state h3 { margin:0 0 0.4rem; font-size:1.05rem; }
+    .empty-state p { margin:0 0 0.85rem; color:var(--muted); }
+    .empty-state .chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+    .empty-state .chips .chip { cursor:default; }
+    .empty-state .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .empty-state .actions .cta { padding:10px 14px; }
+
+    /* keyboard shortcuts are always available; no help modal */
     .meta-list {
       display:grid;
       grid-template-columns:repeat(auto-fit, minmax(160px,1fr));
@@ -254,8 +384,40 @@
     .warning-list {
       margin:0;
       padding-left:1rem;
-      color:var(--warn);
+      color:var(--chip-text);
       font-size:0.92rem;
+    }
+    .secrets-list {
+      list-style:none;
+      margin:0;
+      padding:0;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .secret-item {
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-size:0.9rem;
+      color:var(--text);
+    }
+    .secret-badge {
+      border-radius:999px;
+      border:1px solid rgba(37,99,235,0.25);
+      background:var(--chip-bg);
+      color:var(--chip-text);
+      text-transform:uppercase;
+      letter-spacing:0.18em;
+      font-size:0.68rem;
+      padding:0.25rem 0.6rem;
+      white-space:nowrap;
+    }
+    .secret-path {
+      color:var(--muted);
+      font-size:0.88rem;
+      word-break:break-all;
+      font-family:"SFMono-Regular","JetBrains Mono","Menlo","Source Code Pro",monospace;
     }
     .hero-meta-block {
       border-radius:20px;
@@ -272,8 +434,17 @@
     .view-toggle {
       display:flex;
       gap:8px;
-      flex-wrap:wrap;
+      flex-wrap:nowrap;
+      width:100%;
+      overflow-x:auto;
+      -webkit-overflow-scrolling: touch;
       margin-bottom:4px;
+    }
+    .view-toggle .chip {
+      flex:1 1 0;
+      min-width:0;
+      text-align:center;
+      white-space:nowrap;
     }
     .view-pane[hidden] { display:none !important; }
     .chip {
@@ -294,6 +465,23 @@
       border-color:var(--accent);
       color:#fff;
       box-shadow:0 8px 24px rgba(37,99,235,0.25);
+    }
+    .panel-toggle {
+      width:42px;
+      height:42px;
+      padding:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:1.05rem;
+      letter-spacing:0;
+      text-transform:none;
+      font-weight:700;
+    }
+    .manifest-panel.collapsed #manifestPanelBody { display:none; }
+    .manifest-panel.collapsed {
+      min-height:auto;
+      padding-bottom:18px;
     }
     .tree-controls {
       position:sticky;
@@ -464,21 +652,21 @@
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:12px;
+      gap:16px;
       flex-wrap:wrap;
     }
     .selection-head h2 { margin:0; font-size:1.5rem; }
     .breadcrumbs {
       font-size:0.95rem;
-      margin-top:6px;
+      margin-top:10px;
       display:flex;
       flex-wrap:wrap;
-      gap:6px;
+      gap:10px;
       color:var(--muted);
     }
     .breadcrumbs span::after { content:'/'; margin-left:6px; color:var(--border); }
     .breadcrumbs span:last-child::after { content:""; }
-    .meta-badges { display:flex; flex-wrap:wrap; gap:8px; }
+    .meta-badges { display:flex; flex-wrap:wrap; gap:12px; }
     .badge {
       font-size:0.8rem;
       padding:4px 10px;
@@ -490,7 +678,7 @@
     .dependency-panel {
       display:grid;
       grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
-      gap:16px;
+      gap:20px;
     }
     .dependency-panel h3 { margin:0; font-size:1rem; }
     .dependency-list {
@@ -505,11 +693,11 @@
       background:var(--surface-soft);
     }
     .dependency-list li {
-      padding:8px 12px;
+      padding:12px 16px;
       border-bottom:1px solid rgba(15,23,42,0.08);
       display:flex;
       flex-direction:column;
-      gap:2px;
+      gap:6px;
       color:var(--text);
     }
     .dependency-list li:last-child { border-bottom:none; }
@@ -529,14 +717,14 @@
     .dependency-reason { font-size:0.8rem; color:var(--muted); }
     .manifest-toggle {
       display:flex;
-      gap:8px;
+      gap:14px;
       align-items:center;
       flex-wrap:wrap;
     }
     .manifest-toggle button {
       border:1px solid var(--border);
       border-radius:999px;
-      padding:6px 16px;
+      padding:10px 20px;
       background:#fff;
       cursor:pointer;
       font-size:0.85rem;
@@ -560,6 +748,156 @@
       line-height:1.4;
     }
     .manifest-view[data-view="diff"] { background:#111827; }
+    .explain-view {
+      border-radius:24px;
+      border:1px solid var(--border);
+      background:rgba(255,255,255,0.75);
+      padding:20px 20px 16px;
+    }
+    .explain-view[hidden] { display:none; }
+    .explain-header h3 {
+      margin:0;
+      font-size:1rem;
+      letter-spacing:-0.01em;
+    }
+    .explain-title-row {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .explain-header p { margin:6px 0 0; }
+    .explain-list {
+      list-style:none;
+      margin:16px 0 0;
+      padding:0;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .explain-summary {
+      padding:10px 12px;
+      border-radius:16px;
+      border:1px solid rgba(15,23,42,0.12);
+      background:rgba(255,255,255,0.8);
+    }
+    .explain-item {
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      padding:12px 12px 12px 10px;
+      border-radius:16px;
+      border:1px solid rgba(15,23,42,0.12);
+      background:rgba(255,255,255,0.8);
+    }
+    .explain-badge {
+      flex:0 0 auto;
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:0.75rem;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+      font-weight:650;
+      border:1px solid rgba(15,23,42,0.12);
+      color:var(--text);
+      background:rgba(15,23,42,0.05);
+      font-variant-numeric: tabular-nums;
+    }
+    .explain-badge.warn { border-color:rgba(251,191,36,0.55); background:rgba(251,191,36,0.16); color:#a16207; }
+    .explain-badge.fail { border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.14); color:#b91c1c; }
+    .explain-badge.info { border-color:rgba(37,99,235,0.35); background:rgba(37,99,235,0.12); color:#1d4ed8; }
+    .explain-body { flex:1; min-width:0; }
+    .explain-title { font-weight:650; margin:0 0 2px; }
+    .explain-detail { color:var(--muted); font-size:0.92rem; line-height:1.45; }
+    .diff-toolbar {
+      position:sticky;
+      top:0;
+      z-index:20;
+      display:flex;
+      gap:14px;
+      align-items:center;
+      flex-wrap:wrap;
+      padding:14px 16px;
+      border-radius:18px;
+      border:1px solid rgba(15,23,42,0.14);
+      background:rgba(255,255,255,0.75);
+      backdrop-filter:blur(14px);
+    }
+    .diff-toolbar[hidden] { display:none; }
+    .diff-toolbar .muted { color:var(--muted); font-size:0.85rem; }
+    .diff-toolbar input[type="search"] {
+      flex:1 1 240px;
+      min-width:200px;
+      padding:9px 14px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:#fff;
+      font:inherit;
+      font-size:0.9rem;
+    }
+    .diff-toolbar input[type="search"]:focus {
+      outline:none;
+      box-shadow:0 0 0 3px rgba(37,99,235,0.22);
+      border-color:rgba(37,99,235,0.6);
+    }
+    .diff-toolbar .chip {
+      border:1px solid rgba(15,23,42,0.14);
+      background:rgba(255,255,255,0.85);
+    }
+    .diff-toolbar .chip:disabled {
+      opacity:0.55;
+      cursor:not-allowed;
+    }
+    .diff-baseline {
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+      margin-right:6px;
+    }
+    .diff-baseline[hidden] { display:none; }
+    .diff-baseline .label {
+      font-size:0.78rem;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+      color:var(--muted);
+      margin-right:4px;
+    }
+    .manifest-view .diff-line {
+      display:block;
+      padding:0 12px 0 10px;
+      margin:0 -12px;
+      border-left:3px solid transparent;
+      border-radius:8px;
+    }
+    .manifest-view .diff-line.added {
+      background:rgba(34,197,94,0.18);
+      border-left-color:rgba(34,197,94,0.85);
+      color:#bbf7d0;
+    }
+    .manifest-view .diff-line.removed {
+      background:rgba(239,68,68,0.16);
+      border-left-color:rgba(239,68,68,0.8);
+      color:#fecaca;
+    }
+    .manifest-view .diff-line.header {
+      background:rgba(37,99,235,0.16);
+      border-left-color:rgba(37,99,235,0.8);
+      color:#bfdbfe;
+      font-weight:650;
+    }
+    .manifest-view .diff-line.meta {
+      color:rgba(226,232,240,0.88);
+      font-weight:600;
+    }
+    .manifest-view .diff-line.match {
+      outline:2px solid rgba(37,99,235,0.55);
+      outline-offset:2px;
+    }
+    .manifest-view .diff-line.match.active {
+      outline-color:rgba(37,99,235,0.95);
+      background:rgba(37,99,235,0.18);
+    }
     .download-actions {
       display:flex;
       gap:10px;
@@ -590,20 +928,197 @@
       grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
       gap:16px;
     }
-    .compare-manifest {
-      border-radius:16px;
-      border:1px solid var(--border);
-      background:#0f172a;
-      color:#e2e8f0;
+	    .compare-manifest {
+	      border-radius:16px;
+	      border:1px solid var(--border);
+	      background:#0f172a;
+	      color:#e2e8f0;
       padding:16px;
       min-height:160px;
       font-family:"SFMono-Regular","Consolas","Liberation Mono",monospace;
       font-size:0.8rem;
       line-height:1.4;
-      overflow:auto;
-      white-space:pre;
-    }
-    .graph-pane { display:flex; flex-direction:column; gap:16px; }
+	      overflow:auto;
+	      white-space:pre;
+	    }
+
+	    .quota-view {
+	      display:flex;
+	      flex-direction:column;
+	      gap:24px;
+	    }
+
+	    .quota-table {
+	      width:100%;
+	      border-collapse:collapse;
+	      font-size:0.95rem;
+	      background:rgba(255,255,255,0.55);
+	      border:1px solid var(--border);
+	      border-radius:16px;
+	      overflow:hidden;
+	    }
+
+	    .quota-table th,
+	    .quota-table td {
+	      padding:12px 14px;
+	      border-bottom:1px solid rgba(15,23,42,0.06);
+	      vertical-align:top;
+	      text-align:left;
+	      font-variant-numeric: tabular-nums;
+	    }
+
+	    .quota-table th {
+	      text-transform:uppercase;
+	      letter-spacing:0.18em;
+	      font-size:0.78rem;
+	      color:var(--muted);
+	      background:rgba(255,255,255,0.75);
+	    }
+
+	    .quota-status {
+	      display:inline-flex;
+	      align-items:center;
+	      gap:8px;
+	      padding:4px 10px;
+	      border-radius:999px;
+	      font-size:0.78rem;
+	      font-weight:600;
+	      text-transform:uppercase;
+	      letter-spacing:0.18em;
+	      border:1px solid var(--border);
+	      background:rgba(255,255,255,0.75);
+	    }
+
+	    .quota-status.pass { color:#065f46; border-color:rgba(16,185,129,0.45); background:rgba(16,185,129,0.12); }
+	    .quota-status.warn { color:#92400e; border-color:rgba(251,191,36,0.55); background:rgba(251,191,36,0.14); }
+	    .quota-status.fail { color:#991b1b; border-color:rgba(239,68,68,0.55); background:rgba(239,68,68,0.12); }
+	    .quota-status.unknown { color:rgba(15,23,42,0.7); }
+	    .quota-header-row {
+	      display:flex;
+	      align-items:center;
+	      justify-content:space-between;
+	      gap:16px;
+	      flex-wrap:wrap;
+	    }
+	    .quota-controls {
+	      display:flex;
+	      gap:10px;
+	      align-items:center;
+	      flex-wrap:wrap;
+	      width:100%;
+	    }
+	    .quota-controls .quota-status { flex:0 0 auto; }
+	    .quota-filter-chip {
+	      border-radius:999px;
+	      border:1px solid rgba(15,23,42,0.12);
+	      background:rgba(255,255,255,0.75);
+	      padding:0.35rem 0.9rem;
+	      font-size:0.78rem;
+	      letter-spacing:0.16em;
+	      text-transform:uppercase;
+	      color:var(--muted);
+	      cursor:pointer;
+	      flex:1 1 0;
+	      min-width:0;
+	      text-align:center;
+	    }
+	    .quota-filter-chip.active {
+	      border-color:rgba(37,99,235,0.45);
+	      box-shadow:0 0 0 3px rgba(37,99,235,0.15);
+	      color:var(--text);
+	    }
+	    details.quota-breakdown {
+	      border:1px solid rgba(15,23,42,0.08);
+	      border-radius:18px;
+	      background:rgba(255,255,255,0.72);
+	      padding:12px 14px;
+	    }
+	    details.quota-breakdown summary {
+	      cursor:pointer;
+	      list-style:none;
+	      display:flex;
+	      align-items:baseline;
+	      justify-content:space-between;
+	      gap:12px;
+	      font-weight:650;
+	    }
+	    details.quota-breakdown summary::-webkit-details-marker { display:none; }
+	    .quota-breakdown-meta {
+	      display:flex;
+	      gap:8px;
+	      align-items:center;
+	      flex-wrap:wrap;
+	      justify-content:flex-end;
+	    }
+	    .quota-count {
+	      font-variant-numeric: tabular-nums;
+	      font-size:0.8rem;
+	      letter-spacing:0.12em;
+	      text-transform:uppercase;
+	      color:var(--muted);
+	    }
+
+	    #warningsPanel {
+	      position:relative;
+	    }
+	    .warnings-toggle {
+	      position:absolute;
+	      top:18px;
+	      right:18px;
+	      width:34px;
+	      height:34px;
+	      border-radius:999px;
+	      border:1px solid rgba(15,23,42,0.12);
+	      background:rgba(255,255,255,0.75);
+	      color:var(--muted);
+	      cursor:pointer;
+	      display:flex;
+	      align-items:center;
+	      justify-content:center;
+	      font-weight:700;
+	      transition:box-shadow 0.2s var(--ease), transform 0.2s var(--ease), border-color 0.2s var(--ease);
+	    }
+	    .warnings-toggle:hover {
+	      transform:translateY(-1px);
+	      border-color:rgba(37,99,235,0.35);
+	      box-shadow:0 10px 24px rgba(15,23,42,0.12);
+	    }
+	    .warnings-toggle:focus-visible {
+	      outline:none;
+	      box-shadow:0 0 0 3px rgba(37,99,235,0.18);
+	      border-color:rgba(37,99,235,0.5);
+	    }
+	    .warnings-toggle[data-open="true"] {
+	      color:var(--text);
+	      border-color:rgba(37,99,235,0.45);
+	      box-shadow:0 0 0 3px rgba(37,99,235,0.14);
+	    }
+	    .warnings-badge {
+	      position:absolute;
+	      top:-4px;
+	      right:-4px;
+	      min-width:18px;
+	      height:18px;
+	      padding:0 6px;
+	      border-radius:999px;
+	      background:rgba(251,191,36,0.95);
+	      color:#1f2937;
+	      font-size:0.72rem;
+	      font-weight:750;
+	      line-height:18px;
+	      text-align:center;
+	      letter-spacing:0.04em;
+	      border:1px solid rgba(15,23,42,0.12);
+	    }
+	    .explain-jump {
+	      margin-left:auto;
+	      display:flex;
+	      gap:8px;
+	      align-items:center;
+	      flex-wrap:wrap;
+	    }
+	    .explain-jump .chip { padding:0.35rem 0.85rem; }
+	    .graph-pane { display:flex; flex-direction:column; gap:16px; }
     .graph-header { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; }
     .graph-legend { display:flex; gap:16px; align-items:center; font-size:0.85rem; color:var(--muted); }
     .legend-item { display:flex; align-items:center; gap:6px; }
@@ -627,9 +1142,8 @@
     }
     .graph-canvas svg {
       position:absolute;
-      inset:0;
-      width:100%;
-      height:100%;
+      top:0;
+      left:0;
       pointer-events:none;
     }
     .graph-nodes {
@@ -640,13 +1154,18 @@
       position:absolute;
       transform:translate(-50%,-50%);
       border-radius:14px;
-      padding:6px 14px;
+      padding:7px 16px;
       border:1px solid rgba(15,23,42,0.15);
       background:#fff;
       box-shadow:0 8px 24px rgba(16,23,36,0.12);
-      font-size:0.85rem;
+      font-size:0.98rem;
       cursor:pointer;
       transition:box-shadow 180ms var(--ease), border-color 180ms var(--ease);
+      max-width:210px;
+      white-space:normal;
+      overflow-wrap:anywhere;
+      text-align:center;
+      line-height:1.3;
     }
     .graph-node.change-create { border-left:4px solid #22c55e; }
     .graph-node.change-update { border-left:4px solid var(--warn); }
@@ -654,12 +1173,30 @@
     .graph-node.selected { border-color:var(--accent); box-shadow:0 8px 28px rgba(37,99,235,0.25); }
     .graph-edge {
       fill:none;
-      stroke:rgba(15,23,42,0.25);
-      stroke-width:2;
+      stroke:rgba(15,23,42,0.34);
+      stroke-width:2.5;
       stroke-linecap:round;
     }
-    .graph-edge.impact-upstream { stroke:#f97316; stroke-width:3; }
-    .graph-edge.impact-downstream { stroke:#0ea5e9; stroke-width:3; }
+    .graph-edge.impact-upstream,
+    .graph-edge.impact-downstream {
+      stroke-width:3.6;
+      stroke-dasharray:10 10;
+      animation:edgeDashUpstream 1.1s linear infinite;
+      filter:drop-shadow(0 0 10px rgba(15,23,42,0.18));
+    }
+    .graph-edge.impact-upstream { stroke:#f97316; }
+    .graph-edge.impact-downstream {
+      stroke:#0ea5e9;
+      animation:edgeDashDownstream 1.6s linear infinite;
+    }
+    @keyframes edgeDashUpstream {
+      from { stroke-dashoffset:0; }
+      to { stroke-dashoffset:-40; }
+    }
+    @keyframes edgeDashDownstream {
+      from { stroke-dashoffset:0; }
+      to { stroke-dashoffset:40; }
+    }
     .muted { color:var(--muted); }
     .sr-only {
       position:absolute;
@@ -700,28 +1237,48 @@
       .chip,
       .cta,
       .info-banner { display:none !important; }
-      .panel { box-shadow:none !important; backdrop-filter:none; }
+      .panel {
+        box-shadow:none !important;
+        backdrop-filter:none;
+        opacity:1 !important;
+        transform:none !important;
+        animation:none !important;
+      }
     }
   </style>
 </head>
 <body>
+  <script id="ktlVizFeatures" type="application/json">__FEATURES__</script>
   <div class="chrome">
     <p id="releaseSummary" class="sr-only"></p>
     <section class="panel hero-panel" aria-label="Release summary">
       <div class="hero-content">
-        <div class="hero-main">
-          <div class="hero-primary">
-            <p class="hero-eyebrow">ktl deploy</p>
-            <h2 class="hero-headline" id="heroHeadline">Deployment overview</h2>
-            <p class="hero-subtitle" id="heroSubtitle">Awaiting release data…</p>
-            <div id="heroChips" class="hero-chips"></div>
-            <p class="hero-subtitle" id="heroTimestamp"></p>
-          </div>
-          <div class="hero-metrics">
-            <div class="hero-card">
-              <span>Creates</span>
-              <strong id="heroCreates">0</strong>
-            </div>
+	        <div class="hero-main">
+	          <div class="hero-primary">
+	            <div class="viewer-bar" aria-label="Viewer actions">
+	              <div id="viewerMeta" class="viewer-meta">
+	                <span id="viewerCluster">cluster</span><span class="dot" aria-hidden="true"></span>
+	                <span id="viewerNamespace">ns</span><span class="dot" aria-hidden="true"></span>
+	                <span id="viewerRelease">release</span><span class="dot" aria-hidden="true"></span>
+	                <span id="viewerGenerated">generated</span>
+	              </div>
+	              <div class="viewer-actions">
+	                <button id="printReportBtn" class="chip" type="button">Report</button>
+	                <button id="copyApplyBtn" class="chip" type="button">Copy apply</button>
+	                <button id="copyPlanBtn" class="chip" type="button">Copy plan</button>
+	                <button id="downloadPlanBtn" class="chip" type="button">JSON</button>
+	                <button id="downloadYamlBtn" class="chip" type="button">YAML</button>
+	                <button id="resetViewBtn" class="chip" type="button">Reset</button>
+	              </div>
+	            </div>
+		            <p class="hero-eyebrow">ktl apply plan</p>
+		            <div id="heroChips" class="hero-chips"></div>
+	          </div>
+	          <div class="hero-metrics">
+	            <div class="hero-card">
+	              <span>Creates</span>
+	              <strong id="heroCreates">0</strong>
+	            </div>
             <div class="hero-card">
               <span>Updates</span>
               <strong id="heroUpdates">0</strong>
@@ -730,13 +1287,27 @@
               <span>Deletes</span>
               <strong id="heroDeletes">0</strong>
             </div>
-            <div class="hero-card">
-              <span>Unchanged</span>
-              <strong id="heroUnchanged">0</strong>
-            </div>
-          </div>
-        </div>
-        <div class="hero-side">
+	            <div class="hero-card">
+	              <span>Unchanged</span>
+	              <strong id="heroUnchanged">0</strong>
+	            </div>
+	          </div>
+	          <div class="hero-highlights" aria-label="Plan highlights">
+	            <div class="hero-divider" aria-hidden="true"></div>
+	            <div class="hero-highlights-grid">
+	              <div>
+	                <span class="highlight-label">Rollout impact</span>
+	                <strong id="impactSummary" class="highlight-value">—</strong>
+	                <p id="impactDetail" class="highlight-detail">—</p>
+	              </div>
+	              <div>
+	                <span class="highlight-label">Preflight warnings</span>
+	                <ul id="preflightList" class="preflight-list"></ul>
+	              </div>
+	            </div>
+	          </div>
+	        </div>
+	        <div class="hero-side">
           <section class="hero-meta-block">
             <h3>Release details</h3>
             <dl class="meta-list">
@@ -748,14 +1319,10 @@
                 <dt>Namespace</dt>
                 <dd id="metaNamespace">—</dd>
               </div>
-              <div>
-                <dt>Chart</dt>
-                <dd id="metaChart">—</dd>
-              </div>
-              <div>
-                <dt>Cluster</dt>
-                <dd id="metaCluster">—</dd>
-              </div>
+	              <div>
+	                <dt>Cluster</dt>
+	                <dd id="metaCluster">—</dd>
+	              </div>
               <div>
                 <dt>Generated</dt>
                 <dd id="metaGenerated">—</dd>
@@ -766,19 +1333,22 @@
             <h3>Timeline</h3>
             <ul id="timelineList" class="timeline"></ul>
           </section>
-          <section id="warningsPanel" class="hero-meta-block" hidden>
-            <h3>Warnings</h3>
-            <ul id="warningsList" class="warning-list"></ul>
+          <section id="secretsPanel" class="hero-meta-block" hidden>
+            <h3>Secrets</h3>
+            <ul id="secretsList" class="secrets-list"></ul>
           </section>
-          <section id="runbookPanel" class="hero-meta-block runbook-card" hidden>
-            <h3>Next steps</h3>
-            <p class="muted">Share this command when you're ready to apply the release.</p>
-            <pre id="installSnippet" class="snippet">Command will appear after the plan loads.</pre>
-            <button id="installCopy" class="cta copy" type="button">Copy install command</button>
-          </section>
-        </div>
+	          <section id="warningsPanel" class="hero-meta-block" hidden>
+	            <h3>Warnings</h3>
+	            <button id="warningsToggle" class="warnings-toggle" type="button" aria-label="Show warnings" title="Show warnings" data-open="false">
+	              !
+	              <span id="warningsBadge" class="warnings-badge" hidden>0</span>
+	            </button>
+	            <ul id="warningsList" class="warning-list" hidden></ul>
+	          </section>
+	        </div>
       </div>
     </section>
+    <div id="dataErrorBanner" class="info-banner error-banner" hidden>Failed to load embedded plan data.</div>
     <div id="offlineBanner" class="info-banner" hidden>Live cluster data was unavailable when this was generated. Diffs reference the previous release when possible.</div>
     <div class="layout">
       <aside class="panel tree-panel" aria-label="Resource views">
@@ -798,11 +1368,19 @@
                 <button id="collapseAll" class="chip" type="button">Collapse all</button>
               </div>
             </div>
+            <div id="restoreNotice" class="restore-chip" hidden>
+              <span><strong>Filters restored</strong> <span class="muted">from your last view.</span></span>
+              <span class="actions">
+                <button id="restoreResetBtn" class="chip" type="button">Reset filters</button>
+                <button id="restoreDismissBtn" class="chip" type="button">Dismiss</button>
+              </span>
+            </div>
             <label class="tree-search">
               <span class="sr-only">Filter resources</span>
               <input id="treeSearch" type="search" placeholder="Filter by namespace, kind, or name" autocomplete="off" />
               <button id="clearSearch" type="button" disabled>Clear</button>
             </label>
+            <div id="searchModeChips" class="tree-chips" role="group" aria-label="Search mode"></div>
             <div id="kindChips" class="tree-chips" role="group" aria-label="Filter by resource type"></div>
             <div id="changeChips" class="change-chips" role="group" aria-label="Highlight changed resources"></div>
             <p id="filterStatus" class="filter-status" aria-live="polite"></p>
@@ -811,6 +1389,14 @@
         <div id="treePane" class="view-pane">
           <div class="tree-scroll">
             <div id="resourceTree" class="tree" role="tree"></div>
+            <div id="emptyState" class="empty-state" hidden>
+              <h3>No resources match the current filters</h3>
+              <p>Reset filters to see the full plan.</p>
+              <div id="emptyStateChips" class="chips" aria-label="Active filters"></div>
+              <div class="actions">
+                <button id="resetFiltersBtn" class="cta" type="button">Reset filters</button>
+              </div>
+            </div>
           </div>
         </div>
         <div id="graphPane" class="view-pane graph-pane" hidden>
@@ -838,9 +1424,9 @@
             <h2 id="selectionTitle">Select a resource</h2>
             <div id="breadcrumbs" class="breadcrumbs muted">No resource selected</div>
           </div>
-          <button id="copyLinkBtn" class="chip" type="button">Copy link</button>
+          <button id="copyLinkBtn" class="chip panel-toggle" type="button" aria-label="Collapse manifest panel" title="Collapse panel">▾</button>
         </div>
-          <div id="metaBadges" class="meta-badges"></div>
+          <div id="manifestPanelBody">
           <div class="dependency-panel">
             <div>
               <h3>Depends on</h3>
@@ -851,12 +1437,89 @@
               <ul id="referencedByList" class="dependency-list"></ul>
             </div>
           </div>
-          <div class="manifest-toggle" role="group" aria-label="Manifest display mode">
-            <button type="button" class="active" data-manifest-mode="rendered">Rendered YAML</button>
-            <button type="button" data-manifest-mode="diff">Diff vs live</button>
-            <span id="diffHint" class="muted"></span>
+	          <div class="manifest-toggle" role="group" aria-label="Manifest display mode">
+	            <button type="button" class="active" data-manifest-mode="rendered">Rendered YAML</button>
+	            <button type="button" data-manifest-mode="diff">Diff vs live</button>
+	            <button type="button" data-manifest-mode="quota">Quota</button>
+	            <button id="manifestModeExplain" type="button" data-manifest-mode="explain" hidden>Explain diff</button>
+	            <span id="diffHint" class="muted"></span>
+	          </div>
+          <div id="diffToolbar" class="diff-toolbar" hidden aria-label="Diff tools">
+            <div id="diffBaseline" class="diff-baseline" hidden>
+              <span class="label">Baseline</span>
+              <button id="diffBaselineLive" class="chip" type="button" data-diff-baseline="live">Live</button>
+              <button id="diffBaselineCompare" class="chip" type="button" data-diff-baseline="compare">Compare</button>
+            </div>
+            <input id="diffSearch" type="search" placeholder="Search in diff…" autocomplete="off" />
+            <button id="diffPrevMatch" class="chip" type="button" disabled>Prev</button>
+            <button id="diffNextMatch" class="chip" type="button" disabled>Next</button>
+            <button id="diffPrevHunk" class="chip" type="button" disabled>Prev hunk</button>
+            <button id="diffNextHunk" class="chip" type="button" disabled>Next hunk</button>
+            <span id="diffMatchMeta" class="muted"></span>
           </div>
           <pre id="manifestView" class="manifest-view" data-view="rendered" aria-live="polite">Select a resource to view its rendered YAML.</pre>
+	          <div id="explainView" class="explain-view" hidden>
+	            <div class="explain-header">
+	              <div class="explain-title-row">
+	                <h3>Explain diff</h3>
+	                <button id="copyExplainBtn" class="chip" type="button">Copy notes</button>
+	              </div>
+	              <p class="muted">Highlights common rollout and ownership hazards inferred from the diff.</p>
+	            </div>
+	            <ul id="explainList" class="explain-list"></ul>
+	            <p id="explainEmpty" class="muted" hidden>No notable changes detected for this resource.</p>
+	          </div>
+	          <div id="quotaView" class="quota-view" hidden>
+	            <div class="quota-header-row">
+	              <div>
+	                <h3>Namespace quota headroom</h3>
+	              </div>
+	              <div class="quota-controls" aria-label="Quota status filters">
+	                <select id="quotaNamespaceSelect" class="chip" aria-label="Quota namespace"></select>
+	                <span id="quotaOverallStatus" class="quota-status unknown">unknown</span>
+	                <button id="quotaFilterAll" class="quota-filter-chip active" type="button" data-quota-filter="all" aria-pressed="true">All</button>
+	                <button id="quotaFilterFail" class="quota-filter-chip" type="button" data-quota-filter="fail" aria-pressed="false">Fail</button>
+	                <button id="quotaFilterWarn" class="quota-filter-chip" type="button" data-quota-filter="warn" aria-pressed="false">Warn</button>
+	                <button id="quotaFilterPass" class="quota-filter-chip" type="button" data-quota-filter="pass" aria-pressed="false">Pass</button>
+	              </div>
+	            </div>
+	            <table id="quotaSummary" class="quota-table" hidden>
+	              <thead>
+	                <tr>
+	                  <th>Metric</th>
+	                  <th>Value</th>
+	                </tr>
+	              </thead>
+	              <tbody id="quotaSummaryBody"></tbody>
+	            </table>
+	            <div>
+	              <h3>Headroom (used + chart)</h3>
+	              <p id="quotaEmpty" class="muted" hidden>No ResourceQuota data available for this namespace (missing permissions or no quotas defined).</p>
+	              <table id="quotaHeadroomTable" class="quota-table" hidden>
+	                <thead>
+	                  <tr>
+	                    <th>Quota</th>
+	                    <th>Resource</th>
+	                    <th>Hard</th>
+	                    <th>Used</th>
+	                    <th>Chart</th>
+	                    <th>After</th>
+	                    <th>Headroom</th>
+	                    <th>Status</th>
+	                  </tr>
+	                </thead>
+	                <tbody id="quotaHeadroomBody"></tbody>
+	              </table>
+	            </div>
+	            <div>
+	              <h3>Per-quota drilldown</h3>
+	              <div id="quotaBreakdown"></div>
+	            </div>
+	            <div id="quotaWarningsPanel" hidden>
+	              <h3>Notes</h3>
+	              <ul id="quotaWarnings" class="warning-list"></ul>
+	            </div>
+	          </div>
           <div class="download-actions">
             <button type="button" data-download="rendered">Download rendered YAML</button>
             <button type="button" data-download="diff">Download diff</button>
@@ -877,6 +1540,7 @@
             </div>
           </div>
           <p id="manifestStatus" class="muted" aria-live="polite"></p>
+          </div>
         </section>
       </div>
     </div>
@@ -885,12 +1549,49 @@
   <script>
     (function() {
       'use strict';
-      var storageKey = 'ktlDeployVisualizeState';
       var dataEl = document.getElementById('vizData');
-      var dataset = dataEl ? JSON.parse(dataEl.textContent || '{}') : {};
+      var dataset = {};
+      var datasetParseError = null;
+      try {
+        dataset = dataEl ? (JSON.parse(dataEl.textContent || '{}') || {}) : {};
+      } catch (err) {
+        datasetParseError = err;
+        dataset = {};
+      }
+
+      var features = {};
+      var featuresEl = document.getElementById('ktlVizFeatures');
+      if (featuresEl && featuresEl.textContent) {
+        try {
+          features = JSON.parse(featuresEl.textContent) || {};
+        } catch (err) {
+          features = {};
+        }
+      }
+
+      function storageKeyPart(value) {
+        return String(value || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9._:-]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 80);
+      }
+
+      function buildStorageKey(data) {
+        var parts = ['ktlDeployVisualizeState'];
+        if (!data) return parts[0];
+        var host = storageKeyPart(data.clusterHost);
+        var namespace = storageKeyPart(data.namespace);
+        var release = storageKeyPart(data.release);
+        if (host) parts.push(host);
+        if (namespace) parts.push(namespace);
+        if (release) parts.push(release);
+        return parts.join(':');
+      }
+
+      var storageKey = buildStorageKey(dataset);
       var treeContainer = document.getElementById('resourceTree');
       var manifestView = document.getElementById('manifestView');
-      var metaBadges = document.getElementById('metaBadges');
       var selectionTitle = document.getElementById('selectionTitle');
       var breadcrumbs = document.getElementById('breadcrumbs');
       var totalEl = document.getElementById('resourceTotal');
@@ -907,18 +1608,69 @@
       var referencedByList = document.getElementById('referencedByList');
       var manifestModeButtons = document.querySelectorAll('[data-manifest-mode]');
       var downloadButtons = document.querySelectorAll('[data-download]');
+      var dataErrorBanner = document.getElementById('dataErrorBanner');
       var offlineBanner = document.getElementById('offlineBanner');
       var diffHint = document.getElementById('diffHint');
+      var diffToolbar = document.getElementById('diffToolbar');
+      var diffBaseline = document.getElementById('diffBaseline');
+      var diffBaselineLive = document.getElementById('diffBaselineLive');
+      var diffBaselineCompare = document.getElementById('diffBaselineCompare');
+	      var manifestModeExplain = document.getElementById('manifestModeExplain');
+	      var explainView = document.getElementById('explainView');
+	      var explainList = document.getElementById('explainList');
+	      var explainEmpty = document.getElementById('explainEmpty');
+	      var copyExplainBtn = document.getElementById('copyExplainBtn');
+	      var quotaView = document.getElementById('quotaView');
+	      var quotaSummary = document.getElementById('quotaSummary');
+	      var quotaSummaryBody = document.getElementById('quotaSummaryBody');
+	      var quotaEmpty = document.getElementById('quotaEmpty');
+	      var quotaHeadroomTable = document.getElementById('quotaHeadroomTable');
+	      var quotaHeadroomBody = document.getElementById('quotaHeadroomBody');
+	      var quotaNamespaceSelect = document.getElementById('quotaNamespaceSelect');
+	      var quotaOverallStatus = document.getElementById('quotaOverallStatus');
+	      var quotaBreakdown = document.getElementById('quotaBreakdown');
+	      var quotaFilterAll = document.getElementById('quotaFilterAll');
+	      var quotaFilterFail = document.getElementById('quotaFilterFail');
+	      var quotaFilterWarn = document.getElementById('quotaFilterWarn');
+	      var quotaFilterPass = document.getElementById('quotaFilterPass');
+	      var quotaWarningsPanel = document.getElementById('quotaWarningsPanel');
+	      var quotaWarnings = document.getElementById('quotaWarnings');
+      var diffSearch = document.getElementById('diffSearch');
+      var diffPrevMatch = document.getElementById('diffPrevMatch');
+      var diffNextMatch = document.getElementById('diffNextMatch');
+      var diffPrevHunk = document.getElementById('diffPrevHunk');
+      var diffNextHunk = document.getElementById('diffNextHunk');
+      var diffMatchMeta = document.getElementById('diffMatchMeta');
       var copyLinkBtn = document.getElementById('copyLinkBtn');
+      var printReportBtn = document.getElementById('printReportBtn');
+      var copyApplyBtn = document.getElementById('copyApplyBtn');
+      var copyPlanBtn = document.getElementById('copyPlanBtn');
+      var downloadPlanBtn = document.getElementById('downloadPlanBtn');
+      var downloadYamlBtn = document.getElementById('downloadYamlBtn');
+      var resetViewBtn = document.getElementById('resetViewBtn');
+      var viewerCluster = document.getElementById('viewerCluster');
+      var viewerNamespace = document.getElementById('viewerNamespace');
+      var viewerRelease = document.getElementById('viewerRelease');
+      var viewerGenerated = document.getElementById('viewerGenerated');
+      var restoreNotice = document.getElementById('restoreNotice');
+      var restoreDismissBtn = document.getElementById('restoreDismissBtn');
+      var restoreResetBtn = document.getElementById('restoreResetBtn');
+      var emptyState = document.getElementById('emptyState');
+      var emptyStateChips = document.getElementById('emptyStateChips');
+      var resetFiltersBtn = document.getElementById('resetFiltersBtn');
+      /* help modal removed */
       var compareUpload = document.getElementById('compareUpload');
       var compareMeta = document.getElementById('compareMeta');
       var compareColumns = document.getElementById('compareColumns');
       var compareBaseView = document.getElementById('compareBaseView');
-      var compareOtherView = document.getElementById('compareOtherView');
+	      var compareOtherView = document.getElementById('compareOtherView');
       var compareTitle = document.getElementById('compareTitle');
+	      var quotaRendered = false;
+	      var quotaFilterMode = 'all';
+	      var quotaNamespaceMode = '';
+      var manifestPanel = document.querySelector('.manifest-panel');
+      var manifestPanelBody = document.getElementById('manifestPanelBody');
       var heroHeadline = document.getElementById('heroHeadline');
-      var heroSubtitle = document.getElementById('heroSubtitle');
-      var heroTimestamp = document.getElementById('heroTimestamp');
       var heroChips = document.getElementById('heroChips');
       var heroCreates = document.getElementById('heroCreates');
       var heroUpdates = document.getElementById('heroUpdates');
@@ -926,33 +1678,50 @@
       var heroUnchanged = document.getElementById('heroUnchanged');
       var metaRelease = document.getElementById('metaRelease');
       var metaNamespace = document.getElementById('metaNamespace');
-      var metaChart = document.getElementById('metaChart');
       var metaCluster = document.getElementById('metaCluster');
       var metaGenerated = document.getElementById('metaGenerated');
       var timelineList = document.getElementById('timelineList');
       var warningsPanel = document.getElementById('warningsPanel');
       var warningsList = document.getElementById('warningsList');
-      var runbookPanel = document.getElementById('runbookPanel');
-      var installSnippet = document.getElementById('installSnippet');
-      var installCopy = document.getElementById('installCopy');
+      var warningsToggle = document.getElementById('warningsToggle');
+      var warningsBadge = document.getElementById('warningsBadge');
+      var secretsPanel = document.getElementById('secretsPanel');
+      var secretsList = document.getElementById('secretsList');
+      var impactSummary = document.getElementById('impactSummary');
+      var impactDetail = document.getElementById('impactDetail');
+      var preflightList = document.getElementById('preflightList');
+      /* runbook removed */
       var paneButtons = document.querySelectorAll('[data-pane-target]');
       var treePane = document.getElementById('treePane');
       var graphPane = document.getElementById('graphPane');
       var treeFiltersEl = document.getElementById('treeFilters');
+      var searchModeChips = document.getElementById('searchModeChips');
       var graphCanvas = document.getElementById('graphCanvas');
       var graphNodesLayer = document.getElementById('graphNodesLayer');
       var graphEdgesLayer = document.getElementById('graphEdgesLayer');
       var graphEmpty = document.getElementById('graphEmpty');
 
+      if (datasetParseError) {
+        if (dataErrorBanner) {
+          var msg = (datasetParseError && datasetParseError.message) ? datasetParseError.message : String(datasetParseError);
+          dataErrorBanner.textContent = 'Failed to load the embedded plan data (' + msg + '). Re-run `ktl apply plan --visualize ...` and re-open the newly generated HTML.';
+          dataErrorBanner.hidden = false;
+        }
+        return;
+      }
+
+      try {
       var state = loadState();
       var manifests = dataset.manifests || {};
       var liveManifests = dataset.liveManifests || {};
       var manifestDiffs = dataset.manifestDiffs || {};
       var changeKinds = dataset.changeKinds || {};
       var manifestMode = state.manifestMode || 'rendered';
+      var diffBaselineMode = state.diffBaseline || 'live';
       var pendingFilterTerm = state.filterText || '';
       var activeBucket = state.bucket || 'all';
       var showChangedOnly = !!state.showChanged;
+      var searchMode = state.searchMode || 'all';
       var resourceEntries = [];
       var resourceEntryLookup = {};
       var dependencyItemLookup = {};
@@ -978,6 +1747,17 @@
       var graphSelectedId = null;
       var graphRenderPending = false;
       var numberFormatter = (typeof Intl !== 'undefined' && Intl.NumberFormat) ? new Intl.NumberFormat() : null;
+      var currentExplainMarkdown = '';
+      var currentExplainCounts = null;
+
+      var kindBuckets = [
+        { id: 'all', label: 'All kinds', kinds: null },
+        { id: 'workload', label: 'Workloads', kinds: ['deployment','statefulset','daemonset','job','cronjob','pod','replicaset'] },
+        { id: 'network', label: 'Networking', kinds: ['service','ingress','httproute','gateway'] },
+        { id: 'config', label: 'Config', kinds: ['configmap','secret','serviceaccount'] },
+        { id: 'storage', label: 'Storage', kinds: ['persistentvolumeclaim','persistentvolume'] },
+        { id: 'other', label: 'Other', kinds: [] }
+      ];
 
       recomputeChangedIds();
 
@@ -1010,14 +1790,17 @@
         searchInput.value = pendingFilterTerm;
       }
 
-      var kindBuckets = [
-        { id: 'all', label: 'All kinds', kinds: null },
-        { id: 'workload', label: 'Workloads', kinds: ['deployment','statefulset','daemonset','job','cronjob','pod','replicaset'] },
-        { id: 'network', label: 'Networking', kinds: ['service','ingress','httproute','gateway'] },
-        { id: 'config', label: 'Config', kinds: ['configmap','secret','serviceaccount'] },
-        { id: 'storage', label: 'Storage', kinds: ['persistentvolumeclaim','persistentvolume'] },
-        { id: 'other', label: 'Other', kinds: [] }
-      ];
+      if (!features || !features.explainDiff) {
+        if (manifestMode === 'explain') {
+          manifestMode = 'rendered';
+          persistState({ manifestMode: manifestMode });
+        }
+        if (manifestModeExplain) {
+          manifestModeExplain.hidden = true;
+        }
+      } else if (manifestModeExplain) {
+        manifestModeExplain.hidden = false;
+      }
 
       setupManifestToggle();
       buildKindChips();
@@ -1025,11 +1808,20 @@
       bindPaneToggle();
       buildTree();
       bindSearch();
+      buildSearchModeChips();
       bindExpandCollapse();
+      bindRestoreNotice();
       bindHashWatcher();
       bindCopyLink();
+      bindCopyExplain();
+      bindWarningsToggle();
+      bindQuotaFilters();
+      bindQuotaNamespaceSelect();
+      bindPrintReport();
+      bindViewerActions();
       bindDownloadButtons();
       bindCompareUpload();
+      bindKeyboardShortcuts();
       applyEmbeddedCompare();
       renderGraph();
       window.addEventListener('resize', scheduleGraphRender);
@@ -1040,12 +1832,24 @@
       });
 
       updateDiffHint();
+      updateDiffStatus();
+      updateDiffToolbarVisibility();
       updateDownloadButtons();
       hydrateHero();
       hydrateReleaseDetails();
+      hydrateHighlights();
       hydrateTimeline();
+      hydrateSecrets();
       hydrateWarnings();
-      hydrateRunbook();
+      /* runbook removed */
+      } catch (err) {
+        if (dataErrorBanner) {
+          var msg = (err && err.message) ? err.message : String(err);
+          dataErrorBanner.textContent = 'Viewer failed to initialize (' + msg + '). Try regenerating the report or opening it in a different browser.';
+          dataErrorBanner.hidden = false;
+        }
+        return;
+      }
 
       function loadState() {
         try {
@@ -1105,31 +1909,292 @@
         };
       }
 
-      function setupManifestToggle() {
-        manifestModeButtons.forEach(function(button) {
-          var mode = button.getAttribute('data-manifest-mode');
-          button.classList.toggle('active', mode === manifestMode);
-          button.addEventListener('click', function() {
-            if (!mode || manifestMode === mode) return;
-            manifestMode = mode;
-            persistState({ manifestMode: manifestMode });
-            manifestModeButtons.forEach(function(btn) {
-              btn.classList.toggle('active', btn === button);
-            });
-            if (manifestView) {
-              manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
-            }
-            if (currentNode) {
-              renderManifest(currentNode);
-            }
-            updateDiffHint();
-            updateDownloadButtons();
-          });
-        });
-        if (manifestView) {
-          manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
-        }
-      }
+	      function setupManifestToggle() {
+	        manifestModeButtons.forEach(function(button) {
+	          var mode = button.getAttribute('data-manifest-mode');
+	          button.classList.toggle('active', mode === manifestMode);
+	          button.setAttribute('aria-pressed', mode === manifestMode ? 'true' : 'false');
+	          button.addEventListener('click', function() {
+	            if (!mode || manifestMode === mode) return;
+	            manifestMode = mode;
+	            persistState({ manifestMode: manifestMode });
+	            manifestModeButtons.forEach(function(btn) {
+	              btn.classList.toggle('active', btn === button);
+	              btn.setAttribute('aria-pressed', btn === button ? 'true' : 'false');
+	            });
+	            applyManifestModeVisibility();
+	            if (manifestMode === 'quota') {
+	              renderQuotaPane();
+	            } else if (currentNode) {
+	              renderManifest(currentNode);
+	            }
+	            updateDiffHint();
+	            updateDiffStatus();
+	            updateDiffToolbarVisibility();
+	            updateDownloadButtons();
+	          });
+	        });
+	        applyManifestModeVisibility();
+	        if (manifestMode === 'quota') {
+	          renderQuotaPane();
+	        }
+	      }
+
+	      function applyManifestModeVisibility() {
+	        if (manifestView) {
+	          manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
+	          manifestView.hidden = (manifestMode === 'explain' || manifestMode === 'quota');
+	        }
+	        if (explainView) {
+	          explainView.hidden = manifestMode !== 'explain';
+	        }
+	        if (quotaView) {
+	          quotaView.hidden = manifestMode !== 'quota';
+	        }
+	      }
+
+	      function renderQuotaPane() {
+	        if (quotaRendered) return;
+	        quotaRendered = true;
+	        if (!quotaView) return;
+
+	        var reports = dataset.desiredQuotaByNamespace || null;
+	        if (!reports && dataset.desiredQuota) {
+	          reports = {};
+	          reports[String(dataset.desiredQuota.namespace || dataset.namespace || 'default')] = dataset.desiredQuota;
+	        }
+	        var availableNamespaces = reports ? Object.keys(reports).sort() : [];
+	        if (quotaNamespaceSelect) {
+	          quotaNamespaceSelect.innerHTML = '';
+	          availableNamespaces.forEach(function(ns) {
+	            var opt = document.createElement('option');
+	            opt.value = ns;
+	            opt.textContent = 'ns/' + ns;
+	            quotaNamespaceSelect.appendChild(opt);
+	          });
+	          if (!quotaNamespaceMode) {
+	            quotaNamespaceMode = String(dataset.namespace || (availableNamespaces[0] || ''));
+	          }
+	          if (availableNamespaces.indexOf(quotaNamespaceMode) === -1) {
+	            quotaNamespaceMode = availableNamespaces[0] || '';
+	          }
+	          quotaNamespaceSelect.value = quotaNamespaceMode;
+	          quotaNamespaceSelect.hidden = availableNamespaces.length <= 1;
+	        }
+
+	        var report = (reports && quotaNamespaceMode) ? (reports[quotaNamespaceMode] || null) : null;
+	        if (!report) {
+	          if (quotaEmpty) quotaEmpty.hidden = false;
+	          if (quotaBreakdown) quotaBreakdown.innerHTML = '';
+	          if (quotaOverallStatus) {
+	            quotaOverallStatus.className = 'quota-status unknown';
+	            quotaOverallStatus.textContent = 'unknown';
+	          }
+	          return;
+	        }
+
+	        if (quotaWarningsPanel && quotaWarnings) {
+	          var warnings = report.warnings || [];
+	          quotaWarnings.innerHTML = '';
+	          if (warnings.length) {
+	            warnings.forEach(function(msg) {
+	              var li = document.createElement('li');
+	              li.textContent = msg;
+	              quotaWarnings.appendChild(li);
+	            });
+	            quotaWarningsPanel.hidden = false;
+	          } else {
+	            quotaWarningsPanel.hidden = true;
+	          }
+	        }
+
+	        if (quotaSummary && quotaSummaryBody) {
+	          quotaSummaryBody.innerHTML = '';
+	          var desired = report.desired || {};
+	          var items = [
+	            { label: 'CPU Requests', value: (desired.cpuRequests && desired.cpuRequests.value) || '0' },
+	            { label: 'CPU Limits', value: (desired.cpuLimits && desired.cpuLimits.value) || '0' },
+	            { label: 'Memory Requests', value: (desired.memoryRequests && desired.memoryRequests.value) || '0' },
+	            { label: 'Memory Limits', value: (desired.memoryLimits && desired.memoryLimits.value) || '0' },
+	            { label: 'Storage', value: (desired.storage && desired.storage.value) || '0' },
+	            { label: 'Pods', value: String(desired.pods || 0) },
+	            { label: 'Services', value: String(desired.services || 0) },
+	            { label: 'ConfigMaps', value: String(desired.configmaps || 0) },
+	            { label: 'Secrets', value: String(desired.secrets || 0) },
+	            { label: 'PVCs', value: String(desired.pvcs || 0) }
+	          ];
+	          items.forEach(function(item) {
+	            var tr = document.createElement('tr');
+	            var labelTd = document.createElement('td');
+	            labelTd.textContent = item.label;
+	            var valueTd = document.createElement('td');
+	            valueTd.textContent = item.value;
+	            tr.appendChild(labelTd);
+	            tr.appendChild(valueTd);
+	            quotaSummaryBody.appendChild(tr);
+	          });
+	          quotaSummary.hidden = false;
+	        } else if (quotaSummary) {
+	          quotaSummary.hidden = true;
+	        }
+
+	        var rows = report.headroom || [];
+	        if (!rows.length) {
+	          if (quotaEmpty) quotaEmpty.hidden = false;
+	          if (quotaHeadroomTable) quotaHeadroomTable.hidden = true;
+	          if (quotaBreakdown) quotaBreakdown.innerHTML = '';
+	          if (quotaOverallStatus) {
+	            quotaOverallStatus.className = 'quota-status unknown';
+	            quotaOverallStatus.textContent = 'unknown';
+	          }
+	          return;
+	        }
+
+	        if (quotaEmpty) quotaEmpty.hidden = true;
+	        if (quotaHeadroomTable) quotaHeadroomTable.hidden = false;
+
+	        var overall = 'pass';
+	        for (var i = 0; i < rows.length; i++) {
+	          var s = String(rows[i].status || 'unknown').toLowerCase();
+	          if (s === 'fail') { overall = 'fail'; break; }
+	          if (s === 'warn') overall = 'warn';
+	          if (s === 'unknown' && overall === 'pass') overall = 'unknown';
+	        }
+	        if (quotaOverallStatus) {
+	          quotaOverallStatus.className = 'quota-status ' + overall;
+	          quotaOverallStatus.textContent = overall;
+	        }
+
+	        if (quotaHeadroomBody) {
+	          quotaHeadroomBody.innerHTML = '';
+	          var filtered = rows.filter(function(row) {
+	            var status = String(row.status || 'unknown').toLowerCase();
+	            if (quotaFilterMode === 'all') return true;
+	            return status === quotaFilterMode;
+	          });
+	          filtered.forEach(function(row) {
+	            var tr = document.createElement('tr');
+	            function td(text) {
+	              var cell = document.createElement('td');
+	              cell.textContent = (text == null || text === '') ? '—' : String(text);
+	              return cell;
+	            }
+	            tr.appendChild(td(row.quota));
+	            tr.appendChild(td(row.resource));
+	            tr.appendChild(td(row.hard));
+	            tr.appendChild(td(row.used));
+	            tr.appendChild(td(row.desired));
+	            tr.appendChild(td(row.after));
+	            tr.appendChild(td(row.headroom));
+	            var statusCell = document.createElement('td');
+	            var badge = document.createElement('span');
+	            var status = String(row.status || 'unknown').toLowerCase();
+	            badge.className = 'quota-status ' + status;
+	            badge.textContent = status;
+	            statusCell.appendChild(badge);
+	            tr.appendChild(statusCell);
+	            quotaHeadroomBody.appendChild(tr);
+	          });
+	        }
+
+	        if (quotaBreakdown) {
+	          quotaBreakdown.innerHTML = '';
+	          var byQuota = {};
+	          rows.forEach(function(row) {
+	            var quota = row.quota || 'unknown';
+	            if (!byQuota[quota]) byQuota[quota] = [];
+	            byQuota[quota].push(row);
+	          });
+	          Object.keys(byQuota).sort().forEach(function(quota) {
+	            var group = byQuota[quota] || [];
+	            var statusCounts = { fail: 0, warn: 0, pass: 0, unknown: 0 };
+	            group.forEach(function(row) {
+	              var s = String(row.status || 'unknown').toLowerCase();
+	              if (!statusCounts.hasOwnProperty(s)) s = 'unknown';
+	              statusCounts[s] += 1;
+	            });
+	            var dominant = 'pass';
+	            if (statusCounts.fail) dominant = 'fail';
+	            else if (statusCounts.warn) dominant = 'warn';
+	            else if (statusCounts.unknown && !statusCounts.pass) dominant = 'unknown';
+
+	            var details = document.createElement('details');
+	            details.className = 'quota-breakdown';
+	            details.open = dominant !== 'pass';
+	            var summary = document.createElement('summary');
+	            summary.innerHTML = '<span>' + escapeHTML(quota) + '</span>';
+	            var meta = document.createElement('span');
+	            meta.className = 'quota-breakdown-meta';
+	            var badge = document.createElement('span');
+	            badge.className = 'quota-status ' + dominant;
+	            badge.textContent = dominant;
+	            meta.appendChild(badge);
+	            var count = document.createElement('span');
+	            count.className = 'quota-count';
+	            count.textContent = statusCounts.fail + ' fail · ' + statusCounts.warn + ' warn · ' + statusCounts.pass + ' pass';
+	            meta.appendChild(count);
+	            summary.appendChild(meta);
+	            details.appendChild(summary);
+
+	            var table = document.createElement('table');
+	            table.className = 'quota-table';
+	            table.innerHTML = '<thead><tr><th>Resource</th><th>Hard</th><th>Used</th><th>Chart</th><th>After</th><th>Headroom</th><th>Status</th></tr></thead><tbody></tbody>';
+	            var body = table.querySelector('tbody');
+	            group.forEach(function(row) {
+	              var status = String(row.status || 'unknown').toLowerCase();
+	              if (quotaFilterMode !== 'all' && status !== quotaFilterMode) return;
+	              var tr = document.createElement('tr');
+	              function td(text) {
+	                var cell = document.createElement('td');
+	                cell.textContent = (text == null || text === '') ? '—' : String(text);
+	                return cell;
+	              }
+	              tr.appendChild(td(row.resource));
+	              tr.appendChild(td(row.hard));
+	              tr.appendChild(td(row.used));
+	              tr.appendChild(td(row.desired));
+	              tr.appendChild(td(row.after));
+	              tr.appendChild(td(row.headroom));
+	              var statusCell = document.createElement('td');
+	              var badge = document.createElement('span');
+	              badge.className = 'quota-status ' + status;
+	              badge.textContent = status;
+	              statusCell.appendChild(badge);
+	              tr.appendChild(statusCell);
+	              body.appendChild(tr);
+	            });
+	            details.appendChild(table);
+	            quotaBreakdown.appendChild(details);
+	          });
+	        }
+	      }
+
+	      function bindQuotaFilters() {
+	        var buttons = [quotaFilterAll, quotaFilterFail, quotaFilterWarn, quotaFilterPass].filter(Boolean);
+	        if (!buttons.length) return;
+	        buttons.forEach(function(btn) {
+	          btn.addEventListener('click', function() {
+	            var next = btn.getAttribute('data-quota-filter') || 'all';
+	            quotaFilterMode = next;
+	            buttons.forEach(function(other) {
+	              var active = other === btn;
+	              other.classList.toggle('active', active);
+	              other.setAttribute('aria-pressed', active ? 'true' : 'false');
+	            });
+	            quotaRendered = false;
+	            renderQuotaPane();
+	          });
+	        });
+	      }
+
+	      function bindQuotaNamespaceSelect() {
+	        if (!quotaNamespaceSelect) return;
+	        quotaNamespaceSelect.addEventListener('change', function() {
+	          quotaNamespaceMode = quotaNamespaceSelect.value || '';
+	          quotaRendered = false;
+	          renderQuotaPane();
+	        });
+	      }
 
       function buildKindChips() {
         if (!chipContainer) return;
@@ -1139,12 +2204,14 @@
           btn.type = 'button';
           btn.className = 'chip' + (bucket.id === activeBucket ? ' active' : '');
           btn.textContent = bucket.label;
+          btn.setAttribute('aria-pressed', bucket.id === activeBucket ? 'true' : 'false');
           btn.addEventListener('click', function() {
             if (activeBucket === bucket.id) return;
             activeBucket = bucket.id;
             persistState({ bucket: activeBucket });
             chipContainer.querySelectorAll('.chip').forEach(function(chip) {
               chip.classList.toggle('active', chip === btn);
+              chip.setAttribute('aria-pressed', chip === btn ? 'true' : 'false');
             });
             applyFilter(pendingFilterTerm);
           });
@@ -1159,9 +2226,11 @@
         btn.type = 'button';
         btn.className = 'chip' + (showChangedOnly ? ' active' : '');
         btn.textContent = 'Show changed only';
+        btn.setAttribute('aria-pressed', showChangedOnly ? 'true' : 'false');
         btn.addEventListener('click', function() {
           showChangedOnly = !showChangedOnly;
           btn.classList.toggle('active', showChangedOnly);
+          btn.setAttribute('aria-pressed', showChangedOnly ? 'true' : 'false');
           persistState({ showChanged: showChangedOnly });
           applyFilter(pendingFilterTerm);
         });
@@ -1182,7 +2251,10 @@
       function setActivePane(target) {
         target = target === 'graph' ? 'graph' : 'tree';
         paneButtons.forEach(function(button) {
-          button.classList.toggle('active', button.getAttribute('data-pane-target') === target);
+          var active = button.getAttribute('data-pane-target') === target;
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-selected', active ? 'true' : 'false');
+          button.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
         if (treePane) {
           treePane.hidden = target !== 'tree';
@@ -1250,39 +2322,62 @@
         graphImpactNodes = [];
         graphImpactEdges = [];
         graphPositions = {};
-        if (!nodes.length) {
+
+        var query = (pendingFilterTerm || '').trim().toLowerCase();
+        function nodeSearchText(node) {
+          if (!node) return '';
+          var name = String(node.displayName || '').toLowerCase();
+          var ns = String(node.namespace || '').toLowerCase();
+          var kind = String(node.kindLabel || node.kind || '').toLowerCase();
+          if (searchMode === 'name') return name;
+          if (searchMode === 'kind') return kind;
+          if (searchMode === 'namespace') return ns;
+          return (name + ' ' + ns + ' ' + kind).trim();
+        }
+        function nodeMatches(node) {
+          if (!node) return false;
+          if (activeBucket !== 'all' && node.category !== activeBucket) return false;
+          if (showChangedOnly && String(node.changeKind || '').toLowerCase() === '') return false;
+          if (query && nodeSearchText(node).indexOf(query) === -1) return false;
+          return true;
+        }
+
+        var visibleNodes = nodes.filter(nodeMatches);
+        if (!visibleNodes.length) {
           if (graphEmpty) graphEmpty.hidden = false;
           return;
         }
         if (graphEmpty) graphEmpty.hidden = true;
-        var groups = groupBy(nodes, function(item) { return item.namespace || 'cluster'; });
+        var groups = groupBy(visibleNodes, function(item) { return item.namespace || 'cluster'; });
         var namespaceIndex = {};
         groups.forEach(function(group, idx) {
           namespaceIndex[group.key] = idx;
         });
-        var colSpacing = 220;
-        var rowSpacing = 90;
-        var marginX = 120;
-        var marginY = 90;
-        var counts = {};
-        var maxRows = 0;
-        nodes.forEach(function(node) {
-          var ns = node.namespace || 'cluster';
-          var col = namespaceIndex[ns] || 0;
-          var row = counts[ns] || 0;
-          counts[ns] = row + 1;
-          var x = marginX + col * colSpacing;
-          var y = marginY + row * rowSpacing;
-          graphPositions[node.id] = { x: x, y: y };
-          if (row+1 > maxRows) {
-            maxRows = row + 1;
+        // Horizontal layout (stable): each namespace is a row, nodes flow left-to-right.
+        var colSpacing = 240;
+        var rowSpacing = 110;
+        var marginX = 160;
+        var marginY = 110;
+        var maxCols = 0;
+        groups.forEach(function(group) {
+          var ns = group.key || 'cluster';
+          var row = namespaceIndex[ns] || 0;
+          (group.items || []).forEach(function(node, idx) {
+            var id = (node && node.id) ? String(node.id).toLowerCase() : '';
+            if (!id) return;
+            graphPositions[id] = { x: marginX + idx * colSpacing, y: marginY + row * rowSpacing };
+          });
+          if ((group.items || []).length > maxCols) {
+            maxCols = (group.items || []).length;
           }
         });
-        var width = marginX * 2 + Math.max(0, groups.length-1) * colSpacing;
-        var height = marginY * 2 + Math.max(0, maxRows-1) * rowSpacing;
+        var width = marginX * 2 + Math.max(0, maxCols-1) * colSpacing;
+        var height = marginY * 2 + Math.max(0, groups.length-1) * rowSpacing;
         setGraphCanvasSize(width, height);
-        nodes.forEach(function(node) {
-          var pos = graphPositions[node.id];
+        visibleNodes.forEach(function(node) {
+          var id = (node && node.id) ? String(node.id).toLowerCase() : '';
+          if (!id) return;
+          var pos = graphPositions[id];
           if (!pos) return;
           var btn = document.createElement('button');
           btn.type = 'button';
@@ -1298,16 +2393,22 @@
             selectNode(node);
           });
           graphNodesLayer.appendChild(btn);
-          graphNodeElements[node.id] = btn;
+          graphNodeElements[id] = btn;
         });
+        var visibleIds = {};
+        visibleNodes.forEach(function(n) { if (n && n.id) visibleIds[String(n.id).toLowerCase()] = true; });
         edges.forEach(function(edge) {
           var fromId = (edge.From || edge.from || '').toLowerCase();
           var toId = (edge.To || edge.to || '').toLowerCase();
+          if (!visibleIds[fromId] || !visibleIds[toId]) return;
           var from = graphPositions[fromId];
           var to = graphPositions[toId];
           if (!from || !to) return;
           var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', buildEdgePath(from, to));
+          var fromEl = graphNodeElements[fromId];
+          var toEl = graphNodeElements[toId];
+          var pts = edgeEndpoints(from, to, fromEl, toEl);
+          path.setAttribute('d', buildEdgePath(pts.from, pts.to));
           path.classList.add('graph-edge');
           graphEdgesLayer.appendChild(path);
           graphEdgeElements.push({ from: fromId, to: toId, element: path });
@@ -1324,6 +2425,8 @@
         graphEdgesLayer.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
         graphEdgesLayer.setAttribute('width', width);
         graphEdgesLayer.setAttribute('height', height);
+        graphEdgesLayer.style.width = width + 'px';
+        graphEdgesLayer.style.height = height + 'px';
         graphNodesLayer.style.width = width + 'px';
         graphNodesLayer.style.height = height + 'px';
       }
@@ -1338,8 +2441,38 @@
         ].join(' ');
       }
 
+      function edgeEndpoints(fromPos, toPos, fromEl, toEl) {
+        var sx = fromPos.x, sy = fromPos.y, tx = toPos.x, ty = toPos.y;
+        var dx = tx - sx;
+        var dy = ty - sy;
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        if (!dist || dist < 1) {
+          return { from: { x: sx, y: sy }, to: { x: tx, y: ty } };
+        }
+        var ux = dx / dist;
+        var uy = dy / dist;
+        function rectOffset(el, dirX, dirY) {
+          if (!el) return 0;
+          var w = (el.offsetWidth || 0) / 2;
+          var h = (el.offsetHeight || 0) / 2;
+          if (w <= 0 && h <= 0) return 0;
+          var ax = Math.abs(dirX);
+          var ay = Math.abs(dirY);
+          // Intersection of ray with axis-aligned rectangle centered at 0,0 with half-extents w/h.
+          var tx = ax > 1e-6 ? (w / ax) : Infinity;
+          var ty = ay > 1e-6 ? (h / ay) : Infinity;
+          return Math.min(tx, ty);
+        }
+        var pad = 8;
+        var o1 = rectOffset(fromEl, ux, uy);
+        var o2 = rectOffset(toEl, ux, uy);
+        var start = { x: sx + ux * (o1 + pad), y: sy + uy * (o1 + pad) };
+        var end = { x: tx - ux * (o2 + pad), y: ty - uy * (o2 + pad) };
+        return { from: start, to: end };
+      }
+
       function highlightGraphSelection(node) {
-        graphSelectedId = node && node.id ? node.id : null;
+        graphSelectedId = node && node.id ? String(node.id).toLowerCase() : null;
         Object.keys(graphNodeElements).forEach(function(id) {
           graphNodeElements[id].classList.toggle('selected', id === graphSelectedId);
         });
@@ -1367,7 +2500,8 @@
 
       function scrollGraphIntoView(node) {
         if (!graphCanvas || !node) return;
-        var pos = graphPositions[node.id];
+        var id = (node && node.id) ? String(node.id).toLowerCase() : '';
+        var pos = graphPositions[id];
         if (!pos) return;
         var targetLeft = Math.max(pos.x - (graphCanvas.clientWidth || 0) / 2, 0);
         var targetTop = Math.max(pos.y - (graphCanvas.clientHeight || 0) / 2, 0);
@@ -1397,6 +2531,32 @@
         }
       }
 
+      function createDetails(label, count, level) {
+        var details = document.createElement('details');
+        details.className = 'tree-node';
+        if (level === 'kind') {
+          details.classList.add('level-kind');
+        }
+        if (level) {
+          details.dataset.level = level;
+        }
+        var summary = document.createElement('summary');
+        var twist = document.createElement('span');
+        twist.className = 'twist';
+        twist.textContent = '›';
+        summary.appendChild(twist);
+        var title = document.createElement('span');
+        title.textContent = label || 'Resources';
+        summary.appendChild(title);
+        var pill = document.createElement('span');
+        pill.className = 'count-pill';
+        var formatted = (typeof formatNumber === 'function') ? formatNumber(count) : String(count || 0);
+        pill.textContent = formatted;
+        summary.appendChild(pill);
+        details.appendChild(summary);
+        return details;
+      }
+
       function createNamespaceSection(group) {
         var details = createDetails(group.key || 'cluster', group.items.length, 'namespace');
         details.dataset.namespace = group.key;
@@ -1411,18 +2571,24 @@
           kindDetails.open = kindGroup.items.length <= LARGE_NAMESPACE_THRESHOLD;
           var list = document.createElement('ul');
           list.className = 'resource-list';
-          kindGroup.items.sort(function(a, b) {
-            var delta = changeRank(a.changeKind) - changeRank(b.changeKind);
-            if (delta !== 0) return delta;
-            return a.displayName.localeCompare(b.displayName);
-          }).forEach(function(node) {
+	          kindGroup.items.sort(function(a, b) {
+	            var delta = changeRank(a.changeKind) - changeRank(b.changeKind);
+	            if (delta !== 0) return delta;
+	            return a.displayName.localeCompare(b.displayName);
+	          }).forEach(function(node) {
             var li = document.createElement('li');
             var btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'resource-btn';
             btn.textContent = node.displayName;
             btn.dataset.nodeId = node.id;
-            btn.dataset.search = (node.displayName + ' ' + (node.namespace || '') + ' ' + (node.kindLabel || '')).toLowerCase();
+            var nameSearch = String(node.displayName || '').toLowerCase();
+            var nsSearch = String(node.namespace || '').toLowerCase();
+            var kindSearch = String(node.kindLabel || node.kind || '').toLowerCase();
+            btn.dataset.search = (nameSearch + ' ' + nsSearch + ' ' + kindSearch).trim();
+            btn.dataset.searchName = nameSearch;
+            btn.dataset.searchNamespace = nsSearch;
+            btn.dataset.searchKind = kindSearch;
             btn.dataset.kindBucket = node.category;
             if (node.changeKind) {
               btn.dataset.changeKind = node.changeKind;
@@ -1433,10 +2599,10 @@
             }
             btn.setAttribute('role', 'treeitem');
             btn.setAttribute('aria-label', node.namespace + ' ' + node.kindLabel + ' ' + node.displayName);
-            var counts = dependencyCounts(node.id);
-            appendCountBadge(btn, counts.out, 'Depends on ' + counts.out + ' resources');
-            appendCountBadge(btn, counts.in, 'Referenced by ' + counts.in + ' resources', true);
-            btn.addEventListener('click', function() { selectNode(node); });
+	            var counts = dependencyCounts(node.id);
+	            appendCountBadge(btn, counts.out, 'Depends on ' + counts.out + ' resources');
+	            appendCountBadge(btn, counts.in, 'Referenced by ' + counts.in + ' resources', true);
+	            btn.addEventListener('click', function() { selectNode(node); });
             li.appendChild(btn);
             list.appendChild(li);
             var entryRecord = { button: btn, li: li, node: node };
@@ -1459,12 +2625,50 @@
           applyFilter(pendingFilterTerm);
         });
         clearSearchBtn.addEventListener('click', function() {
-          pendingFilterTerm = '';
-          searchInput.value = '';
-          clearSearchBtn.disabled = true;
-          persistState({ filterText: '' });
-          applyFilter('');
+          clearSearch();
           searchInput.focus();
+        });
+      }
+
+      function clearSearch() {
+        pendingFilterTerm = '';
+        if (searchInput) {
+          searchInput.value = '';
+        }
+        if (clearSearchBtn) {
+          clearSearchBtn.disabled = true;
+        }
+        persistState({ filterText: '' });
+        applyFilter('');
+      }
+
+      function buildSearchModeChips() {
+        if (!searchModeChips) return;
+        var modes = [
+          { id: 'all', label: 'All' },
+          { id: 'name', label: 'Name' },
+          { id: 'kind', label: 'Kind' },
+          { id: 'namespace', label: 'Namespace' }
+        ];
+        searchModeChips.innerHTML = '';
+        modes.forEach(function(mode) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'chip' + (searchMode === mode.id ? ' active' : '');
+          btn.textContent = mode.label;
+          btn.setAttribute('aria-pressed', searchMode === mode.id ? 'true' : 'false');
+          btn.addEventListener('click', function() {
+            if (searchMode === mode.id) return;
+            searchMode = mode.id;
+            persistState({ searchMode: searchMode });
+            searchModeChips.querySelectorAll('.chip').forEach(function(chip) {
+              var active = chip === btn;
+              chip.classList.toggle('active', active);
+              chip.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+            applyFilter(pendingFilterTerm);
+          });
+          searchModeChips.appendChild(btn);
         });
       }
 
@@ -1482,24 +2686,197 @@
         });
       }
 
+      function bindRestoreNotice() {
+        if (resetFiltersBtn) {
+          resetFiltersBtn.addEventListener('click', function() {
+            resetFilters({ keepSelection: false });
+          });
+        }
+        if (!restoreNotice) return;
+        var hasRestored = !!(state && (state.filterText || (state.bucket && state.bucket !== 'all') || state.showChanged || state.selectedId));
+        var dismissed = !!(state && state.dismissedRestoreNotice);
+        restoreNotice.hidden = !(hasRestored && !dismissed);
+        if (restoreDismissBtn) {
+          restoreDismissBtn.addEventListener('click', function() {
+            restoreNotice.hidden = true;
+            persistState({ dismissedRestoreNotice: true });
+          });
+        }
+        if (restoreResetBtn) {
+          restoreResetBtn.addEventListener('click', function() {
+            resetFilters({ keepSelection: false });
+            restoreNotice.hidden = true;
+            persistState({ dismissedRestoreNotice: true });
+          });
+        }
+      }
+
       function bindCopyLink() {
-        if (!copyLinkBtn) return;
+        if (!copyLinkBtn || !manifestPanel) return;
+        // Repurposed: toggle the manifest panel body.
+        var collapsed = !!state.manifestCollapsed;
+        manifestPanel.classList.toggle('collapsed', collapsed);
+        if (copyLinkBtn) {
+          copyLinkBtn.textContent = collapsed ? '▸' : '▾';
+          copyLinkBtn.setAttribute('aria-label', collapsed ? 'Expand manifest panel' : 'Collapse manifest panel');
+          copyLinkBtn.title = collapsed ? 'Expand panel' : 'Collapse panel';
+        }
         copyLinkBtn.addEventListener('click', function() {
-          if (!currentNode) return;
-          var text = window.location.href;
+          collapsed = !collapsed;
+          manifestPanel.classList.toggle('collapsed', collapsed);
+          persistState({ manifestCollapsed: collapsed });
+          copyLinkBtn.textContent = collapsed ? '▸' : '▾';
+          copyLinkBtn.setAttribute('aria-label', collapsed ? 'Expand manifest panel' : 'Collapse manifest panel');
+          copyLinkBtn.title = collapsed ? 'Expand panel' : 'Collapse panel';
+        });
+      }
+
+      function bindCopyExplain() {
+        if (!copyExplainBtn) return;
+        copyExplainBtn.addEventListener('click', function() {
+          if (!currentNode || !currentExplainMarkdown) {
+            toastButton(copyExplainBtn, 'Nothing to copy');
+            return;
+          }
+          var text = currentExplainMarkdown;
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text).then(showCopyToast, showCopyToast);
+            navigator.clipboard.writeText(text).then(function() { toastButton(copyExplainBtn, 'Copied'); }, function() { toastButton(copyExplainBtn, 'Copied'); });
           } else {
-            showCopyToast();
+            toastButton(copyExplainBtn, 'Copied');
           }
         });
       }
 
       function showCopyToast() {
-        if (!copyLinkBtn) return;
-        var previous = copyLinkBtn.textContent;
-        copyLinkBtn.textContent = 'Link copied';
-        setTimeout(function() { copyLinkBtn.textContent = previous; }, 1500);
+        // Deprecated: replaced by toastButton usage.
+        return;
+      }
+
+      function toastButton(btn, label) {
+        if (!btn) return;
+        var previous = btn.textContent;
+        btn.textContent = label;
+        setTimeout(function() { btn.textContent = previous; }, 1500);
+      }
+
+      function bindPrintReport() {
+        if (!printReportBtn) return;
+        printReportBtn.addEventListener('click', function() {
+          try {
+            window.print();
+          } catch (err) {
+            toastButton(printReportBtn, 'Failed');
+          }
+        });
+      }
+
+      function bindViewerActions() {
+        if (copyApplyBtn) {
+          copyApplyBtn.addEventListener('click', function() {
+            var text = (dataset && dataset.installCommand) ? String(dataset.installCommand) : '';
+            if (!text.trim()) {
+              toastButton(copyApplyBtn, 'No command');
+              return;
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(text).then(function() { toastButton(copyApplyBtn, 'Copied'); }, function() { toastButton(copyApplyBtn, 'Copied'); });
+            } else {
+              toastButton(copyApplyBtn, 'Copied');
+            }
+          });
+        }
+        if (copyPlanBtn) {
+          copyPlanBtn.addEventListener('click', function() {
+            try {
+              var text = JSON.stringify(dataset || {}, null, 2);
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function() { toastButton(copyPlanBtn, 'Copied'); }, function() { toastButton(copyPlanBtn, 'Copied'); });
+              } else {
+                toastButton(copyPlanBtn, 'Copied');
+              }
+            } catch (err) {
+              toastButton(copyPlanBtn, 'Failed');
+            }
+          });
+        }
+        if (downloadPlanBtn) {
+          downloadPlanBtn.addEventListener('click', function() {
+            try {
+              var ts = (dataset && dataset.generatedAt) ? new Date(dataset.generatedAt).toISOString().replace(/[:.]/g, '-') : '';
+              var slug = (dataset && dataset.release) ? String(dataset.release).toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'release';
+              var filename = 'ktl-deploy-visualize-' + slug + (ts ? '-' + ts : '') + '.json';
+              downloadText(JSON.stringify(dataset || {}, null, 2), filename);
+              toastButton(downloadPlanBtn, 'Saved');
+            } catch (err) {
+              toastButton(downloadPlanBtn, 'Failed');
+            }
+          });
+        }
+        if (downloadYamlBtn) {
+          downloadYamlBtn.addEventListener('click', function() {
+            try {
+              var ts = (dataset && dataset.generatedAt) ? new Date(dataset.generatedAt).toISOString().replace(/[:.]/g, '-') : '';
+              var slug = (dataset && dataset.release) ? String(dataset.release).toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'release';
+              var filename = 'ktl-deploy-visualize-' + slug + (ts ? '-' + ts : '') + '.yaml';
+              downloadText(jsonToYaml(dataset || {}), filename);
+              toastButton(downloadYamlBtn, 'Saved');
+            } catch (err) {
+              toastButton(downloadYamlBtn, 'Failed');
+            }
+          });
+        }
+        if (resetViewBtn) {
+          resetViewBtn.addEventListener('click', function() {
+            resetFilters({ keepSelection: false });
+            toastButton(resetViewBtn, 'Reset');
+          });
+        }
+      }
+
+      function jsonToYaml(value) {
+        function needsQuotes(str) {
+          return (
+            str === '' ||
+            /^[\\s]|[\\s]$/.test(str) ||
+            /[:?\\[\\]{}#,&*!|>'"%@`\\-]/.test(str) ||
+            str.indexOf('\\n') !== -1
+          );
+        }
+        function quote(str) {
+          return JSON.stringify(str);
+        }
+        function render(v, indent) {
+          indent = indent || '';
+          if (v === null || v === undefined) return 'null';
+          if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+          if (typeof v === 'string') return needsQuotes(v) ? quote(v) : v;
+          if (Array.isArray(v)) {
+            if (v.length === 0) return '[]';
+            return v.map(function(item) {
+              var rendered = render(item, indent + '  ');
+              if (typeof item === 'object' && item !== null) {
+                var lines = rendered.split('\\n');
+                return indent + '- ' + lines[0] + (lines.length > 1 ? ('\\n' + lines.slice(1).map(function(l) { return indent + '  ' + l; }).join('\\n')) : '');
+              }
+              return indent + '- ' + rendered;
+            }).join('\\n');
+          }
+          if (typeof v === 'object') {
+            var keys = Object.keys(v || {}).filter(function(k) { return v[k] !== undefined; });
+            if (keys.length === 0) return '{}';
+            keys.sort();
+            return keys.map(function(k) {
+              var key = needsQuotes(k) ? quote(k) : k;
+              var val = v[k];
+              if (val && typeof val === 'object') {
+                return indent + key + ':\\n' + render(val, indent + '  ');
+              }
+              return indent + key + ': ' + render(val, indent + '  ');
+            }).join('\\n');
+          }
+          return quote(String(v));
+        }
+        return render(value, '');
       }
 
       function bindDownloadButtons() {
@@ -1507,7 +2884,16 @@
           button.addEventListener('click', function() {
             if (!currentNode) return;
             var mode = button.getAttribute('data-download');
-            var content = mode === 'diff' ? manifestDiffs[currentNode.id] : manifests[currentNode.id];
+            var content = '';
+            if (mode === 'diff') {
+              content = currentDiffText(currentNode) || '';
+              if (!content.trim()) {
+                // Allow "diff" download even when live diffs are unavailable.
+                content = manifests[currentNode.id] || '';
+              }
+            } else {
+              content = manifests[currentNode.id] || '';
+            }
             if (!content) return;
             var ext = mode === 'diff' ? 'diff' : 'yaml';
             var filename = (currentNode.namespace || 'cluster') + '-' + currentNode.displayName + '.' + ext;
@@ -1530,6 +2916,14 @@
         } catch (err) {
           console.error('download failed', err);
         }
+      }
+
+      function bindHelp() {
+        /* removed */
+      }
+
+      function toggleHelp(open) {
+        /* removed */
       }
 
       function bindCompareUpload() {
@@ -1573,6 +2967,7 @@
         scheduleGraphRender();
         hydrateHero();
         hydrateTimeline();
+        hydrateSecrets();
       }
 
       function parseExternalVizPayload(raw) {
@@ -1649,6 +3044,7 @@
         }
         hydrateHero();
         hydrateTimeline();
+        hydrateSecrets();
       }
 
       function recomputeChangedIds() {
@@ -1770,6 +3166,98 @@
         });
       }
 
+      function bindKeyboardShortcuts() {
+        document.addEventListener('keydown', function(evt) {
+          if (!evt || evt.defaultPrevented) return;
+          var key = evt.key || '';
+          var target = evt.target;
+          var tag = target && target.tagName ? target.tagName.toLowerCase() : '';
+          var inInput = tag === 'input' || tag === 'textarea' || tag === 'select' || (target && target.isContentEditable);
+
+          if (key === '/' && !inInput) {
+            evt.preventDefault();
+            if (searchInput) searchInput.focus();
+            return;
+          }
+          if (key === 'Escape') {
+            clearSearch();
+            return;
+          }
+          if (inInput) return;
+
+          if (key === 'j') {
+            evt.preventDefault();
+            selectAdjacentResource(1);
+            return;
+          }
+          if (key === 'k') {
+            evt.preventDefault();
+            selectAdjacentResource(-1);
+            return;
+          }
+          if (key === 'g') {
+            evt.preventDefault();
+            setPane('graph');
+            return;
+          }
+          if (key === 't') {
+            evt.preventDefault();
+            setPane('tree');
+            return;
+          }
+          if ((key === 'e' || key === 'E') && features && features.explainDiff) {
+            evt.preventDefault();
+            if (manifestMode === 'explain') {
+              manifestMode = 'rendered';
+            } else {
+              manifestMode = 'explain';
+            }
+            persistState({ manifestMode: manifestMode });
+            manifestModeButtons.forEach(function(btn) {
+              var mode = btn.getAttribute('data-manifest-mode');
+              var active = mode === manifestMode;
+              btn.classList.toggle('active', active);
+              btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+            if (manifestView) {
+              manifestView.setAttribute('data-view', manifestMode === 'diff' ? 'diff' : 'rendered');
+              manifestView.hidden = manifestMode === 'explain';
+            }
+            if (explainView) {
+              explainView.hidden = manifestMode !== 'explain';
+            }
+            if (currentNode) {
+              renderManifest(currentNode);
+            }
+            updateDiffHint();
+            updateDiffStatus();
+            updateDiffToolbarVisibility();
+            updateDownloadButtons();
+            return;
+          }
+        });
+      }
+
+      function setPane(target) {
+        setActivePane(target);
+      }
+
+      function selectAdjacentResource(delta) {
+        if (!resourceEntries || resourceEntries.length === 0) return;
+        var visible = resourceEntries.filter(function(entry) { return !entry.li.classList.contains('hidden'); });
+        if (!visible.length) return;
+        var idx = 0;
+        if (currentNode) {
+          var currentIdx = visible.findIndex(function(entry) { return entry.node && entry.node.id === currentNode.id; });
+          idx = currentIdx >= 0 ? currentIdx : 0;
+        }
+        var nextIdx = Math.min(Math.max(idx + delta, 0), visible.length - 1);
+        var next = visible[nextIdx] && visible[nextIdx].node;
+        if (next) {
+          selectNode(next);
+        }
+      }
+
       function applyFilter(term) {
         pendingFilterTerm = term || '';
         if (!treeReady) {
@@ -1779,7 +3267,11 @@
         var query = pendingFilterTerm.trim().toLowerCase();
         var visible = 0;
         resourceEntries.forEach(function(entry) {
-          var matchesQuery = !query || entry.button.dataset.search.indexOf(query) !== -1;
+          var haystack = entry.button.dataset.search || '';
+          if (searchMode === 'name') haystack = entry.button.dataset.searchName || '';
+          else if (searchMode === 'kind') haystack = entry.button.dataset.searchKind || '';
+          else if (searchMode === 'namespace') haystack = entry.button.dataset.searchNamespace || '';
+          var matchesQuery = !query || haystack.indexOf(query) !== -1;
           var matchesBucket = activeBucket === 'all' || entry.button.dataset.kindBucket === activeBucket;
           var matchesChanged = !showChangedOnly || entry.button.dataset.changed === 'true';
           var match = matchesQuery && matchesBucket && matchesChanged;
@@ -1788,6 +3280,12 @@
             visible += 1;
           }
         });
+        if (emptyState) {
+          emptyState.hidden = visible !== 0;
+          if (!emptyState.hidden) {
+            renderEmptyStateChips(query);
+          }
+        }
         if (filterStatus) {
           if (!query && activeBucket === 'all' && !showChangedOnly) {
             filterStatus.textContent = '';
@@ -1796,17 +3294,80 @@
           }
         }
         applyImpactHighlights(currentNode);
+        if (graphPane && !graphPane.hidden) {
+          renderGraph();
+        }
+      }
+
+      function renderEmptyStateChips(query) {
+        if (!emptyStateChips) return;
+        emptyStateChips.innerHTML = '';
+        var chips = [];
+        if (query) chips.push({ label: 'Search', value: query });
+        if (activeBucket && activeBucket !== 'all') chips.push({ label: 'Kind', value: activeBucket });
+        if (showChangedOnly) chips.push({ label: 'Changed', value: 'only' });
+        if (chips.length === 0) {
+          chips.push({ label: 'Filters', value: 'none' });
+        }
+        chips.forEach(function(item) {
+          var chip = document.createElement('span');
+          chip.className = 'chip active';
+          chip.textContent = item.label + ': ' + item.value;
+          emptyStateChips.appendChild(chip);
+        });
       }
 
       function restoreSelection() {
         var fromHash = findNodeFromHash();
         var persistedId = state.selectedId;
         var persistedNode = persistedId ? nodes.find(function(n) { return n.id === persistedId; }) : null;
-        var target = fromHash || persistedNode || nodes[0];
+        var target = fromHash || persistedNode || pickDefaultNode();
         if (target) {
           selectNode(target, { updateHash: !fromHash });
         } else {
           setSelectionPlaceholder();
+        }
+      }
+
+      function pickDefaultNode() {
+        if (!nodes || nodes.length === 0) return null;
+        var candidates = nodes.slice();
+        if (changedIds && changedIds.size) {
+          var changed = candidates.filter(function(n) { return changedIds.has(n.id); });
+          if (changed.length) {
+            candidates = changed;
+          }
+        }
+        candidates.sort(function(a, b) {
+          var delta = changeRank(b.changeKind) - changeRank(a.changeKind);
+          if (delta !== 0) return delta;
+          return a.displayName.localeCompare(b.displayName);
+        });
+        return candidates[0] || nodes[0];
+      }
+
+      function resetFilters(opts) {
+        opts = opts || {};
+        showChangedOnly = false;
+        activeBucket = 'all';
+        pendingFilterTerm = '';
+        if (searchInput) {
+          searchInput.value = '';
+        }
+        if (clearSearchBtn) {
+          clearSearchBtn.disabled = true;
+        }
+        buildKindChips();
+        buildChangeChip();
+        persistState({ filterText: '', bucket: 'all', showChanged: false, selectedId: opts.keepSelection ? state.selectedId : '' });
+        applyFilter('');
+        if (!opts.keepSelection) {
+          var next = pickDefaultNode();
+          if (next) {
+            selectNode(next, { updateHash: true });
+          } else {
+            setSelectionPlaceholder();
+          }
         }
       }
 
@@ -1835,12 +3396,12 @@
           scrollGraphIntoView(node);
         }
         selectionTitle.textContent = node.displayName;
-        renderBreadcrumbs(node);
-        renderMeta(node);
-        renderDependencies(node);
-        renderManifest(node);
-        renderCompareViews(node);
-        applyImpactHighlights(node);
+	        renderBreadcrumbs(node);
+	        renderDependencies(node);
+	        renderManifest(node);
+	        updateDiffStatus();
+	        renderCompareViews(node);
+	        applyImpactHighlights(node);
         persistState({ selectedId: node.id });
         updateDownloadButtons();
         if (opts.updateHash !== false) {
@@ -1889,22 +3450,6 @@
         });
       }
 
-      function renderMeta(node) {
-        metaBadges.innerHTML = '';
-        addBadge('Kind', node.kindLabel);
-        addBadge('Namespace', node.namespace || 'cluster');
-        Object.entries(node.meta || {}).forEach(function(entry) {
-          addBadge(titleCase(entry[0]), entry[1]);
-        });
-      }
-
-      function addBadge(label, value) {
-        if (!value) return;
-        var badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = label + ': ' + value;
-        metaBadges.appendChild(badge);
-      }
 
       function renderDependencies(node) {
         dependencyItemLookup = {};
@@ -1949,41 +3494,479 @@
         });
       }
 
-      function renderManifest(node) {
-        var rendered = manifests[node.id] || 'Rendered YAML unavailable for this resource.';
-        if (manifestMode === 'diff') {
-          var diff = manifestDiffs[node.id];
-          if (diff && diff.trim()) {
-            manifestView.innerHTML = diffToHtml(diff);
-            manifestStatus.textContent = 'Displaying unified diff (live vs rendered).';
-            return;
-          }
-          manifestView.textContent = rendered;
-          if (liveManifests[node.id]) {
-            manifestStatus.textContent = 'No changes detected between live and rendered manifest.';
-          } else if (dataset.offlineFallback) {
-            manifestStatus.textContent = 'Diff unavailable because live data could not be retrieved.';
-          } else {
-            manifestStatus.textContent = 'Diff unavailable for this resource.';
+      function escapeHTML(value) {
+        return String(value || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function renderExplainManifest(node) {
+        if (!explainList || !explainEmpty) return;
+        if (!node) {
+          explainList.innerHTML = '';
+          explainEmpty.hidden = false;
+          currentExplainMarkdown = '';
+          currentExplainCounts = null;
+          if (copyExplainBtn) {
+            copyExplainBtn.disabled = true;
           }
           return;
         }
-        manifestView.textContent = rendered;
-        if (liveManifests[node.id]) {
-          manifestStatus.textContent = 'Rendered manifest (live object exists).';
-        } else if (dataset.offlineFallback) {
-          manifestStatus.textContent = 'Rendered manifest (live data unavailable when generated).';
-        } else {
-          manifestStatus.textContent = 'Rendered manifest.';
+        var diffText = currentDiffText(node);
+
+        if (!diffText || !diffText.trim()) {
+          explainList.innerHTML = '';
+          explainEmpty.hidden = false;
+          currentExplainMarkdown = '';
+          currentExplainCounts = null;
+          if (copyExplainBtn) {
+            copyExplainBtn.disabled = true;
+          }
+          return;
         }
+
+        var findings = [];
+        function addFinding(severity, title, detail, jumpQuery) {
+          findings.push({ severity: severity, title: title, detail: detail, jumpQuery: jumpQuery || '' });
+        }
+
+        var lines = diffText.split('\n');
+        var adds = [];
+        var dels = [];
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (!line) continue;
+          if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) continue;
+          if (line.startsWith('+')) adds.push(line.slice(1));
+          else if (line.startsWith('-')) dels.push(line.slice(1));
+        }
+
+	        function anyMatch(arr, re) {
+	          for (var j = 0; j < arr.length; j++) {
+	            if (re.test(arr[j])) return true;
+	          }
+	          return false;
+	        }
+
+	        function anyIncludes(arr, needle) {
+	          for (var j = 0; j < arr.length; j++) {
+	            if (arr[j].indexOf(needle) !== -1) return true;
+	          }
+	          return false;
+	        }
+
+        function collect(arr, re, limit) {
+          var out = [];
+          for (var j = 0; j < arr.length; j++) {
+            var m = arr[j].match(re);
+            if (m) {
+              out.push(m[1] || m[0]);
+              if (limit && out.length >= limit) break;
+            }
+          }
+          return out;
+        }
+
+        function firstLine(arr, re) {
+          for (var j = 0; j < arr.length; j++) {
+            if (re.test(arr[j])) return arr[j].trim();
+          }
+          return '';
+        }
+
+        var kind = (node.kind || '').toLowerCase();
+
+        var beforeImages = collect(dels, /^\\s*image:\\s*([^\\s#]+)\\s*$/, 4);
+        var afterImages = collect(adds, /^\\s*image:\\s*([^\\s#]+)\\s*$/, 4);
+        if (beforeImages.length || afterImages.length) {
+          var detail = (beforeImages.length && afterImages.length)
+            ? ('From ' + beforeImages.join(', ') + ' \u2192 ' + afterImages.join(', '))
+            : 'Image fields changed; expect rollout/restart.';
+          addFinding('warn', 'Container image change', detail, 'image:');
+        }
+
+        if (anyMatch(adds, /^\\s*replicas:\\s*\\d+/) || anyMatch(dels, /^\\s*replicas:\\s*\\d+/)) {
+          var sample = firstLine(adds, /^\\s*replicas:\\s*\\d+/) || firstLine(dels, /^\\s*replicas:\\s*\\d+/);
+          addFinding('info', 'Replica count change', sample ? ('Replica count changed (' + sample + '). Autoscalers may override via HPA.') : 'Autoscalers may override replica changes if HPA is enabled.', 'replicas:');
+        }
+
+        if (anyMatch(adds, /^\\s*selector:\\s*$/) || anyMatch(dels, /^\\s*selector:\\s*$/)) {
+          var sampleSel = firstLine(adds, /^\\s*selector:\\s*$/) || firstLine(dels, /^\\s*selector:\\s*$/);
+          addFinding('fail', 'Selector changed', sampleSel ? ('Selector block changed (' + sampleSel + '). This can orphan workloads or break Service routing.') : 'Selector changes can orphan workloads or break Service routing.', 'selector:');
+        }
+
+        if (kind === 'service' && (anyMatch(adds, /^\\s*clusterIP:\\s*\\S+/) || anyMatch(dels, /^\\s*clusterIP:\\s*\\S+/))) {
+          addFinding('fail', 'Service clusterIP change', 'clusterIP is usually immutable; this may fail or force recreation.', 'clusterIP:');
+        }
+
+        if (anyMatch(adds, /^\\s*(readinessProbe|livenessProbe):\\s*$/) || anyMatch(dels, /^\\s*(readinessProbe|livenessProbe):\\s*$/)) {
+          var probeSample = firstLine(adds, /^\\s*(readinessProbe|livenessProbe):\\s*$/) || firstLine(dels, /^\\s*(readinessProbe|livenessProbe):\\s*$/);
+          addFinding('warn', 'Probe configuration changed', probeSample ? ('Probe block changed (' + probeSample + '). Probe changes can cause rollout stalls.') : 'Probe changes can cause rollout stalls if thresholds are too strict.', 'probe:');
+        }
+
+        if (anyMatch(adds, /^\\s*(requests|limits):\\s*$/) || anyMatch(dels, /^\\s*(requests|limits):\\s*$/) || anyMatch(adds, /^\\s*(cpu|memory):\\s*/) || anyMatch(dels, /^\\s*(cpu|memory):\\s*/)) {
+          addFinding('warn', 'Resource requests/limits change', 'May trigger scheduling changes; verify capacity during rollout.', 'resources:');
+        }
+
+        if (anyMatch(adds, /^\\s*host:\\s*\\S+/) || anyMatch(dels, /^\\s*host:\\s*\\S+/)) {
+          var hostSample = firstLine(adds, /^\\s*host:\\s*\\S+/) || firstLine(dels, /^\\s*host:\\s*\\S+/);
+          addFinding('warn', 'Ingress host change', hostSample ? ('Host changed (' + hostSample + '). Routing/DNS impact likely; confirm certificates.') : 'Routing/DNS impact likely; confirm certificates and external integrations.', 'host:');
+        }
+
+        if (kind === 'persistentvolumeclaim' && (anyMatch(adds, /^\\s*storage:\\s*\\S+/) || anyMatch(dels, /^\\s*storage:\\s*\\S+/))) {
+          addFinding('warn', 'PVC size change', 'Expansion depends on storage class; shrinking usually fails.', 'storage:');
+        }
+
+        if (kind === 'poddisruptionbudget' && (anyMatch(adds, /^\\s*(minAvailable|maxUnavailable):\\s*\\S+/) || anyMatch(dels, /^\\s*(minAvailable|maxUnavailable):\\s*\\S+/))) {
+          addFinding('warn', 'PDB budget changed', 'Tighter budgets can block rollouts and voluntary evictions.', 'minAvailable:');
+        }
+
+        if (anyMatch(adds, /^\\s*privileged:\\s*true\\s*$/) || anyMatch(adds, /^\\s*hostNetwork:\\s*true\\s*$/)) {
+          addFinding('fail', 'Elevated security settings', 'Admission policies may deny; confirm cluster pod security rules.', 'privileged:');
+        }
+
+	        if (anyIncludes(adds, 'helm.sh/hook:') || anyIncludes(dels, 'helm.sh/hook:')) {
+	          addFinding('warn', 'Helm hook change', 'Hooks can affect ordering and atomic behavior; review delete policies.', 'helm.sh/hook:');
+	        }
+
+        explainList.innerHTML = '';
+        currentExplainMarkdown = '';
+        currentExplainCounts = null;
+        if (findings.length === 0) {
+          explainEmpty.hidden = false;
+          if (copyExplainBtn) {
+            copyExplainBtn.disabled = true;
+          }
+          return;
+        }
+        explainEmpty.hidden = true;
+
+        var summary = document.createElement('li');
+        summary.className = 'explain-summary';
+        var label = (node.namespace ? ('ns/' + node.namespace + ' \u00b7 ') : '') + (node.kindLabel || node.kind) + ' ' + node.displayName;
+        summary.innerHTML = '<strong>' + escapeHTML(label) + '</strong><span class=\"muted\"> \u00b7 inferred highlights</span>';
+        explainList.appendChild(summary);
+
+        currentExplainMarkdown = '- ' + label + '\\n' + findings.map(function(f) {
+          var prefix = (f.severity === 'fail') ? '[HIGH]' : (f.severity === 'warn') ? '[WARN]' : '[NOTE]';
+          return '  - ' + prefix + ' ' + f.title + (f.detail ? (': ' + f.detail) : '');
+        }).join('\\n');
+        currentExplainCounts = findings.reduce(function(acc, f) {
+          if (f.severity === 'fail') acc.high += 1;
+          else if (f.severity === 'warn') acc.warn += 1;
+          else acc.note += 1;
+          return acc;
+        }, { high: 0, warn: 0, note: 0 });
+        if (copyExplainBtn) {
+          copyExplainBtn.disabled = false;
+        }
+
+        findings.forEach(function(f) {
+          var li = document.createElement('li');
+          li.className = 'explain-item';
+          var badge = document.createElement('span');
+          badge.className = 'explain-badge ' + f.severity;
+          badge.textContent = (f.severity === 'fail') ? 'High risk' : (f.severity === 'warn') ? 'Watch' : 'Note';
+          li.appendChild(badge);
+
+          var body = document.createElement('div');
+          body.className = 'explain-body';
+          var title = document.createElement('div');
+          title.className = 'explain-title';
+          title.textContent = f.title;
+          body.appendChild(title);
+
+          if (f.jumpQuery) {
+            var jump = document.createElement('div');
+            jump.className = 'explain-jump';
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'chip';
+            btn.textContent = 'View in diff';
+            btn.addEventListener('click', function() {
+              setManifestMode('diff');
+              if (diffSearch) {
+                diffSearch.value = f.jumpQuery;
+                runDiffSearch(true);
+                focusDiffMatch(0);
+              }
+            });
+            jump.appendChild(btn);
+            body.appendChild(jump);
+          }
+          if (f.detail) {
+            var detail = document.createElement('div');
+            detail.className = 'explain-detail';
+            detail.textContent = f.detail;
+            body.appendChild(detail);
+          }
+          li.appendChild(body);
+          explainList.appendChild(li);
+        });
+      }
+
+      function renderManifest(node) {
+        var rendered = manifests[node.id] || 'Rendered YAML unavailable for this resource.';
+        if (manifestMode === 'explain') {
+          if (manifestView) {
+            manifestView.textContent = '';
+          }
+          renderExplainManifest(node);
+
+          if (manifestStatus) {
+            manifestStatus.textContent = '';
+          }
+          return;
+        }
+        if (manifestMode === 'diff') {
+          var mode = diffBaselineMode === 'compare' ? 'compare' : 'live';
+          var diffText = '';
+          if (mode === 'compare') {
+            if (!compareManifests) {
+              mode = 'live';
+            } else {
+              var base = compareManifests[node.id];
+              if (typeof base !== 'string' || !base.trim()) {
+                manifestView.innerHTML = textToDiffHtml(rendered);
+                manifestStatus.textContent = 'Comparison baseline missing for this resource.';
+                primeDiffTools();
+                return;
+              }
+              diffText = buildUnifiedDiff(base, rendered, 'comparison', 'rendered');
+              if (diffText.trim()) {
+                manifestView.innerHTML = diffToHtml(diffText);
+                manifestStatus.textContent = '';
+                primeDiffTools();
+                return;
+              }
+              manifestView.innerHTML = textToDiffHtml(rendered);
+              manifestStatus.textContent = '';
+              primeDiffTools();
+              return;
+            }
+          }
+          var diff = manifestDiffs[node.id];
+          if (diff && diff.trim()) {
+            manifestView.innerHTML = diffToHtml(diff);
+            manifestStatus.textContent = '';
+            primeDiffTools();
+            return;
+          }
+          manifestView.innerHTML = textToDiffHtml(rendered);
+          primeDiffTools();
+          manifestStatus.textContent = '';
+          return;
+        }
+        manifestView.textContent = rendered;
+        manifestStatus.textContent = '';
+      }
+
+      function currentDiffText(node) {
+        if (!node) return '';
+        var rendered = manifests[node.id] || '';
+        if (!rendered.trim()) return '';
+        if (diffBaselineMode === 'compare' && compareManifests) {
+          var base = compareManifests[node.id] || '';
+          if (!base.trim()) return '';
+          return buildUnifiedDiff(base, rendered, 'comparison', 'rendered') || '';
+        }
+        return (manifestDiffs && manifestDiffs[node.id]) ? String(manifestDiffs[node.id]) : '';
+      }
+
+      var diffMatchElements = [];
+      var diffMatchIndex = -1;
+      var diffHunkElements = [];
+      var diffHunkIndex = -1;
+
+      function updateDiffToolbarVisibility() {
+        if (!diffToolbar) return;
+        diffToolbar.hidden = manifestMode !== 'diff';
+        if (!diffToolbar.hidden) {
+          updateDiffBaselineUI();
+          primeDiffTools();
+        }
+      }
+
+      function updateDiffBaselineUI() {
+        if (!diffBaseline) return;
+        var hasCompare = !!compareManifests;
+        diffBaseline.hidden = !hasCompare;
+        if (!hasCompare) {
+          diffBaselineMode = 'live';
+          persistState({ diffBaseline: 'live' });
+          return;
+        }
+        var liveActive = diffBaselineMode !== 'compare';
+        if (diffBaselineLive) {
+          diffBaselineLive.classList.toggle('active', liveActive);
+          diffBaselineLive.setAttribute('aria-pressed', liveActive ? 'true' : 'false');
+        }
+        if (diffBaselineCompare) {
+          diffBaselineCompare.classList.toggle('active', !liveActive);
+          diffBaselineCompare.setAttribute('aria-pressed', !liveActive ? 'true' : 'false');
+        }
+      }
+
+      function primeDiffTools() {
+        indexDiffHunks();
+        runDiffSearch(false);
+        updateDiffControls();
+      }
+
+      function indexDiffHunks() {
+        if (!manifestView) return;
+        diffHunkElements = Array.prototype.slice.call(manifestView.querySelectorAll('.diff-line.header'));
+        diffHunkIndex = -1;
+      }
+
+      function runDiffSearch(scrollToFirst) {
+        if (!manifestView || !diffSearch) return;
+        clearDiffMatches();
+        var query = (diffSearch.value || '').trim().toLowerCase();
+        if (!query) {
+          diffMatchElements = [];
+          diffMatchIndex = -1;
+          updateDiffControls();
+          return;
+        }
+        var lines = Array.prototype.slice.call(manifestView.querySelectorAll('.diff-line'));
+        diffMatchElements = lines.filter(function(el) {
+          return (el.textContent || '').toLowerCase().indexOf(query) !== -1;
+        });
+        diffMatchElements.forEach(function(el) { el.classList.add('match'); });
+        diffMatchIndex = diffMatchElements.length ? 0 : -1;
+        if (scrollToFirst && diffMatchIndex >= 0) {
+          focusDiffMatch(diffMatchIndex);
+        }
+        updateDiffControls();
+      }
+
+      function clearDiffMatches() {
+        if (!manifestView) return;
+        Array.prototype.slice.call(manifestView.querySelectorAll('.diff-line.match')).forEach(function(el) {
+          el.classList.remove('match', 'active');
+        });
+      }
+
+      function focusDiffMatch(index) {
+        if (!diffMatchElements || diffMatchElements.length === 0) return;
+        if (index < 0) index = diffMatchElements.length - 1;
+        if (index >= diffMatchElements.length) index = 0;
+        diffMatchElements.forEach(function(el) { el.classList.remove('active'); });
+        diffMatchIndex = index;
+        var el = diffMatchElements[diffMatchIndex];
+        if (el) {
+          el.classList.add('active');
+          el.scrollIntoView({ block: 'center' });
+        }
+        updateDiffControls();
+      }
+
+      function focusDiffHunk(index) {
+        if (!diffHunkElements || diffHunkElements.length === 0) return;
+        if (index < 0) index = diffHunkElements.length - 1;
+        if (index >= diffHunkElements.length) index = 0;
+        diffHunkIndex = index;
+        var el = diffHunkElements[diffHunkIndex];
+        if (el) {
+          el.scrollIntoView({ block: 'start' });
+        }
+        updateDiffControls();
+      }
+
+      function nearestHunkIndex() {
+        if (!manifestView || !diffHunkElements || diffHunkElements.length === 0) return -1;
+        var scrollTop = manifestView.scrollTop || 0;
+        var best = 0;
+        for (var i = 0; i < diffHunkElements.length; i++) {
+          var el = diffHunkElements[i];
+          if (!el) continue;
+          if (el.offsetTop - 8 <= scrollTop) {
+            best = i;
+          } else {
+            break;
+          }
+        }
+        return best;
+      }
+
+      function updateDiffControls() {
+        var hasDiff = manifestMode === 'diff' && manifestView && manifestView.querySelector('.diff-line');
+        if (diffSearch) diffSearch.disabled = !hasDiff;
+        if (diffPrevMatch) diffPrevMatch.disabled = !hasDiff || diffMatchElements.length === 0;
+        if (diffNextMatch) diffNextMatch.disabled = !hasDiff || diffMatchElements.length === 0;
+        if (diffPrevHunk) diffPrevHunk.disabled = !hasDiff || diffHunkElements.length === 0;
+        if (diffNextHunk) diffNextHunk.disabled = !hasDiff || diffHunkElements.length === 0;
+        if (diffMatchMeta) {
+          if (!hasDiff) {
+            diffMatchMeta.textContent = '';
+          } else if (!diffSearch || !(diffSearch.value || '').trim()) {
+            diffMatchMeta.textContent = diffHunkElements.length ? (diffHunkElements.length + ' hunks') : '';
+          } else if (diffMatchElements.length === 0) {
+            diffMatchMeta.textContent = 'No matches';
+          } else {
+            diffMatchMeta.textContent = (diffMatchIndex + 1) + '/' + diffMatchElements.length;
+          }
+        }
+      }
+
+      function setDiffBaseline(next) {
+        next = next === 'compare' ? 'compare' : 'live';
+        diffBaselineMode = next;
+        persistState({ diffBaseline: diffBaselineMode });
+        updateDiffBaselineUI();
+        if (currentNode) {
+          renderManifest(currentNode);
+        } else {
+          primeDiffTools();
+        }
+      }
+
+      if (diffBaselineLive) {
+        diffBaselineLive.addEventListener('click', function() { setDiffBaseline('live'); });
+      }
+      if (diffBaselineCompare) {
+        diffBaselineCompare.addEventListener('click', function() { setDiffBaseline('compare'); });
+      }
+
+      if (diffSearch) {
+        diffSearch.addEventListener('input', function() {
+          runDiffSearch(false);
+        });
+        diffSearch.addEventListener('keydown', function(evt) {
+          if (evt.key === 'Enter') {
+            evt.preventDefault();
+            focusDiffMatch(diffMatchIndex + 1);
+          }
+        });
+      }
+      if (diffPrevMatch) {
+        diffPrevMatch.addEventListener('click', function() { focusDiffMatch(diffMatchIndex - 1); });
+      }
+      if (diffNextMatch) {
+        diffNextMatch.addEventListener('click', function() { focusDiffMatch(diffMatchIndex + 1); });
+      }
+      if (diffPrevHunk) {
+        diffPrevHunk.addEventListener('click', function() {
+          var base = nearestHunkIndex();
+          focusDiffHunk((base >= 0 ? base : diffHunkIndex) - 1);
+        });
+      }
+      if (diffNextHunk) {
+        diffNextHunk.addEventListener('click', function() {
+          var base = nearestHunkIndex();
+          focusDiffHunk((base >= 0 ? base : diffHunkIndex) + 1);
+        });
       }
 
       function updateDownloadButtons() {
         downloadButtons.forEach(function(button) {
           var mode = button.getAttribute('data-download');
           if (mode === 'diff') {
-            var hasDiff = currentNode && manifestDiffs[currentNode.id];
-            button.disabled = !hasDiff;
+            button.disabled = !currentNode;
           } else {
             button.disabled = !currentNode;
           }
@@ -1992,23 +3975,17 @@
 
       function updateDiffHint() {
         if (!diffHint) return;
-        if (manifestMode !== 'diff') {
-          diffHint.textContent = '';
-        } else if (dataset.offlineFallback) {
-          diffHint.textContent = 'Diffs may be missing (live data unavailable).';
-        } else {
-          diffHint.textContent = 'Diff view compares rendered manifests to live cluster objects.';
-        }
+        diffHint.textContent = '';
+      }
+
+      function updateDiffStatus() {
+        return;
       }
 
       function hydrateHero() {
-        if (!heroHeadline) return;
         var release = dataset.release || '';
-        heroHeadline.textContent = release ? 'Deploying ' + release : 'Deployment overview';
-        heroSubtitle.textContent = buildHeroSubtitle(dataset.namespace, dataset.chart, dataset.clusterHost);
-        var generatedText = formatTimestamp(dataset.generatedAt);
-        if (heroTimestamp) {
-          heroTimestamp.textContent = generatedText ? 'Generated ' + generatedText : '';
+        if (heroHeadline) {
+          heroHeadline.textContent = release ? 'Deploying ' + release : 'Deployment overview';
         }
         var summary = dataset.summary || {};
         if (heroCreates) heroCreates.textContent = formatNumber(summary.creates);
@@ -2022,6 +3999,8 @@
         if (dataset.clusterHost) chips.push({ label: 'Cluster', value: dataset.clusterHost });
         if (dataset.compareSummary) chips.push({ label: 'Compare', value: dataset.compareSummary, kind: 'positive' });
         if (dataset.offlineFallback) chips.push({ label: 'Mode', value: 'Offline fallback', kind: 'warning' });
+        var secretCount = Array.isArray(dataset.secrets) ? dataset.secrets.length : 0;
+        if (secretCount) chips.push({ label: 'Secrets', value: String(secretCount) });
         chips.push({ label: 'Resources', value: formatNumber(nodes.length) });
         setHeroChips(chips);
       }
@@ -2029,9 +4008,12 @@
       function hydrateReleaseDetails() {
         setDetailText(metaRelease, dataset.release);
         setDetailText(metaNamespace, dataset.namespace);
-        setDetailText(metaChart, dataset.chart);
         setDetailText(metaCluster, formatClusterHost(dataset.clusterHost));
         setDetailText(metaGenerated, formatTimestamp(dataset.generatedAt));
+        if (viewerCluster) viewerCluster.textContent = formatClusterHost(dataset.clusterHost) || 'cluster';
+        if (viewerNamespace) viewerNamespace.textContent = dataset.namespace ? ('ns/' + dataset.namespace) : 'ns';
+        if (viewerRelease) viewerRelease.textContent = dataset.release ? ('release/' + dataset.release) : 'release';
+        if (viewerGenerated) viewerGenerated.textContent = formatTimestamp(dataset.generatedAt) || 'generated';
       }
 
       function hydrateTimeline() {
@@ -2056,6 +4038,32 @@
         });
       }
 
+      function hydrateSecrets() {
+        if (!secretsPanel || !secretsList) return;
+        var secrets = Array.isArray(dataset.secrets) ? dataset.secrets.filter(Boolean) : [];
+        if (!secrets.length) {
+          secretsPanel.hidden = true;
+          return;
+        }
+        secretsPanel.hidden = false;
+        secretsList.innerHTML = '';
+        secrets.forEach(function(entry) {
+          if (!entry) return;
+          var li = document.createElement('li');
+          li.className = 'secret-item';
+          var badge = document.createElement('span');
+          badge.className = 'secret-badge';
+          badge.textContent = entry.provider || 'secret';
+          li.appendChild(badge);
+          var path = document.createElement('span');
+          path.className = 'secret-path';
+          var label = entry.path || entry.reference || '';
+          path.textContent = label;
+          li.appendChild(path);
+          secretsList.appendChild(li);
+        });
+      }
+
       function buildTimelineItem(entry) {
         var li = document.createElement('li');
         if (entry.state === 'warn') li.classList.add('warn');
@@ -2075,28 +4083,183 @@
       function hydrateWarnings() {
         if (!warningsPanel || !warningsList) return;
         var warnings = Array.isArray(dataset.warnings) ? dataset.warnings.filter(Boolean) : [];
-        warningsPanel.hidden = warnings.length === 0;
+        warningsPanel.hidden = false;
         warningsList.innerHTML = '';
         warnings.forEach(function(message) {
           var li = document.createElement('li');
           li.textContent = message;
           warningsList.appendChild(li);
         });
+        if (warningsBadge) {
+          warningsBadge.textContent = String(warnings.length);
+          warningsBadge.hidden = false;
+        }
+        if (warningsToggle) {
+          warningsToggle.hidden = false;
+          // Keep collapsed by default to avoid clutter.
+          warningsToggle.setAttribute('data-open', 'false');
+          warningsToggle.setAttribute('aria-label', 'Show warnings');
+          warningsToggle.title = 'Show warnings';
+        }
+        warningsList.hidden = true;
       }
 
-      function hydrateRunbook() {
-        if (!runbookPanel || !installSnippet || !installCopy) return;
-        var command = dataset.installCommand || dataset.installCmd || '';
-        if (!command.trim()) {
-          runbookPanel.hidden = true;
+      function bindWarningsToggle() {
+        if (!warningsToggle || !warningsList) return;
+        warningsToggle.addEventListener('click', function() {
+          var open = warningsToggle.getAttribute('data-open') === 'true';
+          open = !open;
+          warningsToggle.setAttribute('data-open', open ? 'true' : 'false');
+          warningsToggle.setAttribute('aria-label', open ? 'Hide warnings' : 'Show warnings');
+          warningsToggle.title = open ? 'Hide warnings' : 'Show warnings';
+          warningsList.hidden = !open;
+        });
+      }
+
+      function hydrateHighlights() {
+        hydrateRolloutImpact();
+        hydratePreflight();
+      }
+
+      function hydrateRolloutImpact() {
+        if (!impactSummary || !impactDetail) return;
+        var impacts = computeRolloutImpact();
+        if (!impacts) {
+          impactSummary.textContent = '—';
+          impactDetail.textContent = '—';
           return;
         }
-        runbookPanel.hidden = false;
-        installSnippet.textContent = command;
-        installCopy.textContent = 'Copy install command';
-        installCopy.onclick = function() {
-          copyCommandToClipboard(command, installCopy, 'Copied');
-        };
+        impactSummary.textContent = impacts.summary || '—';
+        impactDetail.textContent = impacts.detail || '—';
+      }
+
+      function computeRolloutImpact() {
+        if (!nodes || nodes.length === 0) return null;
+        var restartCandidates = [];
+        nodes.forEach(function(node) {
+          if (!node) return;
+          var kind = (node.kind || '').toLowerCase();
+          var change = (node.changeKind || '').toLowerCase();
+          if (change !== 'update') return;
+          var isWorkload = kind === 'deployment' || kind === 'statefulset' || kind === 'daemonset';
+          if (!isWorkload) return;
+          if (kind === 'statefulset') {
+            restartCandidates.push(node);
+            return;
+          }
+          var diff = (manifestDiffs && node.id) ? (manifestDiffs[node.id] || '') : '';
+          if (!diff) return;
+          if (diffMatchesWorkloadRestart(diff)) {
+            restartCandidates.push(node);
+          }
+        });
+        var count = restartCandidates.length;
+        if (count === 0) {
+          return { summary: 'No workload restarts detected', detail: 'No StatefulSet/Deployment template changes detected in diffs.' };
+        }
+        restartCandidates.sort(function(a, b) {
+          var ak = (a.kind || '').toLowerCase();
+          var bk = (b.kind || '').toLowerCase();
+          return ak.localeCompare(bk) || a.displayName.localeCompare(b.displayName);
+        });
+        var samples = restartCandidates.slice(0, 3).map(function(node) {
+          return titleCase(node.kind) + ' ' + node.displayName;
+        });
+        var summary = 'Workload restarts likely: ' + count;
+        var detail = 'Impacted: ' + samples.join(', ') + (count > samples.length ? ' …' : '');
+        return { summary: summary, detail: detail };
+      }
+
+      function diffMatchesWorkloadRestart(diff) {
+        if (!diff) return false;
+        // Heuristics: template changes, container/image/env/args/command/probes/volumes, or selector updates.
+        if (/^[+-]\\s+template:\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+selector:\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+containers:\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+image:\\s*/m.test(diff)) return true;
+        if (/^[+-]\\s+env:\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+args:\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+command:\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+(livenessProbe|readinessProbe|startupProbe):\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+volumes:\\s*$/m.test(diff)) return true;
+        if (/^[+-]\\s+volumeMounts:\\s*$/m.test(diff)) return true;
+        return false;
+      }
+
+      function hydratePreflight() {
+        if (!preflightList) return;
+        preflightList.innerHTML = '';
+        var counts = computePreflightCounts();
+        var entries = [
+          { key: 'pdbMissing', label: 'PDB missing', count: counts.pdbMissing },
+          { key: 'hooks', label: 'Hooks present', count: counts.hooks },
+          { key: 'pvcResize', label: 'PVC resize', count: counts.pvcResize },
+          { key: 'crd', label: 'CRD touched', count: counts.crd }
+        ];
+        var any = false;
+        entries.forEach(function(item) {
+          if (!item.count) return;
+          any = true;
+          preflightList.appendChild(buildPreflightRow(item.label, item.count));
+        });
+        if (!any) {
+          preflightList.appendChild(buildPreflightRow('No preflight warnings detected', 0, true));
+        }
+      }
+
+      function buildPreflightRow(label, count, zeroIsOk) {
+        var li = document.createElement('li');
+        var left = document.createElement('span');
+        left.textContent = label;
+        li.appendChild(left);
+        var right = document.createElement('span');
+        right.className = 'count';
+        right.textContent = (count || 0) === 0 && zeroIsOk ? 'OK' : String(count || 0);
+        li.appendChild(right);
+        return li;
+      }
+
+      function computePreflightCounts() {
+        var out = { pdbMissing: 0, hooks: 0, pvcResize: 0, crd: 0 };
+        if (!nodes || nodes.length === 0) return out;
+        var pdbByNamespace = {};
+        nodes.forEach(function(node) {
+          if (!node) return;
+          if ((node.kind || '').toLowerCase() === 'poddisruptionbudget') {
+            pdbByNamespace[node.namespace || 'cluster'] = true;
+          }
+        });
+
+        nodes.forEach(function(node) {
+          if (!node) return;
+          var kind = (node.kind || '').toLowerCase();
+          var change = (node.changeKind || '').toLowerCase();
+          var ns = node.namespace || 'cluster';
+          var rendered = (manifests && node.id) ? (manifests[node.id] || '') : '';
+          var diff = (manifestDiffs && node.id) ? (manifestDiffs[node.id] || '') : '';
+
+          if (kind === 'customresourcedefinition') {
+            out.crd += 1;
+          } else if (rendered.indexOf('apiextensions.k8s.io/') !== -1 && /\\nkind:\\s*CustomResourceDefinition\\s*\\n/i.test(rendered)) {
+            out.crd += 1;
+          }
+
+          if (rendered.indexOf('helm.sh/hook') !== -1) {
+            out.hooks += 1;
+          }
+
+          if (kind === 'persistentvolumeclaim' && change === 'update') {
+            if (/\\n[-+]\\s+storage:\\s*/.test(diff) || /\\n[-+]\\s+resources:\\s*\\n\\s+requests:\\s*\\n\\s+storage:\\s*/.test(diff)) {
+              out.pvcResize += 1;
+            }
+          }
+
+          var isWorkload = kind === 'deployment' || kind === 'statefulset' || kind === 'daemonset';
+          if (isWorkload && (change === 'create' || change === 'update') && !pdbByNamespace[ns]) {
+            out.pdbMissing += 1;
+          }
+        });
+        return out;
       }
 
       function buildHeroSubtitle(ns, chart, host) {
@@ -2174,7 +4337,6 @@
       function setSelectionPlaceholder() {
         selectionTitle.textContent = 'Select a resource';
         breadcrumbs.textContent = 'No resource selected';
-        metaBadges.innerHTML = '';
         renderDependencyList(dependsOnList, [], '');
         renderDependencyList(referencedByList, [], '');
         manifestView.textContent = 'Select a resource to view its rendered YAML.';
@@ -2260,11 +4422,66 @@
       function diffToHtml(diff) {
         return diff.split('\n').map(function(line) {
           var cls = 'diff-line';
-          if (line.startsWith('+')) cls += ' added';
+          if (line.startsWith('@@')) cls += ' header';
+          else if (line.startsWith('+++') || line.startsWith('---')) cls += ' meta';
+          else if (line.startsWith('+')) cls += ' added';
           else if (line.startsWith('-')) cls += ' removed';
-          else if (line.startsWith('@@')) cls += ' header';
           return '<span class="' + cls + '">' + escapeHtml(line) + '</span>';
         }).join('\n');
+      }
+
+      function textToDiffHtml(text) {
+        text = typeof text === 'string' ? text : '';
+        if (!text.trim()) return '<span class="diff-line">' + escapeHtml('') + '</span>';
+        return text.replace(/\r\n/g, '\n').split('\n').map(function(line) {
+          return '<span class="diff-line">' + escapeHtml(' ' + line) + '</span>';
+        }).join('\n');
+      }
+
+      function buildUnifiedDiff(baseText, nextText, baseLabel, nextLabel) {
+        baseText = typeof baseText === 'string' ? baseText : '';
+        nextText = typeof nextText === 'string' ? nextText : '';
+        if (baseText === nextText) return '';
+        var a = baseText.replace(/\\r\\n/g, '\\n').split('\\n');
+        var b = nextText.replace(/\\r\\n/g, '\\n').split('\\n');
+        // Guard: avoid quadratic blowups on huge manifests.
+        if (a.length * b.length > 2000000) {
+          return ['--- ' + (baseLabel || 'base'), '+++ ' + (nextLabel || 'next'), '@@ -1,' + a.length + ' +1,' + b.length + ' @@']
+            .concat(a.map(function(line) { return '-' + line; }))
+            .concat(b.map(function(line) { return '+' + line; }))
+            .join('\\n');
+        }
+        var lcs = new Array(a.length + 1);
+        for (var i = 0; i <= a.length; i++) {
+          lcs[i] = new Array(b.length + 1);
+          for (var j = 0; j <= b.length; j++) lcs[i][j] = 0;
+        }
+        for (var ai = a.length - 1; ai >= 0; ai--) {
+          for (var bi = b.length - 1; bi >= 0; bi--) {
+            if (a[ai] === b[bi]) lcs[ai][bi] = 1 + lcs[ai + 1][bi + 1];
+            else lcs[ai][bi] = Math.max(lcs[ai + 1][bi], lcs[ai][bi + 1]);
+          }
+        }
+        var out = [];
+        out.push('--- ' + (baseLabel || 'base'));
+        out.push('+++ ' + (nextLabel || 'next'));
+        out.push('@@ -1,' + a.length + ' +1,' + b.length + ' @@');
+        var x = 0, y = 0;
+        while (x < a.length && y < b.length) {
+          if (a[x] === b[y]) {
+            out.push(' ' + a[x]);
+            x++; y++;
+          } else if (lcs[x + 1][y] >= lcs[x][y + 1]) {
+            out.push('-' + a[x]);
+            x++;
+          } else {
+            out.push('+' + b[y]);
+            y++;
+          }
+        }
+        while (x < a.length) { out.push('-' + a[x]); x++; }
+        while (y < b.length) { out.push('+' + b[y]); y++; }
+        return out.join('\\n');
       }
 
       function escapeHtml(str) {

@@ -1,0 +1,19 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-04-three-wave
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2e04-a
+    chart: ./charts/cm
+    set: { fixture: "04-a" }
+  - name: e2e04-b
+    chart: ./charts/cm
+    needs: [e2e04-a]
+    set: { fixture: "04-b" }
+  - name: e2e04-c
+    chart: ./charts/cm
+    needs: [e2e04-b]
+    set: { fixture: "04-c" }
+

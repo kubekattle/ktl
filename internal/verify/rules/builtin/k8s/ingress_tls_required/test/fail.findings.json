@@ -1,0 +1,26 @@
+[
+  {
+    "ruleId": "k8s/ingress_tls_required",
+    "severity": "medium",
+    "category": "Network",
+    "message": "Ingress resources should configure TLS (spec.tls) to avoid serving traffic over plain HTTP.",
+    "fieldPath": "spec.tls",
+    "location": "metadata.name={{web}}.spec.tls",
+    "resourceKey": "default/Ingress/web",
+    "expected": "metadata.name={{web}}.spec.tls should be defined",
+    "observed": "metadata.name={{web}}.spec.tls is undefined",
+    "subject": {
+      "kind": "Ingress",
+      "namespace": "default",
+      "name": "web"
+    },
+    "fingerprint": "k8s/ingress_tls_required:default/Ingress/web:metadata.name={{web}}.spec.tls",
+    "helpUrl": "https://kubernetes.io/docs/concepts/services-networking/ingress/#tls",
+    "evidence": {
+      "fieldPath": "spec.tls",
+      "kind": "Ingress",
+      "name": "web",
+      "namespace": "default"
+    }
+  }
+]

@@ -1,0 +1,33 @@
+[
+  {
+    "ruleId": "k8s/memory_limits_not_defined",
+    "severity": "medium",
+    "category": "Resource Management",
+    "message": "Memory limits should be defined for each container. This prevents potential resource exhaustion by ensuring that containers consume not more than the designated amount of memory",
+    "fieldPath": "spec.template.spec.containers.0.resources.limits",
+    "location": "metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}",
+    "resourceKey": "cluster/Deployment/test-deployment",
+    "expected": "metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}.resources.limits.memory should be defined",
+    "observed": "metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}.resources.limits.memory is undefined",
+    "subject": {
+      "kind": "Deployment",
+      "name": "test-deployment"
+    },
+    "fingerprint": "k8s/memory_limits_not_defined:cluster/Deployment/test-deployment:metadata.name={{test-deployment}}.spec.template.spec.containers.name={{pause}}",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "k8s.gcr.io/pause",
+          "name": "pause",
+          "resources": {
+            "requests.memory": "512Mi"
+          }
+        }
+      ],
+      "fieldPath": "spec.template.spec.containers.0.resources.limits",
+      "kind": "Deployment",
+      "name": "test-deployment"
+    }
+  }
+]

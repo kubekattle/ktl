@@ -2,26 +2,238 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "dev"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "dev"]
   workflow_dispatch:
+    inputs:
+      integration:
+        description: "Run tagged integration tests (docker/nsjail/kubeconfig guarded; may skip where deps are missing)"
+        required: false
+        type: boolean
+        default: false
+      charts_e2e:
+        description: "Run verify charts e2e (allowlist) via integration/verify_charts_e2e.sh"
+        required: false
+        type: boolean
+        default: false
+      e2e_real:
+        description: "Run real-cluster e2e (requires secrets KTL_E2E_KUBECONFIG_B64 and KTL_E2E_NAMESPACE)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  build:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.25.7'
+          cache: true
+      - name: Cache Go modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Install staticcheck
+        run: |
+          set -euo pipefail
+          go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
+      - name: Testpoint (lint)
+        run: ./scripts/testpoint.sh --ci --no-unit --no-smoke
+
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.25.7'
+          cache: true
+      - name: Proto lint
+        run: make proto-lint
+      - name: Proto generate (clean tree)
+        run: |
+          set -euo pipefail
+          make proto
+          git diff --exit-code
+
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.25.7'
+          cache: true
+      - name: Install govulncheck
+        run: |
+          set -euo pipefail
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+      - name: govulncheck
+        run: govulncheck ./...
+
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.25.x'
+          go-version: '1.25.7'
           cache: true
+      - name: Cache Go modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
-      - name: Verify dependencies
-        run: go mod verify
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          ./scripts/testpoint.sh --ci --no-fmt --no-lint --json-out /tmp/go-test.json
+          # On failure, upload the log
+        shell: bash
+      - name: Upload test log
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: go-test-json
+          path: /tmp/go-test.json
 
-      - name: Build ktl
-        run: go build ./cmd/ktl
+      # Smoke is covered by scripts/testpoint.sh.
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.25.7'
+          cache: true
+      - name: Cache Go modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Race tests (selected)
+        run: ./scripts/testpoint.sh --ci --no-fmt --no-lint --no-unit --no-smoke --race-selected
+
+  matrix-test:
+    strategy:
+      matrix:
+        go: ['1.24.x', '1.25.7']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+      - name: Cache Go modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: go test (matrix)
+        run: ./scripts/testpoint.sh --ci --matrix-safe
+
+  all:
+    runs-on: ubuntu-latest
+    needs: [lint, proto, govulncheck, test, race, matrix-test]
+    steps:
+      - run: echo "all checks passed"
+
+  manual-extras:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.integration == 'true' || github.event.inputs.charts_e2e == 'true')
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.25.7'
+          cache: true
+      - name: Testpoint (manual extras)
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--ci --no-fmt --no-lint)
+          if [[ "${{ github.event.inputs.integration }}" == "true" ]]; then
+            args+=(--integration)
+          fi
+          if [[ "${{ github.event.inputs.charts_e2e }}" == "true" ]]; then
+            args+=(--charts-e2e)
+          fi
+          ./scripts/testpoint.sh "${args[@]}"
+
+  e2e-real:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.e2e_real == 'true'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.25.7'
+          cache: true
+      - name: Validate e2e secrets
+        shell: bash
+        env:
+          KUBECONFIG_B64: ${{ secrets.KTL_E2E_KUBECONFIG_B64 }}
+          NAMESPACE: ${{ secrets.KTL_E2E_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${KUBECONFIG_B64}" ]]; then
+            echo "missing required secret: KTL_E2E_KUBECONFIG_B64" >&2
+            exit 2
+          fi
+          if [[ -z "${NAMESPACE}" ]]; then
+            echo "missing required secret: KTL_E2E_NAMESPACE" >&2
+            exit 2
+          fi
+      - name: Decode kubeconfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.KTL_E2E_KUBECONFIG_B64 }}" | base64 -d > /tmp/ktl-e2e-kubeconfig
+          chmod 600 /tmp/ktl-e2e-kubeconfig
+      - name: Testpoint (real-cluster e2e)
+        env:
+          KUBECONFIG: /tmp/ktl-e2e-kubeconfig
+          KTL_STACK_VERIFY_E2E_NAMESPACE: ${{ secrets.KTL_E2E_NAMESPACE }}
+        run: ./scripts/testpoint.sh --ci --no-fmt --no-lint --no-unit --no-smoke --e2e-real

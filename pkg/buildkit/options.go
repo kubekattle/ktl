@@ -39,6 +39,7 @@ type Secret struct {
 type DockerfileBuildOptions struct {
 	BuilderAddr          string
 	AllowBuilderFallback bool
+	DockerContext        string
 	ContextDir           string
 	DockerfilePath       string
 	Platforms            []string
@@ -64,6 +65,7 @@ type DockerfileBuildOptions struct {
 	Interactive          *InteractiveShellConfig
 	ProgressObservers    []ProgressObserver
 	DiagnosticObservers  []BuildDiagnosticObserver
+	PhaseEmitter         PhaseEmitter
 }
 
 // BuildResult describes the result of a Dockerfile build.
@@ -109,6 +111,21 @@ type BuildDiagnostic struct {
 // BuildDiagnosticObserver consumes structured diagnostics emitted during a solve.
 type BuildDiagnosticObserver interface {
 	HandleDiagnostic(BuildDiagnostic)
+}
+
+// PhaseEmitter records high-level phase transitions for a build.
+// Implementations should be fast and non-blocking.
+type PhaseEmitter interface {
+	EmitPhase(name, state, message string)
+}
+
+type PhaseEmitterFunc func(name, state, message string)
+
+func (f PhaseEmitterFunc) EmitPhase(name, state, message string) {
+	if f == nil {
+		return
+	}
+	f(name, state, message)
 }
 
 // Runner defines the programmable contract for invoking BuildKit solves.

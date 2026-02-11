@@ -1,9 +1,13 @@
+// File: internal/kube/client.go
+// Brief: Internal kube package implementation for 'client'.
+
 // client.go constructs Kubernetes clientsets/dynamic clients used across ktl.
 package kube
 
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -27,6 +31,7 @@ type Client struct {
 	Metrics    metricsclient.Interface
 	RESTMapper *restmapper.DeferredDiscoveryRESTMapper
 	Namespace  string
+	APIStats   *APIRequestStats
 }
 
 // New builds a Kubernetes client configuration honoring the provided kubeconfig path and context.
@@ -37,7 +42,14 @@ func New(ctx context.Context, kubeconfigPath, contextName string) (*Client, erro
 		if err != nil {
 			return nil, fmt.Errorf("expand kubeconfig path: %w", err)
 		}
-		loadingRules.Precedence = []string{filepath.Clean(expanded)}
+		cleanPath := filepath.Clean(expanded)
+		if _, err := os.Stat(cleanPath); err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("kubeconfig file not found: %s", cleanPath)
+			}
+			return nil, fmt.Errorf("stat kubeconfig file %s: %w", cleanPath, err)
+		}
+		loadingRules.Precedence = []string{cleanPath}
 	}
 
 	overrides := &clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: ""}}
@@ -59,6 +71,8 @@ func New(ctx context.Context, kubeconfigPath, contextName string) (*Client, erro
 	restConfig.Timeout = 30 * time.Second
 	restConfig.QPS = 50
 	restConfig.Burst = 100
+	apiStats := NewAPIRequestStats()
+	AttachAPITelemetry(restConfig, apiStats)
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
@@ -88,5 +102,6 @@ func New(ctx context.Context, kubeconfigPath, contextName string) (*Client, erro
 		Metrics:    metrics,
 		RESTMapper: mapper,
 		Namespace:  namespace,
+		APIStats:   apiStats,
 	}, nil
 }

@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ktl-applyplan-e2e.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "ktl-applyplan-e2e.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "ktl-applyplan-e2e.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "ktl-applyplan-e2e.fullname" . }}
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+          env:
+            - name: KTL_E2E_TEXT
+              value: {{ .Values.config.text | quote }}
+            - name: KTL_E2E_ENABLED
+              value: {{ ternary "true" "false" .Values.config.enabled | quote }}
+

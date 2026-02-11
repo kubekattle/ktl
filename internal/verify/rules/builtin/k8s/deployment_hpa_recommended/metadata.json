@@ -1,0 +1,13 @@
+{
+  "id": "d775d5b4-6ab3-4c38-a9a2-2e1f8f8a9b9b",
+  "queryName": "Deployments With 3+ Replicas Should Have an HPA (Recommended)",
+  "severity": "INFO",
+  "category": "Scalability",
+  "descriptionText": "Deployments with 3 or more replicas should consider an HPA. This rule only checks within the same manifest render.",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/",
+  "platform": "Kubernetes",
+  "descriptionID": "ktl-scale-01",
+  "cloudProvider": "common",
+  "cwe": "0",
+  "riskScore": "2.0"
+}

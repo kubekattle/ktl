@@ -1,0 +1,18 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: verify-01-deploy-not-ready
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-verify-e2e
+releases:
+  # Real-world scenario: Helm wait is disabled for speed, but ktl verify should still
+  # catch that the Deployment never becomes healthy.
+  - name: verify01-deploy
+    chart: ./charts/deploy
+    apply: { wait: false, atomic: false }
+    verify:
+      enabled: true
+      failOnWarnings: true
+      eventsWindow: 10m
+    set:
+      image: "example.invalid/does-not-exist:0"

@@ -1,0 +1,47 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-10-large-graph
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2e10-01
+    chart: ./charts/cm
+    set: { fixture: "10-01" }
+  - name: e2e10-02
+    chart: ./charts/cm
+    needs: [e2e10-01]
+    set: { fixture: "10-02" }
+  - name: e2e10-03
+    chart: ./charts/cm
+    needs: [e2e10-01]
+    set: { fixture: "10-03" }
+  - name: e2e10-04
+    chart: ./charts/cm
+    needs: [e2e10-02]
+    set: { fixture: "10-04" }
+  - name: e2e10-05
+    chart: ./charts/cm
+    needs: [e2e10-02]
+    set: { fixture: "10-05" }
+  - name: e2e10-06
+    chart: ./charts/cm
+    needs: [e2e10-03]
+    set: { fixture: "10-06" }
+  - name: e2e10-07
+    chart: ./charts/cm
+    needs: [e2e10-03]
+    set: { fixture: "10-07" }
+  - name: e2e10-08
+    chart: ./charts/cm
+    needs: [e2e10-04, e2e10-06]
+    set: { fixture: "10-08" }
+  - name: e2e10-09
+    chart: ./charts/cm
+    needs: [e2e10-05, e2e10-07]
+    set: { fixture: "10-09" }
+  - name: e2e10-10
+    chart: ./charts/cm
+    needs: [e2e10-08, e2e10-09]
+    set: { fixture: "10-10" }
+

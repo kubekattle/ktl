@@ -1,5 +1,10 @@
 //go:build integration && linux
 
+// File: cmd/ktl/build_fixtures_integration_test.go
+// Brief: CLI command wiring and implementation for 'build fixtures integration'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (
@@ -26,6 +31,7 @@ func TestBuildDockerfileFixtures(t *testing.T) {
 		repoTestdata("build", "dockerfiles", "multistage"),
 		repoTestdata("build", "dockerfiles", "metadata"),
 		repoTestdata("build", "dockerfiles", "scripts"),
+		repoTestdata("build", "dockerfiles", "sandbox-strict"),
 	}
 	for _, contextDir := range fixtures {
 		contextDir := contextDir

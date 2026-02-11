@@ -1,0 +1,13 @@
+{
+  "id": "bc2c7a5b-2c4b-4d8a-9c9a-1b1f6f9c7d1a",
+  "queryName": "Containers Should Use Read-Only Root Filesystem",
+  "severity": "MEDIUM",
+  "category": "Insecure Configurations",
+  "descriptionText": "Containers should set securityContext.readOnlyRootFilesystem to true to reduce the writable surface area.",
+  "descriptionUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod",
+  "platform": "Kubernetes",
+  "descriptionID": "9e2c7f6b",
+  "cloudProvider": "common",
+  "cwe": "250",
+  "riskScore": "5.0"
+}

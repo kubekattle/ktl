@@ -1,0 +1,23 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-02-fanout
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+releases:
+  - name: e2e02-base
+    chart: ./charts/cm
+    set: { fixture: "02-base" }
+  - name: e2e02-a
+    chart: ./charts/cm
+    needs: [e2e02-base]
+    set: { fixture: "02-a" }
+  - name: e2e02-b
+    chart: ./charts/cm
+    needs: [e2e02-base]
+    set: { fixture: "02-b" }
+  - name: e2e02-c
+    chart: ./charts/cm
+    needs: [e2e02-base]
+    set: { fixture: "02-c" }
+

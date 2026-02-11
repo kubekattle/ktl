@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/container_readiness_probe_required",
+    "severity": "low",
+    "category": "Reliability",
+    "message": "Containers should define a readinessProbe to help Kubernetes route traffic only to ready workloads.",
+    "fieldPath": "spec.containers.0",
+    "location": "metadata.name={{init-missing-readiness}}.spec.containers.name={{app}}.readinessProbe",
+    "resourceKey": "cluster/Pod/init-missing-readiness",
+    "expected": "metadata.name={{init-missing-readiness}}.spec.containers.name={{app}}.readinessProbe should be defined",
+    "observed": "metadata.name={{init-missing-readiness}}.spec.containers.name={{app}}.readinessProbe is undefined",
+    "subject": {
+      "kind": "Pod",
+      "name": "init-missing-readiness"
+    },
+    "fingerprint": "k8s/container_readiness_probe_required:cluster/Pod/init-missing-readiness:metadata.name={{init-missing-readiness}}.spec.containers.name={{app}}.readinessProbe",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.containers.0",
+      "kind": "Pod",
+      "name": "init-missing-readiness"
+    }
+  }
+]

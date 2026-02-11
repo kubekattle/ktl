@@ -1,0 +1,41 @@
+[
+  {
+    "ruleId": "k8s/pss_restricted_profile",
+    "severity": "critical",
+    "category": "Pod Security Standards",
+    "message": "PSS restricted profile failed: seccomp, no_unconfined",
+    "fieldPath": "spec",
+    "location": "metadata.name={{edge}}.spec",
+    "resourceKey": "cluster/Pod/edge",
+    "expected": "restricted profile requirements met",
+    "observed": "PSS restricted profile failed: seccomp, no_unconfined",
+    "subject": {
+      "kind": "Pod",
+      "name": "edge"
+    },
+    "fingerprint": "k8s/pss_restricted_profile:cluster/Pod/edge:metadata.name={{edge}}.spec",
+    "helpUrl": "https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted",
+    "evidence": {
+      "checksFailed": [
+        "seccomp",
+        "no_unconfined"
+      ],
+      "containers": [
+        {
+          "image": "nginx:1.25",
+          "name": "app",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "capabilities.drop": [
+              "ALL"
+            ],
+            "runAsNonRoot": true
+          }
+        }
+      ],
+      "fieldPath": "spec",
+      "kind": "Pod",
+      "name": "edge"
+    }
+  }
+]

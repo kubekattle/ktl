@@ -1,0 +1,24 @@
+[
+  {
+    "ruleId": "k8s/service_account_token_automount_not_disabled",
+    "severity": "medium",
+    "category": "Insecure Defaults",
+    "message": "Service Account Tokens are automatically mounted even if not necessary",
+    "fieldPath": "automountServiceAccountToken",
+    "location": "metadata.name={{redistest-sa}}.automountServiceAccountToken",
+    "resourceKey": "cluster/ServiceAccount/redistest-sa",
+    "expected": "metadata.name={{redistest-sa}}.automountServiceAccountToken should be set to false",
+    "observed": "metadata.name={{redistest-sa}}.automountServiceAccountToken is true",
+    "subject": {
+      "kind": "ServiceAccount",
+      "name": "redistest-sa"
+    },
+    "fingerprint": "k8s/service_account_token_automount_not_disabled:cluster/ServiceAccount/redistest-sa:metadata.name={{redistest-sa}}.automountServiceAccountToken",
+    "helpUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#use-the-default-service-account-to-access-the-api-server",
+    "evidence": {
+      "fieldPath": "automountServiceAccountToken",
+      "kind": "ServiceAccount",
+      "name": "redistest-sa"
+    }
+  }
+]

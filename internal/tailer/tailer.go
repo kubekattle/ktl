@@ -1,12 +1,16 @@
+// File: internal/tailer/tailer.go
+// Brief: Internal tailer package implementation for 'tailer'.
+
 // Package tailer implements ktl's high-performance, color-aware log streamer
 // used by the 'ktl logs' family of commands, coordinating informers, filters,
-// captures, and observer hooks.
+// and observer hooks.
 package tailer
 
 import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -21,11 +25,11 @@ import (
 	"time"
 
 	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/sqlitewriter"
 	"github.com/fatih/color"
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -49,27 +53,29 @@ const (
 
 // Tailer coordinates pod discovery via informers and streams logs to stdout.
 type Tailer struct {
-	client          kubernetes.Interface
-	opts            *config.Options
-	log             logr.Logger
-	writer          io.Writer
-	podRegex        *regexp.Regexp
-	template        *template.Template
-	ctx             context.Context
-	cancel          context.CancelFunc
-	mu              sync.Mutex
-	tails           map[containerKey]*tailState
-	podColors       []*color.Color
-	containerColors []*color.Color
-	highlight       *color.Color
-	eventCols       map[string]*color.Color
-	bufferPool      sync.Pool
-	scannerBuffers  sync.Pool
-	sqliteSink      *sqlitewriter.Writer
-	sqlitePath      string
-	observers       []LogObserver
-	nodeLogs        *nodeLogManager
-	defaultTemplate bool
+	client             kubernetes.Interface
+	opts               *config.Options
+	log                logr.Logger
+	writer             io.Writer
+	podRegex           *regexp.Regexp
+	template           *template.Template
+	ctx                context.Context
+	cancel             context.CancelFunc
+	mu                 sync.Mutex
+	tails              map[containerKey]*tailState
+	podFilter          func(*corev1.Pod) bool
+	podDisplayOverride map[containerKey]string
+	podColors          []*color.Color
+	containerColors    []*color.Color
+	highlight          *color.Color
+	eventCols          map[string]*color.Color
+	bufferPool         sync.Pool
+	scannerBuffers     sync.Pool
+	observers          []LogObserver
+	selectionObservers []SelectionObserver
+	nodeLogs           *nodeLogManager
+	defaultTemplate    bool
+	jsonFilter         map[string]string
 }
 
 // LogRecord captures a single log line emitted by the tailer along with contextual metadata.
@@ -91,6 +97,29 @@ type LogObserver interface {
 	ObserveLog(LogRecord)
 }
 
+// SelectionSnapshot captures a change in the set of active log tails.
+type SelectionSnapshot struct {
+	Timestamp    time.Time         `json:"timestamp"`
+	ChangeKind   string            `json:"changeKind"`
+	Reason       string            `json:"reason,omitempty"`
+	Namespace    string            `json:"namespace,omitempty"`
+	Pod          string            `json:"pod,omitempty"`
+	Container    string            `json:"container,omitempty"`
+	RestartCount int32             `json:"restartCount,omitempty"`
+	Selected     []SelectionTarget `json:"selected"`
+}
+
+type SelectionTarget struct {
+	Namespace string `json:"namespace"`
+	Pod       string `json:"pod"`
+	Container string `json:"container"`
+}
+
+// SelectionObserver receives callbacks whenever the tailer changes its active selection.
+type SelectionObserver interface {
+	ObserveSelection(SelectionSnapshot)
+}
+
 // Option configures optional Tailer behavior.
 type Option func(*Tailer)
 
@@ -104,10 +133,13 @@ func WithLogObserver(observer LogObserver) Option {
 	}
 }
 
-// WithSQLiteSink writes every rendered line to the provided SQLite file (used by capture sessions).
-func WithSQLiteSink(path string) Option {
+// WithSelectionObserver registers an observer that sees active selection changes (pods/containers tailed).
+func WithSelectionObserver(observer SelectionObserver) Option {
 	return func(t *Tailer) {
-		t.sqlitePath = strings.TrimSpace(path)
+		if observer == nil {
+			return
+		}
+		t.selectionObservers = append(t.selectionObservers, observer)
 	}
 }
 
@@ -117,6 +149,23 @@ func WithOutput(w io.Writer) Option {
 		if w != nil {
 			t.writer = w
 		}
+	}
+}
+
+// WithPodFilter registers an optional callback that further restricts which pods are tailed.
+// It is evaluated after name/condition filters.
+func WithPodFilter(filter func(*corev1.Pod) bool) Option {
+	return func(t *Tailer) {
+		if filter != nil {
+			t.podFilter = filter
+		}
+	}
+}
+
+// WithJSONFilter sets key-value pairs to filter structured logs.
+func WithJSONFilter(filters map[string]string) Option {
+	return func(t *Tailer) {
+		t.jsonFilter = filters
 	}
 }
 
@@ -182,16 +231,17 @@ func New(client kubernetes.Interface, opts *config.Options, logger logr.Logger, 
 	highlight := color.New(color.BgYellow, color.FgBlack)
 	defaultTemplate := !opts.JSONOutput && strings.TrimSpace(opts.Template) == config.DefaultTemplate()
 	t := &Tailer{
-		client:          client,
-		opts:            opts,
-		log:             logger.WithName("tailer"),
-		writer:          os.Stdout,
-		podRegex:        podRegex,
-		template:        tmpl,
-		tails:           make(map[containerKey]*tailState),
-		podColors:       podPalette,
-		containerColors: containerPalette,
-		highlight:       highlight,
+		client:             client,
+		opts:               opts,
+		log:                logger.WithName("tailer"),
+		writer:             os.Stdout,
+		podRegex:           podRegex,
+		template:           tmpl,
+		tails:              make(map[containerKey]*tailState),
+		podDisplayOverride: make(map[containerKey]string),
+		podColors:          podPalette,
+		containerColors:    containerPalette,
+		highlight:          highlight,
 		eventCols: map[string]*color.Color{
 			"Normal":  color.New(color.FgCyan),
 			"Warning": color.New(color.FgYellow),
@@ -212,14 +262,6 @@ func New(client kubernetes.Interface, opts *config.Options, logger logr.Logger, 
 	for _, opt := range tailerOptions {
 		opt(t)
 	}
-	if t.sqlitePath != "" {
-		sink, err := sqlitewriter.New(t.sqlitePath)
-		if err != nil {
-			return nil, fmt.Errorf("init sqlite writer: %w", err)
-		}
-		logger.V(1).Info("sqlite sink enabled", "path", t.sqlitePath)
-		t.sqliteSink = sink
-	}
 	if len(opts.NodeLogFiles) > 0 {
 		t.nodeLogs = newNodeLogManager(t)
 	}
@@ -230,7 +272,10 @@ func New(client kubernetes.Interface, opts *config.Options, logger logr.Logger, 
 func (t *Tailer) Run(ctx context.Context) error {
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	defer t.cancel()
-	defer t.closeSQLiteSink()
+
+	if len(t.selectionObservers) > 0 {
+		go t.sampleSelection(t.ctx, 10*time.Second)
+	}
 	t.log.V(1).Info("starting tailer run", "follow", t.opts.Follow, "events", t.opts.Events, "eventsOnly", t.opts.EventsOnly)
 	defer t.log.V(1).Info("tailer run finished")
 	if t.nodeLogs != nil && t.opts.NodeLogAll {
@@ -328,6 +373,9 @@ func (t *Tailer) runOnce(ctx context.Context) error {
 					continue
 				}
 				if !t.podMatchesConditions(&pod) {
+					continue
+				}
+				if t.podFilter != nil && !t.podFilter(&pod) {
 					continue
 				}
 				matched = append(matched, pod.DeepCopy())
@@ -491,6 +539,9 @@ func (t *Tailer) handlePodAdd(obj interface{}) {
 	if !t.podMatchesConditions(pod) {
 		return
 	}
+	if t.podFilter != nil && !t.podFilter(pod) {
+		return
+	}
 	if t.nodeLogs != nil {
 		t.nodeLogs.ensureForPod(pod)
 	}
@@ -516,7 +567,38 @@ func (t *Tailer) handlePodDelete(obj interface{}) {
 		}
 	}
 	for _, container := range t.allPodContainers(pod) {
-		t.stopTail(pod.Namespace, pod.Name, container.Name)
+		t.stopTail(pod.Namespace, pod.Name, container.Name, "pod_deleted")
+	}
+}
+
+// SetPodDisplayOverride overrides the rendered pod label for the given pod.
+// The override affects only output formatting, not Kubernetes API requests.
+func (t *Tailer) SetPodDisplayOverride(namespace, pod, display string) {
+	key := containerKey{Namespace: namespace, Pod: pod}
+	t.mu.Lock()
+	if strings.TrimSpace(display) == "" {
+		delete(t.podDisplayOverride, key)
+	} else {
+		t.podDisplayOverride[key] = display
+	}
+	t.mu.Unlock()
+}
+
+// PruneTails stops any active tails that do not satisfy keep.
+func (t *Tailer) PruneTails(keep func(namespace, pod, container string) bool, reason string) {
+	if keep == nil {
+		return
+	}
+	var toStop []containerKey
+	t.mu.Lock()
+	for k := range t.tails {
+		if !keep(k.Namespace, k.Pod, k.Container) {
+			toStop = append(toStop, k)
+		}
+	}
+	t.mu.Unlock()
+	for _, k := range toStop {
+		t.stopTail(k.Namespace, k.Pod, k.Container, reason)
 	}
 }
 
@@ -584,6 +666,8 @@ func (t *Tailer) podMatchesConditions(pod *corev1.Pod) bool {
 func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int32) {
 	key := containerKey{Namespace: pod.Namespace, Pod: pod.Name, Container: container}
 	var cancel context.CancelFunc
+	var selection SelectionSnapshot
+	emitSelection := false
 	t.mu.Lock()
 	if state, ok := t.tails[key]; ok {
 		if state.podUID == string(pod.UID) && state.restartCount == restartCount {
@@ -595,8 +679,19 @@ func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int3
 	}
 	ctx, ctxCancel := context.WithCancel(t.ctx)
 	t.tails[key] = &tailState{cancel: ctxCancel, restartCount: restartCount, podUID: string(pod.UID)}
+	if len(t.selectionObservers) > 0 {
+		reason := "add"
+		if cancel != nil {
+			reason = "replace"
+		}
+		selection = t.selectionSnapshotLocked("add", reason, pod.Namespace, pod.Name, container, restartCount)
+		emitSelection = true
+	}
 	t.mu.Unlock()
 	t.log.V(1).Info("ensuring tail", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "restartCount", restartCount)
+	if emitSelection {
+		t.notifySelection(selection)
+	}
 	if cancel != nil {
 		t.log.V(1).Info("stopping replaced tail", "namespace", pod.Namespace, "pod", pod.Name, "container", container)
 		cancel()
@@ -604,17 +699,26 @@ func (t *Tailer) ensureTail(pod *corev1.Pod, container string, restartCount int3
 	go t.streamContainer(ctx, pod, container, restartCount)
 }
 
-func (t *Tailer) stopTail(namespace, pod, container string) {
+func (t *Tailer) stopTail(namespace, pod, container string, reason string) {
 	key := containerKey{Namespace: namespace, Pod: pod, Container: container}
+	var selection SelectionSnapshot
+	emitSelection := false
 	t.mu.Lock()
 	state, ok := t.tails[key]
 	if ok {
 		delete(t.tails, key)
+		if len(t.selectionObservers) > 0 {
+			selection = t.selectionSnapshotLocked("remove", reason, namespace, pod, container, state.restartCount)
+			emitSelection = true
+		}
 	}
 	t.mu.Unlock()
 	if ok {
 		t.log.V(1).Info("stopping tail", "namespace", namespace, "pod", pod, "container", container)
 		state.cancel()
+		if emitSelection {
+			t.notifySelection(selection)
+		}
 	}
 }
 
@@ -625,19 +729,85 @@ func (t *Tailer) stopAllTails() {
 		states = append(states, state)
 	}
 	t.tails = map[containerKey]*tailState{}
+	var selection SelectionSnapshot
+	emitSelection := false
+	if len(t.selectionObservers) > 0 {
+		selection = SelectionSnapshot{
+			Timestamp:  time.Now().UTC(),
+			ChangeKind: "reset",
+			Reason:     "stop_all",
+			Selected:   nil,
+		}
+		emitSelection = true
+	}
 	t.mu.Unlock()
 	t.log.V(1).Info("cancelling active tails", "count", len(states))
+	if emitSelection {
+		t.notifySelection(selection)
+	}
 	for _, state := range states {
 		state.cancel()
 	}
 }
 
-func (t *Tailer) closeSQLiteSink() {
-	if t.sqliteSink == nil {
+func (t *Tailer) selectionSnapshotLocked(kind, reason, namespace, pod, container string, restartCount int32) SelectionSnapshot {
+	selected := make([]SelectionTarget, 0, len(t.tails))
+	for k := range t.tails {
+		selected = append(selected, SelectionTarget(k))
+	}
+	sort.Slice(selected, func(i, j int) bool {
+		if selected[i].Namespace != selected[j].Namespace {
+			return selected[i].Namespace < selected[j].Namespace
+		}
+		if selected[i].Pod != selected[j].Pod {
+			return selected[i].Pod < selected[j].Pod
+		}
+		return selected[i].Container < selected[j].Container
+	})
+	return SelectionSnapshot{
+		Timestamp:    time.Now().UTC(),
+		ChangeKind:   kind,
+		Reason:       strings.TrimSpace(reason),
+		Namespace:    namespace,
+		Pod:          pod,
+		Container:    container,
+		RestartCount: restartCount,
+		Selected:     selected,
+	}
+}
+
+func (t *Tailer) notifySelection(s SelectionSnapshot) {
+	if len(t.selectionObservers) == 0 {
 		return
 	}
-	if err := t.sqliteSink.Close(); err != nil {
-		t.log.Error(err, "close sqlite sink", "path", t.sqlitePath)
+	observers := append([]SelectionObserver(nil), t.selectionObservers...)
+	for _, obs := range observers {
+		if obs != nil {
+			obs.ObserveSelection(s)
+		}
+	}
+}
+
+func (t *Tailer) sampleSelection(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			t.mu.Lock()
+			if len(t.selectionObservers) == 0 {
+				t.mu.Unlock()
+				continue
+			}
+			snap := t.selectionSnapshotLocked("sample", "periodic", "", "", "", 0)
+			t.mu.Unlock()
+			t.notifySelection(snap)
+		}
 	}
 }
 
@@ -654,52 +824,170 @@ func (t *Tailer) streamContainer(ctx context.Context, pod *corev1.Pod, container
 		tail := t.opts.TailLines
 		logOpts.TailLines = &tail
 	}
-	t.log.V(1).Info("starting container stream", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "restartCount", restartCount, "follow", t.opts.Follow, "tailLines", t.opts.TailLines, "since", t.opts.Since.String())
-	stream, err := t.client.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, logOpts).Stream(ctx)
-	if err != nil {
-		if ctx.Err() == nil {
-			t.log.Error(err, "stream logs failed", "namespace", pod.Namespace, "pod", pod.Name, "container", container)
-		}
-		return
-	}
-	defer stream.Close()
 
-	scanner := bufio.NewScanner(stream)
-	buf := t.getScannerBuffer()
-	defer t.putScannerBuffer(buf)
-	scanner.Buffer(buf, logScannerMax)
-	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
+	backoff := 250 * time.Millisecond
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		t.log.V(1).Info("starting container stream", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "restartCount", restartCount, "follow", t.opts.Follow, "tailLines", t.opts.TailLines, "since", t.opts.Since.String())
+		stream, err := t.client.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, logOpts).Stream(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if isRetryableLogStreamErr(err) {
+				t.log.V(1).Info("log stream unavailable yet; retrying", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "error", err.Error(), "backoff", backoff.String())
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+				}
+				if backoff < 2*time.Second {
+					backoff *= 2
+					if backoff > 2*time.Second {
+						backoff = 2 * time.Second
+					}
+				}
+				continue
+			}
+			t.log.Error(err, "stream logs failed", "namespace", pod.Namespace, "pod", pod.Name, "container", container)
+			return
+		}
+
+		backoff = 250 * time.Millisecond
+		scanner := bufio.NewScanner(stream)
+		buf := t.getScannerBuffer()
+		scanner.Buffer(buf, logScannerMax)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				t.putScannerBuffer(buf)
+				_ = stream.Close()
+				return
+			default:
+			}
+			line := scanner.Text()
+			if t.opts.ExcludeLineRegex != nil && t.opts.ExcludeLineRegex.MatchString(line) {
+				continue
+			}
+
+			if len(t.jsonFilter) > 0 {
+				if !matchJSONFilter(line, t.jsonFilter) {
+					continue
+				}
+			}
+
+			t.outputLine(sourcePod, pod.Namespace, pod.Name, container, line)
+		}
+		scanErr := scanner.Err()
+		t.putScannerBuffer(buf)
+		_ = stream.Close()
+		switch {
+		case scanErr != nil && scanErr != io.EOF && ctx.Err() == nil && !isContextErr(scanErr):
+			if isRetryableLogStreamErr(scanErr) {
+				t.log.V(1).Info("log stream ended transiently; retrying", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "error", scanErr.Error(), "backoff", backoff.String())
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(backoff):
+				}
+				if backoff < 2*time.Second {
+					backoff *= 2
+					if backoff > 2*time.Second {
+						backoff = 2 * time.Second
+					}
+				}
+				continue
+			}
+			t.log.Error(scanErr, "scanner error", "namespace", pod.Namespace, "pod", pod.Name, "container", container)
+			return
+		case ctx.Err() != nil:
+			t.log.V(1).Info("container stream stopped by context", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "reason", ctx.Err())
 			return
 		default:
+			reason := "drained"
+			if scanErr == io.EOF {
+				reason = "eof"
+			} else if isContextErr(scanErr) {
+				reason = "context"
+			}
+			t.log.V(1).Info("container stream finished", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "reason", reason)
+			return
 		}
-		line := scanner.Text()
-		if t.opts.ExcludeLineRegex != nil && t.opts.ExcludeLineRegex.MatchString(line) {
-			continue
-		}
-		t.outputLine(sourcePod, pod.Namespace, pod.Name, container, line)
-	}
-	scanErr := scanner.Err()
-	switch {
-	case scanErr != nil && scanErr != io.EOF && ctx.Err() == nil && !isContextErr(scanErr):
-		t.log.Error(scanErr, "scanner error", "namespace", pod.Namespace, "pod", pod.Name, "container", container)
-	case ctx.Err() != nil:
-		t.log.V(1).Info("container stream stopped by context", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "reason", ctx.Err())
-	default:
-		reason := "drained"
-		if scanErr == io.EOF {
-			reason = "eof"
-		} else if isContextErr(scanErr) {
-			reason = "context"
-		}
-		t.log.V(1).Info("container stream finished", "namespace", pod.Namespace, "pod", pod.Name, "container", container, "reason", reason)
 	}
 }
 
+func matchJSONFilter(line string, filters map[string]string) bool {
+	// Fast check: must look like JSON
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "{") {
+		return false
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
+		return false // Not JSON
+	}
+
+	for k, v := range filters {
+		val, ok := data[k]
+		if !ok {
+			return false
+		}
+
+		// String comparison
+		if strVal, ok := val.(string); ok {
+			if strVal != v {
+				return false
+			}
+		} else {
+			// Try basic string conversion for numbers/bools
+			if fmt.Sprintf("%v", val) != v {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isRetryableLogStreamErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Prefer structured status payloads when available, since k8s client errors may be wrapped
+	// in a way that loses the original message in err.Error().
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		apiStatus, ok := e.(apierrors.APIStatus)
+		if !ok {
+			continue
+		}
+		msg := strings.ToLower(apiStatus.Status().Message)
+		if strings.Contains(msg, "is waiting to start") {
+			return true
+		}
+		if strings.Contains(msg, "containercreating") || strings.Contains(msg, "podinitializing") {
+			return true
+		}
+	}
+
+	// Fallback: string matching against the fully formatted error.
+	// The apiserver returns BadRequest with messages like:
+	// "container \"X\" in pod \"Y\" is waiting to start: ContainerCreating"
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "is waiting to start") {
+		return true
+	}
+	if strings.Contains(msg, "containercreating") || strings.Contains(msg, "podinitializing") {
+		return true
+	}
+	return false
+}
+
 func (t *Tailer) getScannerBuffer() []byte {
-	if buf, ok := t.scannerBuffers.Get().([]byte); ok {
-		return buf[:logScannerInitial]
+	if buf, ok := t.scannerBuffers.Get().(*[]byte); ok && buf != nil {
+		return (*buf)[:logScannerInitial]
 	}
 	return make([]byte, logScannerInitial)
 }
@@ -712,7 +1000,7 @@ func (t *Tailer) putScannerBuffer(buf []byte) {
 		buf = make([]byte, logScannerInitial)
 	}
 	buf = buf[:logScannerInitial]
-	t.scannerBuffers.Put(buf)
+	t.scannerBuffers.Put(&buf)
 }
 
 func isContextErr(err error) bool {
@@ -752,9 +1040,14 @@ func (t *Tailer) outputLine(src logSource, namespace, pod, container, line strin
 	if src == sourceNode && namespace != "" {
 		displayPod = fmt.Sprintf("%s/%s", namespace, pod)
 	}
-	glyph := src.glyph()
-	if glyph != "" {
-		displayPod = fmt.Sprintf("%s %s", glyph, strings.TrimSpace(displayPod))
+	if src == sourcePod {
+		key := containerKey{Namespace: namespace, Pod: pod}
+		t.mu.Lock()
+		override := t.podDisplayOverride[key]
+		t.mu.Unlock()
+		if override != "" {
+			displayPod = override
+		}
 	}
 	containerTag := formatContainerTag(container)
 	timestampToken := ""
@@ -772,12 +1065,11 @@ func (t *Tailer) outputLine(src logSource, namespace, pod, container, line strin
 		ContainerTag:     containerTag,
 		Message:          message,
 		Raw:              line,
-		SourceGlyph:      glyph,
+		SourceGlyph:      "",
 		SourceLabel:      src.label(),
 	}
 	rendered := line
 	if t.opts.JSONOutput {
-		t.persistLogEntry(entry, line, rendered)
 		t.notifyLogObservers(entry, line, rendered, wallClock)
 		fmt.Fprintln(t.writer, line)
 		return
@@ -793,12 +1085,10 @@ func (t *Tailer) outputLine(src logSource, namespace, pod, container, line strin
 		}()
 		if err := t.template.Execute(buf, entry); err != nil {
 			t.log.Error(err, "execute template")
-			t.persistLogEntry(entry, line, rendered)
 			return
 		}
 		rendered = buf.String()
 	}
-	t.persistLogEntry(entry, line, rendered)
 	t.notifyLogObservers(entry, line, rendered, wallClock)
 	colored := t.applyColors(timestampToken, podToken, containerTag, rendered)
 	fmt.Fprintln(t.writer, colored)
@@ -822,28 +1112,6 @@ func (t *Tailer) notifyLogObservers(entry logEntry, raw, rendered string, ts tim
 	}
 	for _, observer := range t.observers {
 		observer.ObserveLog(record)
-	}
-}
-
-func (t *Tailer) persistLogEntry(entry logEntry, raw, rendered string) {
-	if t.sqliteSink == nil {
-		return
-	}
-	ctx := t.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	sqlEntry := sqlitewriter.Entry{
-		CollectedAt:  time.Now(),
-		LogTimestamp: entry.Timestamp,
-		Namespace:    entry.Namespace,
-		Pod:          entry.PodName,
-		Container:    entry.ContainerName,
-		Raw:          raw,
-		Rendered:     rendered,
-	}
-	if err := t.sqliteSink.Write(ctx, sqlEntry); err != nil {
-		t.log.Error(err, "write sqlite entry", "namespace", entry.Namespace, "pod", entry.PodName, "container", entry.ContainerName)
 	}
 }
 
@@ -902,19 +1170,6 @@ func (t *Tailer) formatDefaultLine(timestamp, podToken, containerTag, message st
 	b.WriteByte(' ')
 	b.WriteString(message)
 	return b.String()
-}
-
-func (s logSource) glyph() string {
-	switch s {
-	case sourceNode:
-		return "◆"
-	case sourceEvent:
-		return "◇"
-	case sourcePod:
-		return "●"
-	default:
-		return ""
-	}
 }
 
 func (s logSource) label() string {
@@ -1043,7 +1298,7 @@ func (t *Tailer) formatEventMessage(ev *corev1.Event) (string, string) {
 	age := humanizeAge(eventTimestamp(ev))
 	target := fmt.Sprintf("%s/%s", strings.ToLower(ev.InvolvedObject.Kind), ev.InvolvedObject.Name)
 	source := formatEventSource(ev)
-	message := fmt.Sprintf("%-7s %-18s %-8s %s → %s", typeText, ev.Reason, age, target, source)
+	message := fmt.Sprintf("%-7s %-18s %-8s %s -> %s", typeText, ev.Reason, age, target, source)
 	return message, ""
 }
 

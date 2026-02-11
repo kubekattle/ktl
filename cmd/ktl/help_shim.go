@@ -1,3 +1,8 @@
+// File: cmd/ktl/help_shim.go
+// Brief: CLI command wiring and implementation for 'help shim'.
+
+// Package main provides the ktl CLI entrypoints.
+
 package main
 
 import (

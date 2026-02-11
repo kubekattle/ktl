@@ -1,4 +1,7 @@
-// deploy_plan.go contains the 'ktl deploy plan/apply' logic, rendering manifests, producing HTML diffs, and teeing the plan into files.
+// File: cmd/ktl/deploy_plan.go
+// Brief: CLI command wiring and implementation for 'deploy plan'.
+
+// deploy_plan.go contains the deploy plan/apply logic (ktl apply plan / ktl apply), rendering manifests, producing HTML diffs, and teeing the plan into files.
 package main
 
 import (
@@ -22,6 +25,8 @@ import (
 
 	"github.com/example/ktl/internal/deploy"
 	"github.com/example/ktl/internal/kube"
+	"github.com/example/ktl/internal/secretstore"
+	"github.com/example/ktl/internal/telemetry"
 	"github.com/example/ktl/internal/ui"
 	"github.com/pmezard/go-difflib/difflib"
 	"github.com/spf13/cobra"
@@ -36,7 +41,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *string) *cobra.Command {
+func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *string, helpSection string) *cobra.Command {
+	ownNamespaceFlag := false
+	if namespace == nil {
+		namespace = new(string)
+		ownNamespaceFlag = true
+	}
 	var chart string
 	var release string
 	var version string
@@ -44,43 +54,62 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	var setValues []string
 	var setStringValues []string
 	var setFileValues []string
+	var secretProvider string
+	var secretConfig string
 	var includeCRDs bool
-	var renderHTML bool
 	var format string
 	var outputPath string
 	var visualize bool
+	var visualizeExplain bool
 	var compareSource string
+	var compareTo string
+	var compareExit bool
+	var baselinePath string
+	resolvedFormat := ""
+	resolveFormat := func() string {
+		return resolveDeployPlanFormat(format, visualize)
+	}
 
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Preview Helm release changes without applying them",
-		Long:  "Render the chart, diff it against live cluster resources, and summarize the net creates/updates/deletes before running deploy apply.",
+		Long:  "Render the chart, diff it against live cluster resources, and summarize the net creates/updates/deletes before running ktl apply.",
+		Args:  cobra.NoArgs,
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			resolvedFormat = resolveFormat()
+			switch resolvedFormat {
+			case "text", "json", "yaml", "html", "visualize-html", "visualize-json", "visualize-yaml":
+			default:
+				return fmt.Errorf("unsupported format %q (expected text, json, yaml, html, or visualize)", resolvedFormat)
+			}
+			if resolvedFormat == "text" && strings.TrimSpace(outputPath) != "" {
+				return fmt.Errorf("--output is only supported with --format=html, --format=json, --format=yaml, or --visualize")
+			}
+			if visualizeExplain && !visualize {
+				return fmt.Errorf("--visualize-explain requires --visualize")
+			}
+			if strings.TrimSpace(compareSource) != "" && !visualize {
+				return fmt.Errorf("--compare is only supported with --visualize")
+			}
+			if strings.TrimSpace(compareTo) == "" && cmd.Flags().Changed("compare-exit") {
+				return fmt.Errorf("--compare-exit requires --compare-to")
+			}
+			if strings.TrimSpace(baselinePath) == "-" {
+				return fmt.Errorf("--baseline must be a file path (\"-\" is not supported)")
+			}
+			return nil
+		},
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			kubeClient, err := kube.New(ctx, *kubeconfig, *kubeContext)
 			if err != nil {
 				return err
 			}
-			selectedFormat := strings.ToLower(strings.TrimSpace(format))
-			if renderHTML {
-				selectedFormat = "html"
-			}
-			if visualize {
-				selectedFormat = "visualize"
-			}
+			selectedFormat := resolvedFormat
 			if selectedFormat == "" {
-				selectedFormat = "text"
-			}
-			switch selectedFormat {
-			case "text", "json", "html", "visualize":
-			default:
-				return fmt.Errorf("unsupported format %q", selectedFormat)
-			}
-			if selectedFormat == "text" && strings.TrimSpace(outputPath) != "" {
-				return fmt.Errorf("--output is only supported with --format=html, --format=json, or --visualize")
-			}
-			if strings.TrimSpace(compareSource) != "" && selectedFormat != "visualize" {
-				return fmt.Errorf("--compare is only supported with --visualize")
+				selectedFormat = resolveFormat()
 			}
 
 			resolvedNamespace := ""
@@ -101,6 +130,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 			if resolvedNamespace != "" {
 				settings.SetNamespace(resolvedNamespace)
 			}
+			attachKubeTelemetry(settings, kubeClient)
 
 			actionCfg := new(action.Configuration)
 			logFunc := func(format string, v ...interface{}) {
@@ -110,6 +140,25 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 				return fmt.Errorf("init helm action config: %w", err)
 			}
 
+			var secretAudit secretstore.AuditReport
+			secretResolver, secretAuditSink, err := buildDeploySecretResolver(ctx, deploySecretConfig{
+				Chart:      chart,
+				ConfigPath: secretConfig,
+				Provider:   secretProvider,
+				Mode:       secretstore.ResolveModeMask,
+				ErrOut:     cmd.ErrOrStderr(),
+			})
+			if err != nil {
+				return err
+			}
+			auditSink := func(report secretstore.AuditReport) {
+				secretAudit = report
+				if secretAuditSink != nil {
+					secretAuditSink(report)
+				}
+			}
+			secretOptions := &deploy.SecretOptions{Resolver: secretResolver, AuditSink: auditSink, Validate: true}
+
 			stopSpinner := ui.StartSpinner(cmd.ErrOrStderr(), fmt.Sprintf("Planning release %s", release))
 			defer func() {
 				if stopSpinner != nil {
@@ -117,6 +166,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 				}
 			}()
 
+			timer := telemetry.NewPhaseTimer()
 			options := deployPlanOptions{
 				Chart:           chart,
 				Release:         release,
@@ -126,15 +176,58 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 				SetValues:       setValues,
 				SetStringValues: setStringValues,
 				SetFileValues:   setFileValues,
+				Secrets:         secretOptions,
 				IncludeCRDs:     includeCRDs,
 			}
-			planResult, err := executeDeployPlan(ctx, actionCfg, settings, kubeClient, options)
+			planResult, err := executeDeployPlan(ctx, actionCfg, settings, kubeClient, options, timer)
 			if err != nil {
 				return err
+			}
+			planResult.Secrets = planSecretsFromAudit(secretAudit)
+			if timer != nil {
+				summary := telemetry.Summary{
+					Total:  timer.Total(),
+					Phases: timer.Snapshot(),
+				}
+				if kubeClient != nil && kubeClient.APIStats != nil {
+					metrics := kubeClient.APIStats.Snapshot()
+					summary.KubeRequests = metrics.Count
+					summary.KubeAvg = metrics.Avg()
+					summary.KubeMax = metrics.Max
+				}
+				planResult.Telemetry = buildPlanTelemetry(summary)
+				if line := summary.Line(); line != "" {
+					fmt.Fprintln(cmd.ErrOrStderr(), line)
+				}
 			}
 
 			stopSpinner(true)
 			stopSpinner = nil
+
+			var compareResult *deployPlanResult
+			if strings.TrimSpace(compareTo) != "" {
+				var cerr error
+				compareResult, cerr = loadPlanResultFromSource(ctx, compareTo)
+				if cerr != nil {
+					return fmt.Errorf("load baseline plan: %w", cerr)
+				}
+				compare := comparePlanResults(planResult, compareResult, compareTo)
+				planResult.Compare = compare
+				if compare != nil {
+					if line := renderPlanCompareLine(compare); line != "" {
+						fmt.Fprintln(cmd.ErrOrStderr(), line)
+					}
+					if compareExit && compare.Summary.HasRegressions() {
+						return fmt.Errorf("plan regression detected (new=%d changed=%d)", compare.Summary.New, compare.Summary.Changed)
+					}
+				}
+			}
+			if strings.TrimSpace(baselinePath) != "" {
+				if err := writePlanBaseline(baselinePath, planResult); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "Baseline written to %s\n", baselinePath)
+			}
 
 			switch selectedFormat {
 			case "html":
@@ -155,20 +248,24 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Plan written to %s\n", path)
 				return nil
-			case "visualize":
+			case "visualize-html":
 				path := strings.TrimSpace(outputPath)
 				if path == "" {
 					path = defaultDeployVisualizeOutputPath(release, planResult.GeneratedAt)
 				}
-				var compareResult *deployPlanResult
+				var visualizeCompare *deployPlanResult
 				if strings.TrimSpace(compareSource) != "" {
 					var cerr error
-					compareResult, cerr = loadPlanResultFromSource(ctx, compareSource)
+					visualizeCompare, cerr = loadPlanResultFromSource(ctx, compareSource)
 					if cerr != nil {
 						return fmt.Errorf("load compare artifact: %w", cerr)
 					}
+				} else {
+					visualizeCompare = compareResult
 				}
-				html, err := renderDeployVisualizeHTML(planResult, compareResult)
+				html, err := renderDeployVisualizeHTML(planResult, visualizeCompare, deployVisualizeFeatures{
+					ExplainDiff: visualizeExplain,
+				})
 				if err != nil {
 					return err
 				}
@@ -184,6 +281,53 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Visualization written to %s\n", path)
 				return nil
+			case "visualize-json", "visualize-yaml":
+				path := strings.TrimSpace(outputPath)
+				if path == "" {
+					ext := "json"
+					if selectedFormat == "visualize-yaml" {
+						ext = "yaml"
+					}
+					path = defaultDeployVisualizeDataOutputPath(release, planResult.GeneratedAt, ext)
+				}
+				var visualizeCompare *deployPlanResult
+				if strings.TrimSpace(compareSource) != "" {
+					var cerr error
+					visualizeCompare, cerr = loadPlanResultFromSource(ctx, compareSource)
+					if cerr != nil {
+						return fmt.Errorf("load compare artifact: %w", cerr)
+					}
+				} else {
+					visualizeCompare = compareResult
+				}
+				payload, err := buildDeployVisualizePayload(planResult, visualizeCompare)
+				if err != nil {
+					return err
+				}
+				var data []byte
+				if selectedFormat == "visualize-yaml" {
+					data, err = yaml.Marshal(payload)
+					if err != nil {
+						return fmt.Errorf("marshal viz yaml: %w", err)
+					}
+				} else {
+					data, err = json.MarshalIndent(payload, "", "  ")
+					if err != nil {
+						return fmt.Errorf("marshal viz json: %w", err)
+					}
+				}
+				if path == "-" {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\n", data)
+					return nil
+				}
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					return fmt.Errorf("create output dir: %w", err)
+				}
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					return fmt.Errorf("write visualize data: %w", err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Visualization data written to %s\n", path)
+				return nil
 			case "json":
 				data, err := json.MarshalIndent(planResult, "", "  ")
 				if err != nil {
@@ -192,6 +336,20 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 				if strings.TrimSpace(outputPath) != "" {
 					if err := os.WriteFile(outputPath, data, 0o644); err != nil {
 						return fmt.Errorf("write json: %w", err)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "Plan written to %s\n", outputPath)
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s\n", data)
+				}
+				return nil
+			case "yaml":
+				data, err := yaml.Marshal(planResult)
+				if err != nil {
+					return fmt.Errorf("marshal plan yaml: %w", err)
+				}
+				if strings.TrimSpace(outputPath) != "" {
+					if err := os.WriteFile(outputPath, data, 0o644); err != nil {
+						return fmt.Errorf("write yaml: %w", err)
 					}
 					fmt.Fprintf(cmd.OutOrStdout(), "Plan written to %s\n", outputPath)
 				} else {
@@ -212,18 +370,51 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	cmd.Flags().StringArrayVar(&setValues, "set", nil, "Set values on the command line (key=val)")
 	cmd.Flags().StringArrayVar(&setStringValues, "set-string", nil, "Set STRING values on the command line")
 	cmd.Flags().StringArrayVar(&setFileValues, "set-file", nil, "Set values from files (key=path)")
+	cmd.Flags().StringVar(&secretProvider, "secret-provider", "", "Secret provider name for secret:// references")
+	cmd.Flags().StringVar(&secretConfig, "secret-config", "", "Secrets provider config file (defaults to ~/.ktl/config.yaml and repo .ktl.yaml)")
 	cmd.Flags().BoolVar(&includeCRDs, "include-crds", false, "Render CRDs in addition to the main chart objects")
 	cmd.Flags().StringVar(&compareSource, "compare", "", "Plan artifact (path or URL) to embed for visualize comparisons")
-	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, or html")
-	cmd.Flags().BoolVar(&renderHTML, "html", false, "Render the plan as a design-system HTML report (deprecated, use --format=html)")
+	cmd.Flags().StringVar(&compareTo, "compare-to", "", "Compare against a previous plan (path or URL) and report regressions")
+	cmd.Flags().BoolVar(&compareExit, "compare-exit", true, "Exit non-zero when --compare-to detects regressions")
+	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Write plan JSON baseline to this path")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, yaml, or html")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write the rendered plan to this path (HTML defaults to ./ktl-deploy-plan-<release>-<timestamp>.html)")
-	cmd.Flags().BoolVar(&visualize, "visualize", false, "Render the interactive visualization (equivalent to the former 'ktl deploy visualize')")
+	cmd.Flags().BoolVar(&visualize, "visualize", false, "Render the interactive visualization")
+	cmd.Flags().BoolVar(&visualizeExplain, "visualize-explain", false, "Add an Explain Diff tab in --visualize output (experimental)")
 	_ = cmd.MarkFlagRequired("chart")
 	_ = cmd.MarkFlagRequired("release")
 
-	registerNamespaceCompletion(cmd, "namespace", kubeconfig, kubeContext)
-	decorateCommandHelp(cmd, "deploy plan Flags")
+	if ownNamespaceFlag {
+		cmd.Flags().StringVarP(namespace, "namespace", "n", "", "Namespace for the Helm release (defaults to active context)")
+	}
+	section := strings.TrimSpace(helpSection)
+	if section == "" {
+		section = "Plan Flags"
+	}
+	decorateCommandHelp(cmd, section)
 	return cmd
+}
+
+func resolveDeployPlanFormat(format string, visualize bool) string {
+	selected := strings.ToLower(strings.TrimSpace(format))
+	if visualize {
+		switch selected {
+		case "", "text":
+			// Preserve the original behavior: if the user asked for text output,
+			// --visualize should not force HTML.
+			selected = "text"
+		case "visualize", "html":
+			selected = "visualize-html"
+		case "json":
+			selected = "visualize-json"
+		case "yaml", "yml":
+			selected = "visualize-yaml"
+		}
+	}
+	if selected == "" {
+		selected = "text"
+	}
+	return selected
 }
 
 type deployPlanOptions struct {
@@ -235,34 +426,40 @@ type deployPlanOptions struct {
 	SetValues       []string
 	SetStringValues []string
 	SetFileValues   []string
+	Secrets         *deploy.SecretOptions
 	IncludeCRDs     bool
 }
 
 type deployPlanResult struct {
-	ReleaseName       string               `json:"release"`
-	Namespace         string               `json:"namespace"`
-	ChartVersion      string               `json:"chartVersion,omitempty"`
-	ChartRef          string               `json:"chartReference,omitempty"`
-	RequestedChart    string               `json:"requestedChart,omitempty"`
-	RequestedVersion  string               `json:"requestedVersion,omitempty"`
-	ValuesFiles       []string             `json:"valuesFiles,omitempty"`
-	SetValues         []string             `json:"setValues,omitempty"`
-	SetStringValues   []string             `json:"setStringValues,omitempty"`
-	SetFileValues     []string             `json:"setFileValues,omitempty"`
-	GraphNodes        []deployGraphNode    `json:"graphNodes,omitempty"`
-	GraphEdges        []deployGraphEdge    `json:"graphEdges,omitempty"`
-	ManifestBlobs     map[string]string    `json:"manifestBlobs,omitempty"`
-	LiveManifests     map[string]string    `json:"liveManifestBlobs,omitempty"`
-	ManifestDiffs     map[string]string    `json:"manifestDiffs,omitempty"`
-	ManifestTemplates map[string]string    `json:"manifestTemplates,omitempty"`
-	TemplateSources   map[string]string    `json:"templateSources,omitempty"`
-	Changes           []planResourceChange `json:"changes"`
-	Summary           planSummary          `json:"summary"`
-	Warnings          []string             `json:"warnings,omitempty"`
-	ClusterHost       string               `json:"clusterHost,omitempty"`
-	InstallCmd        string               `json:"installCommand,omitempty"`
-	GeneratedAt       time.Time            `json:"generatedAt"`
-	OfflineFallback   bool                 `json:"offlineFallback"`
+	ReleaseName       string                  `json:"release"`
+	Namespace         string                  `json:"namespace"`
+	ChartVersion      string                  `json:"chartVersion,omitempty"`
+	ChartRef          string                  `json:"chartReference,omitempty"`
+	RequestedChart    string                  `json:"requestedChart,omitempty"`
+	RequestedVersion  string                  `json:"requestedVersion,omitempty"`
+	ValuesFiles       []string                `json:"valuesFiles,omitempty"`
+	SetValues         []string                `json:"setValues,omitempty"`
+	SetStringValues   []string                `json:"setStringValues,omitempty"`
+	SetFileValues     []string                `json:"setFileValues,omitempty"`
+	Secrets           []planSecretRef         `json:"secrets,omitempty"`
+	GraphNodes        []deployGraphNode       `json:"graphNodes,omitempty"`
+	GraphEdges        []deployGraphEdge       `json:"graphEdges,omitempty"`
+	ManifestBlobs     map[string]string       `json:"manifestBlobs,omitempty"`
+	LiveManifests     map[string]string       `json:"liveManifestBlobs,omitempty"`
+	ManifestDiffs     map[string]string       `json:"manifestDiffs,omitempty"`
+	ManifestTemplates map[string]string       `json:"manifestTemplates,omitempty"`
+	TemplateSources   map[string]string       `json:"templateSources,omitempty"`
+	Changes           []planResourceChange    `json:"changes"`
+	Summary           planSummary             `json:"summary"`
+	Warnings          []string                `json:"warnings,omitempty"`
+	DesiredQuota      *quotaReport            `json:"desiredQuota,omitempty"`
+	DesiredQuotaByNS  map[string]*quotaReport `json:"desiredQuotaByNamespace,omitempty"`
+	ClusterHost       string                  `json:"clusterHost,omitempty"`
+	InstallCmd        string                  `json:"installCommand,omitempty"`
+	GeneratedAt       time.Time               `json:"generatedAt"`
+	OfflineFallback   bool                    `json:"offlineFallback"`
+	Compare           *planCompare            `json:"compare,omitempty"`
+	Telemetry         *planTelemetry          `json:"telemetry,omitempty"`
 }
 
 type planChangeKind string
@@ -300,6 +497,188 @@ type planSummary struct {
 	Updates   int `json:"updates"`
 	Deletes   int `json:"deletes"`
 	Unchanged int `json:"unchanged"`
+}
+
+type planSecretRef struct {
+	Provider  string `json:"provider"`
+	Path      string `json:"path,omitempty"`
+	Reference string `json:"reference,omitempty"`
+	Masked    bool   `json:"masked,omitempty"`
+}
+
+func planSecretsFromAudit(report secretstore.AuditReport) []planSecretRef {
+	if report.Empty() {
+		return nil
+	}
+	out := make([]planSecretRef, 0, len(report.Entries))
+	for _, entry := range report.Entries {
+		if entry.Provider == "" && entry.Path == "" && entry.Reference == "" {
+			continue
+		}
+		out = append(out, planSecretRef{
+			Provider:  entry.Provider,
+			Path:      entry.Path,
+			Reference: entry.Reference,
+			Masked:    entry.Masked,
+		})
+	}
+	return out
+}
+
+type planCompareSummary struct {
+	New       int `json:"new"`
+	Changed   int `json:"changed"`
+	Resolved  int `json:"resolved"`
+	Unchanged int `json:"unchanged"`
+}
+
+func (s planCompareSummary) HasRegressions() bool {
+	return s.New > 0 || s.Changed > 0
+}
+
+type planCompare struct {
+	Source   string               `json:"source,omitempty"`
+	Summary  planCompareSummary   `json:"summary"`
+	New      []planResourceChange `json:"new,omitempty"`
+	Changed  []planChangeDelta    `json:"changed,omitempty"`
+	Resolved []planResourceChange `json:"resolved,omitempty"`
+}
+
+type planChangeDelta struct {
+	Resource     planResourceChange `json:"resource"`
+	PreviousKind planChangeKind     `json:"previousKind"`
+}
+
+type planTelemetry struct {
+	TotalMs      int64            `json:"totalMs,omitempty"`
+	PhasesMs     map[string]int64 `json:"phasesMs,omitempty"`
+	KubeRequests int              `json:"kubeRequests,omitempty"`
+	KubeAvgMs    int64            `json:"kubeAvgMs,omitempty"`
+	KubeMaxMs    int64            `json:"kubeMaxMs,omitempty"`
+}
+
+func comparePlanResults(current *deployPlanResult, baseline *deployPlanResult, source string) *planCompare {
+	if current == nil || baseline == nil {
+		return nil
+	}
+	baseMap := map[resourceKey]planResourceChange{}
+	for _, ch := range baseline.Changes {
+		baseMap[ch.Key] = ch
+	}
+	curMap := map[resourceKey]planResourceChange{}
+	for _, ch := range current.Changes {
+		curMap[ch.Key] = ch
+	}
+
+	var newChanges []planResourceChange
+	var changed []planChangeDelta
+	unchanged := 0
+	for _, ch := range current.Changes {
+		prev, ok := baseMap[ch.Key]
+		if !ok {
+			newChanges = append(newChanges, planChangeWithoutDiff(ch))
+			continue
+		}
+		if prev.Kind != ch.Kind {
+			changed = append(changed, planChangeDelta{
+				Resource:     planChangeWithoutDiff(ch),
+				PreviousKind: prev.Kind,
+			})
+			continue
+		}
+		unchanged++
+	}
+
+	var resolved []planResourceChange
+	for _, ch := range baseline.Changes {
+		if _, ok := curMap[ch.Key]; !ok {
+			resolved = append(resolved, planChangeWithoutDiff(ch))
+		}
+	}
+
+	sortPlanResourceChanges(newChanges)
+	sortPlanResourceChanges(resolved)
+	sortPlanChangeDeltas(changed)
+
+	summary := planCompareSummary{
+		New:       len(newChanges),
+		Changed:   len(changed),
+		Resolved:  len(resolved),
+		Unchanged: unchanged,
+	}
+	return &planCompare{
+		Source:   strings.TrimSpace(source),
+		Summary:  summary,
+		New:      newChanges,
+		Changed:  changed,
+		Resolved: resolved,
+	}
+}
+
+func planChangeWithoutDiff(ch planResourceChange) planResourceChange {
+	ch.Diff = ""
+	return ch
+}
+
+func sortPlanResourceChanges(changes []planResourceChange) {
+	sort.Slice(changes, func(i, j int) bool {
+		if changes[i].Kind != changes[j].Kind {
+			return changes[i].Kind < changes[j].Kind
+		}
+		return changes[i].Key.String() < changes[j].Key.String()
+	})
+}
+
+func sortPlanChangeDeltas(deltas []planChangeDelta) {
+	sort.Slice(deltas, func(i, j int) bool {
+		if deltas[i].Resource.Kind != deltas[j].Resource.Kind {
+			return deltas[i].Resource.Kind < deltas[j].Resource.Kind
+		}
+		return deltas[i].Resource.Key.String() < deltas[j].Resource.Key.String()
+	})
+}
+
+func renderPlanCompareLine(compare *planCompare) string {
+	if compare == nil {
+		return ""
+	}
+	s := compare.Summary
+	if s.New == 0 && s.Changed == 0 && s.Resolved == 0 && s.Unchanged == 0 {
+		return ""
+	}
+	label := "Plan compare"
+	if compare.Source != "" {
+		label = fmt.Sprintf("Plan compare (%s)", compare.Source)
+	}
+	return fmt.Sprintf("%s: +%d new, ~%d changed, -%d resolved, %d unchanged", label, s.New, s.Changed, s.Resolved, s.Unchanged)
+}
+
+func buildPlanTelemetry(summary telemetry.Summary) *planTelemetry {
+	if summary.Total == 0 && len(summary.Phases) == 0 && summary.KubeRequests == 0 {
+		return nil
+	}
+	tele := &planTelemetry{
+		TotalMs:      summary.Total.Milliseconds(),
+		PhasesMs:     durationMapToMs(summary.Phases),
+		KubeRequests: summary.KubeRequests,
+		KubeAvgMs:    summary.KubeAvg.Milliseconds(),
+		KubeMaxMs:    summary.KubeMax.Milliseconds(),
+	}
+	if tele.PhasesMs != nil && len(tele.PhasesMs) == 0 {
+		tele.PhasesMs = nil
+	}
+	return tele
+}
+
+func durationMapToMs(phases map[string]time.Duration) map[string]int64 {
+	if len(phases) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(phases))
+	for key, value := range phases {
+		out[key] = value.Milliseconds()
+	}
+	return out
 }
 
 type graphRef struct {
@@ -411,7 +790,22 @@ func buildDependencyGraph(desired map[resourceKey]manifestDoc, live map[resource
 	return nodeList, edges
 }
 
-func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, settings *cli.EnvSettings, kubeClient *kube.Client, opts deployPlanOptions) (*deployPlanResult, error) {
+func trackPlanPhase(timer *telemetry.PhaseTimer, name string, fn func() error) error {
+	if timer == nil {
+		return fn()
+	}
+	return timer.Track(name, fn)
+}
+
+func trackPlanPhaseFunc(timer *telemetry.PhaseTimer, name string, fn func()) {
+	if timer == nil {
+		fn()
+		return
+	}
+	timer.TrackFunc(name, fn)
+}
+
+func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, settings *cli.EnvSettings, kubeClient *kube.Client, opts deployPlanOptions, timer *telemetry.PhaseTimer) (*deployPlanResult, error) {
 	if opts.Chart == "" {
 		return nil, fmt.Errorf("chart reference is required")
 	}
@@ -419,18 +813,23 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 		return nil, fmt.Errorf("release name is required")
 	}
 
-	templateResult, err := deploy.RenderTemplate(ctx, actionCfg, settings, deploy.TemplateOptions{
-		Chart:           opts.Chart,
-		Version:         opts.Version,
-		ReleaseName:     opts.Release,
-		Namespace:       opts.Namespace,
-		ValuesFiles:     opts.ValuesFiles,
-		SetValues:       opts.SetValues,
-		SetStringValues: opts.SetStringValues,
-		SetFileValues:   opts.SetFileValues,
-		IncludeCRDs:     opts.IncludeCRDs,
-	})
-	if err != nil {
+	var templateResult *deploy.TemplateResult
+	if err := trackPlanPhase(timer, "render", func() error {
+		var err error
+		templateResult, err = deploy.RenderTemplate(ctx, actionCfg, settings, deploy.TemplateOptions{
+			Chart:           opts.Chart,
+			Version:         opts.Version,
+			ReleaseName:     opts.Release,
+			Namespace:       opts.Namespace,
+			ValuesFiles:     opts.ValuesFiles,
+			SetValues:       opts.SetValues,
+			SetStringValues: opts.SetStringValues,
+			SetFileValues:   opts.SetFileValues,
+			Secrets:         opts.Secrets,
+			IncludeCRDs:     opts.IncludeCRDs,
+		})
+		return err
+	}); err != nil {
 		return nil, err
 	}
 
@@ -439,18 +838,30 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 
 	var previousDocs map[resourceKey]manifestDoc
 	if actionCfg != nil {
-		getAction := action.NewGet(actionCfg)
-		if rel, err := getAction.Run(opts.Release); err == nil && rel != nil {
-			previousDocs = docsToMap(parseManifestDocs(rel.Manifest))
-		} else if err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
-			return nil, fmt.Errorf("get release %s: %w", opts.Release, err)
+		if err := trackPlanPhase(timer, "release", func() error {
+			getAction := action.NewGet(actionCfg)
+			if rel, err := getAction.Run(opts.Release); err == nil && rel != nil {
+				previousDocs = docsToMap(parseManifestDocs(rel.Manifest))
+				return nil
+			} else if err != nil && !errors.Is(err, driver.ErrReleaseNotFound) {
+				return fmt.Errorf("get release %s: %w", opts.Release, err)
+			}
+			return nil
+		}); err != nil {
+			return nil, err
 		}
 	}
 	if previousDocs == nil {
 		previousDocs = map[resourceKey]manifestDoc{}
 	}
 
-	liveState, lookupWarnings, err := collectLiveResources(ctx, kubeClient, desiredDocs, opts.Namespace)
+	var liveState map[resourceKey]*unstructured.Unstructured
+	var lookupWarnings []string
+	err := trackPlanPhase(timer, "live", func() error {
+		var err error
+		liveState, lookupWarnings, err = collectLiveResources(ctx, kubeClient, desiredDocs, opts.Namespace)
+		return err
+	})
 	offlineFallback := false
 	if err != nil {
 		offlineFallback = true
@@ -458,13 +869,66 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 		liveState = nil
 	}
 
-	changes, summary := buildPlanChanges(desiredDocs, previousDocs, liveState)
-	graphNodes, graphEdges := buildDependencyGraph(desiredDocs, liveState)
-	manifestBlobs := buildManifestBlobs(desiredDocs)
-	liveManifestBlobs := buildLiveManifestBlobs(liveState)
-	manifestDiffs := buildManifestDiffs(liveManifestBlobs, manifestBlobs)
-	warnings := append([]string{}, lookupWarnings...)
-	warnings = append(warnings, planWarnings(changes)...)
+	var (
+		changes           []planResourceChange
+		summary           planSummary
+		graphNodes        []deployGraphNode
+		graphEdges        []deployGraphEdge
+		manifestBlobs     map[string]string
+		liveManifestBlobs map[string]string
+		manifestDiffs     map[string]string
+		warnings          []string
+	)
+	trackPlanPhaseFunc(timer, "diff", func() {
+		changes, summary = buildPlanChanges(desiredDocs, previousDocs, liveState)
+		graphNodes, graphEdges = buildDependencyGraph(desiredDocs, liveState)
+		manifestBlobs = buildManifestBlobs(desiredDocs)
+		liveManifestBlobs = buildLiveManifestBlobs(liveState)
+		manifestDiffs = buildManifestDiffs(liveManifestBlobs, manifestBlobs)
+		warnings = append([]string{}, lookupWarnings...)
+		warnings = append(warnings, planWarnings(changes)...)
+	})
+	quotaNamespaces := map[string]struct{}{}
+	if strings.TrimSpace(opts.Namespace) != "" {
+		quotaNamespaces[opts.Namespace] = struct{}{}
+	}
+	for key, doc := range desiredDocs {
+		if key.Kind == "Namespace" {
+			continue
+		}
+		ns := strings.TrimSpace(key.Namespace)
+		if ns == "" && doc.Obj != nil {
+			ns = strings.TrimSpace(doc.Obj.GetNamespace())
+		}
+		if ns == "" {
+			continue
+		}
+		quotaNamespaces[ns] = struct{}{}
+	}
+	desiredQuotaByNS := map[string]*quotaReport{}
+	trackPlanPhaseFunc(timer, "quota", func() {
+		if len(quotaNamespaces) == 0 {
+			return
+		}
+		var nsList []string
+		for ns := range quotaNamespaces {
+			nsList = append(nsList, ns)
+		}
+		sort.Strings(nsList)
+		for _, ns := range nsList {
+			report := buildDesiredQuotaReport(desiredDocs, ns)
+			if report == nil {
+				continue
+			}
+			if kubeClient != nil && kubeClient.Clientset != nil {
+				if err := populateQuotaLive(ctx, kubeClient.Clientset, report); err != nil {
+					report.Warnings = append(report.Warnings, fmt.Sprintf("Failed to load namespace quotas: %v", err))
+				}
+			}
+			desiredQuotaByNS[ns] = report
+		}
+	})
+	desiredQuota := desiredQuotaByNS[opts.Namespace]
 
 	var cluster string
 	if kubeClient != nil && kubeClient.RESTConfig != nil {
@@ -491,6 +955,8 @@ func executeDeployPlan(ctx context.Context, actionCfg *action.Configuration, set
 		Changes:           changes,
 		Summary:           summary,
 		Warnings:          warnings,
+		DesiredQuota:      desiredQuota,
+		DesiredQuotaByNS:  desiredQuotaByNS,
 		ClusterHost:       cluster,
 		InstallCmd:        buildInstallCommand(opts),
 		GeneratedAt:       time.Now().UTC(),
@@ -1060,8 +1526,38 @@ func renderDeployPlan(out io.Writer, result *deployPlanResult) {
 		namespace = "(context namespace)"
 	}
 	fmt.Fprintf(out, "Release %s @ %s\n", result.ReleaseName, namespace)
+	if !result.GeneratedAt.IsZero() {
+		fmt.Fprintf(out, "Generated at: %s\n", result.GeneratedAt.Format(time.RFC3339))
+	}
+	if result.ClusterHost != "" {
+		fmt.Fprintf(out, "Cluster: %s\n", result.ClusterHost)
+	}
 	if result.ChartVersion != "" {
 		fmt.Fprintf(out, "Chart version: %s\n", result.ChartVersion)
+	}
+	if result.ChartRef != "" {
+		fmt.Fprintf(out, "Chart: %s\n", result.ChartRef)
+	}
+	if result.RequestedChart != "" && result.RequestedChart != result.ChartRef {
+		fmt.Fprintf(out, "Requested chart: %s\n", result.RequestedChart)
+	}
+	if result.RequestedVersion != "" {
+		fmt.Fprintf(out, "Requested version: %s\n", result.RequestedVersion)
+	}
+	if len(result.ValuesFiles) > 0 {
+		fmt.Fprintf(out, "Values files:\n%s\n", indent(strings.Join(result.ValuesFiles, "\n"), "  - "))
+	}
+	if len(result.SetValues) > 0 {
+		fmt.Fprintf(out, "Set values:\n%s\n", indent(strings.Join(result.SetValues, "\n"), "  - "))
+	}
+	if len(result.SetStringValues) > 0 {
+		fmt.Fprintf(out, "Set-string values:\n%s\n", indent(strings.Join(result.SetStringValues, "\n"), "  - "))
+	}
+	if len(result.SetFileValues) > 0 {
+		fmt.Fprintf(out, "Set-file values:\n%s\n", indent(strings.Join(result.SetFileValues, "\n"), "  - "))
+	}
+	if result.InstallCmd != "" {
+		fmt.Fprintf(out, "Install command: %s\n", result.InstallCmd)
 	}
 	fmt.Fprintf(out, "Creates: %d, Updates: %d, Deletes: %d, Unchanged: %d\n\n", result.Summary.Creates, result.Summary.Updates, result.Summary.Deletes, result.Summary.Unchanged)
 
@@ -1083,11 +1579,56 @@ func renderDeployPlan(out io.Writer, result *deployPlanResult) {
 			fmt.Fprintf(out, "- %s\n", warn)
 		}
 	}
+	if result.DesiredQuota != nil {
+		fmt.Fprintln(out, "\nDesired quota:")
+		data, err := yaml.Marshal(result.DesiredQuota)
+		if err == nil && len(data) > 0 {
+			fmt.Fprintf(out, "%s\n", indent(strings.TrimRight(string(data), "\n"), "  "))
+		}
+	}
 	if len(result.GraphEdges) > 0 {
 		fmt.Fprintln(out, "\nResource dependencies:")
 		for _, line := range summarizeGraphEdges(result.GraphNodes, result.GraphEdges) {
 			fmt.Fprintf(out, "- %s\n", line)
 		}
+	}
+	if len(result.GraphNodes) > 0 {
+		fmt.Fprintln(out, "\nResources:")
+		for _, node := range result.GraphNodes {
+			ns := node.Namespace
+			if ns == "" {
+				ns = namespace
+			}
+			fmt.Fprintf(out, "- %s %s/%s (%s)\n", node.Kind, ns, node.Name, node.Source)
+		}
+	}
+	writeStringMapSection(out, "\nRendered manifests:", result.ManifestBlobs)
+	writeStringMapSection(out, "\nLive manifests:", result.LiveManifests)
+	writeStringMapSection(out, "\nManifest diffs:", result.ManifestDiffs)
+	writeStringMapSection(out, "\nTemplate sources:", result.TemplateSources)
+	writeStringMapSection(out, "\nManifest templates:", result.ManifestTemplates)
+	if result.OfflineFallback {
+		fmt.Fprintln(out, "\nOffline fallback: true")
+	}
+}
+
+func writeStringMapSection(out io.Writer, title string, m map[string]string) {
+	if len(m) == 0 {
+		return
+	}
+	fmt.Fprintln(out, title)
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := strings.TrimRight(m[k], "\n")
+		if v == "" {
+			continue
+		}
+		fmt.Fprintf(out, "- %s\n", k)
+		fmt.Fprintf(out, "%s\n", indent(v, "    "))
 	}
 }
 
@@ -1180,67 +1721,110 @@ type valuesDiffSummary struct {
 }
 
 type deployVisualizePayload struct {
-	Release           string            `json:"release"`
-	Namespace         string            `json:"namespace"`
-	Chart             string            `json:"chart"`
-	ClusterHost       string            `json:"clusterHost,omitempty"`
-	InstallCommand    string            `json:"installCommand,omitempty"`
-	ValuesFiles       []string          `json:"valuesFiles,omitempty"`
-	SetValues         []string          `json:"setValues,omitempty"`
-	SetStringValues   []string          `json:"setStringValues,omitempty"`
-	SetFileValues     []string          `json:"setFileValues,omitempty"`
-	Nodes             []deployGraphNode `json:"nodes"`
-	Edges             []deployGraphEdge `json:"edges"`
-	Manifests         map[string]string `json:"manifests"`
-	LiveManifests     map[string]string `json:"liveManifests,omitempty"`
-	ManifestDiffs     map[string]string `json:"manifestDiffs,omitempty"`
-	ManifestTemplates map[string]string `json:"manifestTemplates,omitempty"`
-	TemplateSources   map[string]string `json:"templateSources,omitempty"`
-	ChangeKinds       map[string]string `json:"changeKinds,omitempty"`
-	CompareManifests  map[string]string `json:"compareManifests,omitempty"`
-	CompareSummary    string            `json:"compareSummary,omitempty"`
-	Summary           planSummary       `json:"summary,omitempty"`
-	Warnings          []string          `json:"warnings,omitempty"`
-	ValuesDiff        valuesDiffSummary `json:"valuesDiff"`
-	GeneratedAt       time.Time         `json:"generatedAt,omitempty"`
-	OfflineFallback   bool              `json:"offlineFallback"`
+	Release           string                  `json:"release"`
+	Namespace         string                  `json:"namespace"`
+	Chart             string                  `json:"chart"`
+	ClusterHost       string                  `json:"clusterHost,omitempty"`
+	InstallCommand    string                  `json:"installCommand,omitempty"`
+	ValuesFiles       []string                `json:"valuesFiles,omitempty"`
+	SetValues         []string                `json:"setValues,omitempty"`
+	SetStringValues   []string                `json:"setStringValues,omitempty"`
+	SetFileValues     []string                `json:"setFileValues,omitempty"`
+	Secrets           []planSecretRef         `json:"secrets,omitempty"`
+	Nodes             []deployGraphNode       `json:"nodes"`
+	Edges             []deployGraphEdge       `json:"edges"`
+	Manifests         map[string]string       `json:"manifests"`
+	LiveManifests     map[string]string       `json:"liveManifests,omitempty"`
+	ManifestDiffs     map[string]string       `json:"manifestDiffs,omitempty"`
+	ManifestTemplates map[string]string       `json:"manifestTemplates,omitempty"`
+	TemplateSources   map[string]string       `json:"templateSources,omitempty"`
+	ChangeKinds       map[string]string       `json:"changeKinds,omitempty"`
+	CompareManifests  map[string]string       `json:"compareManifests,omitempty"`
+	CompareSummary    string                  `json:"compareSummary,omitempty"`
+	Summary           planSummary             `json:"summary,omitempty"`
+	Warnings          []string                `json:"warnings,omitempty"`
+	ValuesDiff        valuesDiffSummary       `json:"valuesDiff"`
+	DesiredQuota      *quotaReport            `json:"desiredQuota,omitempty"`
+	DesiredQuotaByNS  map[string]*quotaReport `json:"desiredQuotaByNamespace,omitempty"`
+	GeneratedAt       time.Time               `json:"generatedAt,omitempty"`
+	OfflineFallback   bool                    `json:"offlineFallback"`
 }
 
-func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResult) (string, error) {
+type deployVisualizeFeatures struct {
+	ExplainDiff bool `json:"explainDiff"`
+}
+
+func buildDeployVisualizePayload(result *deployPlanResult, compare *deployPlanResult) (deployVisualizePayload, error) {
 	if result == nil {
-		return "", fmt.Errorf("plan result is empty")
+		return deployVisualizePayload{}, fmt.Errorf("plan result is empty")
 	}
 	if len(result.GraphNodes) == 0 {
-		return "", fmt.Errorf("no resources available to visualize (chart rendered zero objects)")
+		return deployVisualizePayload{}, fmt.Errorf("no resources available to visualize (chart rendered zero objects)")
 	}
 	changeKinds := buildChangeKindIndex(result.Changes)
 	payload := deployVisualizePayload{
-		Release:         result.ReleaseName,
-		Namespace:       result.Namespace,
-		Chart:           result.ChartRef,
-		ClusterHost:     result.ClusterHost,
-		InstallCommand:  result.InstallCmd,
-		Nodes:           result.GraphNodes,
-		Edges:           result.GraphEdges,
-		Manifests:       result.ManifestBlobs,
-		LiveManifests:   result.LiveManifests,
-		ManifestDiffs:   result.ManifestDiffs,
-		ChangeKinds:     changeKinds,
-		Warnings:        append([]string(nil), result.Warnings...),
-		Summary:         result.Summary,
-		GeneratedAt:     result.GeneratedAt,
-		OfflineFallback: result.OfflineFallback,
+		Release:          result.ReleaseName,
+		Namespace:        result.Namespace,
+		Chart:            result.ChartRef,
+		ClusterHost:      result.ClusterHost,
+		InstallCommand:   result.InstallCmd,
+		ValuesFiles:      append([]string(nil), result.ValuesFiles...),
+		SetValues:        append([]string(nil), result.SetValues...),
+		SetStringValues:  append([]string(nil), result.SetStringValues...),
+		SetFileValues:    append([]string(nil), result.SetFileValues...),
+		Secrets:          append([]planSecretRef(nil), result.Secrets...),
+		Nodes:            result.GraphNodes,
+		Edges:            result.GraphEdges,
+		Manifests:        result.ManifestBlobs,
+		LiveManifests:    result.LiveManifests,
+		ManifestDiffs:    result.ManifestDiffs,
+		ChangeKinds:      changeKinds,
+		Warnings:         append([]string(nil), result.Warnings...),
+		Summary:          result.Summary,
+		DesiredQuota:     result.DesiredQuota,
+		DesiredQuotaByNS: result.DesiredQuotaByNS,
+		GeneratedAt:      result.GeneratedAt,
+		OfflineFallback:  result.OfflineFallback,
 	}
 	if compare != nil {
 		payload.CompareManifests = compare.ManifestBlobs
 		payload.CompareSummary = describePlanSummary(compare)
+	}
+	return payload, nil
+}
+
+func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResult, features deployVisualizeFeatures) (string, error) {
+	payload, err := buildDeployVisualizePayload(result, compare)
+	if err != nil {
+		return "", err
 	}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("encode viz payload: %w", err)
 	}
 	escaped := escapeJSONForScript(jsonData)
-	return strings.Replace(deployVisualizeHTMLTemplate, "__DATA__", escaped, 1), nil
+	featuresJSON, err := json.Marshal(features)
+	if err != nil {
+		return "", fmt.Errorf("encode viz features: %w", err)
+	}
+	html := strings.Replace(deployVisualizeHTMLTemplate, "__DATA__", escaped, 1)
+	html = strings.Replace(html, "__FEATURES__", escapeJSONForScript(featuresJSON), 1)
+	return html, nil
+}
+
+func defaultDeployVisualizeDataOutputPath(release string, generatedAt time.Time, ext string) string {
+	slug := sanitizeFilename(release)
+	if slug == "" {
+		slug = "release"
+	}
+	stamp := time.Now()
+	if !generatedAt.IsZero() {
+		stamp = generatedAt
+	}
+	if strings.TrimSpace(ext) == "" {
+		ext = "json"
+	}
+	return fmt.Sprintf("ktl-deploy-visualize-%s-%s.%s", slug, stamp.Format("20060102-150405"), ext)
 }
 
 func escapeJSONForScript(data []byte) string {
@@ -1426,6 +2010,30 @@ func defaultDeployVisualizeOutputPath(release string, generatedAt time.Time) str
 	return fmt.Sprintf("ktl-deploy-visualize-%s-%s.html", slug, generatedAt.Format("20060102-150405"))
 }
 
+func writePlanBaseline(path string, result *deployPlanResult) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	if result == nil {
+		return fmt.Errorf("plan result is empty")
+	}
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal baseline json: %w", err)
+	}
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create baseline dir: %w", err)
+		}
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write baseline: %w", err)
+	}
+	return nil
+}
+
 func buildInstallCommand(opts deployPlanOptions) string {
 	parts := []string{"ktl", "deploy", "apply"}
 	if opts.Chart != "" {
@@ -1468,7 +2076,7 @@ const deployPlanHTMLTemplate = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ktl Deploy Plan</title>
+  <title>ktl Apply Plan</title>
   <style>
     :root {
       --surface: rgba(255,255,255,0.9);
@@ -1725,7 +2333,7 @@ const deployPlanHTMLTemplate = `<!DOCTYPE html>
 <body>
   <div class="chrome">
     <header>
-      <p class="eyebrow">ktl deploy plan</p>
+      <p class="eyebrow">ktl apply plan</p>
       <h1>Release {{.ReleaseName}}</h1>
       <div class="subtitle">Namespace <strong>{{.NamespaceDisplay}}</strong>{{if .ChartVersion}} · Chart {{.ChartVersion}}{{end}}{{if .ClusterHost}} · Cluster {{.ClusterHost}}{{end}}</div>
       <div class="subtitle">Generated {{.GeneratedAt.Format "02 Jan 2006 15:04 MST"}}</div>

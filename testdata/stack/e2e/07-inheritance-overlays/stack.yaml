@@ -1,0 +1,12 @@
+apiVersion: ktl.dev/v1
+kind: Stack
+name: e2e-07-inheritance
+defaults:
+  cluster: { name: archimedes, kubeconfig: ~/.kube/archimedes.yaml }
+  namespace: ktl-stack-e2e
+  tags: [root]
+profiles:
+  dev:
+    defaults:
+      tags: [dev]
+

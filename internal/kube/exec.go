@@ -1,3 +1,6 @@
+// File: internal/kube/exec.go
+// Brief: Internal kube package implementation for 'exec'.
+
 // exec.go shells into pods/containers to run commands for db backup and other helpers.
 package kube
 

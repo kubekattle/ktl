@@ -1,0 +1,30 @@
+[
+  {
+    "ruleId": "k8s/container_image_tag_latest",
+    "severity": "medium",
+    "category": "Supply Chain",
+    "message": "Container images should be pinned to a specific tag or digest instead of using :latest or an implicit latest tag.",
+    "fieldPath": "spec.containers.0.image",
+    "location": "metadata.name={{latest-image}}.spec.containers.name={{app}}.image",
+    "resourceKey": "cluster/Pod/latest-image",
+    "expected": "metadata.name={{latest-image}}.spec.containers.name={{app}}.image should be pinned to a tag or digest",
+    "observed": "metadata.name={{latest-image}}.spec.containers.name={{app}}.image is nginx:latest",
+    "subject": {
+      "kind": "Pod",
+      "name": "latest-image"
+    },
+    "fingerprint": "k8s/container_image_tag_latest:cluster/Pod/latest-image:metadata.name={{latest-image}}.spec.containers.name={{app}}.image",
+    "helpUrl": "https://kubernetes.io/docs/concepts/containers/images/#image-names",
+    "evidence": {
+      "containers": [
+        {
+          "image": "nginx:latest",
+          "name": "app"
+        }
+      ],
+      "fieldPath": "spec.containers.0.image",
+      "kind": "Pod",
+      "name": "latest-image"
+    }
+  }
+]

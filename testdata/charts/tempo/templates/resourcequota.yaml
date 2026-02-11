@@ -1,0 +1,13 @@
+{{- if .Values.quota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ template "tempo.fullname" . }}-quota
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tempo.labels" . | nindent 4 }}
+spec:
+  hard:
+    {{- toYaml .Values.quota.hard | nindent 4 }}
+{{- end }}
+

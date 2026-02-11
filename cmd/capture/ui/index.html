@@ -1,0 +1,911 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>capture</title>
+    <style>
+      :root {
+        --surface: rgba(255, 255, 255, 0.9);
+        --surface-soft: rgba(255, 255, 255, 0.82);
+        --border: rgba(15, 23, 42, 0.12);
+        --text: #0f172a;
+        --muted: rgba(15, 23, 42, 0.65);
+        --accent: #2563eb;
+        --warn: #fbbf24;
+        --fail: #ef4444;
+        --ease: cubic-bezier(.16,1,.3,1);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at 18% 20%, rgba(255,255,255,0.95), #dce3f1 65%);
+        min-height: 100vh;
+      }
+      .chrome { max-width: 1200px; margin: 0 auto; padding: 48px 56px 72px; }
+      .layout { display: flex; gap: 24px; align-items: flex-start; }
+      .main { flex: 1 1 auto; min-width: 0; }
+      @media (max-width: 1100px) {
+        .layout { flex-direction: column; }
+      }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        box-shadow: 0 40px 80px rgba(16,23,36,0.12);
+        backdrop-filter: blur(18px);
+        padding: 28px 28px;
+      }
+      h1 { font-size: 2.3rem; font-weight: 650; letter-spacing: -0.04em; margin: 0; }
+      .subtitle { margin-top: 10px; color: var(--muted); font-size: 1rem; }
+      .card-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
+      .card {
+        border-radius: 24px;
+        padding: 18px 18px;
+        background: var(--surface-soft);
+        border: 1px solid rgba(15,23,42,0.08);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+      }
+      .card .label { font-size: 0.8rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+      .card .value { margin-top: 8px; font-size: 1.7rem; font-weight: 650; }
+      .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
+      .search {
+        width: 100%;
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.12);
+        background: rgba(255,255,255,0.75);
+        padding: 12px 16px;
+        font-size: 1rem;
+        outline: none;
+        transition: box-shadow 160ms var(--ease), border-color 160ms var(--ease);
+      }
+      .search:focus { border-color: rgba(37,99,235,0.5); box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
+      .muted { color: var(--muted); font-size: 0.95rem; margin-top: 14px; }
+      .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top: 18px; }
+      select.select {
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.12);
+        background: rgba(255,255,255,0.75);
+        padding: 12px 16px;
+        font-size: 1rem;
+        outline: none;
+        min-width: 320px;
+      }
+      .panel + .panel { margin-top: 18px; }
+      .timeline-wrap { margin-top: 18px; }
+      .timeline {
+        width: 100%;
+        height: 140px;
+        border-radius: 22px;
+        border: 1px solid rgba(15,23,42,0.10);
+        background: rgba(255,255,255,0.65);
+        overflow: hidden;
+      }
+      .logs {
+        margin-top: 18px;
+        border-radius: 22px;
+        border: 1px solid rgba(15,23,42,0.10);
+        background: rgba(255,255,255,0.65);
+        overflow: auto;
+        max-height: 560px;
+      }
+      .drawer-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15,23,42,0.18);
+        backdrop-filter: blur(6px);
+        display: none;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 24px;
+        z-index: 50;
+      }
+      .drawer-backdrop.visible { display: flex; }
+      .drawer {
+        width: min(980px, 100%);
+        border-radius: 28px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow: 0 40px 80px rgba(16,23,36,0.18);
+        padding: 20px 20px;
+        max-height: 70vh;
+        overflow: auto;
+      }
+      .drawer h3 { margin: 0; font-size: 1.2rem; letter-spacing: -0.02em; }
+      .drawer pre {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.6);
+        border: 1px solid rgba(15,23,42,0.08);
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      th, td { padding: 10px 12px; border-bottom: 1px solid rgba(15,23,42,0.06); vertical-align: top; }
+      th:not(:last-child), td:not(:last-child) { border-right: 1px solid rgba(15,23,42,0.09); }
+      th { text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.75rem; color: var(--muted); font-weight: 650; background: rgba(255,255,255,0.35); position: relative; user-select: none; }
+      th .resizer { position: absolute; right: 0; top: 0; height: 100%; width: 10px; cursor: col-resize; }
+      th .resizer::after { content: ""; position: absolute; right: 4px; top: 8px; bottom: 8px; width: 2px; border-radius: 999px; background: rgba(15,23,42,0.16); }
+      td.ts { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 104px; }
+      td.src { white-space: nowrap; width: 220px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+      td.msg { width: auto; }
+      #colTs { width: 104px; }
+      #colSrc { width: 220px; }
+      .tag { display:inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(15,23,42,0.10); background: rgba(37,99,235,0.08); color: #1d4ed8; font-weight: 650; font-size: 0.78rem; margin-right: 8px; }
+      .tag.warn { background: rgba(251,191,36,0.18); color: #92400e; }
+      .tag.fail { background: rgba(239,68,68,0.14); color: #991b1b; }
+      .tag.meta { background: rgba(15,23,42,0.06); color: rgba(15,23,42,0.70); }
+      .panel-title-row { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+      .panel-title { font-size:0.8rem; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); font-weight:650; }
+      .search-group { display:flex; flex-direction: column; align-items: stretch; gap:10px; flex: 1 1 100%; width: 100%; }
+      .search-chips { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      .chip {
+        display:inline-flex;
+        align-items:center;
+        gap:8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.10);
+        background: rgba(15,23,42,0.05);
+        color: rgba(15,23,42,0.78);
+        font-weight: 650;
+        font-size: 0.85rem;
+      }
+      .chip button {
+        border: 0;
+        background: transparent;
+        color: rgba(15,23,42,0.55);
+        cursor: pointer;
+        font-size: 0.95rem;
+        line-height: 1;
+        padding: 0;
+      }
+      .btn {
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.12);
+        background: rgba(255,255,255,0.75);
+        padding: 10px 14px;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: transform 160ms var(--ease), border-color 160ms var(--ease);
+      }
+      .btn:hover { transform: translateY(-1px); border-color: rgba(37,99,235,0.35); }
+      .time {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        border: 1px solid rgba(15,23,42,0.12);
+        background: rgba(255,255,255,0.75);
+        padding: 10px 14px;
+        font-size: 0.95rem;
+        outline: none;
+        width: 170px;
+      }
+      ul.events { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+      ul.events li { padding: 10px 12px; border-radius: 20px; background: var(--surface-soft); border: 1px solid rgba(15,23,42,0.08); box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); }
+      ul.events li .k { font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+      ul.events li .m { margin-top: 6px; font-size: 0.95rem; color: var(--text); }
+      ul.events li .t { margin-top: 6px; font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+	    <div class="chrome">
+	      <div class="layout">
+	        <div class="main">
+	          <div class="panel">
+	            <h1>capture</h1>
+	            <div id="subtitle" class="subtitle">Loading sessions…</div>
+	            <div class="row">
+	              <select id="sessionSelect" class="select"></select>
+	              <input id="start" class="time" placeholder="Start (ISO)" />
+	              <input id="end" class="time" placeholder="End (ISO)" />
+	            </div>
+	            <!-- hint removed -->
+	          </div>
+	          <div class="panel">
+	            <div class="panel-title-row">
+	              <div class="panel-title">Timeline</div>
+	            </div>
+	            <div class="timeline-wrap">
+	              <canvas id="timeline" class="timeline"></canvas>
+	            </div>
+	          </div>
+	          <div class="panel">
+		            <div class="panel-title-row">
+		              <div class="panel-title">Logs</div>
+		              <div class="search-group">
+		                <input id="q" class="search" placeholder="Search logs (message/pod/container)" />
+		                <div id="chips" class="search-chips"></div>
+		              </div>
+		            </div>
+		            <div class="logs">
+		              <table id="logTable">
+		                <thead>
+		                  <tr>
+		                    <th id="colTs">Timestamp<span class="resizer" data-col="ts"></span></th>
+		                    <th id="colSrc">Source<span class="resizer" data-col="src"></span></th>
+		                    <th id="colMsg">Message<span class="resizer" data-col="msg"></span></th>
+		                  </tr>
+		                </thead>
+		                <tbody id="logBody">
+		                  <tr id="topSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+		                  <tr id="bottomSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+		                </tbody>
+		              </table>
+		            </div>
+		            <!-- log status removed -->
+		          </div>
+	        </div>
+	      </div>
+	    </div>
+    <div id="drawerBackdrop" class="drawer-backdrop" role="dialog" aria-modal="true" aria-label="Log details">
+      <div class="drawer">
+        <div class="row" style="margin-top:0; justify-content:space-between;">
+          <h3 id="drawerTitle">Log details</h3>
+          <div class="row" style="margin-top:0;">
+            <button id="copyLine" class="btn">Copy</button>
+            <button id="closeDrawer" class="btn">Close</button>
+          </div>
+        </div>
+        <div class="subtitle" id="drawerMeta" style="margin-top:10px;"></div>
+        <pre id="drawerBody"></pre>
+      </div>
+    </div>
+    <script>
+      const el = (id) => document.getElementById(id);
+      const state = { sessions: [], sessionId: "", q: "", queries: [] };
+      state.minKey = 0;
+      state.maxKey = 0;
+      state.hasMoreNext = true;
+      state.hasMorePrev = true;
+      state.loadingNext = false;
+      state.loadingPrev = false;
+      const initialSession = "__INITIAL_SESSION__";
+      state.startNS = 0;
+      state.endNS = 0;
+      state.sessionStartNS = 0;
+      state.observersReady = false;
+
+      function fmtNS(ns) {
+        if (!ns) return "—";
+        const d = new Date(ns / 1e6);
+        return d.toISOString().replace("T", " ").replace("Z", "");
+      }
+
+      function youtubeTimestampSeconds(totalSeconds) {
+        totalSeconds = Math.max(0, Math.floor(totalSeconds || 0));
+        const h = Math.floor(totalSeconds / 3600);
+        const m = Math.floor((totalSeconds % 3600) / 60);
+        const s = totalSeconds % 60;
+        const pad2 = (n) => String(n).padStart(2, "0");
+        if (h > 0) return `${h}:${pad2(m)}:${pad2(s)}`;
+        return `${m}:${pad2(s)}`;
+      }
+
+      function fmtYouTubeFromNS(tsNS) {
+        if (!tsNS) return "—";
+        const base = state.sessionStartNS || 0;
+        if (!base) return fmtNS(tsNS);
+        const deltaSeconds = (tsNS - base) / 1e9;
+        return youtubeTimestampSeconds(deltaSeconds);
+      }
+
+      function parseISOToNS(raw) {
+        raw = (raw || "").trim();
+        if (!raw) return 0;
+        const d = new Date(raw);
+        if (!isFinite(d.getTime())) return 0;
+        return Math.floor(d.getTime() * 1e6);
+      }
+
+      function fmtISOFromNS(ns) {
+        if (!ns) return "";
+        const d = new Date(ns / 1e6);
+        return d.toISOString();
+      }
+
+      function classify(msg) {
+        const m = (msg || "").toLowerCase();
+        if (m.includes("error") || m.includes("fatal") || m.includes("panic")) return "fail";
+        if (m.includes("warn")) return "warn";
+        return "ok";
+      }
+
+      function resizeCanvas(canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+        canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+        const ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        return ctx;
+      }
+
+      function drawTimeline(rows) {
+        const canvas = el("timeline");
+        const ctx = resizeCanvas(canvas);
+        const w = canvas.getBoundingClientRect().width;
+        const h = canvas.getBoundingClientRect().height;
+        ctx.clearRect(0, 0, w, h);
+        const bars = rows || [];
+        if (bars.length === 0) {
+          ctx.fillStyle = "rgba(15,23,42,0.35)";
+          ctx.font = "14px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif";
+          ctx.fillText("No data", 14, 22);
+          return;
+        }
+        const max = Math.max(...bars.map(r => r.logs_total || 0), 1);
+        const gap = 2;
+        const bw = Math.max(2, Math.floor((w - 24) / Math.max(1, bars.length)));
+        const x0 = 12;
+        const y0 = h - 14;
+        state.timeline = { x0, bw, bars };
+        for (let i = 0; i < bars.length; i++) {
+          const r = bars[i];
+          const total = r.logs_total || 0;
+          const fail = r.logs_fail || 0;
+          const warn = r.logs_warn || 0;
+          const ok = Math.max(0, total - fail - warn);
+          const height = Math.max(2, Math.floor((total / max) * (h - 28)));
+          const x = x0 + i * bw;
+          let y = y0;
+          // ok
+          const okH = Math.floor(height * (ok / Math.max(1, total)));
+          if (okH > 0) {
+            ctx.fillStyle = "rgba(37,99,235,0.20)";
+            ctx.fillRect(x, y - okH, bw - gap, okH);
+            y -= okH;
+          }
+          const warnH = Math.floor(height * (warn / Math.max(1, total)));
+          if (warnH > 0) {
+            ctx.fillStyle = "rgba(251,191,36,0.40)";
+            ctx.fillRect(x, y - warnH, bw - gap, warnH);
+            y -= warnH;
+          }
+          const failH = height - okH - warnH;
+          if (failH > 0) {
+            ctx.fillStyle = "rgba(239,68,68,0.45)";
+            ctx.fillRect(x, y - failH, bw - gap, failH);
+          }
+
+          // event markers
+          const markerY = h - 10;
+          if ((r.deploy || 0) > 0) {
+            ctx.fillStyle = "rgba(37,99,235,0.85)";
+            ctx.fillRect(x, markerY, Math.max(1, bw - gap), 2);
+          }
+          if ((r.selection || 0) > 0) {
+            ctx.fillStyle = "rgba(251,191,36,0.95)";
+            ctx.fillRect(x, markerY - 3, Math.max(1, bw - gap), 2);
+          }
+          if ((r.artifacts || 0) > 0) {
+            ctx.fillStyle = "rgba(15,23,42,0.35)";
+            ctx.fillRect(x, markerY - 6, Math.max(1, bw - gap), 2);
+          }
+        }
+
+        // scrubber (current window start)
+        if (state.startNS) {
+          let idx = -1;
+          for (let i = 0; i < bars.length; i++) {
+            if ((bars[i].bucket_ns || 0) >= state.startNS) { idx = i; break; }
+          }
+          if (idx < 0) idx = bars.length - 1;
+          const x = x0 + idx * bw;
+          ctx.save();
+          ctx.strokeStyle = "rgba(37,99,235,0.75)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, 8);
+          ctx.lineTo(x, h - 8);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      function clearLogs() {
+        const body = el("logBody");
+        body.innerHTML = `
+          <tr id="topSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+          <tr id="bottomSentinelRow"><td colspan="3" class="muted" style="padding:12px 12px;">&nbsp;</td></tr>
+        `;
+        state.minKey = 0;
+        state.maxKey = 0;
+        state.hasMoreNext = true;
+        state.hasMorePrev = true;
+      }
+
+      function setLogStatus(text) {
+        const node = document.getElementById("logStatus");
+        if (node) node.textContent = text || "";
+      }
+
+      function appendLogs(lines) {
+        const body = el("logBody");
+        const bottom = el("bottomSentinelRow");
+        for (const l of (lines || [])) {
+          const tr = document.createElement("tr");
+          tr.dataset.key = l.key;
+          tr.dataset.ts_ns = l.ts_ns;
+          tr.dataset.namespace = l.namespace || "";
+          tr.dataset.pod = l.pod || "";
+          tr.dataset.container = l.container || "";
+          tr.dataset.message = l.message || "";
+          const ts = document.createElement("td");
+          ts.className = "ts";
+          ts.textContent = fmtYouTubeFromNS(l.ts_ns);
+          ts.title = fmtNS(l.ts_ns);
+          const src = document.createElement("td");
+          src.className = "src";
+          const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
+          const cont = l.container ? `:${l.container}` : "";
+          src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
+          const msg = document.createElement("td");
+          msg.className = "msg";
+          const tag = document.createElement("span");
+          const sev = classify(l.message);
+          tag.className = "tag " + (sev === "ok" ? "" : sev);
+          tag.textContent = sev === "ok" ? "log" : sev;
+          msg.appendChild(tag);
+          msg.appendChild(document.createTextNode(l.message || ""));
+          tr.appendChild(ts);
+          tr.appendChild(src);
+          tr.appendChild(msg);
+          body.insertBefore(tr, bottom);
+        }
+        if (lines && lines.length) {
+          const firstKey = Number(lines[0].key) || 0;
+          const lastKey = Number(lines[lines.length - 1].key) || 0;
+          if (!state.minKey || (firstKey && firstKey < state.minKey)) state.minKey = firstKey;
+          if (!state.maxKey || (lastKey && lastKey > state.maxKey)) state.maxKey = lastKey;
+        }
+      }
+
+      async function loadSessions() {
+        const res = await fetch("/api/sessions");
+        const data = await res.json();
+        state.sessions = data.sessions || [];
+        const sel = el("sessionSelect");
+        sel.innerHTML = "";
+        for (const s of state.sessions) {
+          const opt = document.createElement("option");
+          opt.value = s.session_id;
+          const started = s.started_at_ns ? fmtNS(s.started_at_ns) : "—";
+          const extra = [];
+          if (s.cluster) extra.push(s.cluster);
+          if (s.kube_context) extra.push(s.kube_context);
+          if (s.namespace) extra.push(`ns/${s.namespace}`);
+          if (s.release) extra.push(s.release);
+          opt.textContent = `${started} · ${s.command} · ${extra.join(" · ")} · ${s.session_id.slice(0, 8)}`;
+          sel.appendChild(opt);
+        }
+        if (state.sessions.length === 0) {
+          el("subtitle").textContent = "No capture sessions found.";
+          return;
+        }
+        const urlParams = new URLSearchParams(location.search);
+        const fromURL = urlParams.get("session") || "";
+        const qs = (urlParams.get("q") || "").trim();
+        state.queries = qs ? qs.split(",").map(s => s.trim()).filter(Boolean) : [];
+        state.q = "";
+        state.startNS = Number(urlParams.get("start_ns") || "0") || 0;
+        state.endNS = Number(urlParams.get("end_ns") || "0") || 0;
+        el("q").value = "";
+        renderChips();
+        el("start").value = fmtISOFromNS(state.startNS);
+        el("end").value = fmtISOFromNS(state.endNS);
+
+        const preferred = (fromURL && state.sessions.find(s => s.session_id === fromURL)) ||
+                          (initialSession && state.sessions.find(s => s.session_id === initialSession));
+        state.sessionId = preferred ? preferred.session_id : state.sessions[0].session_id;
+        sel.value = state.sessionId;
+        await refreshMeta();
+        await refreshTimeline();
+        clearLogs();
+        await loadMoreLogs();
+        ensureInfiniteScroll();
+      }
+
+      async function refreshMeta() {
+        const id = el("sessionSelect").value;
+        state.sessionId = id;
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/meta`);
+        const meta = await res.json();
+        const parts = [];
+        if (meta.cluster) parts.push(meta.cluster);
+        if (meta.kube_context) parts.push(meta.kube_context);
+        if (meta.namespace) parts.push(`ns/${meta.namespace}`);
+        el("subtitle").textContent = parts.join(" · ") || meta.command || "capture";
+        state.sessionStartNS = meta.started_at_ns || 0;
+        const start = meta.started_at_ns ? fmtNS(meta.started_at_ns) : "";
+        const end = meta.ended_at_ns ? fmtNS(meta.ended_at_ns) : "";
+      }
+
+      // refreshQuickStats removed (stats are shown in the hint line).
+
+      function syncURL() {
+        const p = new URLSearchParams();
+        if (state.sessionId) p.set("session", state.sessionId);
+        if (state.queries.length) p.set("q", state.queries.join(","));
+        if (state.startNS) p.set("start_ns", String(state.startNS));
+        if (state.endNS) p.set("end_ns", String(state.endNS));
+        const next = `${location.pathname}?${p.toString()}`;
+        history.replaceState({}, "", next);
+      }
+
+      async function refreshTimeline() {
+        const id = state.sessionId;
+        const q = state.queries.join(",");
+        const res = await fetch(`/api/session/${encodeURIComponent(id)}/timeline?bucket=5s&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+        const data = await res.json();
+        drawTimeline(data.rows || []);
+        let lines = 0;
+        let errors = 0;
+        let deploy = 0;
+        let selection = 0;
+        let artifacts = 0;
+        for (const r of (data.rows || [])) {
+          lines += (r.logs_total || 0);
+          errors += (r.logs_fail || 0);
+          deploy += (r.deploy || 0);
+          selection += (r.selection || 0);
+          artifacts += (r.artifacts || 0);
+        }
+        syncURL();
+      }
+
+      async function loadMoreLogs() {
+        const id = state.sessionId;
+        const q = state.queries.join(",");
+        if (state.loadingNext || !state.hasMoreNext) return;
+        state.loadingNext = true;
+        try {
+          setLogStatus("Loading…");
+          const cursor = state.maxKey || 0;
+          const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor}&limit=300&dir=next&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          appendLogs(data.lines || []);
+          state.hasMoreNext = !!data.has_more;
+          setLogStatus((data.lines || []).length
+            ? (data.has_more ? "Loaded (more below)" : "Loaded")
+            : "No more lines");
+          syncURL();
+        } catch (err) {
+          setLogStatus(`Error loading: ${err}`);
+        } finally {
+          state.loadingNext = false;
+        }
+      }
+
+      async function loadPrevLogs() {
+        const id = state.sessionId;
+        const q = state.queries.join(",");
+        const body = el("logBody");
+        if (state.loadingPrev || !state.hasMorePrev) return;
+        if (!state.minKey) return;
+        state.loadingPrev = true;
+        const scroller = el("logTable").closest(".logs");
+        const beforeHeight = scroller ? scroller.scrollHeight : 0;
+        const beforeTop = scroller ? scroller.scrollTop : 0;
+        try {
+          setLogStatus("Loading…");
+          const cursor = state.minKey || 0;
+          const res = await fetch(`/api/session/${encodeURIComponent(id)}/feed?cursor=${cursor}&limit=300&dir=prev&q=${encodeURIComponent(q)}&start_ns=${encodeURIComponent(state.startNS||0)}&end_ns=${encodeURIComponent(state.endNS||0)}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          const lines = data.lines || [];
+          if (lines.length) {
+            // reuse the existing row builder by temporarily appending to a fragment via appendLogs then moving rows:
+            // simpler: create rows inline (same as before)
+            const frag = document.createDocumentFragment();
+            for (const l of lines) {
+              const tr = document.createElement("tr");
+              tr.dataset.key = l.key;
+              tr.dataset.ts_ns = l.ts_ns;
+              tr.dataset.namespace = l.namespace || "";
+              tr.dataset.pod = l.pod || "";
+              tr.dataset.container = l.container || "";
+              tr.dataset.message = l.message || "";
+              const ts = document.createElement("td");
+              ts.className = "ts";
+              ts.textContent = fmtYouTubeFromNS(l.ts_ns);
+              ts.title = fmtNS(l.ts_ns);
+              const src = document.createElement("td");
+              src.className = "src";
+              const nsPod = [l.kind, l.namespace, l.pod].filter(Boolean).join("/");
+              const cont = l.container ? `:${l.container}` : "";
+              src.textContent = nsPod ? (nsPod + cont) : (l.source || "");
+              const msg = document.createElement("td");
+              msg.className = "msg";
+              const tag = document.createElement("span");
+              const sev = classify(l.message);
+              tag.className = "tag " + (sev === "ok" ? "" : sev);
+              tag.textContent = sev === "ok" ? "log" : sev;
+              msg.appendChild(tag);
+              msg.appendChild(document.createTextNode(l.message || ""));
+              tr.appendChild(ts);
+              tr.appendChild(src);
+              tr.appendChild(msg);
+              frag.appendChild(tr);
+            }
+            body.insertBefore(frag, el("topSentinelRow").nextSibling);
+            const firstKey = Number(lines[0].key) || 0;
+            const lastKey = Number(lines[lines.length - 1].key) || 0;
+            if (!state.minKey || (firstKey && firstKey < state.minKey)) state.minKey = firstKey;
+            if (!state.maxKey || (lastKey && lastKey > state.maxKey)) state.maxKey = lastKey;
+          }
+          state.hasMorePrev = !!data.has_more;
+          setLogStatus(lines.length
+            ? (data.has_more ? "Loaded (more above)" : "Loaded")
+            : "No previous lines");
+          syncURL();
+          if (scroller) {
+            const afterHeight = scroller.scrollHeight;
+            scroller.scrollTop = beforeTop + (afterHeight - beforeHeight);
+          }
+        } catch (err) {
+          setLogStatus(`Error loading: ${err}`);
+        } finally {
+          state.loadingPrev = false;
+        }
+      }
+
+      el("sessionSelect").addEventListener("change", async () => {
+        await refreshMeta();
+        await refreshTimeline();
+        clearLogs();
+        await loadMoreLogs();
+      });
+      function renderChips() {
+        const wrap = el("chips");
+        wrap.innerHTML = "";
+        for (const term of state.queries) {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = term;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "×";
+          btn.addEventListener("click", async () => {
+            state.queries = state.queries.filter(t => t !== term);
+            renderChips();
+            await refreshTimeline();
+            clearLogs();
+            await loadMoreLogs();
+          });
+          chip.appendChild(btn);
+          wrap.appendChild(chip);
+        }
+      }
+
+      el("q").addEventListener("keydown", async (e) => {
+        if (e.key === "Enter") {
+          const raw = (el("q").value || "").trim();
+          if (!raw) return;
+          // allow adding multiple terms separated by spaces/commas
+          const parts = raw.split(/[\\s,]+/).map(s => s.trim()).filter(Boolean);
+          for (const term of parts) {
+            if (!state.queries.includes(term)) state.queries.push(term);
+          }
+          el("q").value = "";
+          renderChips();
+          await refreshTimeline();
+          clearLogs();
+          await loadMoreLogs();
+          return;
+        }
+        if (e.key === "Backspace" && !(el("q").value || "") && state.queries.length) {
+          state.queries.pop();
+          renderChips();
+        }
+      });
+
+      const onTimeChange = async () => {
+        state.startNS = parseISOToNS(el("start").value);
+        state.endNS = parseISOToNS(el("end").value);
+        await refreshTimeline();
+        clearLogs();
+        await loadMoreLogs();
+      };
+      el("start").addEventListener("change", onTimeChange);
+      el("end").addEventListener("change", onTimeChange);
+      function ensureInfiniteScroll() {
+        if (state.observersReady) return;
+        const scroller = el("logTable").closest(".logs");
+        const topRow = el("topSentinelRow");
+        const bottomRow = el("bottomSentinelRow");
+        if (!scroller || !topRow || !bottomRow) return;
+        const io = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            if (entry.target === bottomRow) {
+              loadMoreLogs().catch(() => {});
+            }
+            if (entry.target === topRow) {
+              loadPrevLogs().catch(() => {});
+            }
+          }
+        }, { root: scroller, threshold: 0.1 });
+        io.observe(bottomRow);
+        io.observe(topRow);
+        state.observersReady = true;
+      }
+
+      function openDrawerFromRow(tr) {
+        if (!tr) return;
+        el("drawerTitle").textContent = "Log details";
+        const meta = [];
+        const ns = tr.dataset.namespace;
+        const pod = tr.dataset.pod;
+        const container = tr.dataset.container;
+        const ts = Number(tr.dataset.ts_ns || "0") || 0;
+        if (ns) meta.push(`ns/${ns}`);
+        if (pod) meta.push(pod);
+        if (container) meta.push(container);
+        if (ts) meta.push(fmtYouTubeFromNS(ts));
+        el("drawerMeta").textContent = meta.join(" · ");
+        el("drawerBody").textContent = tr.dataset.message || "";
+        el("drawerBackdrop").classList.add("visible");
+      }
+
+      el("logBody").addEventListener("click", (ev) => {
+        const tr = ev.target.closest("tr");
+        openDrawerFromRow(tr);
+      });
+      el("closeDrawer").addEventListener("click", () => {
+        el("drawerBackdrop").classList.remove("visible");
+      });
+      el("drawerBackdrop").addEventListener("click", (ev) => {
+        if (ev.target === el("drawerBackdrop")) el("drawerBackdrop").classList.remove("visible");
+      });
+      el("copyLine").addEventListener("click", async () => {
+        const text = el("drawerBody").textContent || "";
+        try {
+          await navigator.clipboard.writeText(text);
+          el("copyLine").textContent = "Copied";
+          setTimeout(() => { el("copyLine").textContent = "Copy"; }, 900);
+        } catch (e) {
+          el("copyLine").textContent = "Copy failed";
+          setTimeout(() => { el("copyLine").textContent = "Copy"; }, 900);
+        }
+      });
+      window.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") el("drawerBackdrop").classList.remove("visible");
+      });
+      window.addEventListener("resize", () => {
+        refreshTimeline().catch(() => {});
+      });
+
+      function windowSpanNS() {
+        if (state.startNS && state.endNS && state.endNS > state.startNS) {
+          return state.endNS - state.startNS;
+        }
+        // default window: 2 minutes
+        return 2 * 60 * 1e9;
+      }
+
+      let scrubDragging = false;
+      let scrubRAF = 0;
+      let scrubLastNS = 0;
+      let scrubDebounce = 0;
+
+      function scheduleScrubUpdate() {
+        if (scrubDebounce) clearTimeout(scrubDebounce);
+        scrubDebounce = setTimeout(async () => {
+          el("start").value = fmtISOFromNS(state.startNS);
+          el("end").value = fmtISOFromNS(state.endNS);
+          await refreshTimeline();
+          clearLogs();
+          await loadMoreLogs();
+        }, 180);
+      }
+
+      function applyScrubAtX(ev) {
+        if (!state.timeline || !state.timeline.bars || state.timeline.bars.length === 0) return;
+        const rect = ev.target.getBoundingClientRect();
+        const x = Math.max(0, Math.min(rect.width, ev.clientX - rect.left));
+        const bars = state.timeline.bars;
+        const idx = Math.max(0, Math.min(bars.length - 1, Math.floor((x - state.timeline.x0) / state.timeline.bw)));
+        const bucket = bars[idx];
+        if (!bucket) return;
+        scrubLastNS = bucket.bucket_ns;
+        const span = windowSpanNS();
+        state.startNS = bucket.bucket_ns;
+        state.endNS = bucket.bucket_ns + span;
+        // redraw scrubber line quickly (no refetch)
+        if (scrubRAF) cancelAnimationFrame(scrubRAF);
+        scrubRAF = requestAnimationFrame(() => {
+          // re-render timeline with existing bars and scrubber
+          drawTimeline(bars);
+          const canvas = el("timeline");
+          const ctx = canvas.getContext("2d");
+          const w = canvas.getBoundingClientRect().width;
+          const h = canvas.getBoundingClientRect().height;
+          ctx.save();
+          ctx.strokeStyle = "rgba(37,99,235,0.85)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, 8);
+          ctx.lineTo(x, h - 8);
+          ctx.stroke();
+          ctx.restore();
+        });
+      }
+
+      el("timeline").addEventListener("mousedown", async (ev) => {
+        scrubDragging = true;
+        applyScrubAtX(ev);
+      });
+      window.addEventListener("mousemove", (ev) => {
+        if (!scrubDragging) return;
+        applyScrubAtX(ev);
+        scheduleScrubUpdate();
+      });
+      window.addEventListener("mouseup", (ev) => {
+        if (!scrubDragging) return;
+        scrubDragging = false;
+        applyScrubAtX(ev);
+        scheduleScrubUpdate();
+      });
+      el("timeline").addEventListener("click", async (ev) => {
+        applyScrubAtX(ev);
+        scheduleScrubUpdate();
+      });
+
+      // Column resizing (Timestamp / Source / Message)
+      (function initColumnResizers() {
+        const minW = 90;
+        const selectorsByCol = {
+          ts: ["#colTs", "td.ts"],
+          src: ["#colSrc", "td.src"],
+          msg: ["#colMsg", "td.msg"],
+        };
+        let activeCol = "";
+        let startX = 0;
+        let startW = 0;
+
+        function setColWidth(col, px) {
+          px = Math.max(minW, Math.floor(px));
+          const selectors = selectorsByCol[col];
+          if (!selectors) return;
+          for (const sel of selectors) {
+            document.querySelectorAll(sel).forEach((node) => {
+              node.style.width = px + "px";
+            });
+          }
+        }
+
+        document.querySelectorAll("th .resizer").forEach((handle) => {
+          handle.addEventListener("mousedown", (e) => {
+            activeCol = handle.dataset.col || "";
+            const th = handle.parentElement;
+            if (!activeCol || !th) return;
+            startX = e.clientX;
+            startW = th.getBoundingClientRect().width;
+            e.preventDefault();
+          });
+        });
+
+        window.addEventListener("mousemove", (e) => {
+          if (!activeCol) return;
+          const dx = e.clientX - startX;
+          setColWidth(activeCol, startW + dx);
+        });
+        window.addEventListener("mouseup", () => {
+          activeCol = "";
+        });
+      })();
+
+      loadSessions().catch((err) => {
+        el("subtitle").textContent = "Failed to load sessions";
+      });
+
+      // initialize infinite scroll once DOM is ready
+      ensureInfiniteScroll();
+    </script>
+  </body>
+</html>
