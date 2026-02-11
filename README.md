@@ -70,15 +70,32 @@
 
 Requires Go 1.25.7+.
 
+### Build from source
+
+From the repo root:
+
 ```bash
+# 1) Build a local binary at ./bin/ktl
+make build
+
+# 2) Smoke-test the binary you just built
+./bin/ktl --help
+
+# 3) Install ktl into your Go bin path (optional)
+make install
+```
+
+If you prefer raw Go commands instead of Make:
+
+```bash
+go build -o ./bin/ktl ./cmd/ktl
 go install ./cmd/ktl
 ```
 
-Or via Makefile:
+For tagged release artifacts (cross-platform binaries under `dist/`), use:
 
 ```bash
-make build     # writes ./bin/ktl
-make install   # installs ./cmd/ktl to GOBIN/GOPATH/bin
+make release
 ```
 
 Other binaries:
