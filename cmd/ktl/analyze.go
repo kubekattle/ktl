@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/example/ktl/internal/analyze"
@@ -33,6 +34,7 @@ func newAnalyzeCommand(kubeconfig *string, kubeContext *string) *cobra.Command {
 	var cluster bool
 	var profile bool
 	var rbac bool
+	var duration time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "analyze [POD_NAME]",
@@ -69,7 +71,7 @@ Examples:
 			if len(args) > 0 {
 				targetPod = args[0]
 			}
-			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, aiModel, drift, cost, fix, cluster, profile, rbac)
+			return runAnalyze(cmd.Context(), kubeconfig, kubeContext, targetPod, namespace, useAI, aiProvider, aiModel, drift, cost, fix, cluster, profile, rbac, duration)
 		},
 	}
 
@@ -83,11 +85,15 @@ Examples:
 	cmd.Flags().BoolVar(&cluster, "cluster", false, "Run cluster-wide health checks (nodes, system pods)")
 	cmd.Flags().BoolVar(&profile, "profile", false, "Profile resource usage (requires metrics-server)")
 	cmd.Flags().BoolVar(&rbac, "rbac", false, "Audit RBAC permissions for the pod's ServiceAccount")
+	cmd.Flags().DurationVar(&duration, "duration", 30*time.Second, "Timeout for analysis")
 
 	return cmd
 }
 
-func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, model string, drift bool, cost bool, fix bool, cluster bool, profile bool, rbac bool) error {
+func runAnalyze(ctx context.Context, kubeconfig, kubeContext *string, podName, namespace string, useAI bool, provider string, model string, drift bool, cost bool, fix bool, cluster bool, profile bool, rbac bool, duration time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
 	// 1. Setup Kube Client
 	var kc, kctx string
 	if kubeconfig != nil {
@@ -470,10 +476,58 @@ func startChatLoop(ctx context.Context, ai *analyze.AIAnalyzer, initialDiagnosis
 		fmt.Print("\n")
 
 		var responseBuilder strings.Builder
-		response, err := ai.StreamChat(ctx, history, func(chunk string) {
+		// We need to handle recursion for tool calls
+		// Simple approach: Allow up to 3 recursions
+		var response string
+		var toolCalls []analyze.ToolCall
+
+		// Initial call
+		var err error
+		response, toolCalls, err = ai.StreamChat(ctx, history, func(chunk string) {
 			fmt.Print(chunk)
 			responseBuilder.WriteString(chunk)
 		})
+
+		// If tool calls are returned, we need to execute them
+		recursionCount := 0
+		for len(toolCalls) > 0 && recursionCount < 3 {
+			recursionCount++
+			fmt.Println() // Newline after initial stream
+
+			// Add the assistant's message (with tool calls) to history
+			history = append(history, analyze.Message{
+				Role:      "assistant",
+				Content:   responseBuilder.String(),
+				ToolCalls: toolCalls,
+			})
+
+			// Execute tools
+			for _, tc := range toolCalls {
+				color.New(color.FgHiMagenta).Printf("🕵️  Agent: Executing %s...\n", tc.Function.Name)
+
+				// Show args if verbose? For now just name.
+				output, errTool := ai.ExecuteTool(tc.Function.Name, tc.Function.Arguments)
+				if errTool != nil {
+					output = fmt.Sprintf("Error: %v", errTool)
+				}
+
+				// Append tool output to history
+				history = append(history, analyze.Message{
+					Role:       "tool",
+					Content:    output,
+					ToolCallID: tc.ID,
+					Name:       tc.Function.Name,
+				})
+			}
+
+			// Call AI again with tool outputs
+			responseBuilder.Reset() // Clear for new response
+			fmt.Print("\n")         // Newline before new stream
+			response, toolCalls, err = ai.StreamChat(ctx, history, func(chunk string) {
+				fmt.Print(chunk)
+				responseBuilder.WriteString(chunk)
+			})
+		}
 
 		fmt.Println() // Newline after stream finishes
 

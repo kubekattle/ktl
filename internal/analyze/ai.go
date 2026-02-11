@@ -10,15 +10,91 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/example/ktl/internal/secrets"
 )
 
+// OpenAI Tool Definitions
+type ToolDefinition struct {
+	Type     string   `json:"type"`
+	Function Function `json:"function"`
+}
+
+type Function struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+var tools = []ToolDefinition{
+	{
+		Type: "function",
+		Function: Function{
+			Name:        "get_pod_logs",
+			Description: "Fetch logs for a specific pod and container",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"namespace": {"type": "string"},
+					"pod_name": {"type": "string"},
+					"container_name": {"type": "string"},
+					"previous": {"type": "boolean", "description": "Fetch logs from previous crashed instance"}
+				},
+				"required": ["namespace", "pod_name"]
+			}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: Function{
+			Name:        "describe_resource",
+			Description: "Get detailed description of a Kubernetes resource (like 'kubectl describe')",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"namespace": {"type": "string"},
+					"kind": {"type": "string", "enum": ["Pod", "Service", "Deployment", "ConfigMap", "Secret", "Ingress", "Node"]},
+					"name": {"type": "string"}
+				},
+				"required": ["namespace", "kind", "name"]
+			}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: Function{
+			Name:        "get_events",
+			Description: "Get recent events for a specific object",
+			Parameters: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"namespace": {"type": "string"},
+					"object_name": {"type": "string"}
+				},
+				"required": ["namespace", "object_name"]
+			}`),
+		},
+	},
+}
+
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
 type AIAnalyzer struct {
@@ -174,8 +250,67 @@ func (a *AIAnalyzer) callLLM(ctx context.Context, evidence *Evidence) (*Diagnosi
 	return &d, nil
 }
 
+func (a *AIAnalyzer) ExecuteTool(toolName string, args string) (string, error) {
+	return a.executeTool(toolName, args)
+}
+
+func (a *AIAnalyzer) executeTool(toolName string, args string) (string, error) {
+	var params map[string]interface{}
+	if err := json.Unmarshal([]byte(args), &params); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %v", err)
+	}
+
+	switch toolName {
+	case "get_pod_logs":
+		ns, _ := params["namespace"].(string)
+		pod, _ := params["pod_name"].(string)
+		container, _ := params["container_name"].(string)
+		prev, _ := params["previous"].(bool)
+
+		cmdArgs := []string{"logs", pod, "-n", ns}
+		if container != "" {
+			cmdArgs = append(cmdArgs, "-c", container)
+		}
+		if prev {
+			cmdArgs = append(cmdArgs, "--previous")
+		}
+		cmdArgs = append(cmdArgs, "--tail=50") // Limit to 50 lines to save tokens
+
+		out, err := exec.Command("kubectl", cmdArgs...).CombinedOutput()
+		if err != nil {
+			return fmt.Sprintf("Error fetching logs: %v\nOutput: %s", err, string(out)), nil
+		}
+		return string(out), nil
+
+	case "describe_resource":
+		ns, _ := params["namespace"].(string)
+		kind, _ := params["kind"].(string)
+		name, _ := params["name"].(string)
+
+		out, err := exec.Command("kubectl", "describe", kind, name, "-n", ns).CombinedOutput()
+		if err != nil {
+			return fmt.Sprintf("Error describing resource: %v\nOutput: %s", err, string(out)), nil
+		}
+		return string(out), nil
+
+	case "get_events":
+		ns, _ := params["namespace"].(string)
+		obj, _ := params["object_name"].(string)
+
+		// Filter events for this object
+		out, err := exec.Command("kubectl", "get", "events", "-n", ns, "--field-selector", fmt.Sprintf("involvedObject.name=%s", obj)).CombinedOutput()
+		if err != nil {
+			return fmt.Sprintf("Error fetching events: %v\nOutput: %s", err, string(out)), nil
+		}
+		return string(out), nil
+	}
+
+	return "", fmt.Errorf("unknown tool: %s", toolName)
+}
+
 // StreamChat sends a chat message and streams the response via a callback.
-func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback func(string)) (string, error) {
+// It returns the full text response, any tool calls requested, and error.
+func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback func(string)) (string, []ToolCall, error) {
 	if a.Provider == "mock" {
 		msg := "This is a mock streaming response. In real mode, I would answer your question based on the pod context."
 		// Simulate typing effect
@@ -183,11 +318,11 @@ func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback
 			callback(string(c))
 			time.Sleep(20 * time.Millisecond)
 		}
-		return msg, nil
+		return msg, nil, nil
 	}
 
 	if a.APIKey == "" {
-		return "", fmt.Errorf("API Key not set for provider %s. Please set %s_API_KEY", a.Provider, strings.ToUpper(a.Provider))
+		return "", nil, fmt.Errorf("API Key not set for provider %s. Please set %s_API_KEY", a.Provider, strings.ToUpper(a.Provider))
 	}
 
 	model := a.Model
@@ -200,13 +335,14 @@ func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback
 		"model":    model,
 		"messages": messages,
 		"stream":   true,
+		"tools":    tools,
 	}
 
 	jsonBody, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/chat/completions", strings.TrimRight(a.BaseURL, "/"))
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+a.APIKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -222,17 +358,21 @@ func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback
 
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return "", classifyProviderError(a.Provider, body)
+		return "", nil, classifyProviderError(a.Provider, body)
 	}
 
 	reader := bufio.NewReader(resp.Body)
 	var fullResponse strings.Builder
+
+	// Tool call accumulation
+	toolCallsMap := make(map[int]*ToolCall)
+	var toolCalls []ToolCall
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -240,7 +380,7 @@ func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback
 			if err == io.EOF {
 				break
 			}
-			return "", err
+			return "", nil, err
 		}
 
 		line = strings.TrimSpace(line)
@@ -260,8 +400,18 @@ func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
 				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 		}
 
@@ -271,15 +421,41 @@ func (a *AIAnalyzer) StreamChat(ctx context.Context, history []Message, callback
 		}
 
 		if len(chunk.Choices) > 0 {
-			content := chunk.Choices[0].Delta.Content
-			if content != "" {
-				callback(content)
-				fullResponse.WriteString(content)
+			delta := chunk.Choices[0].Delta
+
+			// Accumulate content
+			if delta.Content != "" {
+				callback(delta.Content)
+				fullResponse.WriteString(delta.Content)
+			}
+
+			// Accumulate tool calls
+			for _, tc := range delta.ToolCalls {
+				idx := tc.Index
+				if _, ok := toolCallsMap[idx]; !ok {
+					toolCallsMap[idx] = &ToolCall{
+						ID:   tc.ID,
+						Type: tc.Type,
+					}
+				}
+				if tc.Function.Name != "" {
+					toolCallsMap[idx].Function.Name += tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					toolCallsMap[idx].Function.Arguments += tc.Function.Arguments
+				}
 			}
 		}
 	}
 
-	return fullResponse.String(), nil
+	// Convert map to slice
+	for i := 0; i < len(toolCallsMap); i++ {
+		if tc, ok := toolCallsMap[i]; ok {
+			toolCalls = append(toolCalls, *tc)
+		}
+	}
+
+	return fullResponse.String(), toolCalls, nil
 }
 
 func (a *AIAnalyzer) Chat(ctx context.Context, history []Message) (string, error) {
