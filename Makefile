@@ -49,7 +49,7 @@ LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/kubekattle/ktl/cmd/ktl.buildMode=$(LOGS
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release dist-checksums dist-checksums-all gh-release gh-release-all tag-release push-release changelog test test-short test-integration fmt lint tidy verify preflight docs proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
+.PHONY: help build build-% build-capture build-verify build-packagecli build-logs build-all install install-capture install-verify install-packagecli install-all release dist-checksums dist-checksums-all gh-release gh-release-all tag-release push-release changelog test test-short test-integration fmt lint tidy verify preflight docs site site-check proto proto-lint clean loc print-% test-ci smoke-package-verify verify-charts-e2e testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
 PACKAGE_IMAGE ?= ktl-packager
 PACKAGE_PLATFORMS ?= linux/amd64
 
@@ -385,6 +385,16 @@ package: ## Build .deb/.rpm packages into ./dist (Docker-based)
 
 docs: ## (No-op) Docs build pipeline is not checked in
 	@echo ">> docs: no docs build pipeline is checked into this repo"
+
+site: ## Generate the static help site under ./site (index.html + index.json)
+	@./scripts/gen-site.sh
+
+site-check: ## Verify that ./site is up to date (fails if regen would change files)
+	@tmp="$$(mktemp -d)"; \
+	OUT_DIR="$$tmp/site" ./scripts/gen-site.sh >/dev/null; \
+	diff -ruN --exclude='.DS_Store' --exclude='.gitkeep' --exclude='*.log' ./site "$$tmp/site" >/dev/null; \
+	rm -rf "$$tmp"; \
+	echo ">> site: OK"
 
 proto: ## Generate gRPC/protobuf stubs under pkg/api
 	$(BUF) generate

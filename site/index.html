@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>KTL Help Reference</title>
+    <title>ktl help</title>
     <style>
       :root {
         --surface: rgba(255, 255, 255, 0.9);
@@ -384,7 +384,7 @@
         <div class="hero">
           <div class="searchWrap">
             <div class="search" role="search">
-              <input id="q" autocomplete="off" spellcheck="false" placeholder="Type / to search" />
+              <input id="q" autocomplete="off" spellcheck="false" placeholder="" />
             </div>
           </div>
           <div class="helpMetaRow" aria-label="Help filters">
@@ -395,7 +395,7 @@
               <button class="chip" data-kind="env" type="button">Env</button>
               <button class="chip" data-kind="doc" type="button">Docs</button>
             </div>
-            <div class="helpMeta">Static Version</div>
+            <div class="helpMeta">ktl dev</div>
           </div>
         </div>
 
@@ -416,18 +416,28 @@
         activeId: null,
       };
 
-      const includeAll = true;
+      const includeAll = false;
 
       const elQ = document.getElementById("q");
       const elResults = document.getElementById("results");
       const elChips = Array.from(document.querySelectorAll("[data-kind]"));
+
+      const curated = [
+        { id: "cmd:ktl init", title: "ktl init", sub: "Bootstrap a repo config quickly" },
+        { id: "cmd:ktl apply", title: "ktl apply", sub: "Deploy a chart to a cluster" },
+        { id: "cmd:ktl logs", title: "ktl logs", sub: "Tail pods fast with filtering" },
+        { id: "cmd:ktl build", title: "ktl build", sub: "Build images with BuildKit workflows" },
+        { id: "cmd:ktl apply plan", title: "ktl apply plan", sub: "Preview a Helm upgrade safely" },
+        { id: "cmd:ktl delete", title: "ktl delete", sub: "Remove a release with a viewer" },
+        { id: "cmd:ktl env", title: "ktl env", sub: "Environment variables reference" },
+      ];
 
       function norm(s) { return (s || "").toLowerCase(); }
 
       function parseQuery(raw) {
         let q = (raw || "").trim();
         let kind = "all";
-        const m = q.match(/(?:^|\s)kind:(all|cmd|command|flag|env|doc)(?:\s|$)/i);
+        const m = q.match(/(?:^|\\s)kind:(all|cmd|command|flag|env|doc)(?:\\s|$)/i);
         if (m) {
           const v = (m[1] || "").toLowerCase();
           if (v === "flag" || v === "env" || v === "doc" || v === "command" || v === "cmd" || v === "all") {
@@ -478,7 +488,7 @@
       function renderResults() {
         elResults.innerHTML = "";
         const q = state.q.trim();
-        // De-dupe by kind+title as a safety net (some commands include repeated flag sets).
+        
         const seen = new Set();
         elResults.style.display = "";
         for (const entry of state.results) {
@@ -522,8 +532,8 @@
         const wrap = document.createElement("div");
         wrap.className = "detail";
         if ((entry.kind || "") === "flag") wrap.classList.add("detailFlag");
-        // Allow selecting/copying text inside the detail panel without triggering the parent
-        // list item's click handler (which would re-render and drop the selection).
+        
+        
         wrap.addEventListener("click", (e) => e.stopPropagation());
         const metaParts = [];
         if (entry.sources && entry.sources.length) {
@@ -649,7 +659,7 @@
       });
 
       async function boot() {
-        const res = await fetch("./index.json");
+        const res = await fetch(includeAll ? "/api/index.json?all=1" : "/api/index.json");
         state.index = await res.json();
         for (const chip of elChips) {
           chip.addEventListener("click", () => setKind(chip.dataset.kind || "all"));
