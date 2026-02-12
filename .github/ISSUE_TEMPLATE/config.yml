@@ -1,0 +1,9 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/avkcode/ktl/blob/main/docs/troubleshooting.md
+    about: Common fixes and diagnostic steps.
+  - name: Recipes
+    url: https://github.com/avkcode/ktl/blob/main/docs/recipes.md
+    about: Common workflows and examples.
+
