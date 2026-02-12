@@ -659,7 +659,12 @@
       });
 
       async function boot() {
-        const res = await fetch(includeAll ? "/api/index.json?all=1" : "/api/index.json");
+        
+        
+        const res = await fetch(includeAll ? "index.json?all=1" : "index.json");
+        if (!res.ok) {
+          throw new Error("help index HTTP " + res.status);
+        }
         state.index = await res.json();
         for (const chip of elChips) {
           chip.addEventListener("click", () => setKind(chip.dataset.kind || "all"));

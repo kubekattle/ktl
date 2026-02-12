@@ -73,11 +73,11 @@ tmp_json="$(mktemp)"
 
 echo ">> fetching HTML + index.json"
 curl -fsS "${base_url}/" >"${tmp_html}"
-curl -fsS "${base_url}/api/index.json" >"${tmp_json}"
+# Prefer /index.json so the fetched HTML works as a static site without an /api/ router.
+curl -fsS "${base_url}/index.json" >"${tmp_json}"
 
 mv "${tmp_html}" "${OUT_DIR}/index.html"
 mv "${tmp_json}" "${OUT_DIR}/index.json"
 
 echo ">> wrote:"
 ls -la "${OUT_DIR}/index.html" "${OUT_DIR}/index.json" "${OUT_DIR}/.nojekyll" | sed -n '1,200p'
-

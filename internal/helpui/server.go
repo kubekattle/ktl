@@ -55,6 +55,10 @@ func New(addr string, root *cobra.Command, logger logr.Logger, opts ...Option) *
 func (s *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
+	// Keep a stable JSON URL for both the live UI and the generated static site.
+	// - static site: fetches "index.json" next to index.html
+	// - live UI: still supports /api/index.json for compatibility
+	mux.HandleFunc("/index.json", s.handleIndexJSON)
 	mux.HandleFunc("/api/index.json", s.handleIndexJSON)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
