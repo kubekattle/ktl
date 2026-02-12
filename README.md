@@ -7,23 +7,23 @@
 </p>
 
 <p align="center">
-  <a href="https://avkcode.github.io/ktl/">
+  <a href="https://kubekattle.github.io/ktl/">
     <img src="docs/assets/ktl-showcase.gif" alt="ktl showcase" width="960">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/avkcode/ktl/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/avkcode/ktl/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI Status">
+  <a href="https://github.com/kubekattle/ktl/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/kubekattle/ktl/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI Status">
   </a>
-  <a href="https://avkcode.github.io/ktl/">
-    <img src="https://img.shields.io/github/actions/workflow/status/avkcode/ktl/pages.yml?branch=main&label=Docs%20Site&style=for-the-badge" alt="Docs Site Status">
+  <a href="https://kubekattle.github.io/ktl/">
+    <img src="https://img.shields.io/github/actions/workflow/status/kubekattle/ktl/pages.yml?branch=main&label=Docs%20Site&style=for-the-badge" alt="Docs Site Status">
   </a>
-  <a href="https://github.com/avkcode/ktl/releases">
-    <img src="https://img.shields.io/github/v/release/avkcode/ktl?style=for-the-badge" alt="Latest Release">
+  <a href="https://github.com/kubekattle/ktl/releases">
+    <img src="https://img.shields.io/github/v/release/kubekattle/ktl?style=for-the-badge" alt="Latest Release">
   </a>
   <a href="./LICENSE">
-    <img src="https://img.shields.io/github/license/avkcode/ktl?style=for-the-badge" alt="License">
+    <img src="https://img.shields.io/github/license/kubekattle/ktl?style=for-the-badge" alt="License">
   </a>
   <a href="./go.mod">
     <img src="https://img.shields.io/badge/Go-1.25.7-00ADD8?style=for-the-badge&logo=go" alt="Go Version">
