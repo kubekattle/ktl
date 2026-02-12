@@ -1,0 +1,62 @@
+name: Feature request
+description: Suggest an improvement or a new capability for ktl.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the problem you’re trying to solve and what “done” looks like.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and didn’t find a duplicate.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What’s painful today? Who is impacted?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should ktl do? Include CLI UX (commands/flags/output) if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve it (including doing nothing).
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope / constraints
+      description: Compatibility needs, performance constraints, rollout expectations, etc.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: willingness
+    attributes:
+      label: Would you like to work on this?
+      options:
+        - "Yes, I can open a PR"
+        - "Maybe, with guidance"
+        - "No"
+    validations:
+      required: true
+

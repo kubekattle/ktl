@@ -2,7 +2,37 @@
 
 `ktl` is a Kubernetes-focused CLI for logs, Helm workflows, and BuildKit builds.
 
-Core commands:
+<p align="center">
+  <img src="docs/assets/logo/ktl-logo-lockup.png" alt="ktl emblem" width="960">
+</p>
+
+<p align="center">
+  <a href="https://kubekattle.github.io/ktl/">
+    <img src="docs/assets/ktl-showcase.gif" alt="ktl showcase" width="960">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/kubekattle/ktl/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/kubekattle/ktl/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI Status">
+  </a>
+  <a href="https://kubekattle.github.io/ktl/">
+    <img src="https://img.shields.io/github/actions/workflow/status/kubekattle/ktl/pages.yml?branch=main&label=Docs%20Site&style=for-the-badge" alt="Docs Site Status">
+  </a>
+  <a href="https://github.com/kubekattle/ktl/releases">
+    <img src="https://img.shields.io/github/v/release/kubekattle/ktl?style=for-the-badge" alt="Latest Release">
+  </a>
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/github/license/kubekattle/ktl?style=for-the-badge" alt="License">
+  </a>
+  <a href="./go.mod">
+    <img src="https://img.shields.io/badge/Go-1.25.7-00ADD8?style=for-the-badge&logo=go" alt="Go Version">
+  </a>
+</p>
+
+---
+
+## Core Commands
 
 - Fast pod logs: `ktl logs`
 - Helm preview/apply/delete/revert: `ktl apply plan`, `ktl apply`, `ktl delete`, `ktl revert`
@@ -11,9 +41,17 @@ Core commands:
 - Secure access to cluster services: `ktl tunnel`
 - HTML viewers: `ktl help --ui`, `ktl apply --ui`, `ktl delete --ui`
 
-## Showcase
+---
 
-![Stack Apply Showcase](docs/assets/ktl-showcase.gif)
+## AI Analyze Highlights
+
+`ktl analyze --ai` helps you move from symptoms to a likely root cause quickly by combining pod status, recent events, and logs into one diagnosis flow.
+
+- AI-assisted pod diagnostics: `ktl analyze my-app-pod-123 --ai`
+- Cluster-wide checks for broad outages: `ktl analyze --cluster --ai`
+- Optional fix flow for guided remediation: `ktl analyze my-app-pod-123 --ai --fix`
+
+---
 
 ## Why ktl?
 
@@ -30,19 +68,38 @@ Core commands:
 - **Unified Stack**: Bundles logging (`ktl logs`), building (`ktl build`), and deploying (`ktl apply`) in one cohesive toolchain.
 - **Observability**: Built-in HTML viewers for plans, deployments, and help docs.
 
+---
+
 ## Install
 
 Requires Go 1.25.7+.
 
+### Build from source
+
+From the repo root:
+
 ```bash
+# 1) Build a local binary at ./bin/ktl
+make build
+
+# 2) Smoke-test the binary you just built
+./bin/ktl --help
+
+# 3) Install ktl into your Go bin path (optional)
+make install
+```
+
+If you prefer raw Go commands instead of Make:
+
+```bash
+go build -o ./bin/ktl ./cmd/ktl
 go install ./cmd/ktl
 ```
 
-Or via Makefile:
+For tagged release artifacts (cross-platform binaries under `dist/`), use:
 
 ```bash
-make build     # writes ./bin/ktl
-make install   # installs ./cmd/ktl to GOBIN/GOPATH/bin
+make release
 ```
 
 Other binaries:
@@ -51,6 +108,8 @@ Other binaries:
 go install ./cmd/verify
 go install ./cmd/package
 ```
+
+---
 
 ## Quickstart
 
@@ -78,6 +137,8 @@ ktl tunnel service/my-app 8080:80
 ktl help --ui
 ```
 
+---
+
 ## Verification
 
 `ktl` provides powerful verification tools for your Kubernetes resources.
@@ -93,6 +154,11 @@ ktl stack verify --config stack.yaml
 ### Configuration Verification
 
 The standalone `verify` tool checks your manifests against policies and best practices.
+`verify` is built and distributed as a separate binary, so you can install and run it independently from `ktl`.
+
+<p align="center">
+  <img src="docs/assets/verify-report.png" alt="verify report" width="960">
+</p>
 
 ```bash
 go install ./cmd/verify
@@ -104,9 +170,13 @@ verify --chart ./chart --release my-app -n default
 verify --manifest ./rendered.yaml
 ```
 
+---
+
 ## SQLite Storage
 
 `ktl` uses an embedded **SQLite** database to store session history, logs, and deployment artifacts when the `--capture` flag is used. This allows for offline analysis, auditing, and replaying of deployment events without relying on external logging infrastructure.
+
+---
 
 ## Docs
 
@@ -115,7 +185,11 @@ verify --manifest ./rendered.yaml
 - Troubleshooting: `docs/troubleshooting.md`
 - Contributor guardrails: `AGENTS.md`
 
+---
+
 ## Development
+
+Run the standard local checks before opening a PR:
 
 ```bash
 make preflight # fmt + lint + unit tests
@@ -123,5 +197,16 @@ make test      # go test ./...
 make fmt       # gofmt
 make lint      # go vet ./...
 ```
+
+Command reference:
+
+| Command | Purpose |
+| --- | --- |
+| `make preflight` | Run format, lint, and unit-test checks in one pass. |
+| `make test` | Run the full Go test suite (`go test ./...`). |
+| `make fmt` | Apply formatting (`gofmt`). |
+| `make lint` | Run static checks (`go vet ./...`). |
+
+---
 
 See `AGENTS.md` for contributor guidance.

@@ -38,7 +38,7 @@ This fragmentation leads to context switching, inconsistent environments between
 ## Installation
 
 ```bash
-go install github.com/avkcode/ktl@latest
+go install github.com/kubekattle/ktl@latest
 ```
 
 ## Quick Start
@@ -241,4 +241,3 @@ We welcome contributions! Please see `AGENTS.md` for our internal architectural 
 1.  **Single Binary**: No external runtime dependencies if possible.
 2.  **Developer Experience First**: meaningful error messages, colors, and spinners.
 3.  **Idempotency**: All operations should be safe to retry.
-

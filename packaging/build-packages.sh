@@ -35,7 +35,7 @@ install -m 0755 "${bin}" "${root}/usr/bin/ktl"
 name="ktl"
 maintainer="${MAINTAINER:-ktl maintainers}"
 license="${LICENSE:-Apache-2.0}"
-url="${URL:-https://github.com/avkcode/ktl}"
+url="${URL:-https://github.com/kubekattle/ktl}"
 desc="${DESCRIPTION:-ktl: Kubernetes toolbelt (BuildKit builds + Helm apply UI)}"
 
 deb_arch="${TARGETARCH}"
