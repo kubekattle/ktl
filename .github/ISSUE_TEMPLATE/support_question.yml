@@ -1,0 +1,46 @@
+name: Support question
+description: Ask for help using ktl (usage, configuration, unexpected output).
+title: "question: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide enough context for someone else to reproduce the behavior.
+        Redact secrets and credentials.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and didn’t find an answer.
+          required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and where are you stuck?
+    validations:
+      required: true
+
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands and output
+      description: Paste the commands you ran and the output you got (redact secrets).
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: version
+    attributes:
+      label: Version and environment
+      description: Paste `ktl --version` (or `./bin/ktl --version`) and OS/arch.
+      render: text
+    validations:
+      required: true
+
