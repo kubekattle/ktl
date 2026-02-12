@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/example/ktl/internal/stack"
+	"github.com/kubekattle/ktl/internal/stack"
 )
 
 func TestStackPlan_UsesStackYAMLCliDefaults(t *testing.T) {

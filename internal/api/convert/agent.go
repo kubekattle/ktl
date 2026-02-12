@@ -8,9 +8,9 @@ package convert
 import (
 	"time"
 
-	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/tailer"
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	"github.com/kubekattle/ktl/internal/config"
+	"github.com/kubekattle/ktl/internal/tailer"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 )
 
 // ToProtoLogRecord converts a Tailer log record into a protobuf line.

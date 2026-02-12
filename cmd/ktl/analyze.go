@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/glamour"
-	"github.com/example/ktl/internal/analyze"
-	"github.com/example/ktl/internal/kube"
-	"github.com/example/ktl/internal/ui"
 	"github.com/fatih/color"
+	"github.com/kubekattle/ktl/internal/analyze"
+	"github.com/kubekattle/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/ui"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

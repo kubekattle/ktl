@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/example/ktl/internal/appconfig"
+	"github.com/kubekattle/ktl/internal/appconfig"
 )
 
 // ConfigFromApp maps appconfig secrets to secretstore config.

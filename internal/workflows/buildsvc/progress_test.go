@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/ktl/internal/tailer"
-	"github.com/example/ktl/pkg/buildkit"
+	"github.com/kubekattle/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/pkg/buildkit"
 	"github.com/moby/buildkit/client"
 	digest "github.com/opencontainers/go-digest"
 )

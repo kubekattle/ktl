@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/tailer"
 	"github.com/fatih/color"
+	"github.com/kubekattle/ktl/internal/tailer"
 	"golang.org/x/term"
 )
 

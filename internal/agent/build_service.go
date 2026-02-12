@@ -15,10 +15,10 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"github.com/example/ktl/internal/api/convert"
-	"github.com/example/ktl/internal/tailer"
-	"github.com/example/ktl/internal/workflows/buildsvc"
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	"github.com/kubekattle/ktl/internal/api/convert"
+	"github.com/kubekattle/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/workflows/buildsvc"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

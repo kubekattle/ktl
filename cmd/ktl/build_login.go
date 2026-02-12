@@ -20,7 +20,7 @@ import (
 
 	"github.com/docker/cli/cli/config/types"
 	dockercred "github.com/docker/docker-credential-helpers/credentials"
-	"github.com/example/ktl/internal/dockerconfig"
+	"github.com/kubekattle/ktl/internal/dockerconfig"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

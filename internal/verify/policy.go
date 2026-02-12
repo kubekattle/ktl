@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/policy"
+	"github.com/kubekattle/ktl/internal/policy"
 )
 
 type PolicyOptions struct {

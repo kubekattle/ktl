@@ -20,8 +20,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/example/ktl/internal/deploy"
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/deploy"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 type Entities struct {

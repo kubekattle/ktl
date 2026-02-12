@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/pkg/buildkit"
+	"github.com/kubekattle/ktl/pkg/buildkit"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/patternmatcher"
 	"github.com/moby/patternmatcher/ignorefile"

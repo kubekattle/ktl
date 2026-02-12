@@ -12,8 +12,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/example/ktl/internal/caststream"
 	"github.com/go-logr/logr"
+	"github.com/kubekattle/ktl/internal/caststream"
 )
 
 // StartCastServer boots a caststream server and surfaces early failures to the caller.

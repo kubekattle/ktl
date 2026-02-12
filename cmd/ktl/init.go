@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/example/ktl/internal/appconfig"
+	"github.com/kubekattle/ktl/internal/appconfig"
 	"github.com/mitchellh/go-homedir"
 	"github.com/pmezard/go-difflib/difflib"
 	"github.com/spf13/cobra"

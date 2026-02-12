@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/ktl/internal/workflows/buildsvc"
+	"github.com/kubekattle/ktl/internal/workflows/buildsvc"
 )
 
 type recordingBuildService struct {

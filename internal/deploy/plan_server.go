@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/example/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"

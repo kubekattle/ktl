@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/ktl/internal/capture"
-	"github.com/example/ktl/internal/deploy"
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/capture"
+	"github.com/kubekattle/ktl/internal/deploy"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 func TestSQLiteStore_ReadsKtlCaptureDB(t *testing.T) {

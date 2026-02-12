@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	ktldocs "github.com/example/ktl/docs"
-	"github.com/example/ktl/internal/envcatalog"
+	ktldocs "github.com/kubekattle/ktl/docs"
+	"github.com/kubekattle/ktl/internal/envcatalog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )

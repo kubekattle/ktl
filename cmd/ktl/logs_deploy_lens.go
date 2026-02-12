@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/config"
+	"github.com/kubekattle/ktl/internal/tailer"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

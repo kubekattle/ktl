@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 )
 
 // MirrorSessionMeta holds optional fields that make sessions searchable and

@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/tailer"
-	"github.com/example/ktl/pkg/buildkit"
-	appcompose "github.com/example/ktl/pkg/compose"
+	"github.com/kubekattle/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/pkg/buildkit"
+	appcompose "github.com/kubekattle/ktl/pkg/compose"
 	"github.com/moby/buildkit/client"
 	digest "github.com/opencontainers/go-digest"
 )

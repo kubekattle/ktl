@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/example/ktl/internal/version"
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	"github.com/kubekattle/ktl/internal/version"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 )
 
 type infoService struct {

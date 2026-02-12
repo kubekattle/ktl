@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/example/ktl/internal/verify"
+	"github.com/kubekattle/ktl/internal/verify"
 )
 
 func enforceVerifiedDigest(reportPath string, renderedManifest string, release string, namespace string) error {

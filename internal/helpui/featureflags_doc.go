@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/example/ktl/internal/featureflags"
+	"github.com/kubekattle/ktl/internal/featureflags"
 )
 
 func featureFlagsDoc() string {

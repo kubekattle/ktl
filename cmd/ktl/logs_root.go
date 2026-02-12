@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/featureflags"
 	"github.com/fatih/color"
+	"github.com/kubekattle/ktl/internal/config"
+	"github.com/kubekattle/ktl/internal/featureflags"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap/zapcore"

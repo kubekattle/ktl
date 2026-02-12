@@ -13,9 +13,9 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/example/ktl/internal/appconfig"
-	"github.com/example/ktl/internal/secretstore"
-	"github.com/example/ktl/internal/stack"
+	"github.com/kubekattle/ktl/internal/appconfig"
+	"github.com/kubekattle/ktl/internal/secretstore"
+	"github.com/kubekattle/ktl/internal/stack"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"

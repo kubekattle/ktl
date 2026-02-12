@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/deploy"
-	"github.com/example/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/deploy"
+	"github.com/kubekattle/ktl/internal/kube"
 	corev1 "k8s.io/api/core/v1"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

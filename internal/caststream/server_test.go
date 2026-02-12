@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 func TestHubBroadcastDeliversMessages(t *testing.T) {

@@ -19,9 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/kube"
-	"github.com/example/ktl/internal/stack"
 	"github.com/fatih/color"
+	"github.com/kubekattle/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/stack"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"

@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/example/ktl/internal/stack"
+	"github.com/kubekattle/ktl/internal/stack"
 	"github.com/spf13/cobra"
 )
 

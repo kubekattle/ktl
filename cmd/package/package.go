@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/example/ktl/internal/chartarchive"
-	"github.com/example/ktl/internal/version"
+	"github.com/kubekattle/ktl/internal/chartarchive"
+	"github.com/kubekattle/ktl/internal/version"
 	"github.com/spf13/cobra"
 )
 

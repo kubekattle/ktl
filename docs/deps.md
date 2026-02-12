@@ -2,7 +2,7 @@
 
 This file tracks the dependency graph of the project.
 
-## `github.com/example/ktl/cmd/capture`
+## `github.com/kubekattle/ktl/cmd/capture`
 
 **Internal deps**
 
@@ -51,41 +51,41 @@ This file tracks the dependency graph of the project.
 
 - 190 packages
 
-## `github.com/example/ktl/cmd/ktl`
+## `github.com/kubekattle/ktl/cmd/ktl`
 
 **Internal deps**
 
-- `github.com/example/ktl/docs`
-- `github.com/example/ktl/internal/api/convert`
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/capture`
-- `github.com/example/ktl/internal/caststream`
-- `github.com/example/ktl/internal/castutil`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/csvutil`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/dockerconfig`
-- `github.com/example/ktl/internal/envcatalog`
-- `github.com/example/ktl/internal/featureflags`
-- `github.com/example/ktl/internal/grpcutil`
-- `github.com/example/ktl/internal/helpui`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/logging`
-- `github.com/example/ktl/internal/mirrorbus`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secrets`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/stack`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/verify`
-- `github.com/example/ktl/internal/version`
-- `github.com/example/ktl/internal/workflows/buildsvc`
-- `github.com/example/ktl/pkg/api/ktl/api/v1`
-- `github.com/example/ktl/pkg/buildkit`
-- `github.com/example/ktl/pkg/compose`
-- `github.com/example/ktl/pkg/registry`
+- `github.com/kubekattle/ktl/docs`
+- `github.com/kubekattle/ktl/internal/api/convert`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/capture`
+- `github.com/kubekattle/ktl/internal/caststream`
+- `github.com/kubekattle/ktl/internal/castutil`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/csvutil`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/dockerconfig`
+- `github.com/kubekattle/ktl/internal/envcatalog`
+- `github.com/kubekattle/ktl/internal/featureflags`
+- `github.com/kubekattle/ktl/internal/grpcutil`
+- `github.com/kubekattle/ktl/internal/helpui`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/logging`
+- `github.com/kubekattle/ktl/internal/mirrorbus`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secrets`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/stack`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/verify`
+- `github.com/kubekattle/ktl/internal/version`
+- `github.com/kubekattle/ktl/internal/workflows/buildsvc`
+- `github.com/kubekattle/ktl/pkg/api/ktl/api/v1`
+- `github.com/kubekattle/ktl/pkg/buildkit`
+- `github.com/kubekattle/ktl/pkg/compose`
+- `github.com/kubekattle/ktl/pkg/registry`
 
 **Third-party deps**
 
@@ -175,35 +175,35 @@ This file tracks the dependency graph of the project.
 
 - 239 packages
 
-## `github.com/example/ktl/cmd/ktl-agent`
+## `github.com/kubekattle/ktl/cmd/ktl-agent`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/agent`
-- `github.com/example/ktl/internal/api/convert`
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/capture`
-- `github.com/example/ktl/internal/caststream`
-- `github.com/example/ktl/internal/castutil`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/csvutil`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/dockerconfig`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/logging`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secrets`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/verify`
-- `github.com/example/ktl/internal/version`
-- `github.com/example/ktl/internal/workflows/buildsvc`
-- `github.com/example/ktl/pkg/api/ktl/api/v1`
-- `github.com/example/ktl/pkg/buildkit`
-- `github.com/example/ktl/pkg/compose`
-- `github.com/example/ktl/pkg/registry`
+- `github.com/kubekattle/ktl/internal/agent`
+- `github.com/kubekattle/ktl/internal/api/convert`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/capture`
+- `github.com/kubekattle/ktl/internal/caststream`
+- `github.com/kubekattle/ktl/internal/castutil`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/csvutil`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/dockerconfig`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/logging`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secrets`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/verify`
+- `github.com/kubekattle/ktl/internal/version`
+- `github.com/kubekattle/ktl/internal/workflows/buildsvc`
+- `github.com/kubekattle/ktl/pkg/api/ktl/api/v1`
+- `github.com/kubekattle/ktl/pkg/buildkit`
+- `github.com/kubekattle/ktl/pkg/compose`
+- `github.com/kubekattle/ktl/pkg/registry`
 
 **Third-party deps**
 
@@ -293,12 +293,12 @@ This file tracks the dependency graph of the project.
 
 - 239 packages
 
-## `github.com/example/ktl/cmd/package`
+## `github.com/kubekattle/ktl/cmd/package`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/chartarchive`
-- `github.com/example/ktl/internal/version`
+- `github.com/kubekattle/ktl/internal/chartarchive`
+- `github.com/kubekattle/ktl/internal/version`
 
 **Third-party deps**
 
@@ -353,22 +353,22 @@ This file tracks the dependency graph of the project.
 
 - 194 packages
 
-## `github.com/example/ktl/cmd/verify`
+## `github.com/kubekattle/ktl/cmd/verify`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/verify`
-- `github.com/example/ktl/internal/verify/config`
-- `github.com/example/ktl/internal/verify/engine`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/verify`
+- `github.com/kubekattle/ktl/internal/verify/config`
+- `github.com/kubekattle/ktl/internal/verify/engine`
 
 **Third-party deps**
 
@@ -458,7 +458,7 @@ This file tracks the dependency graph of the project.
 
 - 234 packages
 
-## `github.com/example/ktl/docs`
+## `github.com/kubekattle/ktl/docs`
 
 **Internal deps**
 
@@ -472,34 +472,34 @@ This file tracks the dependency graph of the project.
 
 - 47 packages
 
-## `github.com/example/ktl/internal/agent`
+## `github.com/kubekattle/ktl/internal/agent`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/api/convert`
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/capture`
-- `github.com/example/ktl/internal/caststream`
-- `github.com/example/ktl/internal/castutil`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/csvutil`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/dockerconfig`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/logging`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secrets`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/verify`
-- `github.com/example/ktl/internal/version`
-- `github.com/example/ktl/internal/workflows/buildsvc`
-- `github.com/example/ktl/pkg/api/ktl/api/v1`
-- `github.com/example/ktl/pkg/buildkit`
-- `github.com/example/ktl/pkg/compose`
-- `github.com/example/ktl/pkg/registry`
+- `github.com/kubekattle/ktl/internal/api/convert`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/capture`
+- `github.com/kubekattle/ktl/internal/caststream`
+- `github.com/kubekattle/ktl/internal/castutil`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/csvutil`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/dockerconfig`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/logging`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secrets`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/verify`
+- `github.com/kubekattle/ktl/internal/version`
+- `github.com/kubekattle/ktl/internal/workflows/buildsvc`
+- `github.com/kubekattle/ktl/pkg/api/ktl/api/v1`
+- `github.com/kubekattle/ktl/pkg/buildkit`
+- `github.com/kubekattle/ktl/pkg/compose`
+- `github.com/kubekattle/ktl/pkg/registry`
 
 **Third-party deps**
 
@@ -589,31 +589,31 @@ This file tracks the dependency graph of the project.
 
 - 239 packages
 
-## `github.com/example/ktl/internal/api/convert`
+## `github.com/kubekattle/ktl/internal/api/convert`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/capture`
-- `github.com/example/ktl/internal/caststream`
-- `github.com/example/ktl/internal/castutil`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/csvutil`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/dockerconfig`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/logging`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secrets`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/workflows/buildsvc`
-- `github.com/example/ktl/pkg/api/ktl/api/v1`
-- `github.com/example/ktl/pkg/buildkit`
-- `github.com/example/ktl/pkg/compose`
-- `github.com/example/ktl/pkg/registry`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/capture`
+- `github.com/kubekattle/ktl/internal/caststream`
+- `github.com/kubekattle/ktl/internal/castutil`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/csvutil`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/dockerconfig`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/logging`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secrets`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/workflows/buildsvc`
+- `github.com/kubekattle/ktl/pkg/api/ktl/api/v1`
+- `github.com/kubekattle/ktl/pkg/buildkit`
+- `github.com/kubekattle/ktl/pkg/compose`
+- `github.com/kubekattle/ktl/pkg/registry`
 
 **Third-party deps**
 
@@ -703,7 +703,7 @@ This file tracks the dependency graph of the project.
 
 - 239 packages
 
-## `github.com/example/ktl/internal/appconfig`
+## `github.com/kubekattle/ktl/internal/appconfig`
 
 **Internal deps**
 
@@ -717,16 +717,16 @@ This file tracks the dependency graph of the project.
 
 - 67 packages
 
-## `github.com/example/ktl/internal/capture`
+## `github.com/kubekattle/ktl/internal/capture`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
 
 **Third-party deps**
 
@@ -816,16 +816,16 @@ This file tracks the dependency graph of the project.
 
 - 227 packages
 
-## `github.com/example/ktl/internal/caststream`
+## `github.com/kubekattle/ktl/internal/caststream`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
 
 **Third-party deps**
 
@@ -915,17 +915,17 @@ This file tracks the dependency graph of the project.
 
 - 227 packages
 
-## `github.com/example/ktl/internal/castutil`
+## `github.com/kubekattle/ktl/internal/castutil`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/caststream`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/caststream`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
 
 **Third-party deps**
 
@@ -1015,7 +1015,7 @@ This file tracks the dependency graph of the project.
 
 - 227 packages
 
-## `github.com/example/ktl/internal/chartarchive`
+## `github.com/kubekattle/ktl/internal/chartarchive`
 
 **Internal deps**
 
@@ -1072,7 +1072,7 @@ This file tracks the dependency graph of the project.
 
 - 190 packages
 
-## `github.com/example/ktl/internal/config`
+## `github.com/kubekattle/ktl/internal/config`
 
 **Internal deps**
 
@@ -1146,7 +1146,7 @@ This file tracks the dependency graph of the project.
 
 - 201 packages
 
-## `github.com/example/ktl/internal/csvutil`
+## `github.com/kubekattle/ktl/internal/csvutil`
 
 **Internal deps**
 
@@ -1160,15 +1160,15 @@ This file tracks the dependency graph of the project.
 
 - 62 packages
 
-## `github.com/example/ktl/internal/deploy`
+## `github.com/kubekattle/ktl/internal/deploy`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
 
 **Third-party deps**
 
@@ -1258,7 +1258,7 @@ This file tracks the dependency graph of the project.
 
 - 227 packages
 
-## `github.com/example/ktl/internal/dockerconfig`
+## `github.com/kubekattle/ktl/internal/dockerconfig`
 
 **Internal deps**
 
@@ -1281,7 +1281,7 @@ This file tracks the dependency graph of the project.
 
 - 82 packages
 
-## `github.com/example/ktl/internal/featureflags`
+## `github.com/kubekattle/ktl/internal/featureflags`
 
 **Internal deps**
 
@@ -1295,7 +1295,7 @@ This file tracks the dependency graph of the project.
 
 - 61 packages
 
-## `github.com/example/ktl/internal/grpcutil`
+## `github.com/kubekattle/ktl/internal/grpcutil`
 
 **Internal deps**
 
@@ -1389,14 +1389,14 @@ This file tracks the dependency graph of the project.
 
 - 191 packages
 
-## `github.com/example/ktl/internal/helpui`
+## `github.com/kubekattle/ktl/internal/helpui`
 
 **Internal deps**
 
-- `github.com/example/ktl/docs`
-- `github.com/example/ktl/internal/envcatalog`
-- `github.com/example/ktl/internal/featureflags`
-- `github.com/example/ktl/internal/version`
+- `github.com/kubekattle/ktl/docs`
+- `github.com/kubekattle/ktl/internal/envcatalog`
+- `github.com/kubekattle/ktl/internal/featureflags`
+- `github.com/kubekattle/ktl/internal/version`
 
 **Third-party deps**
 
@@ -1408,7 +1408,7 @@ This file tracks the dependency graph of the project.
 
 - 192 packages
 
-## `github.com/example/ktl/internal/kube`
+## `github.com/kubekattle/ktl/internal/kube`
 
 **Internal deps**
 
@@ -1502,7 +1502,7 @@ This file tracks the dependency graph of the project.
 
 - 208 packages
 
-## `github.com/example/ktl/internal/logging`
+## `github.com/kubekattle/ktl/internal/logging`
 
 **Internal deps**
 
@@ -1587,33 +1587,33 @@ This file tracks the dependency graph of the project.
 
 - 198 packages
 
-## `github.com/example/ktl/internal/mirrorbus`
+## `github.com/kubekattle/ktl/internal/mirrorbus`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/api/convert`
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/capture`
-- `github.com/example/ktl/internal/caststream`
-- `github.com/example/ktl/internal/castutil`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/csvutil`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/dockerconfig`
-- `github.com/example/ktl/internal/grpcutil`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/logging`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secrets`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/workflows/buildsvc`
-- `github.com/example/ktl/pkg/api/ktl/api/v1`
-- `github.com/example/ktl/pkg/buildkit`
-- `github.com/example/ktl/pkg/compose`
-- `github.com/example/ktl/pkg/registry`
+- `github.com/kubekattle/ktl/internal/api/convert`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/capture`
+- `github.com/kubekattle/ktl/internal/caststream`
+- `github.com/kubekattle/ktl/internal/castutil`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/csvutil`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/dockerconfig`
+- `github.com/kubekattle/ktl/internal/grpcutil`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/logging`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secrets`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/workflows/buildsvc`
+- `github.com/kubekattle/ktl/pkg/api/ktl/api/v1`
+- `github.com/kubekattle/ktl/pkg/buildkit`
+- `github.com/kubekattle/ktl/pkg/compose`
+- `github.com/kubekattle/ktl/pkg/registry`
 
 **Third-party deps**
 
@@ -1703,7 +1703,7 @@ This file tracks the dependency graph of the project.
 
 - 239 packages
 
-## `github.com/example/ktl/internal/policy`
+## `github.com/kubekattle/ktl/internal/policy`
 
 **Internal deps**
 
@@ -1797,7 +1797,7 @@ This file tracks the dependency graph of the project.
 
 - 208 packages
 
-## `github.com/example/ktl/internal/secrets`
+## `github.com/kubekattle/ktl/internal/secrets`
 
 **Internal deps**
 
@@ -1812,11 +1812,11 @@ This file tracks the dependency graph of the project.
 
 - 184 packages
 
-## `github.com/example/ktl/internal/secretstore`
+## `github.com/kubekattle/ktl/internal/secretstore`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/appconfig`
 
 **Third-party deps**
 
@@ -1906,18 +1906,18 @@ This file tracks the dependency graph of the project.
 
 - 192 packages
 
-## `github.com/example/ktl/internal/stack`
+## `github.com/kubekattle/ktl/internal/stack`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/version`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/version`
 
 **Third-party deps**
 
@@ -2007,11 +2007,11 @@ This file tracks the dependency graph of the project.
 
 - 227 packages
 
-## `github.com/example/ktl/internal/tailer`
+## `github.com/kubekattle/ktl/internal/tailer`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/config`
 
 **Third-party deps**
 
@@ -2101,7 +2101,7 @@ This file tracks the dependency graph of the project.
 
 - 210 packages
 
-## `github.com/example/ktl/internal/telemetry`
+## `github.com/kubekattle/ktl/internal/telemetry`
 
 **Internal deps**
 
@@ -2115,16 +2115,16 @@ This file tracks the dependency graph of the project.
 
 - 60 packages
 
-## `github.com/example/ktl/internal/ui`
+## `github.com/kubekattle/ktl/internal/ui`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
 
 **Third-party deps**
 
@@ -2214,18 +2214,18 @@ This file tracks the dependency graph of the project.
 
 - 227 packages
 
-## `github.com/example/ktl/internal/verify`
+## `github.com/kubekattle/ktl/internal/verify`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/ui`
 
 **Third-party deps**
 
@@ -2315,19 +2315,19 @@ This file tracks the dependency graph of the project.
 
 - 234 packages
 
-## `github.com/example/ktl/internal/verify/config`
+## `github.com/kubekattle/ktl/internal/verify/config`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/verify`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/verify`
 
 **Third-party deps**
 
@@ -2417,21 +2417,21 @@ This file tracks the dependency graph of the project.
 
 - 234 packages
 
-## `github.com/example/ktl/internal/verify/engine`
+## `github.com/kubekattle/ktl/internal/verify/engine`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/internal/verify`
-- `github.com/example/ktl/internal/verify/config`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/internal/verify`
+- `github.com/kubekattle/ktl/internal/verify/config`
 
 **Third-party deps**
 
@@ -2521,7 +2521,7 @@ This file tracks the dependency graph of the project.
 
 - 234 packages
 
-## `github.com/example/ktl/internal/version`
+## `github.com/kubekattle/ktl/internal/version`
 
 **Internal deps**
 
@@ -2535,29 +2535,29 @@ This file tracks the dependency graph of the project.
 
 - 58 packages
 
-## `github.com/example/ktl/internal/workflows/buildsvc`
+## `github.com/kubekattle/ktl/internal/workflows/buildsvc`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/appconfig`
-- `github.com/example/ktl/internal/capture`
-- `github.com/example/ktl/internal/caststream`
-- `github.com/example/ktl/internal/castutil`
-- `github.com/example/ktl/internal/config`
-- `github.com/example/ktl/internal/csvutil`
-- `github.com/example/ktl/internal/deploy`
-- `github.com/example/ktl/internal/dockerconfig`
-- `github.com/example/ktl/internal/kube`
-- `github.com/example/ktl/internal/logging`
-- `github.com/example/ktl/internal/policy`
-- `github.com/example/ktl/internal/secrets`
-- `github.com/example/ktl/internal/secretstore`
-- `github.com/example/ktl/internal/tailer`
-- `github.com/example/ktl/internal/telemetry`
-- `github.com/example/ktl/internal/ui`
-- `github.com/example/ktl/pkg/buildkit`
-- `github.com/example/ktl/pkg/compose`
-- `github.com/example/ktl/pkg/registry`
+- `github.com/kubekattle/ktl/internal/appconfig`
+- `github.com/kubekattle/ktl/internal/capture`
+- `github.com/kubekattle/ktl/internal/caststream`
+- `github.com/kubekattle/ktl/internal/castutil`
+- `github.com/kubekattle/ktl/internal/config`
+- `github.com/kubekattle/ktl/internal/csvutil`
+- `github.com/kubekattle/ktl/internal/deploy`
+- `github.com/kubekattle/ktl/internal/dockerconfig`
+- `github.com/kubekattle/ktl/internal/kube`
+- `github.com/kubekattle/ktl/internal/logging`
+- `github.com/kubekattle/ktl/internal/policy`
+- `github.com/kubekattle/ktl/internal/secrets`
+- `github.com/kubekattle/ktl/internal/secretstore`
+- `github.com/kubekattle/ktl/internal/tailer`
+- `github.com/kubekattle/ktl/internal/telemetry`
+- `github.com/kubekattle/ktl/internal/ui`
+- `github.com/kubekattle/ktl/pkg/buildkit`
+- `github.com/kubekattle/ktl/pkg/compose`
+- `github.com/kubekattle/ktl/pkg/registry`
 
 **Third-party deps**
 
@@ -2647,7 +2647,7 @@ This file tracks the dependency graph of the project.
 
 - 239 packages
 
-## `github.com/example/ktl/pkg/api/ktl/api/v1`
+## `github.com/kubekattle/ktl/pkg/api/ktl/api/v1`
 
 **Internal deps**
 
@@ -2741,7 +2741,7 @@ This file tracks the dependency graph of the project.
 
 - 191 packages
 
-## `github.com/example/ktl/pkg/buildkit`
+## `github.com/kubekattle/ktl/pkg/buildkit`
 
 **Internal deps**
 
@@ -2835,13 +2835,13 @@ This file tracks the dependency graph of the project.
 
 - 210 packages
 
-## `github.com/example/ktl/pkg/compose`
+## `github.com/kubekattle/ktl/pkg/compose`
 
 **Internal deps**
 
-- `github.com/example/ktl/internal/csvutil`
-- `github.com/example/ktl/pkg/buildkit`
-- `github.com/example/ktl/pkg/registry`
+- `github.com/kubekattle/ktl/internal/csvutil`
+- `github.com/kubekattle/ktl/pkg/buildkit`
+- `github.com/kubekattle/ktl/pkg/registry`
 
 **Third-party deps**
 
@@ -2931,7 +2931,7 @@ This file tracks the dependency graph of the project.
 
 - 213 packages
 
-## `github.com/example/ktl/pkg/registry`
+## `github.com/kubekattle/ktl/pkg/registry`
 
 **Internal deps**
 

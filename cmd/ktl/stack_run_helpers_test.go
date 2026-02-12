@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/example/ktl/internal/stack"
+	"github.com/kubekattle/ktl/internal/stack"
 	"github.com/spf13/cobra"
 )
 

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 func TestConsoleObserver_LogLevelFiltersGraph(t *testing.T) {

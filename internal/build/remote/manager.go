@@ -22,9 +22,9 @@ import (
 	"k8s.io/client-go/transport/spdy"
 	"k8s.io/klog/v2"
 
-	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/logging"
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/config"
+	"github.com/kubekattle/ktl/internal/logging"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 const (

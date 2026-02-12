@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/deploy"
 	"github.com/fatih/color"
+	"github.com/kubekattle/ktl/internal/deploy"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
