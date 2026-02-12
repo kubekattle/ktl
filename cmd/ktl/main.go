@@ -23,12 +23,12 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/featureflags"
-	"github.com/example/ktl/internal/logging"
-	"github.com/example/ktl/internal/workflows/buildsvc"
 	"github.com/fatih/color"
 	"github.com/go-logr/logr"
+	"github.com/kubekattle/ktl/internal/config"
+	"github.com/kubekattle/ktl/internal/featureflags"
+	"github.com/kubekattle/ktl/internal/logging"
+	"github.com/kubekattle/ktl/internal/workflows/buildsvc"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -38,7 +38,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
-	"github.com/example/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/kube"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )

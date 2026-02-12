@@ -16,9 +16,9 @@ import (
 	"github.com/containerd/console"
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
-	"github.com/example/ktl/internal/csvutil"
-	"github.com/example/ktl/pkg/buildkit"
-	"github.com/example/ktl/pkg/registry"
+	"github.com/kubekattle/ktl/internal/csvutil"
+	"github.com/kubekattle/ktl/pkg/buildkit"
+	"github.com/kubekattle/ktl/pkg/registry"
 )
 
 type (

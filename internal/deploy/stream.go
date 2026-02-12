@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/tailer"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

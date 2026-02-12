@@ -36,10 +36,10 @@ jobs:
           build_date="$(date -u -d "@${source_date_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
 
           ldflags="-s -w \
-            -X github.com/example/ktl/internal/version.Version=${{ github.ref_name }} \
-            -X github.com/example/ktl/internal/version.GitCommit=${commit} \
-            -X github.com/example/ktl/internal/version.GitTreeState=clean \
-            -X github.com/example/ktl/internal/version.BuildDate=${build_date}"
+            -X github.com/kubekattle/ktl/internal/version.Version=${{ github.ref_name }} \
+            -X github.com/kubekattle/ktl/internal/version.GitCommit=${commit} \
+            -X github.com/kubekattle/ktl/internal/version.GitTreeState=clean \
+            -X github.com/kubekattle/ktl/internal/version.BuildDate=${build_date}"
 
           for arch in amd64 arm64; do
             out="docker/bin/ktl-linux-${arch}"

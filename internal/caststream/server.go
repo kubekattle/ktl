@@ -22,8 +22,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/gorilla/websocket"
 
-	"github.com/example/ktl/internal/deploy"
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/deploy"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 type Mode int

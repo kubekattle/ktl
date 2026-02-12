@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/ktl/internal/version"
 	"github.com/go-logr/logr"
+	"github.com/kubekattle/ktl/internal/version"
 	"github.com/spf13/cobra"
 )
 

@@ -3736,7 +3736,7 @@ const file_ktl_api_v1_agent_proto_rawDesc = "" +
 	"\rVerifyService\x12>\n" +
 	"\x06Verify\x12\x19.ktl.api.v1.VerifyRequest\x1a\x17.ktl.api.v1.VerifyEvent0\x012R\n" +
 	"\x10AgentInfoService\x12>\n" +
-	"\aGetInfo\x12\x1c.ktl.api.v1.AgentInfoRequest\x1a\x15.ktl.api.v1.AgentInfoB1Z/github.com/example/ktl/pkg/api/ktl/api/v1;apiv1b\x06proto3"
+	"\aGetInfo\x12\x1c.ktl.api.v1.AgentInfoRequest\x1a\x15.ktl.api.v1.AgentInfoB4Z2github.com/kubekattle/ktl/pkg/api/ktl/api/v1;apiv1b\x06proto3"
 
 var (
 	file_ktl_api_v1_agent_proto_rawDescOnce sync.Once

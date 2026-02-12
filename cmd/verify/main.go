@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/ui"
-	"github.com/example/ktl/internal/verify"
-	cfgpkg "github.com/example/ktl/internal/verify/config"
-	"github.com/example/ktl/internal/verify/engine"
+	"github.com/kubekattle/ktl/internal/ui"
+	"github.com/kubekattle/ktl/internal/verify"
+	cfgpkg "github.com/kubekattle/ktl/internal/verify/config"
+	"github.com/kubekattle/ktl/internal/verify/engine"
 	"github.com/spf13/cobra"
 )
 

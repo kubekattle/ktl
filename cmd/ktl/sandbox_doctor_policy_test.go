@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/example/ktl/internal/appconfig"
+	"github.com/kubekattle/ktl/internal/appconfig"
 )
 
 func TestParseSandboxPolicyDefaultConfig(t *testing.T) {

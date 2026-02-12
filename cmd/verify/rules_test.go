@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/ktl/internal/verify"
+	"github.com/kubekattle/ktl/internal/verify"
 )
 
 func TestVerifyRules_ListAndShow(t *testing.T) {

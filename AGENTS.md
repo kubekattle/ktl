@@ -32,7 +32,7 @@ If you’re an AI agent (or using one), start with:
 - Profiles/app config: global `~/.ktl/config.yaml`, repo `.ktl.yaml`; validate with `go test ./cmd/ktl -run TestBuildProfile`.
 - Update fixtures: edit `testdata/...`, refresh goldens, and rerun the closest tests.
 - UI work: follow `DESIGN.md`; extend tokens/components first.
-- Tags & GitHub Releases: create/push an annotated tag (`git tag -a vX.Y.Z -m "vX.Y.Z"`, then `git push origin vX.Y.Z`) and publish a matching GitHub Release (required by `.github/workflows/release-guard.yml`). CI uploads release artifacts (tarballs + `.deb`/`.rpm`) with SHA256 checksums, SBOMs, cosign bundle signatures, and (when supported by the repo) GitHub artifact attestations (SLSA provenance + SBOM). See `docs/release-verification.md` for verification commands.
+- Tags & GitHub Releases: GitHub Releases are the source of truth for published artifacts. Cut releases from `main` only: merge to `main` → run `make preflight` → create/push an annotated tag (`git tag -a vX.Y.Z -m "vX.Y.Z"` then `git push origin vX.Y.Z`) → publish a matching GitHub Release (required by `.github/workflows/release-guard.yml`). CI uploads release artifacts (tarballs + `.deb`/`.rpm`) with SHA256 checksums, SBOMs, cosign bundle signatures, and (when supported by the repo) GitHub artifact attestations (SLSA provenance + SBOM). Avoid moving tags after publishing; if you need a fix, cut `vX.Y.(Z+1)` instead. See `docs/release-verification.md` for verification commands.
 - When adding a new CLI surface, update `internal/helpui/examples.go` so help-ui search stays aligned with README/recipes.
 
 ## Repository Structure

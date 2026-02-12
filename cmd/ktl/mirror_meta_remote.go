@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

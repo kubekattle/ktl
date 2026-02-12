@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/example/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/kube"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

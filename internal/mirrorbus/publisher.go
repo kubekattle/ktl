@@ -11,15 +11,15 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/example/ktl/internal/grpcutil"
+	"github.com/kubekattle/ktl/internal/grpcutil"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	"github.com/example/ktl/internal/api/convert"
-	"github.com/example/ktl/internal/tailer"
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	"github.com/kubekattle/ktl/internal/api/convert"
+	"github.com/kubekattle/ktl/internal/tailer"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 )
 
 // Publisher streams log records to the central mirror bus.

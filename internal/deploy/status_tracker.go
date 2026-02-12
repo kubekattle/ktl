@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/kube"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"

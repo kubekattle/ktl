@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/example/ktl/internal/kube"
-	"github.com/example/ktl/internal/verify"
+	"github.com/kubekattle/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/verify"
 )
 
 func collectNamespacedObjects(ctx context.Context, client *kube.Client, namespace string) ([]map[string]any, error) {

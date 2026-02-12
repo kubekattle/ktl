@@ -17,17 +17,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/capture"
-	"github.com/example/ktl/internal/caststream"
-	"github.com/example/ktl/internal/castutil"
-	"github.com/example/ktl/internal/dockerconfig"
-	"github.com/example/ktl/internal/logging"
-	"github.com/example/ktl/internal/tailer"
-	"github.com/example/ktl/internal/telemetry"
-	"github.com/example/ktl/internal/ui"
-	"github.com/example/ktl/pkg/buildkit"
-	appcompose "github.com/example/ktl/pkg/compose"
-	"github.com/example/ktl/pkg/registry"
+	"github.com/kubekattle/ktl/internal/capture"
+	"github.com/kubekattle/ktl/internal/caststream"
+	"github.com/kubekattle/ktl/internal/castutil"
+	"github.com/kubekattle/ktl/internal/dockerconfig"
+	"github.com/kubekattle/ktl/internal/logging"
+	"github.com/kubekattle/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/telemetry"
+	"github.com/kubekattle/ktl/internal/ui"
+	"github.com/kubekattle/ktl/pkg/buildkit"
+	appcompose "github.com/kubekattle/ktl/pkg/compose"
+	"github.com/kubekattle/ktl/pkg/registry"
 )
 
 // Dependencies configures a build Service.

@@ -24,9 +24,9 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/example/ktl/internal/config"
 	"github.com/fatih/color"
 	"github.com/go-logr/logr"
+	"github.com/kubekattle/ktl/internal/config"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

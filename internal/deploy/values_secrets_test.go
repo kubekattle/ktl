@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/ktl/internal/secretstore"
+	"github.com/kubekattle/ktl/internal/secretstore"
 	"helm.sh/helm/v3/pkg/cli"
 )
 

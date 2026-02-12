@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/ktl/internal/appconfig"
+	"github.com/kubekattle/ktl/internal/appconfig"
 	"gopkg.in/yaml.v3"
 )
 

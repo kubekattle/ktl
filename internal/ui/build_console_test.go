@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/ktl/internal/tailer"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 func TestBuildConsoleEventTailDedupAndClamp(t *testing.T) {

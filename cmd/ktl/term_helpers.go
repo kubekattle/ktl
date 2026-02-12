@@ -8,7 +8,7 @@ package main
 import (
 	"io"
 
-	"github.com/example/ktl/internal/ui"
+	"github.com/kubekattle/ktl/internal/ui"
 )
 
 func isTerminalReader(r io.Reader) bool {

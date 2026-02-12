@@ -12,10 +12,10 @@ GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
 GIT_TREE_STATE ?= $(shell test -z "$$(git status --porcelain 2>/dev/null)" && echo clean || echo dirty)
 BUILD_DATE ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS ?= -s -w \
-	-X github.com/example/ktl/internal/version.Version=$(VERSION) \
-	-X github.com/example/ktl/internal/version.GitCommit=$(GIT_COMMIT) \
-	-X github.com/example/ktl/internal/version.GitTreeState=$(GIT_TREE_STATE) \
-	-X github.com/example/ktl/internal/version.BuildDate=$(BUILD_DATE)
+	-X github.com/kubekattle/ktl/internal/version.Version=$(VERSION) \
+	-X github.com/kubekattle/ktl/internal/version.GitCommit=$(GIT_COMMIT) \
+	-X github.com/kubekattle/ktl/internal/version.GitTreeState=$(GIT_TREE_STATE) \
+	-X github.com/kubekattle/ktl/internal/version.BuildDate=$(BUILD_DATE)
 RELEASE_PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 RELEASE_TOOLS ?= $(BINARY) verify package
 RELEASE_ARTIFACTS := $(foreach platform,$(RELEASE_PLATFORMS),$(foreach tool,$(RELEASE_TOOLS),$(DIST_DIR)/$(tool)-$(subst /,-,$(platform))))
@@ -45,7 +45,7 @@ PACKAGECLI_PKG ?= ./cmd/package
 LOGS_BINARY ?= logs
 LOGS_PKG ?= ./cmd/ktl
 LOGS_BUILD_MODE ?= logs-only
-LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/example/ktl/cmd/ktl.buildMode=$(LOGS_BUILD_MODE)
+LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/kubekattle/ktl/cmd/ktl.buildMode=$(LOGS_BUILD_MODE)
 
 .DEFAULT_GOAL := help
 

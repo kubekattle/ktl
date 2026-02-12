@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/ktl/pkg/buildkit"
-	"github.com/example/ktl/pkg/registry"
+	"github.com/kubekattle/ktl/pkg/buildkit"
+	"github.com/kubekattle/ktl/pkg/registry"
 )
 
 var _, pkgTestFile, _, _ = runtime.Caller(0)

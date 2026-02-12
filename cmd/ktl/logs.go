@@ -11,17 +11,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/api/convert"
-	"github.com/example/ktl/internal/capture"
-	"github.com/example/ktl/internal/caststream"
-	"github.com/example/ktl/internal/castutil"
-	"github.com/example/ktl/internal/config"
-	"github.com/example/ktl/internal/grpcutil"
-	"github.com/example/ktl/internal/kube"
-	"github.com/example/ktl/internal/mirrorbus"
-	"github.com/example/ktl/internal/stack"
-	"github.com/example/ktl/internal/tailer"
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	"github.com/kubekattle/ktl/internal/api/convert"
+	"github.com/kubekattle/ktl/internal/capture"
+	"github.com/kubekattle/ktl/internal/caststream"
+	"github.com/kubekattle/ktl/internal/castutil"
+	"github.com/kubekattle/ktl/internal/config"
+	"github.com/kubekattle/ktl/internal/grpcutil"
+	"github.com/kubekattle/ktl/internal/kube"
+	"github.com/kubekattle/ktl/internal/mirrorbus"
+	"github.com/kubekattle/ktl/internal/stack"
+	"github.com/kubekattle/ktl/internal/tailer"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
@@ -122,7 +122,7 @@ func runLogs(cmd *cobra.Command, args []string, opts *config.Options, kubeconfig
 		// If user queried "app", and app depends on "redis", we change query to "(app|redis)".
 
 		// However, loading the stack graph is non-trivial without copying the code or importing it.
-		// Since we imported "github.com/example/ktl/internal/stack", let's use it.
+		// Since we imported "github.com/kubekattle/ktl/internal/stack", let's use it.
 
 		// Minimal Stack Load:
 		// We need to find the node matching "opts.PodQuery" and get its deps.

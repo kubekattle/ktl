@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ktl.api.v1;
 
-option go_package = "github.com/example/ktl/pkg/api/ktl/api/v1;apiv1";
+option go_package = "github.com/kubekattle/ktl/pkg/api/ktl/api/v1;apiv1";
 
 message AgentInfoRequest {}
 

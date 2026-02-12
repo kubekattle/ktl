@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/ktl/internal/tailer"
 	"github.com/fatih/color"
+	"github.com/kubekattle/ktl/internal/tailer"
 )
 
 type buildConsoleObserver struct {

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/example/ktl/internal/workflows/buildsvc"
-	"github.com/example/ktl/pkg/buildkit"
+	"github.com/kubekattle/ktl/internal/workflows/buildsvc"
+	"github.com/kubekattle/ktl/pkg/buildkit"
 )
 
 type noopBuildkitRunner struct{}

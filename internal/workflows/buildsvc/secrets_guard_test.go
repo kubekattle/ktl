@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/example/ktl/internal/secrets"
+	"github.com/kubekattle/ktl/internal/secrets"
 )
 
 func TestSecretsGuardPreflight_DockerfileFixtures(t *testing.T) {

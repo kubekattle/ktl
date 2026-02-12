@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	apiv1 "github.com/example/ktl/pkg/api/ktl/api/v1"
+	apiv1 "github.com/kubekattle/ktl/pkg/api/ktl/api/v1"
 )
 
 func TestHTTPGateway_ListSessions_Auth(t *testing.T) {

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/ktl/internal/config"
 	"github.com/fatih/color"
+	"github.com/kubekattle/ktl/internal/config"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 

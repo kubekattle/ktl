@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/secrets"
+	"github.com/kubekattle/ktl/internal/secrets"
 )
 
 // OpenAI Tool Definitions

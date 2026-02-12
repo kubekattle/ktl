@@ -5,8 +5,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/example/ktl/internal/deploy"
-	"github.com/example/ktl/internal/secretstore"
+	"github.com/kubekattle/ktl/internal/deploy"
+	"github.com/kubekattle/ktl/internal/secretstore"
 )
 
 func buildStackSecretOptions(ctx context.Context, root string, secretProvider string, secretConfig string, errOut io.Writer) (*deploy.SecretOptions, error) {

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/ktl/internal/version"
+	"github.com/kubekattle/ktl/internal/version"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
