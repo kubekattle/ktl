@@ -6,16 +6,16 @@
     <title>Safe Docker Builds with ktl build</title>
     <style>
       :root {
-        --ink: #111111;
-        --text: #1f1f1f;
-        --muted: #6a6a6a;
-        --paper: #f5f3ef;
-        --panel: #fbfaf8;
-        --line: rgba(17, 17, 17, 0.14);
-        --line-strong: rgba(17, 17, 17, 0.28);
-        --accent: #2d2d2d;
-        --code-bg: #161616;
-        --code-text: #eaeaea;
+        --ink: #f2ede3;
+        --text: #d8d2c7;
+        --muted: #a49c90;
+        --paper: #070709;
+        --panel: #0f1013;
+        --line: rgba(200, 179, 138, 0.2);
+        --line-strong: rgba(200, 179, 138, 0.38);
+        --accent: #c8b38a;
+        --code-bg: #0d0e11;
+        --code-text: #f3efe6;
       }
 
       * {
@@ -26,13 +26,16 @@
       body {
         margin: 0;
         padding: 0;
-        background: radial-gradient(circle at 20% 0%, #ffffff 0%, var(--paper) 42%, #ece9e3 100%);
+        background:
+          radial-gradient(circle at 0% 0%, rgba(200, 179, 138, 0.12), transparent 34%),
+          radial-gradient(circle at 100% 100%, rgba(200, 179, 138, 0.06), transparent 42%),
+          linear-gradient(180deg, #050507 0%, var(--paper) 48%, #050507 100%);
         color: var(--text);
       }
 
       body {
-        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
-        line-height: 1.68;
+        font-family: "Avenir Next", "Avenir", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        line-height: 1.72;
         letter-spacing: 0.005em;
       }
 
@@ -43,20 +46,32 @@
       }
 
       .article {
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(251, 250, 248, 0.92));
+        background: linear-gradient(180deg, rgba(20, 21, 24, 0.96), rgba(13, 14, 17, 0.96));
         border: 1px solid var(--line);
         border-radius: 26px;
         box-shadow:
-          0 20px 60px rgba(19, 19, 19, 0.08),
-          inset 0 1px 0 rgba(255, 255, 255, 0.7);
+          0 30px 70px rgba(0, 0, 0, 0.48),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
         overflow: hidden;
       }
 
       .hero {
+        position: relative;
         padding: 42px 48px 34px;
         border-bottom: 1px solid var(--line);
         background:
-          linear-gradient(165deg, rgba(255, 255, 255, 0.62) 0%, rgba(245, 243, 239, 0.72) 62%, rgba(233, 228, 220, 0.45) 100%);
+          radial-gradient(circle at 18% 0%, rgba(200, 179, 138, 0.14), transparent 46%),
+          linear-gradient(165deg, rgba(29, 30, 34, 0.96) 0%, rgba(20, 21, 25, 0.92) 62%, rgba(13, 14, 17, 0.92) 100%);
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(200, 179, 138, 0.6), transparent);
       }
 
       .back {
@@ -70,7 +85,7 @@
       }
 
       .back:hover {
-        color: var(--ink);
+        color: var(--accent);
       }
 
       h1 {
@@ -82,6 +97,43 @@
         line-height: 1.14;
         letter-spacing: 0.01em;
         max-width: 18ch;
+        text-wrap: balance;
+      }
+
+      h1 code {
+        color: var(--accent);
+        background: rgba(200, 179, 138, 0.1);
+        border-color: rgba(200, 179, 138, 0.2);
+      }
+
+      .deck {
+        margin: 14px 0 0;
+        max-width: 60ch;
+        color: #c6bfb2;
+        font-size: 1rem;
+      }
+
+      .hero-links {
+        margin-top: 18px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hero-link {
+        text-decoration: none;
+        color: var(--accent);
+        border: 1px solid rgba(200, 179, 138, 0.34);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .hero-link:hover {
+        border-color: rgba(200, 179, 138, 0.65);
+        color: #f0e6d4;
       }
 
       .meta {
@@ -97,8 +149,8 @@
       }
 
       h2 {
-        margin: 44px 0 10px;
-        padding-top: 8px;
+        margin: 56px 0 12px;
+        padding-top: 14px;
         border-top: 1px solid var(--line);
         font-family: "Iowan Old Style", "Baskerville", "Times New Roman", serif;
         font-weight: 500;
@@ -111,11 +163,13 @@
       p {
         margin: 0 0 16px;
         font-size: 1.02rem;
+        max-width: 68ch;
       }
 
       ul {
         margin: 10px 0 18px;
         padding-left: 24px;
+        max-width: 68ch;
       }
 
       li {
@@ -125,22 +179,40 @@
       code {
         font-family: "SF Mono", "Menlo", "Consolas", monospace;
         font-size: 0.93em;
-        background: rgba(17, 17, 17, 0.065);
-        color: #111;
-        border: 1px solid rgba(17, 17, 17, 0.09);
+        background: rgba(200, 179, 138, 0.1);
+        color: #f0e8da;
+        border: 1px solid rgba(200, 179, 138, 0.2);
         border-radius: 6px;
         padding: 2px 6px;
+      }
+
+      a {
+        color: var(--accent);
+        text-underline-offset: 3px;
+      }
+
+      a:hover {
+        color: #f1e6d2;
+      }
+
+      .code-title {
+        margin: 16px 0 8px;
+        font-size: 0.78rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
       }
 
       pre {
         margin: 16px 0 20px;
         border-radius: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.09);
-        background: linear-gradient(180deg, #1a1a1a, var(--code-bg));
+        border: 1px solid rgba(200, 179, 138, 0.22);
+        background: linear-gradient(180deg, #15161a, var(--code-bg));
         color: var(--code-text);
-        box-shadow: 0 12px 26px rgba(0, 0, 0, 0.22);
+        box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
         overflow-x: auto;
         padding: 14px 16px;
+        max-width: 68ch;
       }
 
       pre code {
@@ -155,14 +227,25 @@
         border: 1px solid var(--line-strong);
         border-radius: 16px;
         overflow: hidden;
-        background: #0d0d0d;
-        box-shadow: 0 18px 36px rgba(0, 0, 0, 0.18);
+        background: #090a0c;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.38);
+        max-width: 80ch;
       }
 
       .demo img {
         display: block;
         width: 100%;
-        height: auto;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: #060709;
+      }
+
+      .demo figcaption {
+        margin: 0;
+        padding: 10px 12px 12px;
+        font-size: 0.9rem;
+        color: #b9b2a5;
+        border-top: 1px solid rgba(200, 179, 138, 0.2);
       }
 
       .note {
@@ -170,12 +253,39 @@
         padding: 14px 16px;
         border: 1px solid var(--line-strong);
         border-radius: 12px;
-        background: rgba(255, 255, 255, 0.45);
+        background: rgba(200, 179, 138, 0.08);
+        color: #e8e1d3;
+        max-width: 68ch;
+      }
+
+      .article {
+        animation: article-in 420ms ease-out both;
+      }
+
+      .hero,
+      .content h2,
+      .content p,
+      .content ul,
+      .content .code-title,
+      .content pre,
+      .content .demo,
+      .content .note {
+        animation: rise-in 260ms ease-out both;
+      }
+
+      @keyframes article-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      @keyframes rise-in {
+        from { opacity: 0; transform: translateY(5px); }
+        to { opacity: 1; transform: translateY(0); }
       }
 
       @media (max-width: 860px) {
         .frame {
-          padding: 16px 12px 38px;
+          padding: 18px 16px 42px;
         }
 
         .article {
@@ -192,7 +302,7 @@
 
         h2 {
           font-size: 1.38rem;
-          margin-top: 34px;
+          margin-top: 42px;
         }
 
         p,
@@ -208,7 +318,15 @@
         <header class="hero">
           <a class="back" href="./index.html">Back to blog index</a>
           <h1>Build Docker Images Safely with <code>ktl build</code></h1>
+          <p class="deck">
+            A direct guide to safer image builds, with sandboxed execution, stronger policy controls, and
+            traceable build outputs.
+          </p>
           <p class="meta">Published February 13, 2026 · kubekattle engineering</p>
+          <div class="hero-links">
+            <a class="hero-link" href="https://kubekattle.github.io/ktl/">ktl docs</a>
+            <a class="hero-link" href="https://kubekattle.github.io/ktl/">command reference</a>
+          </div>
         </header>
 
         <section class="content">
@@ -229,6 +347,9 @@
           <p>
             This post explains how sandboxed builds work with nsjail, then shows three demos:
             sandboxed build flow, cache intelligence, and SBOM/provenance attestations.
+          </p>
+          <p>
+            Full docs: <a href="https://kubekattle.github.io/ktl/">https://kubekattle.github.io/ktl/</a>.
           </p>
 
           <h2>Why safe builds are now mandatory</h2>
@@ -284,6 +405,7 @@
             <li><code>--cache-intel</code> for a fast summary of cache misses and slow steps.</li>
           </ul>
 
+          <p class="code-title">Command</p>
 <pre><code>ktl build . \
   -t ghcr.io/acme/app:dev \
   --secure \
@@ -304,6 +426,7 @@
             sandbox logs to show exactly what is mounted and executed.
           </p>
 
+          <p class="code-title">Command</p>
 <pre><code>ktl build sandbox doctor \
   --sandbox-bin /usr/local/bin/nsjail-oldmnt \
   --sandbox-config sandbox/linux-ci.cfg
@@ -324,6 +447,7 @@ ktl build testdata/build/dockerfiles/basic \
 
           <figure class="demo">
             <img src="../assets/ktl-build-sandbox.gif" alt="Sandbox doctor and sandboxed ktl build output" loading="lazy" />
+            <figcaption>Sandbox doctor checks the runtime, then build logs show the sandbox lifecycle and final image output.</figcaption>
           </figure>
 
           <h2>Demo Showcase 2: Cache intelligence (cold vs warm)</h2>
@@ -333,6 +457,7 @@ ktl build testdata/build/dockerfiles/basic \
             The second run surfaces improved hit ratios and faster path reuse.
           </p>
 
+          <p class="code-title">Command</p>
 <pre><code>KTL_SANDBOX_DISABLE=1 ktl build testdata/build/dockerfiles/metadata \
   -t local/ktl-cache-demo:latest \
   --output logs \
@@ -349,6 +474,7 @@ ktl build testdata/build/dockerfiles/basic \
 
           <figure class="demo">
             <img src="../assets/ktl-build-cache-intel.gif" alt="ktl build cache intelligence output" loading="lazy" />
+            <figcaption>Cache intelligence calls out misses, slow steps, and hit ratio so Dockerfile changes are easier to prioritize.</figcaption>
           </figure>
 
           <h2>Demo Showcase 3: SBOM + provenance attestations</h2>
@@ -358,6 +484,7 @@ ktl build testdata/build/dockerfiles/basic \
             and inspect the provenance document.
           </p>
 
+          <p class="code-title">Command</p>
 <pre><code>KTL_SANDBOX_DISABLE=1 ktl build testdata/build/dockerfiles/basic \
   -t local/ktl-attest-demo:latest \
   --output logs \
@@ -375,6 +502,7 @@ ls -lh ./out-attest</code></pre>
 
           <figure class="demo">
             <img src="../assets/ktl-build-attestations.gif" alt="ktl build SBOM and provenance attestation output" loading="lazy" />
+            <figcaption>Build output writes SBOM and provenance files, making the image contents and build history traceable.</figcaption>
           </figure>
 
           <h2>Pragmatic rollout strategy</h2>
@@ -398,6 +526,9 @@ ls -lh ./out-attest</code></pre>
 
           <p class="note">
             Fast builds matter. Fast builds with clear security controls and traceable output matter more.
+          </p>
+          <p>
+            For flags, examples, and updates, check <a href="https://kubekattle.github.io/ktl/">the ktl docs</a>.
           </p>
         </section>
       </article>
