@@ -203,6 +203,42 @@
         color: var(--muted);
       }
 
+      .compare {
+        margin: 20px 0 26px;
+        border: 1px solid var(--line-strong);
+        border-radius: 14px;
+        overflow: hidden;
+        max-width: 80ch;
+      }
+
+      .compare table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.97rem;
+      }
+
+      .compare th,
+      .compare td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .compare th {
+        color: var(--ink);
+        background: rgba(200, 179, 138, 0.08);
+      }
+
+      .compare tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .when {
+        color: #bfb6a8;
+        font-size: 0.92rem;
+      }
+
       pre {
         margin: 16px 0 20px;
         border-radius: 14px;
@@ -331,26 +367,61 @@
 
         <section class="content">
           <p>
-            Fast image builds are easy to love. They make release cycles shorter, reduce local waiting,
-            and keep teams moving. But speed alone is not enough anymore. In modern delivery pipelines,
-            every build step is also a security event. A Dockerfile does not only define an artifact; it
-            executes code, downloads dependencies, runs shell commands, and potentially touches secrets,
-            network paths, and host resources. If that process is too permissive, one compromised dependency
-            or one accidental script can become a supply-chain problem.
+            Image builds run code. That means every Docker build is both a packaging step and a security step.
+            If the builder is too open, a bad dependency or a wrong script can reach places it should not.
           </p>
 
           <p>
-            <code>ktl build</code> helps here. You keep a normal build flow, but add isolation, policy checks,
-            debugging output, and metadata about what was produced.
+            <code>ktl build</code> keeps the workflow familiar but adds controls: sandboxing, policy checks,
+            secret leak checks, attestation output, and cache diagnostics.
           </p>
 
           <p>
-            This post explains how sandboxed builds work with nsjail, then shows three demos:
-            sandboxed build flow, cache intelligence, and SBOM/provenance attestations.
+            This guide shows how these controls work in practice, with direct commands and demos you can run.
           </p>
           <p>
             Full docs: <a href="https://kubekattle.github.io/ktl/">https://kubekattle.github.io/ktl/</a>.
           </p>
+
+          <h2>Quick comparison</h2>
+          <div class="compare">
+            <table>
+              <thead>
+                <tr>
+                  <th>Capability</th>
+                  <th>default docker build</th>
+                  <th>ktl build</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Sandboxing</td>
+                  <td>Not built in as a first-class build flag.</td>
+                  <td>Built-in sandbox flow on Linux with runtime policy and diagnostics.</td>
+                </tr>
+                <tr>
+                  <td>Policy gates</td>
+                  <td>Manual integration required.</td>
+                  <td><code>--policy</code> and <code>--policy-mode enforce</code> in the build command.</td>
+                </tr>
+                <tr>
+                  <td>Secret checks</td>
+                  <td>Usually external tooling.</td>
+                  <td><code>--secrets warn|block|off</code> built in.</td>
+                </tr>
+                <tr>
+                  <td>Attestations</td>
+                  <td>Extra setup and tooling.</td>
+                  <td><code>--sbom</code>, <code>--provenance</code>, <code>--attest-dir</code> integrated.</td>
+                </tr>
+                <tr>
+                  <td>Cache report</td>
+                  <td>No opinionated summary by default.</td>
+                  <td><code>--cache-intel</code> shows misses, slow steps, and hit ratio.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
           <h2>Why safe builds are now mandatory</h2>
           <p>
@@ -396,13 +467,13 @@
           </p>
 
           <ul>
-            <li><code>--hermetic</code> (or <code>--locked</code>) to reduce network access and enforce pinned bases.</li>
-            <li><code>--secure</code> as a shortcut preset for stricter builds.</li>
-            <li><code>--policy</code> and <code>--policy-mode enforce</code> to block builds that fail your rules.</li>
-            <li><code>--secrets block</code> to fail on detected secret-leak risks.</li>
-            <li><code>--capture ./ktl-capture.sqlite</code> to keep a build event timeline for later debugging.</li>
-            <li><code>--ws-listen :9085</code> to stream raw build events to external viewers.</li>
-            <li><code>--cache-intel</code> for a fast summary of cache misses and slow steps.</li>
+            <li><code>--hermetic</code> (or <code>--locked</code>) to reduce network access and enforce pinned bases.<br /><span class="when">When to use: reproducible CI builds and dependency-sensitive repos.</span></li>
+            <li><code>--secure</code> as a shortcut preset for stricter builds.<br /><span class="when">When to use: release pipelines where you want safer defaults in one flag.</span></li>
+            <li><code>--policy</code> and <code>--policy-mode enforce</code> to block builds that fail your rules.<br /><span class="when">When to use: team-wide guardrails that must fail fast.</span></li>
+            <li><code>--secrets block</code> to fail on detected secret-leak risks.<br /><span class="when">When to use: repos with many env-based credentials or generated config files.</span></li>
+            <li><code>--capture ./ktl-capture.sqlite</code> to keep a build event timeline for later debugging.<br /><span class="when">When to use: flaky CI builds or intermittent buildkit issues.</span></li>
+            <li><code>--ws-listen :9085</code> to stream raw build events to external viewers.<br /><span class="when">When to use: remote observers or custom dashboards.</span></li>
+            <li><code>--cache-intel</code> for a fast summary of cache misses and slow steps.<br /><span class="when">When to use: ongoing Dockerfile optimization work.</span></li>
           </ul>
 
           <p class="code-title">Command</p>
@@ -418,6 +489,36 @@
             You do not need to turn on everything at once. Start with one or two controls, run it in CI for a few days,
             then tighten the defaults.
           </p>
+
+          <h2>Real failure example</h2>
+          <p>
+            Example: a build fails because secret checks are in blocking mode and a risky pattern is detected.
+          </p>
+          <p class="code-title">Failure output</p>
+<pre><code>Error: secrets scan failed (mode=block)
+- rule: possible-secret-in-build-arg
+- location: Dockerfile:12
+- value: ARG AWS_SECRET_ACCESS_KEY=...</code></pre>
+          <p class="code-title">Fix</p>
+<pre><code># move secret usage to BuildKit secret mounts and keep scans in blocking mode
+ktl build . \
+  -t ghcr.io/acme/app:dev \
+  --secret AWS_SECRET_ACCESS_KEY \
+  --secrets block</code></pre>
+
+          <h2>Copy/paste starters</h2>
+          <p class="code-title">Dev build (fast feedback)</p>
+<pre><code>ktl build . -t ghcr.io/acme/app:dev --cache-intel --output logs</code></pre>
+          <p class="code-title">Strict CI build</p>
+<pre><code>ktl build . -t ghcr.io/acme/app:ci --secure --policy ./policy --secrets block --cache-intel</code></pre>
+          <p class="code-title">Attested release build</p>
+<pre><code>ktl build . \
+  -t ghcr.io/acme/app:release \
+  --oci \
+  --sbom \
+  --provenance \
+  --attest-dir ./out-attest \
+  --push</code></pre>
 
           <h2>Demo Showcase 1: Sandbox doctor + sandboxed build</h2>
           <p>
@@ -529,6 +630,13 @@ ls -lh ./out-attest</code></pre>
           </p>
           <p>
             For flags, examples, and updates, check <a href="https://kubekattle.github.io/ktl/">the ktl docs</a>.
+          </p>
+          <p>
+            Specific references:
+            <a href="https://github.com/kubekattle/ktl/blob/main/README.md">build flags</a>,
+            <a href="https://github.com/kubekattle/ktl/blob/main/docs/config-atlas.md">sandbox config</a>,
+            <a href="https://github.com/kubekattle/ktl/blob/main/docs/troubleshooting.md">policy and troubleshooting</a>,
+            <a href="https://github.com/kubekattle/ktl/blob/main/AGENTS.md">attestation and release flow</a>.
           </p>
         </section>
       </article>
