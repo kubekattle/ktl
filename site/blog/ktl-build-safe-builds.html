@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Safe Docker Builds with ktl build</title>
+    <style>
+      :root {
+        --bg: #f4f7fb;
+        --card: #ffffff;
+        --text: #0f172a;
+        --muted: #475569;
+        --accent: #2563eb;
+        --border: #dbe3ef;
+        --code: #0b1220;
+      }
+      body {
+        margin: 0;
+        font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: var(--text);
+        background: linear-gradient(180deg, #eef3f9, var(--bg));
+      }
+      .wrap {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 36px 20px 64px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 28px;
+      }
+      h1 {
+        font-size: 2rem;
+        margin: 0 0 10px;
+      }
+      h2 {
+        margin-top: 30px;
+        font-size: 1.35rem;
+      }
+      p, li {
+        line-height: 1.65;
+        color: #1e293b;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin-bottom: 24px;
+      }
+      code {
+        background: #eef3ff;
+        color: #1d4ed8;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      pre {
+        background: var(--code);
+        color: #e2e8f0;
+        padding: 14px;
+        border-radius: 10px;
+        overflow-x: auto;
+        border: 1px solid #1f2937;
+      }
+      a { color: var(--accent); }
+      .note {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .back {
+        margin-bottom: 16px;
+        display: inline-block;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <article class="card">
+        <a class="back" href="./index.html">Back to blog index</a>
+        <h1>Build Docker Images Safely with <code>ktl build</code> (With Real Demos)</h1>
+        <p class="meta">Published February 13, 2026 · kubekattle engineering</p>
+
+        <p>
+          Fast image builds are easy to love. They make release cycles shorter, reduce local waiting,
+          and keep teams moving. But speed alone is not enough anymore. In modern delivery pipelines,
+          every build step is also a security event. A Dockerfile does not only define an artifact; it
+          executes code, downloads dependencies, runs shell commands, and potentially touches secrets,
+          network paths, and host resources. If that process is too permissive, one compromised dependency
+          or one accidental script can become a supply-chain problem.
+        </p>
+
+        <p>
+          This is exactly where <code>ktl build</code> matters. It is designed to keep developer workflows practical
+          while raising the default security posture of image builds. Instead of assuming build logic is always
+          trustworthy, it adds isolation, policy, diagnostics, and artifact metadata so teams can both move fast
+          and explain what happened in each build.
+        </p>
+
+        <p>
+          In this post we keep things simple and exciting: first, we explain how sandboxed building works with
+          nsjail. Then we walk through three concrete demos you can run with VHS. The demos highlight the
+          security boundary, cache intelligence, and SBOM/provenance attestation flow in action.
+        </p>
+
+        <h2>Why safe builds are now mandatory</h2>
+        <p>
+          A lot of CI systems still treat image build stages as harmless plumbing. In reality, build jobs are one
+          of the highest-risk points in a pipeline because they execute untrusted or semi-trusted code on your
+          infrastructure. Typical pitfalls include broad host mounts, permissive environment variables, accidental
+          credential exposure, unrestricted egress, and weak traceability for what got shipped.
+        </p>
+
+        <p>
+          When an incident happens, the painful questions usually look the same: Which dependency was pulled?
+          Which script ran? Could it access host-only files? Did we produce a bill of materials? Can we prove the
+          provenance of this artifact? <code>ktl build</code> answers those questions with explicit controls and outputs
+          instead of ad hoc scripts.
+        </p>
+
+        <h2>How sandboxing works with nsjail</h2>
+        <p>
+          On Linux, <code>ktl build</code> can run inside a sandbox runtime (nsjail) with a policy file. Think of this as
+          giving the build process a controlled room to work in. It gets only the mounts and runtime capabilities
+          it needs, rather than broad host access. That means filesystem visibility is explicit, and high-risk
+          assumptions become visible quickly.
+        </p>
+
+        <p>
+          A practical detail that teams appreciate: <code>ktl build sandbox doctor</code> exists to verify the environment
+          before running a real build. It checks mount/bind/network probes so you can confirm the sandbox is
+          healthy. Then, when you run the build with <code>--sandbox-logs</code>, you see the sandbox lifecycle in
+          prefixed logs. This is important because strict policies without diagnostics are hard to operate.
+        </p>
+
+        <p>
+          In our lab environment we used an nsjail wrapper for mount API compatibility and then executed sandboxed
+          builds with explicit flags such as <code>--sandbox</code>, <code>--sandbox-config</code>, and <code>--sandbox-bind-home</code>
+          (when builder bootstrap needed home directory access). The key point is not one exact flag combo; the key
+          point is that access is intentional, reviewable, and debuggable.
+        </p>
+
+        <h2>Demo Showcase 1: Sandbox doctor + sandboxed build</h2>
+        <p>
+          The first demo establishes trust in the runtime itself. We start by running doctor probes against the
+          selected sandbox policy and runtime binary. Then we run a real Dockerfile build in sandbox mode and stream
+          sandbox logs to show exactly what is mounted and executed.
+        </p>
+
+<pre><code>ktl build sandbox doctor \
+  --sandbox-bin /usr/local/bin/nsjail-oldmnt \
+  --sandbox-config sandbox/linux-ci.cfg
+
+ktl build testdata/build/dockerfiles/basic \
+  -t local/ktl-sandbox-demo:latest \
+  --sandbox \
+  --sandbox-bin /usr/local/bin/nsjail-oldmnt \
+  --sandbox-config sandbox/linux-ci.cfg \
+  --sandbox-bind-home \
+  --sandbox-logs \
+  --output logs</code></pre>
+
+        <p>
+          What makes this exciting for an audience is that they see both layers: security controls and successful
+          build output. You get explicit sandbox lifecycle events and still finish with a built image. It demonstrates
+          that safety does not require abandoning normal build workflows.
+        </p>
+
+        <h2>Demo Showcase 2: Cache intelligence (cold vs warm)</h2>
+        <p>
+          Security alone is not enough; teams still need speed. The second demo highlights cache intelligence by
+          running the same build twice and comparing results. The first run shows more misses and slow export steps.
+          The second run surfaces improved hit ratios and faster path reuse.
+        </p>
+
+<pre><code>KTL_SANDBOX_DISABLE=1 ktl build testdata/build/dockerfiles/metadata \
+  -t local/ktl-cache-demo:latest \
+  --output logs \
+  --cache-intel \
+  --cache-intel-top 5
+
+# run again with the same command to highlight warm-cache behavior</code></pre>
+
+        <p>
+          The cache report is especially useful in reviews because it calls out miss reasons and slow steps instead of
+          leaving people to guess why a build got slower. This is the bridge between platform engineering and app teams:
+          you can discuss concrete numbers and concrete Dockerfile improvements.
+        </p>
+
+        <h2>Demo Showcase 3: SBOM + provenance attestations</h2>
+        <p>
+          The third demo focuses on artifact trust. We build with OCI output and write attestations to a dedicated
+          directory while enabling SBOM and provenance generation. After the build, we list the produced JSON files
+          and inspect the provenance document.
+        </p>
+
+<pre><code>KTL_SANDBOX_DISABLE=1 ktl build testdata/build/dockerfiles/basic \
+  -t local/ktl-attest-demo:latest \
+  --output logs \
+  --oci \
+  --attest-dir ./out-attest \
+  --sbom \
+  --provenance
+
+ls -lh ./out-attest</code></pre>
+
+        <p>
+          This is where build pipelines graduate from "artifact exists" to "artifact is explainable." SBOM gives an
+          inventory of components and versions. Provenance adds a machine-readable record about how the artifact was
+          produced. Combined with checksums and signatures in broader release flows, this creates a stronger chain of
+          trust for production deployments.
+        </p>
+
+        <h2>Where VHS fits in</h2>
+        <p>
+          The demos were designed to be reproducible with VHS so teams can share deterministic terminal showcases in
+          engineering docs, onboarding, or release notes. We prepared three tape scenarios that match the sections above:
+        </p>
+
+        <ul>
+          <li><code>docs/assets/ktl-build-01-sandbox.tape</code> for sandbox diagnostics and sandboxed build output.</li>
+          <li><code>docs/assets/ktl-build-02-cache.tape</code> for cold-vs-warm cache intelligence behavior.</li>
+          <li><code>docs/assets/ktl-build-03-attest.tape</code> for SBOM/provenance attestation generation and inspection.</li>
+        </ul>
+
+        <p>
+          Recording these in CI or on a shared test host gives you living evidence of behavior, not just static claims.
+          That is powerful when introducing platform standards to multiple teams: people can watch exactly what the
+          command does and what outputs are produced.
+        </p>
+
+        <h2>Pragmatic rollout strategy</h2>
+        <p>
+          If you are adopting this in an existing org, do it in layers. Start with one representative service and one
+          sandbox profile. Validate with sandbox doctor. Turn on sandbox logs while tuning. Introduce cache intel reports
+          for visibility. Then add SBOM/provenance outputs to release gates. Finally, codify policy and artifacts in PR
+          templates so the process becomes routine.
+        </p>
+
+        <p>
+          This approach avoids the classic trap of trying to enforce everything at once. Teams accept guardrails faster
+          when they are visible, debuggable, and tied to practical outcomes: fewer security blind spots, easier incident
+          triage, and better release confidence.
+        </p>
+
+        <h2>Final take</h2>
+        <p>
+          <code>ktl build</code> is not only a way to compile container images. It is a safer build framework: isolate risky
+          execution, inspect behavior through diagnostics, measure cache effectiveness, and emit supply-chain evidence.
+          That combination is what modern delivery pipelines need.
+        </p>
+
+        <p class="note">
+          Fast builds are good. Fast, safe, and verifiable builds are better. With the three demos above, you can show
+          that story in a way any engineer can understand in minutes.
+        </p>
+      </article>
+    </main>
+  </body>
+</html>
