@@ -73,13 +73,25 @@
         margin-bottom: 16px;
         display: inline-block;
       }
+      .demo {
+        margin: 14px 0 6px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        background: #0b1220;
+      }
+      .demo img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
     </style>
   </head>
   <body>
     <main class="wrap">
       <article class="card">
         <a class="back" href="./index.html">Back to blog index</a>
-        <h1>Build Docker Images Safely with <code>ktl build</code> (With Real Demos)</h1>
+        <h1>Build Docker Images Safely with <code>ktl build</code></h1>
         <p class="meta">Published February 13, 2026 · kubekattle engineering</p>
 
         <p>
@@ -100,7 +112,7 @@
 
         <p>
           In this post we keep things simple and exciting: first, we explain how sandboxed building works with
-          nsjail. Then we walk through three concrete demos you can run with VHS. The demos highlight the
+          nsjail. Then we walk through three concrete demos. The demos highlight the
           security boundary, cache intelligence, and SBOM/provenance attestation flow in action.
         </p>
 
@@ -166,6 +178,9 @@ ktl build testdata/build/dockerfiles/basic \
           build output. You get explicit sandbox lifecycle events and still finish with a built image. It demonstrates
           that safety does not require abandoning normal build workflows.
         </p>
+        <figure class="demo">
+          <img src="../assets/ktl-build-sandbox.gif" alt="Sandbox doctor and sandboxed ktl build output" loading="lazy" />
+        </figure>
 
         <h2>Demo Showcase 2: Cache intelligence (cold vs warm)</h2>
         <p>
@@ -187,6 +202,9 @@ ktl build testdata/build/dockerfiles/basic \
           leaving people to guess why a build got slower. This is the bridge between platform engineering and app teams:
           you can discuss concrete numbers and concrete Dockerfile improvements.
         </p>
+        <figure class="demo">
+          <img src="../assets/ktl-build-cache-intel.gif" alt="ktl build cache intelligence output" loading="lazy" />
+        </figure>
 
         <h2>Demo Showcase 3: SBOM + provenance attestations</h2>
         <p>
@@ -211,24 +229,9 @@ ls -lh ./out-attest</code></pre>
           produced. Combined with checksums and signatures in broader release flows, this creates a stronger chain of
           trust for production deployments.
         </p>
-
-        <h2>Where VHS fits in</h2>
-        <p>
-          The demos were designed to be reproducible with VHS so teams can share deterministic terminal showcases in
-          engineering docs, onboarding, or release notes. We prepared three tape scenarios that match the sections above:
-        </p>
-
-        <ul>
-          <li><code>docs/assets/ktl-build-01-sandbox.tape</code> for sandbox diagnostics and sandboxed build output.</li>
-          <li><code>docs/assets/ktl-build-02-cache.tape</code> for cold-vs-warm cache intelligence behavior.</li>
-          <li><code>docs/assets/ktl-build-03-attest.tape</code> for SBOM/provenance attestation generation and inspection.</li>
-        </ul>
-
-        <p>
-          Recording these in CI or on a shared test host gives you living evidence of behavior, not just static claims.
-          That is powerful when introducing platform standards to multiple teams: people can watch exactly what the
-          command does and what outputs are produced.
-        </p>
+        <figure class="demo">
+          <img src="../assets/ktl-build-attestations.gif" alt="ktl build SBOM and provenance attestation output" loading="lazy" />
+        </figure>
 
         <h2>Pragmatic rollout strategy</h2>
         <p>
