@@ -268,6 +268,35 @@
             point is that access is intentional, reviewable, and debuggable.
           </p>
 
+          <h2>Other useful ktl build features</h2>
+          <p>
+            Sandbox is only one part of <code>ktl build</code>. These features are useful in real projects and are worth
+            using together.
+          </p>
+
+          <ul>
+            <li><code>--hermetic</code> (or <code>--locked</code>) to reduce network access and enforce pinned bases.</li>
+            <li><code>--secure</code> as a shortcut preset for stricter builds.</li>
+            <li><code>--policy</code> and <code>--policy-mode enforce</code> to block builds that fail your rules.</li>
+            <li><code>--secrets block</code> to fail on detected secret-leak risks.</li>
+            <li><code>--capture ./ktl-capture.sqlite</code> to keep a build event timeline for later debugging.</li>
+            <li><code>--ws-listen :9085</code> to stream raw build events to external viewers.</li>
+            <li><code>--cache-intel</code> for a fast summary of cache misses and slow steps.</li>
+          </ul>
+
+<pre><code>ktl build . \
+  -t ghcr.io/acme/app:dev \
+  --secure \
+  --policy ./policy \
+  --secrets block \
+  --capture ./ktl-capture.sqlite \
+  --cache-intel</code></pre>
+
+          <p>
+            You do not need to turn on everything at once. Start with one or two controls, run it in CI for a few days,
+            then tighten the defaults.
+          </p>
+
           <h2>Demo Showcase 1: Sandbox doctor + sandboxed build</h2>
           <p>
             The first demo establishes trust in the runtime itself. We start by running doctor probes against the
