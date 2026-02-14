@@ -90,18 +90,37 @@
         color: var(--ink);
         font-family: "Iowan Old Style", "Baskerville", "Times New Roman", serif;
         font-weight: 500;
-        font-size: clamp(2rem, 5.5vw, 3.15rem);
+        font-size: clamp(2.3rem, 6.2vw, 3.7rem);
         line-height: 1.14;
         letter-spacing: 0.01em;
-        max-width: 20ch;
+        max-width: 16ch;
         text-wrap: balance;
       }
 
       .deck {
         margin: 14px 0 0;
-        max-width: 62ch;
-        color: #c6bfb2;
+        max-width: 54ch;
+        color: #b7ae9f;
         font-size: 1rem;
+      }
+
+      .hero-quick {
+        margin-top: 12px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hero-pill {
+        display: inline-block;
+        border: 1px solid rgba(200, 179, 138, 0.28);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #c6bdae;
+        background: rgba(200, 179, 138, 0.06);
       }
 
       .meta {
@@ -203,20 +222,93 @@
         color: #c1b8a9;
       }
 
+      .mini-toc {
+        position: sticky;
+        top: 16px;
+        z-index: 5;
+        margin: 0 0 22px;
+        padding: 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(18, 19, 22, 0.98), rgba(13, 14, 17, 0.98));
+        max-width: 84ch;
+      }
+
+      .mini-toc-title {
+        margin: 0 0 8px;
+        font-size: 0.74rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .mini-toc-links {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .mini-toc a {
+        text-decoration: none;
+        font-size: 0.82rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #d2c9bb;
+        border: 1px solid rgba(200, 179, 138, 0.22);
+        border-radius: 999px;
+        padding: 5px 10px;
+        background: rgba(200, 179, 138, 0.05);
+      }
+
+      .mini-toc a.active {
+        color: #f6ecdc;
+        border-color: rgba(200, 179, 138, 0.58);
+        background: rgba(200, 179, 138, 0.16);
+      }
+
+      .diagram-card {
+        margin: 14px 0 24px;
+        padding: 1px;
+        border-radius: 14px;
+        background: linear-gradient(145deg, rgba(200, 179, 138, 0.45), rgba(200, 179, 138, 0.08));
+        box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+        max-width: 84ch;
+      }
+
+      .diagram-card-inner {
+        border-radius: 13px;
+        background:
+          radial-gradient(circle at 0% 0%, rgba(200, 179, 138, 0.11), transparent 38%),
+          linear-gradient(180deg, #0d0e12, #090a0d);
+      }
+
       .mermaid {
         margin: 12px 0 20px;
         padding: 16px 18px;
-        border-radius: 12px;
-        border: 1px solid var(--line-strong);
-        background: #0b0c0f;
+        border-radius: 12px 12px 0 0;
+        border: 0;
+        background: transparent;
         overflow-x: auto;
-        max-width: 84ch;
+        max-width: none;
+      }
+
+      .diagram-card figcaption {
+        margin: 0;
+        padding: 9px 14px 12px;
+        font-size: 0.84rem;
+        letter-spacing: 0.04em;
+        color: #c7bca9;
+        border-top: 1px solid rgba(200, 179, 138, 0.18);
       }
 
       @media (max-width: 760px) {
         .hero,
         .content {
           padding: 24px 20px;
+        }
+
+        .mini-toc {
+          top: 8px;
         }
       }
     </style>
@@ -227,6 +319,10 @@
         <header class="hero">
           <a class="back" href="./index.html">Back to Blog</a>
           <h1><code>ktl stack</code> DAG Workflows: Where It Beats Argo and Helmfile</h1>
+          <div class="hero-quick">
+            <span class="hero-pill">13 min read</span>
+            <span class="hero-pill">Updated February 14, 2026</span>
+          </div>
           <p class="deck">
             If your main pain is ordered multi-release deploys, fast retries, and CI-first reproducibility,
             <code>ktl stack</code> can be a better fit than controller-first tools. Here is where the DAG model
@@ -236,6 +332,15 @@
         </header>
 
         <section class="content">
+          <nav class="mini-toc" aria-label="Section Navigation">
+            <p class="mini-toc-title">In This Post</p>
+            <div class="mini-toc-links">
+              <a href="#decision-matrix">Decision Matrix</a>
+              <a href="#recovery-flow">Recovery Flow</a>
+              <a href="#ci-patterns">CI Patterns</a>
+            </div>
+          </nav>
+
           <h2>The Real Problem Teams Hit</h2>
           <p>
             Most teams do not struggle with "how to run Helm". They struggle with orchestration under change:
@@ -255,13 +360,18 @@
             entrypoints on top. DAG scheduling maps naturally to that structure.
           </p>
 
-<div class="mermaid">graph TD
+<figure class="diagram-card">
+  <div class="diagram-card-inner">
+    <div class="mermaid">graph TD
   postgres[(postgres)] --> api
   redis[(redis)] --> api
   api --> worker
   api --> web
   worker --> cron
-</div>
+    </div>
+    <figcaption>Execution order: independent infrastructure nodes start first, then business tiers fan out.</figcaption>
+  </div>
+</figure>
 
           <p>
             With this shape, <code>postgres</code> and <code>redis</code> deploy in parallel first. Then
@@ -304,7 +414,84 @@ releases:
     chart: ./charts/web
     needs: [api]</code></pre>
 
-          <h2>Argo vs ktl stack: Decision Boundary</h2>
+          <h2>Stack Config Patterns That Actually Scale</h2>
+          <p>
+            The most underrated part of <code>ktl stack</code> is not just DAG execution. It is configuration shape.
+            Good stack config keeps deploy intent readable, minimizes CLI sprawl, and makes behavior predictable across
+            laptop and CI. A common anti-pattern in multi-service environments is command drift: one engineer runs a
+            custom flag cocktail, CI uses another, and incident responders guess what was applied last time.
+            <code>ktl stack</code> addresses this by letting teams encode defaults directly in <code>stack.yaml</code>.
+          </p>
+          <p>
+            Start with small global defaults and keep per-release blocks minimal. This keeps reviews focused on actual
+            graph and values changes instead of command wrappers:
+          </p>
+<pre><code>name: prod
+defaults:
+  namespace: platform
+  runner:
+    concurrency: 6
+    progressiveConcurrency: true
+releases:
+  - name: api
+    chart: ./charts/api
+    values: [./values/api.yaml]
+  - name: worker
+    chart: ./charts/worker
+    needs: [api]
+    values: [./values/worker.yaml]</code></pre>
+          <p>
+            Next, move operational behavior into the <code>cli</code> block so day-to-day commands are short and
+            repeatable. This is where <code>ktl stack</code> is often better than ad hoc wrappers around Helm/Helmfile:
+            precedence is explicit (flags &gt; env &gt; stack.yaml), so operators can override when needed without creating
+            permanent drift.
+          </p>
+<pre><code>cli:
+  output: table
+  inferDeps: true
+  selector:
+    clusters: [prod-us]
+    tags: [critical]
+    includeDeps: true
+  apply:
+    diff: true
+  resume:
+    allowDrift: false
+    rerunFailed: false</code></pre>
+          <p>
+            For reliability-focused teams, verify gates in config are another strong advantage. Instead of depending on
+            external policy glue, you can define post-apply checks per stack or per release. This creates a practical
+            contract: rollout is not "done" until readiness and event-based health checks pass.
+          </p>
+<pre><code>defaults:
+  verify:
+    enabled: true
+    failOnWarnings: true
+    eventsWindow: 15m
+    timeout: 2m
+    denyReasons: ["FailedScheduling","BackOff","ImagePullBackOff"]
+releases:
+  - name: worker
+    chart: ./charts/worker
+    verify:
+      enabled: false</code></pre>
+          <p>
+            Why this can be better in practice: config-first stacks reduce command entropy, make run intent auditable,
+            and support safer recovery. During an outage, responders can open one file, understand concurrency, verify
+            behavior, selectors, and resume policy, then act with confidence. In CI, the same config powers read-only
+            planning, apply, resume, and audit without separate scripts for each stage. That consistency is what turns
+            a DAG deploy tool into a reliable operating model.
+          </p>
+          <p>
+            One more pattern worth adopting early is profile overlays in the same stack file (for example dev, stage,
+            prod). Instead of forking multiple stack definitions, keep one graph and only override what should differ:
+            concurrency, selector scopes, and safety strictness. This keeps dependency topology identical across
+            environments, which prevents "works in stage, fails in prod" surprises caused by divergent config trees.
+            In practice, this makes promotions cleaner: you are changing values and policy intensity, not re-inventing
+            graph semantics for each environment.
+          </p>
+
+          <h2 id="decision-matrix">Argo vs ktl stack: Decision Boundary</h2>
           <p>
             Argo CD is excellent for always-on cluster reconciliation. If your top priority is perpetual convergence
             from Git state to cluster state, Argo remains a strong default. But when teams need explicit run control,
@@ -392,21 +579,26 @@ releases:
             <li>Optional Kubernetes verify phase per release can fail on readiness and Warning events.</li>
           </ul>
 
-          <h2>A Day-2 Failure Story</h2>
+          <h2 id="recovery-flow">A Day-2 Failure Story</h2>
           <p>
             Imagine a 20-node stack where one mid-graph service fails due to a bad value file. In a pure sequential
             flow, teams either rerun everything or hand-pick commands manually. Both paths are noisy and error-prone.
             With <code>ktl stack</code>, you can keep the same run context and recover with minimal blast radius.
           </p>
 
-<div class="mermaid">graph TD
+<figure class="diagram-card">
+  <div class="diagram-card-inner">
+    <div class="mermaid">graph TD
   A[plan] --> B[apply]
   B --> C{node failed?}
   C -- yes --> D[fix values/chart]
   D --> E[resume run]
   E --> F[only failed frontier reruns]
   C -- no --> G[run complete]
-</div>
+    </div>
+    <figcaption>Failure recovery flow: fix once, resume from the failed frontier, avoid full replay.</figcaption>
+  </div>
+</figure>
 
           <p>
             This is not just convenience. It changes incident MTTR because operators spend time fixing root cause,
@@ -444,12 +636,17 @@ ktl stack audit --config ./stacks/prod --output html > stack-audit.html</code></
             hidden ordering constraints before they fail at runtime.
           </p>
 
-<div class="mermaid">graph LR
+<figure class="diagram-card">
+  <div class="diagram-card-inner">
+    <div class="mermaid">graph LR
   crd[CRD provider] --> operator
   operator --> app
   sa[ServiceAccount] --> app
   pvc[PVC] --> app
-</div>
+    </div>
+    <figcaption>Inferred dependency edges surface hidden ordering constraints before rollout.</figcaption>
+  </div>
+</figure>
 
           <p>
             Pair inference with <code>stack explain --why</code>, and the question "why was this selected and ordered
@@ -470,7 +667,7 @@ ktl stack status --config ./stacks/prod --follow</code></pre>
             This adds a practical middle layer between "kubectl says applied" and full external observability stacks.
           </p>
 
-          <h2>CI-Friendly Reproducibility Patterns</h2>
+          <h2 id="ci-patterns">CI-Friendly Reproducibility Patterns</h2>
           <p>
             Another differentiator is plan portability. Teams can generate a plan bundle in one stage, review it, and
             execute the exact intent later in CI. This helps when approval flows require separation between planning
@@ -517,6 +714,36 @@ ktl stack apply --config ./stacks/prod --resume --yes</code></pre>
     <script type="module">
       import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
       mermaid.initialize({ startOnLoad: true, theme: "dark" });
+
+      const tocLinks = Array.from(document.querySelectorAll(".mini-toc a"));
+      const sections = tocLinks
+        .map((link) => document.querySelector(link.getAttribute("href")))
+        .filter(Boolean);
+
+      if (sections.length > 0) {
+        const setActive = (id) => {
+          tocLinks.forEach((link) => {
+            const match = link.getAttribute("href") === `#${id}`;
+            link.classList.toggle("active", match);
+          });
+        };
+
+        setActive(sections[0].id);
+
+        const observer = new IntersectionObserver(
+          (entries) => {
+            const visible = entries
+              .filter((entry) => entry.isIntersecting)
+              .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+            if (visible[0]?.target?.id) {
+              setActive(visible[0].target.id);
+            }
+          },
+          { rootMargin: "-25% 0px -60% 0px", threshold: [0.2, 0.5, 0.8] },
+        );
+
+        sections.forEach((section) => observer.observe(section));
+      }
     </script>
   </body>
 </html>
