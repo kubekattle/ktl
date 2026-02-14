@@ -43,6 +43,14 @@
 
 ---
 
+## Blog
+
+- Blog index: https://kubekattle.github.io/ktl/blog/index.html
+- Build Docker Images Safely with `ktl build`: https://kubekattle.github.io/ktl/blog/ktl-build-safe-builds.html
+- `ktl stack` DAG Workflows: Where It Beats Argo and Helmfile: https://kubekattle.github.io/ktl/blog/ktl-stack-dag-vs-argo.html
+
+---
+
 ## AI Analyze Highlights
 
 `ktl analyze --ai` helps you move from symptoms to a likely root cause quickly by combining pod status, recent events, and logs into one diagnosis flow.
