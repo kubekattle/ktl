@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ktl stack DAG: When It Beats Argo and Helmfile</title>
+    <style>
+      :root {
+        --ink: #f2ede3;
+        --text: #d8d2c7;
+        --muted: #a49c90;
+        --paper: #070709;
+        --panel: #0f1013;
+        --line: rgba(200, 179, 138, 0.2);
+        --line-strong: rgba(200, 179, 138, 0.38);
+        --accent: #c8b38a;
+      }
+
+      * { box-sizing: border-box; }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background:
+          radial-gradient(circle at 0% 0%, rgba(200, 179, 138, 0.12), transparent 34%),
+          radial-gradient(circle at 100% 100%, rgba(200, 179, 138, 0.06), transparent 42%),
+          linear-gradient(180deg, #050507 0%, var(--paper) 48%, #050507 100%);
+        color: var(--text);
+      }
+
+      body {
+        font-family: "Avenir Next", "Avenir", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        line-height: 1.72;
+        letter-spacing: 0.005em;
+      }
+
+      .frame {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 46px 24px 90px;
+      }
+
+      .article {
+        background: linear-gradient(180deg, rgba(20, 21, 24, 0.96), rgba(13, 14, 17, 0.96));
+        border: 1px solid var(--line);
+        border-radius: 26px;
+        box-shadow:
+          0 30px 70px rgba(0, 0, 0, 0.48),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        overflow: hidden;
+      }
+
+      .hero {
+        position: relative;
+        padding: 42px 48px 34px;
+        border-bottom: 1px solid var(--line);
+        background:
+          radial-gradient(circle at 18% 0%, rgba(200, 179, 138, 0.14), transparent 46%),
+          linear-gradient(165deg, rgba(29, 30, 34, 0.96) 0%, rgba(20, 21, 25, 0.92) 62%, rgba(13, 14, 17, 0.92) 100%);
+      }
+
+      .back {
+        display: inline-block;
+        margin-bottom: 18px;
+        text-decoration: none;
+        color: var(--muted);
+        font-size: 0.86rem;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .back:hover { color: var(--accent); }
+
+      h1 {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Iowan Old Style", "Baskerville", "Times New Roman", serif;
+        font-weight: 500;
+        font-size: clamp(2rem, 5.5vw, 3.15rem);
+        line-height: 1.14;
+        letter-spacing: 0.01em;
+        max-width: 20ch;
+        text-wrap: balance;
+      }
+
+      .deck {
+        margin: 14px 0 0;
+        max-width: 62ch;
+        color: #c6bfb2;
+        font-size: 1rem;
+      }
+
+      .meta {
+        margin-top: 16px;
+        font-size: 0.84rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .content { padding: 38px 48px 52px; }
+
+      h2 {
+        margin: 52px 0 12px;
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+        font-family: "Iowan Old Style", "Baskerville", "Times New Roman", serif;
+        font-weight: 500;
+        font-size: 1.62rem;
+        line-height: 1.25;
+        color: var(--ink);
+      }
+
+      p {
+        margin: 0 0 16px;
+        font-size: 1.02rem;
+        max-width: 70ch;
+      }
+
+      ul {
+        margin: 10px 0 18px;
+        padding-left: 24px;
+        max-width: 70ch;
+      }
+
+      li { margin-bottom: 8px; }
+
+      code {
+        font-family: "SF Mono", "Menlo", "Consolas", monospace;
+        font-size: 0.93em;
+        background: rgba(200, 179, 138, 0.1);
+        color: #f0e8da;
+        border: 1px solid rgba(200, 179, 138, 0.2);
+        border-radius: 6px;
+        padding: 2px 6px;
+      }
+
+      pre {
+        margin: 12px 0 20px;
+        padding: 16px 18px;
+        border-radius: 12px;
+        border: 1px solid var(--line-strong);
+        background: #0b0c0f;
+        overflow-x: auto;
+        max-width: 84ch;
+      }
+
+      pre code {
+        border: 0;
+        padding: 0;
+        background: transparent;
+        color: #efe7d8;
+      }
+
+      a { color: var(--accent); }
+      a:hover { color: #f1e6d2; }
+
+      .compare {
+        margin: 18px 0 24px;
+        border: 1px solid var(--line-strong);
+        border-radius: 14px;
+        overflow: hidden;
+        max-width: 84ch;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.96rem;
+      }
+
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      th {
+        background: rgba(200, 179, 138, 0.08);
+        color: var(--ink);
+      }
+
+      tr:last-child td { border-bottom: 0; }
+
+      .note {
+        font-size: 0.95rem;
+        color: #c1b8a9;
+      }
+
+      @media (max-width: 760px) {
+        .hero,
+        .content {
+          padding: 24px 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="frame">
+      <article class="article">
+        <header class="hero">
+          <a class="back" href="./index.html">Back to Blog</a>
+          <h1><code>ktl stack</code> DAG Workflows: Where It Beats Argo and Helmfile</h1>
+          <p class="deck">
+            If your main pain is ordered multi-release deploys, fast retries, and CI-first reproducibility,
+            <code>ktl stack</code> can be a better fit than controller-first tools. Here is where the DAG model
+            gives concrete wins.
+          </p>
+          <p class="meta">Published February 14, 2026</p>
+        </header>
+
+        <section class="content">
+          <h2>The Core Problem</h2>
+          <p>
+            Most teams do not struggle with "how to run Helm". They struggle with orchestration under change:
+            dependency order, partial failures, retries, and proving what exactly was executed. A simple script is
+            too brittle, and a full in-cluster GitOps controller can be too heavyweight when you need explicit,
+            operator-driven runs in CI and during incident response.
+          </p>
+          <p>
+            <code>ktl stack</code> treats your releases as a real directed acyclic graph (DAG), not just a list. The
+            planner validates cycles and missing dependencies early, then schedules independent nodes concurrently.
+            You keep deterministic order where it matters and parallel speed where it is safe.
+          </p>
+
+          <h2>What The DAG Looks Like</h2>
+          <p>
+            A typical platform graph has shared infra at the bottom, business services in the middle, and edge/API
+            at the top. This is exactly where DAG orchestration pays off.
+          </p>
+
+<pre><code class="language-mermaid">graph TD
+  postgres[(postgres)] --> api
+  redis[(redis)] --> api
+  api --> worker
+  api --> web
+  worker --> cron
+</code></pre>
+
+          <p>
+            With this shape, <code>postgres</code> and <code>redis</code> can deploy in parallel, then
+            <code>api</code>, then <code>worker</code> and <code>web</code> in parallel, then <code>cron</code>. The
+            schedule is faster than serial Helm, but still dependency-correct.
+          </p>
+
+          <p>
+            You can generate graph output directly from your stack for reviews and docs:
+          </p>
+<pre><code>ktl stack graph --config ./stacks/prod --format mermaid > stack.mmd
+ktl stack graph --config ./stacks/prod > stack.dot</code></pre>
+
+          <h2>Why It Is Better Than Argo In Some Use Cases</h2>
+          <p>
+            Argo CD is strong for continuous reconciliation and always-on drift correction in-cluster. But some
+            teams need a different operating model: explicit, audited runs from CI/laptop with strict control over
+            selection and execution boundaries. In that model, <code>ktl stack</code> can be the better default.
+          </p>
+
+          <div class="compare">
+            <table>
+              <thead>
+                <tr>
+                  <th>Use Case</th>
+                  <th>Why <code>ktl stack</code> wins</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Pipeline-controlled deploy waves</td>
+                  <td>Read-only plan by default, explicit <code>apply</code>, deterministic DAG scheduling, and easy bundle-based handoff.</td>
+                </tr>
+                <tr>
+                  <td>Failure recovery during incidents</td>
+                  <td><code>--resume</code> and <code>rerun-failed</code> let you continue from the failed frontier instead of replaying everything.</td>
+                </tr>
+                <tr>
+                  <td>Selection transparency</td>
+                  <td><code>stack explain --why</code> shows why a node was selected, which reduces surprise in complex tag/path-based targeting.</td>
+                </tr>
+                <tr>
+                  <td>Post-run forensics</td>
+                  <td><code>stack status --follow</code>, <code>stack runs</code>, and <code>stack audit --output html</code> provide compact run evidence without extra tooling.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="note">
+            Short version: if your priority is "continuous desired-state convergence", Argo stays a strong choice.
+            If your priority is "predictable run orchestration + fast human recovery + CI parity", <code>ktl stack</code>
+            is usually better.
+          </p>
+
+          <h2>Why It Is Better Than Helmfile In Some Use Cases</h2>
+          <p>
+            Helmfile solved multi-release workflows for many teams. <code>ktl stack</code> keeps that familiar shape,
+            then adds stronger execution and observability surfaces for larger graphs.
+          </p>
+          <ul>
+            <li>DAG-native scheduler with explicit dependency validation (cycle/missing-dep failure before apply).</li>
+            <li>Concurrent execution controls for faster cold starts on wide graphs.</li>
+            <li>Resume and rerun primitives built into the run engine.</li>
+            <li>Graph introspection in DOT/Mermaid and selection explainers.</li>
+            <li>Kubernetes-aware optional verify phase per release (readiness + Warning event gates).</li>
+          </ul>
+
+          <h2>Example: Safe Rollout With Recovery</h2>
+          <p>
+            This is a common production sequence: inspect, apply, recover only what failed, and export an audit
+            artifact for review.
+          </p>
+<pre><code># 1) Read-only plan (default behavior)
+ktl stack --config ./stacks/prod
+
+# 2) Execute in DAG order
+ktl stack apply --config ./stacks/prod --yes
+
+# 3) If anything fails, resume the run frontier
+ktl stack apply --config ./stacks/prod --resume --yes
+
+# 4) Or schedule only failed nodes
+ktl stack rerun-failed --config ./stacks/prod --yes
+
+# 5) Follow live status and export audit HTML
+ktl stack status --config ./stacks/prod --follow
+ktl stack audit --config ./stacks/prod --output html > stack-audit.html</code></pre>
+
+          <h2>Advanced Pattern: Inferred Dependencies</h2>
+          <p>
+            In mature stacks, keeping all dependency edges manually up to date can drift. <code>ktl stack</code> can infer
+            extra edges from Kubernetes relationships and merge them into planning. That is useful for catching hidden
+            ordering risks before they fail at runtime.
+          </p>
+
+<pre><code class="language-mermaid">graph LR
+  crd[CRD provider] --> operator
+  operator --> app
+  config[shared config] --> app
+</code></pre>
+
+          <p>
+            Combined with graph rendering and selection explainers, this turns "why did this deploy now?" from guesswork
+            into an inspectable answer.
+          </p>
+
+          <h2>Final Take</h2>
+          <p>
+            <code>ktl stack</code> is not trying to replace every GitOps controller. It is optimized for teams that want
+            deterministic DAG deploys, parallel speed, precise recovery, and run artifacts they can reason about.
+            In those conditions, it is often better than Argo and older Helmfile-style flows because it makes the
+            execution model explicit and debuggable.
+          </p>
+          <p>
+            References: <a href="https://github.com/kubekattle/ktl/blob/main/README.md">README</a>,
+            <a href="https://github.com/kubekattle/ktl/blob/main/docs/recipes.md">recipes</a>,
+            <a href="https://github.com/kubekattle/ktl/blob/main/docs/stack-verify.md">stack verify docs</a>,
+            <a href="https://github.com/kubekattle/ktl/blob/main/docs/config-atlas.md">config atlas</a>.
+          </p>
+        </section>
+      </article>
+    </main>
+  </body>
+</html>
