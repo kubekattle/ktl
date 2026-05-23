@@ -343,6 +343,8 @@
       }
 
       .metric {
+        position: relative;
+        overflow: hidden;
         min-height: 104px;
         padding: 14px;
         border: 1px solid rgba(237, 241, 245, 0.12);
@@ -354,6 +356,24 @@
       .metric:nth-child(2) { animation-delay: 0.08s; }
       .metric:nth-child(3) { animation-delay: 0.16s; }
       .metric:nth-child(4) { animation-delay: 0.24s; }
+
+      .metric::after {
+        content: "";
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 12px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(125, 211, 168, 0), rgba(125, 211, 168, 0.72), rgba(237, 241, 245, 0));
+        opacity: 0.44;
+        transform: scaleX(0.22);
+        transform-origin: left;
+        animation: metric-scan 5.6s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .metric:nth-child(2)::after { animation-delay: 0.5s; }
+      .metric:nth-child(3)::after { animation-delay: 1s; }
+      .metric:nth-child(4)::after { animation-delay: 1.5s; }
 
       .metric strong {
         display: block;
@@ -437,6 +457,8 @@
       }
 
       pre {
+        position: relative;
+        isolation: isolate;
         max-width: 100%;
         margin: 0;
         overflow-x: auto;
@@ -451,6 +473,17 @@
           0 18px 46px rgba(0, 0, 0, 0.22);
       }
 
+      pre::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background: linear-gradient(110deg, transparent 0 38%, rgba(237, 241, 245, 0.09) 48%, transparent 58% 100%);
+        opacity: 0;
+        transform: translateX(-54%);
+        animation: terminal-scan 8.4s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
       .proof-strip {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -458,6 +491,8 @@
       }
 
       .proof-chip {
+        position: relative;
+        overflow: hidden;
         min-width: 0;
         min-height: 88px;
         padding: 14px;
@@ -466,6 +501,26 @@
         background:
           linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.02)),
           rgba(10, 10, 12, 0.78);
+      }
+
+      .proof-chip::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(120deg, transparent 0 34%, rgba(255, 255, 255, 0.11) 48%, transparent 62% 100%);
+        opacity: 0;
+        transform: translateX(-58%);
+        animation: chip-sweep 7.4s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .proof-chip:nth-child(2)::after { animation-delay: 0.5s; }
+      .proof-chip:nth-child(3)::after { animation-delay: 1s; }
+      .proof-chip:nth-child(4)::after { animation-delay: 1.5s; }
+
+      .proof-chip > * {
+        position: relative;
+        z-index: 1;
       }
 
       .proof-chip strong,
@@ -557,6 +612,17 @@
         }
       }
 
+      @keyframes metric-scan {
+        0%, 100% {
+          opacity: 0.24;
+          transform: scaleX(0.18) translateX(0);
+        }
+        42%, 58% {
+          opacity: 0.72;
+          transform: scaleX(0.82) translateX(10%);
+        }
+      }
+
       @keyframes hero-scan {
         0%, 18% {
           opacity: 0;
@@ -602,6 +668,34 @@
         }
         44%, 62% {
           filter: brightness(1.34);
+        }
+      }
+
+      @keyframes terminal-scan {
+        0%, 22% {
+          opacity: 0;
+          transform: translateX(-54%);
+        }
+        38%, 62% {
+          opacity: 0.58;
+        }
+        86%, 100% {
+          opacity: 0;
+          transform: translateX(54%);
+        }
+      }
+
+      @keyframes chip-sweep {
+        0%, 24% {
+          opacity: 0;
+          transform: translateX(-58%);
+        }
+        42%, 58% {
+          opacity: 0.82;
+        }
+        82%, 100% {
+          opacity: 0;
+          transform: translateX(58%);
         }
       }
 
@@ -847,7 +941,7 @@ checked files: 12</code></pre>
 
           <p>Torque denied the request again because the proof gate no longer passed. The agent had permission, but the evidence had been changed after the graph was signed.</p>
 
-          <p>This is the operating model Torque should own: no permission-only writes, and no proof-only writes. Mutating automation needs both.</p>
+          <p>This is the operating model demonstrated by the run: no permission-only writes, and no proof-only writes. Mutating automation needs both.</p>
 
           <h2>The Agent Was Authorized, But Did Not Execute</h2>
           <p>After restoring the evidence, the policy check passed:</p>
@@ -931,7 +1025,7 @@ sha256: 8893d62ed389ed3f8d23a19de9109a2fb1aa2bba5616cfac8bb0fc0ca250f0ba</code><
 
           <p>That gives Torque a sharper category than "another GitOps tool": proof-gated change control, replayable production evidence, agent authorization before mutation, stateful workload graphs, and audit artifacts that survive the terminal session.</p>
 
-          <p>This run shows what Torque already does: build a signed proof graph, verify the gate, deny requests that lack an explicit allow decision, reject tampered evidence, record a non-mutating authorization, execute the stack change separately, and preserve the audit/export ledger. Argo CD can sync ordinary apps. Crossplane can provision infrastructure. Torque handles the production path where an agent wants to mutate something risky and the answer must be more precise than "it was allowed by RBAC."</p>
+          <p>The completed flow is concrete: Torque built a signed proof graph, verified the gate, denied requests that lacked an explicit allow decision, rejected tampered evidence, recorded a non-mutating authorization, executed the stack change separately, and preserved the audit/export ledger. Argo CD can sync ordinary apps. Crossplane can provision infrastructure. The production path shown here is where an agent requests a risky mutation and the decision needs evidence, not just RBAC.</p>
         </article>
       </main>
 
