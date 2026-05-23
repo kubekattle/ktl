@@ -931,7 +931,7 @@ sha256: 8893d62ed389ed3f8d23a19de9109a2fb1aa2bba5616cfac8bb0fc0ca250f0ba</code><
 
           <p>That gives Torque a sharper category than "another GitOps tool": proof-gated change control, replayable production evidence, agent authorization before mutation, stateful workload graphs, and audit artifacts that survive the terminal session.</p>
 
-          <p><code>stack reconcile</code> is the resident control loop for this model: it observes desired state, explains drift, requires proof for mutation, records decisions, and preserves replay history. Argo CD can sync ordinary apps. Crossplane can provision infrastructure. Torque handles the path where an agent wants to mutate something risky and the answer must be more precise than "it was allowed by RBAC."</p>
+          <p>This run shows what Torque already does: build a signed proof graph, verify the gate, deny requests that lack an explicit allow decision, reject tampered evidence, record a non-mutating authorization, execute the stack change separately, and preserve the audit/export ledger. Argo CD can sync ordinary apps. Crossplane can provision infrastructure. Torque handles the production path where an agent wants to mutate something risky and the answer must be more precise than "it was allowed by RBAC."</p>
         </article>
       </main>
 
