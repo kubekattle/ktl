@@ -1,8 +1,12 @@
 import math
+import os
 
 import ray
 from ray import serve
 
+
+MODEL_NAME = os.getenv("MODEL_NAME", "ray-serve-logistic-risk")
+MODEL_VERSION = os.getenv("MODEL_VERSION", "v1")
 
 ray.init(address="auto", ignore_reinit_error=True)
 serve.start(http_options={"host": "0.0.0.0", "port": 8000})
@@ -20,7 +24,9 @@ class FraudScorer:
         probability = 1.0 / (1.0 + math.exp(-linear_score))
         return {
             "fraud_probability": round(probability, 4),
-            "model": "ray-serve-logistic-risk-v1",
+            "model": f"{MODEL_NAME}-{MODEL_VERSION}",
+            "model_name": MODEL_NAME,
+            "model_version": MODEL_VERSION,
             "features": {
                 "amount": amount,
                 "velocity_5m": velocity,

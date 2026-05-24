@@ -792,7 +792,54 @@
       "subtitle": "Operate proof-backed target graphs and adapters",
       "content": "Operate proof-backed target graphs, inventories, and adapter-driven change workflows.\n\nUsage:\n  torque ops",
       "examples": [
-        "# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml"
+        "# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
+        "# Snapshot a dynamic inventory source\ntorque ops inventory snapshot --source ./targetgraph.yaml --type file --format json",
+        "# Collect cached host facts for selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --cache-dir ./.torque/ops/facts"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops facts",
+      "kind": "command",
+      "title": "torque ops facts",
+      "subtitle": "Collect and compare ops target facts",
+      "content": "Collect and compare ops target facts\n\nUsage:\n  torque ops facts",
+      "examples": [
+        "# Collect host or Kubernetes facts from selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --format json",
+        "# Compare two fact collections\ntorque ops facts diff --from ./facts-before.json --to ./facts-after.json"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops facts collect",
+      "kind": "command",
+      "title": "torque ops facts collect",
+      "subtitle": "Collect host and Kubernetes facts for selected ops targets",
+      "content": "Collect host and Kubernetes facts for selected ops targets\n\nUsage:\n  torque ops facts collect [flags]\n\nFlags:\n      --all-namespaces          Collect Kubernetes namespace-scoped facts from all\n                                namespaces\n      --cache-dir string        Directory for host fact cache entries\n      --cache-only              Read cached facts and freshness decisions without\n                                refreshing\n      --event-limit int         Maximum Kubernetes events to include per snapshot\n                                (default 25)\n      --format string           Output format: table or json (default \"table\")\n      --group stringArray       Target group to include (repeatable)\n      --limit int               Maximum selected targets to collect\n  -n, --namespace stringArray   Kubernetes namespace to collect (repeatable; defaults\n                                to active context)\n      --out-dir string          Write a redacted facts evidence bundle to a directory\n      --output string           Write JSON output to a file instead of stdout\n      --selector stringArray    Target label selector as key=value (repeatable)\n      --targets string          TargetGraph YAML file\n      --timeout duration        Timeout per transport command (default 30s)\n      --ttl duration            Override target fact TTL\n      --workload-samples int    Maximum Kubernetes workload sample rows per snapshot\n                                (default 25)",
+      "examples": [
+        "torque ops facts collect --targets ./targetgraph.yaml --selector role=web\n  torque ops facts collect --targets ./targetgraph.yaml --group web --cache-dir ./.torque/ops/facts --format json\n  torque ops facts collect --targets ./targetgraph.yaml --selector role=web --out-dir ./ops-facts-evidence\n  torque ops facts collect --targets ./targetgraph.yaml --selector kind=k8s --namespace prod --format json\n  torque ops facts collect --targets ./targetgraph.yaml --cache-dir ./.torque/ops/facts --cache-only",
+        "# Collect and cache selected target facts with evidence\ntorque ops facts collect --targets ./targetgraph.yaml --group web --cache-dir ./.torque/ops/facts --out-dir ./ops-facts-evidence",
+        "# Collect namespace-scoped Kubernetes facts\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=cluster --namespace prod --format json",
+        "# Inspect cached facts without refreshing\ntorque ops facts collect --targets ./targetgraph.yaml --cache-dir ./.torque/ops/facts --cache-only"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops facts diff",
+      "kind": "command",
+      "title": "torque ops facts diff",
+      "subtitle": "Compare two fact snapshots or collections",
+      "content": "Compare two fact snapshots or collections\n\nUsage:\n  torque ops facts diff [flags]\n\nFlags:\n      --format string   Output format: table or json (default \"table\")\n      --from string     Earlier fact snapshot, cache entry, resolve result, or\n                        collection JSON\n      --to string       Later fact snapshot, cache entry, resolve result, or\n                        collection JSON",
+      "examples": [
+        "torque ops facts diff --from ./facts-before.json --to ./facts-after.json\n  torque ops facts diff --from ./facts-before.json --to ./facts-after.json --format json",
+        "# Show changed fact categories between two runs\ntorque ops facts diff --from ./facts-before.json --to ./facts-after.json",
+        "# Emit a machine-readable fact diff\ntorque ops facts diff --from ./facts-before.json --to ./facts-after.json --format json"
       ],
       "tags": [
         "command"
@@ -806,7 +853,8 @@
       "content": "Inspect ops target inventory\n\nUsage:\n  torque ops inventory",
       "examples": [
         "# Show targets selected by a label\ntorque ops inventory show --targets ./targetgraph.yaml --selector role=db",
-        "# Export an HTML inventory graph\ntorque ops inventory graph --targets ./targetgraph.yaml --output inventory.html"
+        "# Export an HTML inventory graph\ntorque ops inventory graph --targets ./targetgraph.yaml --output inventory.html",
+        "# Snapshot a Git-backed TargetGraph source\ntorque ops inventory snapshot --source ./repo --type git --path targetgraph.yaml --ref HEAD --format json"
       ],
       "tags": [
         "command"
@@ -839,6 +887,94 @@
         "# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
         "# Emit selected targets as JSON\ntorque ops inventory show --targets ./targetgraph.yaml --selector role=db --format json",
         "# Limit a group-expanded inventory view\ntorque ops inventory show --targets ./targetgraph.yaml --group web --limit 10"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops inventory snapshot",
+      "kind": "command",
+      "title": "torque ops inventory snapshot",
+      "subtitle": "Snapshot a dynamic inventory source",
+      "content": "Snapshot a dynamic inventory source\n\nUsage:\n  torque ops inventory snapshot [flags]\n\nFlags:\n      --format string      Output format: table or json (default \"table\")\n      --path string        Path inside a directory or Git repository\n      --ref string         Git ref to snapshot\n      --source string      Inventory source path, URL, script, or Git repository\n      --timeout duration   Inventory source read timeout (default 30s)\n      --type string        Inventory source type: file, script, http, or git",
+      "examples": [
+        "torque ops inventory snapshot --source ./targetgraph.yaml --type file\n  torque ops inventory snapshot --source ./render-inventory.sh --type script --format json\n  torque ops inventory snapshot --source https://example.invalid/targetgraph.yaml --type http\n  torque ops inventory snapshot --source ./repo --type git --path targetgraph.yaml --ref HEAD --format json",
+        "# Snapshot a local TargetGraph file\ntorque ops inventory snapshot --source ./targetgraph.yaml --type file --format json",
+        "# Snapshot a generated TargetGraph without leaking source contents\ntorque ops inventory snapshot --source ./render-inventory.sh --type script --format json",
+        "# Snapshot an HTTP or Git inventory source\ntorque ops inventory snapshot --source https://example.invalid/targetgraph.yaml --type http --format json"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops lock",
+      "kind": "command",
+      "title": "torque ops lock",
+      "subtitle": "Inspect and manage ops target locks",
+      "content": "Inspect and manage ops target locks\n\nUsage:\n  torque ops lock",
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops lock acquire",
+      "kind": "command",
+      "title": "torque ops lock acquire",
+      "subtitle": "Acquire a target lock",
+      "content": "Acquire a target lock\n\nUsage:\n  torque ops lock acquire [flags]\n\nFlags:\n      --format string      Output format: table or json (default \"table\")\n      --holder string      Lock holder identity (default \"antonvkrylov\")\n      --lock-dir string    Directory for ops target locks (default \".torque/ops/locks\")\n      --operation string   Operation guarded by the lock\n      --scope string       Lock scope, usually target/<id> or graph/<id>\n      --target string      Target ID associated with the lock\n      --ttl duration       Lock TTL (default 15m0s)\n      --wait duration      How long to wait for an existing lock",
+      "examples": [
+        "torque ops lock acquire --scope target/host-01 --holder operator --operation host.command.run\n  torque ops lock acquire --scope target/host-01 --lock-dir ./.torque/ops/locks --format json"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops lock release",
+      "kind": "command",
+      "title": "torque ops lock release",
+      "subtitle": "Release a target lock by token",
+      "content": "Release a target lock by token\n\nUsage:\n  torque ops lock release [flags]\n\nFlags:\n      --format string     Output format: table or json (default \"table\")\n      --lock-dir string   Directory for ops target locks (default \".torque/ops/locks\")\n      --scope string      Lock scope\n      --token string      Lock token returned by acquire",
+      "examples": [
+        "torque ops lock release --scope target/host-01 --token <token>\n  torque ops lock release --scope target/host-01 --token <token> --format json"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops lock status",
+      "kind": "command",
+      "title": "torque ops lock status",
+      "subtitle": "Show a target lock",
+      "content": "Show a target lock\n\nUsage:\n  torque ops lock status [flags]\n\nFlags:\n      --format string     Output format: table or json (default \"table\")\n      --lock-dir string   Directory for ops target locks (default \".torque/ops/locks\")\n      --scope string      Lock scope",
+      "examples": [
+        "torque ops lock status --scope target/host-01\n  torque ops lock status --scope target/host-01 --format json"
+      ],
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops policy",
+      "kind": "command",
+      "title": "torque ops policy",
+      "subtitle": "Evaluate ops mutation policy",
+      "content": "Evaluate ops mutation policy\n\nUsage:\n  torque ops policy",
+      "tags": [
+        "command"
+      ]
+    },
+    {
+      "id": "cmd:torque ops policy check",
+      "kind": "command",
+      "title": "torque ops policy check",
+      "subtitle": "Check whether an ops action is allowed by mutation policy",
+      "content": "Check whether an ops action is allowed by mutation policy\n\nUsage:\n  torque ops policy check [flags]\n\nFlags:\n      --adapter string      Adapter name or kind to evaluate\n      --allow-unsafe        Explicitly allow unsafe local experiment mode\n      --approved            Manual approval is present\n      --format string       Output format: table or json (default \"table\")\n      --local-experiment    Mark this check as a local experiment\n      --mode string         Mutation policy mode: automatic, guarded, manual,\n                            observe-only, unsafe (default \"guarded\")\n      --mutating            Operation would mutate a target\n      --operation string    Operation kind to evaluate\n      --proof-gate-passed   External proof gate passed\n      --target string       Target ID to evaluate\n      --unsafe              Operation is classified unsafe",
+      "examples": [
+        "torque ops policy check --mode guarded --operation host.command.run --mutating\n  torque ops policy check --mode observe-only --operation host.command.run --mutating --format json\n  torque ops policy check --mode unsafe --unsafe --mutating --allow-unsafe --local-experiment"
       ],
       "tags": [
         "command"
@@ -2412,6 +2548,15 @@
       ]
     },
     {
+      "id": "flag:adapter",
+      "kind": "flag",
+      "title": "--adapter",
+      "content": "Adapter name or kind to evaluate",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
       "id": "flag:all",
       "kind": "flag",
       "title": "--all",
@@ -2457,6 +2602,15 @@
       ]
     },
     {
+      "id": "flag:allow-unsafe",
+      "kind": "flag",
+      "title": "--allow-unsafe",
+      "content": "Explicitly allow unsafe local experiment mode",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
       "id": "flag:analysis-window",
       "kind": "flag",
       "title": "--analysis-window",
@@ -2497,6 +2651,15 @@
       "kind": "flag",
       "title": "--apply-plan",
       "content": "Apply a previously generated init plan (path or - for stdin)",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:approved",
+      "kind": "flag",
+      "title": "--approved",
+      "content": "Manual approval is present",
       "tags": [
         "flag"
       ]
@@ -2694,7 +2857,7 @@
       "id": "flag:cache-dir",
       "kind": "flag",
       "title": "--cache-dir",
-      "content": "Local cache directory for BuildKit metadata\n\nDefault: /Users/antonvkrylov/Library/Caches/torque/buildkit-cache",
+      "content": "Local cache directory for BuildKit metadata\n\nDefault: /Users/antonvkrylov/Library/Caches/torque/buildkit-cache\n\nAvailable on: 2 commands",
       "tags": [
         "flag"
       ]
@@ -2740,6 +2903,15 @@
       "kind": "flag",
       "title": "--cache-intel-top",
       "content": "Max entries to show in the cache intelligence summary\n\nDefault: 10",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:cache-only",
+      "kind": "flag",
+      "title": "--cache-only",
+      "content": "Read cached facts and freshness decisions without refreshing",
       "tags": [
         "flag"
       ]
@@ -3096,6 +3268,15 @@
       ]
     },
     {
+      "id": "flag:event-limit",
+      "kind": "flag",
+      "title": "--event-limit",
+      "content": "Maximum Kubernetes events to include per snapshot\n\nDefault: 25",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
       "id": "flag:evidence-dir",
       "kind": "flag",
       "title": "--evidence-dir",
@@ -3216,7 +3397,7 @@
       "id": "flag:format",
       "kind": "flag",
       "title": "--format",
-      "content": "Output format: table, json, yaml\n\nDefault: table\n\nAvailable on: 37 commands",
+      "content": "Output format: table, json, yaml\n\nDefault: table\n\nAvailable on: 44 commands",
       "tags": [
         "flag"
       ]
@@ -3225,7 +3406,7 @@
       "id": "flag:from",
       "kind": "flag",
       "title": "--from",
-      "content": "Apply proof bundle JSON to diagnose\n\nAvailable on: 6 commands",
+      "content": "Apply proof bundle JSON to diagnose\n\nAvailable on: 7 commands",
       "tags": [
         "flag"
       ]
@@ -3297,7 +3478,7 @@
       "id": "flag:group",
       "kind": "flag",
       "title": "--group",
-      "content": "Target group to include (repeatable)\n\nDefault: []\n\nAvailable on: 2 commands",
+      "content": "Target group to include (repeatable)\n\nDefault: []\n\nAvailable on: 3 commands",
       "tags": [
         "flag"
       ]
@@ -3334,6 +3515,15 @@
       "kind": "flag",
       "title": "--hermetic",
       "content": "Enable hermetic/locked build mode (no network egress unless explicitly allowed; requires pinned base-image digests; records external fetches)\n\nAvailable on: 2 commands",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:holder",
+      "kind": "flag",
+      "title": "--holder",
+      "content": "Lock holder identity\n\nDefault: antonvkrylov",
       "tags": [
         "flag"
       ]
@@ -3477,7 +3667,7 @@
       "id": "flag:limit",
       "kind": "flag",
       "title": "--limit",
-      "content": "Maximum number of runs to list (newest first)\n\nDefault: 20\n\nAvailable on: 3 commands",
+      "content": "Maximum number of runs to list (newest first)\n\nDefault: 20\n\nAvailable on: 4 commands",
       "tags": [
         "flag"
       ]
@@ -3528,10 +3718,28 @@
       ]
     },
     {
+      "id": "flag:local-experiment",
+      "kind": "flag",
+      "title": "--local-experiment",
+      "content": "Mark this check as a local experiment",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
       "id": "flag:lock",
       "kind": "flag",
       "title": "--lock",
       "content": "Acquire a stack state lock for this run\n\nDefault: true",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:lock-dir",
+      "kind": "flag",
+      "title": "--lock-dir",
+      "content": "Directory for ops target locks\n\nDefault: .torque/ops/locks\n\nAvailable on: 3 commands",
       "tags": [
         "flag"
       ]
@@ -3639,7 +3847,16 @@
       "id": "flag:mode",
       "kind": "flag",
       "title": "--mode",
-      "content": "Build mode: auto, dockerfile, or compose\n\nAvailable on: 3 commands",
+      "content": "Build mode: auto, dockerfile, or compose\n\nAvailable on: 4 commands",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:mutating",
+      "kind": "flag",
+      "title": "--mutating",
+      "content": "Operation would mutate a target",
       "tags": [
         "flag"
       ]
@@ -3774,7 +3991,7 @@
       "id": "flag:operation",
       "kind": "flag",
       "title": "--operation",
-      "content": "Requested operation when no request file is supplied\n\nAvailable on: 2 commands",
+      "content": "Requested operation when no request file is supplied\n\nAvailable on: 4 commands",
       "tags": [
         "flag"
       ]
@@ -3792,7 +4009,7 @@
       "id": "flag:out-dir",
       "kind": "flag",
       "title": "--out-dir",
-      "content": "Directory for autopilot artifacts (default: ./torque-autopilot-<release>-<timestamp>)\n\nAvailable on: 2 commands",
+      "content": "Directory for autopilot artifacts (default: ./torque-autopilot-<release>-<timestamp>)\n\nAvailable on: 3 commands",
       "tags": [
         "flag"
       ]
@@ -3801,7 +4018,7 @@
       "id": "flag:output",
       "kind": "flag",
       "title": "--output",
-      "content": "Build output mode: auto (default), tty (live dashboard), or logs (streaming)\n\nDefault: auto\n\nAvailable on: 9 commands",
+      "content": "Build output mode: auto (default), tty (live dashboard), or logs (streaming)\n\nDefault: auto\n\nAvailable on: 10 commands",
       "tags": [
         "flag"
       ]
@@ -3819,7 +4036,7 @@
       "id": "flag:path",
       "kind": "flag",
       "title": "--path",
-      "content": "Secret path to list (default: provider root)\n\nAvailable on: 2 commands",
+      "content": "Secret path to list (default: provider root)\n\nAvailable on: 3 commands",
       "tags": [
         "flag"
       ]
@@ -4014,6 +4231,15 @@
       ]
     },
     {
+      "id": "flag:proof-gate-passed",
+      "kind": "flag",
+      "title": "--proof-gate-passed",
+      "content": "External proof gate passed",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
       "id": "flag:proof-source",
       "kind": "flag",
       "title": "--proof-source",
@@ -4071,7 +4297,7 @@
       "id": "flag:ref",
       "kind": "flag",
       "title": "--ref",
-      "content": "Secret reference (secret://provider/path#key)",
+      "content": "Secret reference (secret://provider/path#key)\n\nAvailable on: 2 commands",
       "tags": [
         "flag"
       ]
@@ -4449,7 +4675,7 @@
       "id": "flag:scope",
       "kind": "flag",
       "title": "--scope",
-      "content": "Discovery scope: repo, chart, or stack\n\nDefault: repo\n\nAvailable on: 2 commands",
+      "content": "Discovery scope: repo, chart, or stack\n\nDefault: repo\n\nAvailable on: 5 commands",
       "tags": [
         "flag"
       ]
@@ -4683,7 +4909,7 @@
       "id": "flag:source",
       "kind": "flag",
       "title": "--source",
-      "content": "Simulation proof directory from torque apply simulate",
+      "content": "Simulation proof directory from torque apply simulate\n\nAvailable on: 2 commands",
       "tags": [
         "flag"
       ]
@@ -4788,10 +5014,19 @@
       ]
     },
     {
+      "id": "flag:target",
+      "kind": "flag",
+      "title": "--target",
+      "content": "Target ID associated with the lock\n\nAvailable on: 2 commands",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
       "id": "flag:targets",
       "kind": "flag",
       "title": "--targets",
-      "content": "TargetGraph YAML file\n\nAvailable on: 2 commands",
+      "content": "TargetGraph YAML file\n\nAvailable on: 3 commands",
       "tags": [
         "flag"
       ]
@@ -4827,7 +5062,7 @@
       "id": "flag:timeout",
       "kind": "flag",
       "title": "--timeout",
-      "content": "Time to wait for any Kubernetes operation\n\nDefault: 5m0s\n\nAvailable on: 4 commands",
+      "content": "Time to wait for any Kubernetes operation\n\nDefault: 5m0s\n\nAvailable on: 6 commands",
       "tags": [
         "flag"
       ]
@@ -4851,10 +5086,46 @@
       ]
     },
     {
+      "id": "flag:to",
+      "kind": "flag",
+      "title": "--to",
+      "content": "Later fact snapshot, cache entry, resolve result, or collection JSON",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:token",
+      "kind": "flag",
+      "title": "--token",
+      "content": "Lock token returned by acquire",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
       "id": "flag:total-replicas",
       "kind": "flag",
       "title": "--total-replicas",
       "content": "Total replicas for native Kubernetes canary scaling (default: current stable+canary replicas)",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ttl",
+      "kind": "flag",
+      "title": "--ttl",
+      "content": "Override target fact TTL\n\nDefault: 0s\n\nAvailable on: 2 commands",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:type",
+      "kind": "flag",
+      "title": "--type",
+      "content": "Inventory source type: file, script, http, or git",
       "tags": [
         "flag"
       ]
@@ -4882,6 +5153,15 @@
       "kind": "flag",
       "title": "--uninstalling",
       "content": "Show releases that are currently being uninstalled",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:unsafe",
+      "kind": "flag",
+      "title": "--unsafe",
+      "content": "Operation is classified unsafe",
       "tags": [
         "flag"
       ]
@@ -4980,7 +5260,7 @@
       "id": "flag:wait",
       "kind": "flag",
       "title": "--wait",
-      "content": "Wait for resources to be ready\n\nDefault: true\n\nAvailable on: 4 commands",
+      "content": "Wait for resources to be ready\n\nDefault: true\n\nAvailable on: 5 commands",
       "tags": [
         "flag"
       ]
@@ -5008,6 +5288,15 @@
       "kind": "flag",
       "title": "--with-subcharts",
       "content": "Lint dependent charts under charts/",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:workload-samples",
+      "kind": "flag",
+      "title": "--workload-samples",
+      "content": "Maximum Kubernetes workload sample rows per snapshot\n\nDefault: 25",
       "tags": [
         "flag"
       ]
@@ -5061,7 +5350,7 @@
       "id": "flag:all-namespaces",
       "kind": "flag",
       "title": "-A, --all-namespaces",
-      "content": "List releases across all namespaces\n\nAvailable on: 4 commands",
+      "content": "List releases across all namespaces\n\nAvailable on: 5 commands",
       "tags": [
         "flag"
       ]
@@ -5241,7 +5530,7 @@
       "id": "flag:selector",
       "kind": "flag",
       "title": "-l, --selector",
-      "content": "Label selector to filter releases by label query (works only for secret/configmap backends)\n\nAvailable on: 4 commands",
+      "content": "Label selector to filter releases by label query (works only for secret/configmap backends)\n\nAvailable on: 5 commands",
       "tags": [
         "flag"
       ]
@@ -5268,7 +5557,7 @@
       "id": "flag:namespace",
       "kind": "flag",
       "title": "-n, --namespace",
-      "content": "Namespace for the Helm release (defaults to active context)\n\nAvailable on: 18 commands",
+      "content": "Namespace for the Helm release (defaults to active context)\n\nAvailable on: 19 commands",
       "tags": [
         "flag"
       ]

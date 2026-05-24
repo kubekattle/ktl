@@ -159,6 +159,11 @@ install -m 0644 docs/showcase/atlassian/reports/*.html "${OUT_DIR}/showcase/atla
 install -m 0644 docs/showcase/atlassian/reports/*.json "${OUT_DIR}/showcase/atlassian/reports/"
 mkdir -p "${OUT_DIR}/showcase/firecracker-fraud-platform"
 install -m 0644 testdata/stack/e2e/21-firecracker-fraud-platform/stack.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/stack.yaml"
+install -m 0644 stacks/fraud-platform/stack.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/stack-packaged.yaml"
+install -m 0644 stacks/fraud-platform/values/common.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/values-common.yaml"
+install -m 0644 stacks/fraud-platform/values/lab.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/values-lab.yaml"
+install -m 0644 stacks/fraud-platform/values/stage.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/values-stage.yaml"
+install -m 0644 stacks/fraud-platform/values/prod.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/values-prod.yaml"
 
 echo ">> wrote:"
 ls -la "${OUT_DIR}/index.html" "${OUT_DIR}/blog.html" "${OUT_DIR}/blog-firecracker-fraud-platform.html" "${OUT_DIR}/blog-agentic-proof-gated-change-control.html" "${OUT_DIR}/blog-sandbox-cache-docker.html" "${OUT_DIR}/blog-mcp-s3-cache.html" "${OUT_DIR}/blog-atlassian-torque-case-study.html" "${OUT_DIR}/docs.html" "${OUT_DIR}/index.json" "${OUT_DIR}/install.sh" "${OUT_DIR}/.nojekyll" | sed -n '1,200p'

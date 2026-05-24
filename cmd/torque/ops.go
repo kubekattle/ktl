@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/ingresslabs/torque/internal/ops/inventory"
 	"github.com/ingresslabs/torque/internal/ops/targetgraph"
@@ -20,6 +21,9 @@ func newOpsCommand() *cobra.Command {
 		Long:  "Operate proof-backed target graphs, inventories, and adapter-driven change workflows.",
 	}
 	cmd.AddCommand(newOpsInventoryCommand())
+	cmd.AddCommand(newOpsFactsCommand())
+	cmd.AddCommand(newOpsLockCommand())
+	cmd.AddCommand(newOpsPolicyCommand())
 	decorateCommandHelp(cmd, "Ops Flags")
 	return cmd
 }
@@ -29,7 +33,7 @@ func newOpsInventoryCommand() *cobra.Command {
 		Use:   "inventory",
 		Short: "Inspect ops target inventory",
 	}
-	cmd.AddCommand(newOpsInventoryShowCommand(), newOpsInventoryGraphCommand())
+	cmd.AddCommand(newOpsInventoryShowCommand(), newOpsInventoryGraphCommand(), newOpsInventorySnapshotCommand())
 	decorateCommandHelp(cmd, "Inventory Flags")
 	return cmd
 }
@@ -163,6 +167,65 @@ func newOpsInventoryGraphCommand() *cobra.Command {
 	return cmd
 }
 
+func newOpsInventorySnapshotCommand() *cobra.Command {
+	var sourceType string
+	var source string
+	var sourcePath string
+	var ref string
+	var timeout time.Duration
+	format := "table"
+
+	cmd := &cobra.Command{
+		Use:   "snapshot",
+		Short: "Snapshot a dynamic inventory source",
+		Example: `  torque ops inventory snapshot --source ./targetgraph.yaml --type file
+  torque ops inventory snapshot --source ./render-inventory.sh --type script --format json
+  torque ops inventory snapshot --source https://example.invalid/targetgraph.yaml --type http
+  torque ops inventory snapshot --source ./repo --type git --path targetgraph.yaml --ref HEAD --format json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return fmt.Errorf("torque ops inventory snapshot does not accept positional arguments")
+			}
+			if strings.TrimSpace(source) == "" {
+				return fmt.Errorf("--source is required")
+			}
+			snapshot, err := inventory.SnapshotSource(cmd.Context(), inventory.SourceSnapshotOptions{
+				Type:    sourceType,
+				Source:  source,
+				Path:    sourcePath,
+				Ref:     ref,
+				Timeout: timeout,
+			})
+			if err != nil {
+				return err
+			}
+			switch format {
+			case "json":
+				raw, err := json.MarshalIndent(snapshot, "", "  ")
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), string(raw))
+				return err
+			case "table", "":
+				return renderOpsInventorySourceSnapshotTable(cmd.OutOrStdout(), snapshot)
+			default:
+				return fmt.Errorf("--format must be table or json")
+			}
+		},
+	}
+	cmd.Flags().StringVar(&source, "source", "", "Inventory source path, URL, script, or Git repository")
+	cmd.Flags().StringVar(&sourceType, "type", "", "Inventory source type: file, script, http, or git")
+	cmd.Flags().StringVar(&sourcePath, "path", "", "Path inside a directory or Git repository")
+	cmd.Flags().StringVar(&ref, "ref", "", "Git ref to snapshot")
+	cmd.Flags().DurationVar(&timeout, "timeout", 30*time.Second, "Inventory source read timeout")
+	cmd.Flags().StringVar(&format, "format", format, "Output format: table or json")
+	_ = cmd.RegisterFlagCompletionFunc("type", cobra.FixedCompletions([]string{"file", "script", "http", "git"}, cobra.ShellCompDirectiveNoFileComp))
+	_ = cmd.RegisterFlagCompletionFunc("format", cobra.FixedCompletions([]string{"table", "json"}, cobra.ShellCompDirectiveNoFileComp))
+	decorateCommandHelp(cmd, "Inventory Snapshot Flags")
+	return cmd
+}
+
 func renderOpsInventoryTable(w io.Writer, result inventory.ShowResult) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if _, err := fmt.Fprintf(tw, "TARGET\tTYPE\tTRANSPORT\tGROUPS\tLABELS\tFACT_TTL\n"); err != nil {
@@ -181,6 +244,31 @@ func renderOpsInventoryTable(w io.Writer, result inventory.ShowResult) error {
 		); err != nil {
 			return err
 		}
+	}
+	return tw.Flush()
+}
+
+func renderOpsInventorySourceSnapshotTable(w io.Writer, snapshot *inventory.SourceSnapshot) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintf(tw, "SOURCE\tREF\tPATH\tREVISION\tDIRTY\tSOURCE_DIGEST\tGRAPH_DIGEST\tTARGETS\n"); err != nil {
+		return err
+	}
+	if snapshot == nil {
+		return tw.Flush()
+	}
+	if _, err := fmt.Fprintf(
+		tw,
+		"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n",
+		snapshot.SourceType,
+		firstNonEmpty(snapshot.SourceRef, "-"),
+		firstNonEmpty(snapshot.Path, "-"),
+		firstNonEmpty(snapshot.Revision, "-"),
+		firstNonEmpty(snapshot.DirtyState, "-"),
+		firstNonEmpty(snapshot.SourceDigest, "-"),
+		firstNonEmpty(snapshot.GraphDigest, "-"),
+		snapshot.Summary.TargetCount,
+	); err != nil {
+		return err
 	}
 	return tw.Flush()
 }

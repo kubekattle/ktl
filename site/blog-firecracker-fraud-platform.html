@@ -6,7 +6,7 @@
     <title>A Verified Fraud Platform Packaged As A Torque Stack | torque</title>
     <meta
       name="description"
-      content="A real-world Torque stack package with profiles, app assets, Argo Workflows, Spark, Flink, Ray, Trino, SigNoz, ClickHouse, Redpanda, a public payments API, S3 evidence, and first-class verification."
+      content="A real-world Torque stack package with profiles, app assets, Argo Workflows, Spark, Flink, Ray, Trino, Iceberg, Redpanda schema contracts, ClickHouse, S3 evidence, replay proof, and first-class verification."
     />
     <style>
       :root {
@@ -1617,7 +1617,7 @@
       <main>
         <section class="article-hero">
           <h1>A Verified Fraud Platform Packaged As A Torque Stack</h1>
-          <p class="dek">Torque packages the stack root, profiles, app assets, public access checks, and run evidence into one repeatable release program. The proof run used real payment events and verified S3 objects, Redpanda offsets, ClickHouse rows, Trino queries, Spark batch output, and public endpoints.</p>
+          <p class="dek">Torque packages the stack root, profiles, app assets, public access checks, and run evidence into one repeatable release program. The proof run used real payment events and verified S3 objects, Redpanda schema contracts and offsets, ClickHouse rows, Iceberg tables, Trino queries, Spark batch output, replay/backfill, and public endpoints.</p>
           <div class="hero-actions" aria-label="Stack source links">
             <a href="https://github.com/ingresslabs/torque/tree/devel/stacks/fraud-platform">GitHub stack package</a>
             <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">Packaged stackfile</a>
@@ -1630,7 +1630,7 @@
             <div class="diagram-head">
               <span class="diagram-kicker">Platform architecture</span>
               <h2 class="diagram-title">Payments stream in real time while batch features rebuild from the lake</h2>
-              <p class="diagram-copy">The API writes raw events to Redpanda and S3. Flink scores the stream with Ray Serve, ClickHouse stores decisions, Trino exposes analyst SQL, and Argo schedules Spark to build curated feature tables.</p>
+              <p class="diagram-copy">The API writes raw events to Redpanda and S3. Flink scores the stream with Ray Serve, ClickHouse stores decisions, Spark commits Iceberg tables through a REST catalog, Trino exposes analyst SQL, and Argo schedules replayable feature jobs.</p>
             </div>
             <div class="architecture-map" aria-label="Streaming, model, batch, and observability paths">
               <div class="arch-lane">
@@ -1655,7 +1655,7 @@
                 <div class="arch-edge"><span>run</span></div>
                 <div class="arch-node compute"><strong>Spark</strong><span>bounded feature job</span></div>
                 <div class="arch-edge"><span>persist</span></div>
-                <div class="arch-node store"><strong>S3 + ClickHouse</strong><span>curated features</span></div>
+                <div class="arch-node store"><strong>S3 + Iceberg</strong><span>curated features</span></div>
               </div>
               <div class="arch-lane">
                 <div class="arch-label">telemetry</div>
@@ -1671,21 +1671,21 @@
         </section>
 
         <article class="article-body">
-          <p>This was built as a pressure test for Torque stack packaging and verification, not as a small demo with one chart and a happy path. The stack starts from a remote Linux host, creates a Kubernetes lab on Firecracker microVMs, installs the data platform, exposes selected services publicly, generates payment traffic, scores fraud risk in real time, runs a batch feature job, writes durable data into AWS S3 and ClickHouse, and verifies that every major surface is alive.</p>
+          <p>This was built as a pressure test for Torque stack packaging and verification, not as a small demo with one chart and a happy path. The stack starts from a remote Linux host, creates a Kubernetes lab on Firecracker microVMs, installs the data platform, exposes selected services publicly, generates payment traffic, scores fraud risk in real time, runs a batch feature job, writes durable data into AWS S3, Iceberg, and ClickHouse, and verifies that every major surface is alive.</p>
 
           <p>The source package lives in GitHub under <a href="https://github.com/ingresslabs/torque/tree/devel/stacks/fraud-platform">stacks/fraud-platform</a>. The published stackfile is attached here as <a href="./showcase/firecracker-fraud-platform/stack.yaml">stack.yaml</a>. A production-shaped package entrypoint is also attached as <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">stack-packaged.yaml</a>, with profile values such as <a href="./showcase/firecracker-fraud-platform/values-prod.yaml">values-prod.yaml</a>. The host address from the lab run has been removed. The lab stack expects <code>TORQUE_LAB_PUBLIC_IP</code> for public endpoint checks and <code>TORQUE_LAB_SSH</code> for the SSH target.</p>
 
           <blockquote>Torque is useful when the deployment needs to be packaged, reviewed, resumed, verified, and audited as one release program.</blockquote>
 
           <h2>The Shape Of The Deployment</h2>
-          <p>The stack models a realistic fraud platform. A payments API accepts generated events and writes them to Redpanda and S3. Flink consumes the stream, calls a Ray Serve model for risk scoring, and writes decisions into ClickHouse. Trino exposes those fraud tables for analyst SQL. Argo launches a Spark batch job that computes aggregate features from the raw S3 objects and persists the curated result. SigNoz and ClickHouse provide the observability and analytics substrate.</p>
+          <p>The stack models a realistic fraud platform. A payments API accepts generated events and writes them to Redpanda and S3. Redpanda carries explicit schema subjects for the event contracts. Flink consumes the stream, calls a Ray Serve model for risk scoring, and writes decisions into ClickHouse. Spark commits raw payments, risk events, and batch features to Iceberg through a REST catalog. Trino exposes both ClickHouse and Iceberg for analyst SQL. SigNoz and ClickHouse provide the observability and analytics substrate.</p>
 
-          <p>The important part is not the list of products. The important part is that the products cross normal ownership boundaries. The lab substrate belongs to the host. Kubernetes belongs to the cluster. Argo, Spark, Flink, Ray, Trino, Redpanda, SigNoz, ClickHouse, and the API are workloads. S3 is a cloud data lake. Public access is host networking. Verification touches all of them.</p>
+          <p>The important part is not the list of products. The important part is that the products cross normal ownership boundaries. The lab substrate belongs to the host. Kubernetes belongs to the cluster. Argo, Spark, Flink, Ray, Trino, Iceberg REST, Redpanda, SigNoz, ClickHouse, and the API are workloads. S3 is a cloud data lake. Public access is host networking. Verification touches all of them.</p>
 
           <p>Most deployment tools are strongest inside one of those boundaries. Torque is valuable when the deployment graph crosses several of them and still needs to be operated as one system.</p>
 
           <h2>Architecture Walkthrough</h2>
-          <p>The platform has two data loops. The first is the low-latency stream. The payments API is the only public event ingress and it immediately writes raw events into Redpanda while also preserving raw objects in S3. Redpanda is the buffer between request traffic and processing traffic, so the API can stay simple and Flink can own ordering, windows, retries, and stream progress. Flink enriches the payment event into a scoring request, calls Ray Serve for model inference, then writes the risk decision into ClickHouse. That keeps model serving isolated from stream execution while still giving analysts a fast table for decisions, fraud rates, merchant behavior, and replay checks.</p>
+          <p>The platform has two data loops. The first is the low-latency stream. The payments API is the only public event ingress and it immediately writes raw events into Redpanda while also preserving raw objects in S3. Redpanda is the buffer between request traffic and processing traffic, with schema subjects and backward compatibility checks for the raw, risk, and decision topics. Flink enriches the payment event into a scoring request, calls Ray Serve for model inference, then writes the risk decision into ClickHouse. That keeps model serving isolated from stream execution while still giving analysts a fast table for decisions, fraud rates, merchant behavior, and replay checks.</p>
 
           <div class="article-architecture" aria-label="Detailed platform architecture">
             <div class="mini-arch">
@@ -1716,7 +1716,7 @@
                 <div class="mini-edge"><span>run</span></div>
                 <div class="mini-node"><strong>Spark</strong><span>bounded feature job</span></div>
                 <div class="mini-edge"><span>persist</span></div>
-                <div class="mini-node store"><strong>S3 + ClickHouse</strong><span>curated features</span></div>
+                <div class="mini-node store"><strong>S3 + Iceberg</strong><span>curated features</span></div>
               </div>
               <div class="mini-row telemetry">
                 <div class="mini-label">telemetry</div>
@@ -1729,18 +1729,18 @@
             </div>
           </div>
 
-          <p>The second loop is the bounded batch path. Argo schedules Spark because the batch job has a different shape from the stream job: it reads a known slice of raw S3 data, computes aggregate features, and writes curated feature outputs back to S3 and ClickHouse. S3 is the durable source of truth for reprocessing, while ClickHouse is the query surface for operators and downstream analysis. That separation matters in a fraud platform because real-time decisions need immediate availability, but feature quality and auditability depend on a durable lake that can be recomputed when rules, schemas, or model versions change.</p>
+          <p>The second loop is the bounded batch path. Argo schedules Spark because the batch job has a different shape from the stream job: it reads a known slice of raw S3 data, computes aggregate features, and writes curated feature outputs back to S3, ClickHouse, and Iceberg. Iceberg gives the lakehouse side a table contract for snapshots, schema evolution, and multi-engine reads; ClickHouse remains the low-latency operator surface. The stack also runs a replay/backfill step that consumes from the beginning of the raw topic and recomputes batch features into Iceberg under a distinct run id.</p>
 
           <p>Observability follows the same architecture rather than sitting beside it. The API, stream job, model service, Spark job, and supporting workloads emit health and runtime signals to SigNoz, with ClickHouse backing the telemetry store. That gives the platform two kinds of evidence: business data that proves events moved through the fraud pipeline, and operational data that proves the services were healthy while the data moved. The result is a system where streaming, model serving, batch processing, analytical storage, object storage, and observability each have a clear responsibility instead of being collapsed into one overloaded runtime.</p>
 
           <h2>What Torque Adds</h2>
-          <p>Terraform can create infrastructure. Helm can install charts. Argo can run workflows. Spark can compute batch features. Flink can process streams. Ray can serve models and distribute Python work. Trino can federate analyst SQL. SigNoz can show telemetry. None of those tools should be replaced by Torque.</p>
+          <p>Terraform can create infrastructure. Helm can install charts. Argo can run workflows. Spark can compute batch features. Flink can process streams. Ray can serve models and distribute Python work. Trino can federate analyst SQL. Iceberg can own table metadata and snapshots. SigNoz can show telemetry. None of those tools should be replaced by Torque.</p>
 
           <p>Torque sits above them as the release program. It carries the ordered graph, the dependencies, the local and remote commands, the Kubernetes bootstrap, the public access mutations, the workload installation, the verification, and the run capture in one stack. That means the operator can reason about the whole delivery path instead of searching through a collection of shell history, Terraform state, Helm releases, Kubernetes objects, and dashboard screenshots.</p>
 
           <div class="proof-strip" aria-label="Torque responsibilities">
             <div class="proof-chip"><strong>Graph</strong><span>Package, profiles, platform install, workload install, public access, batch, verify.</span></div>
-            <div class="proof-chip"><strong>Evidence</strong><span>Pods, public endpoints, Redpanda offsets, S3 object counts, ClickHouse rows, Trino query results.</span></div>
+            <div class="proof-chip"><strong>Evidence</strong><span>Pods, public endpoints, schema subjects, Redpanda offsets, S3 object counts, ClickHouse rows, Iceberg rows, Trino query results, replay output.</span></div>
             <div class="proof-chip"><strong>Resume</strong><span>A failed phase can be rerun without rebuilding the whole lab.</span></div>
             <div class="proof-chip"><strong>Boundary</strong><span>Host operations, cluster operations, and cloud storage stay in one reviewable run.</span></div>
           </div>
@@ -1756,13 +1756,17 @@ Spark: master UI responded on port 8080
 Flink: jobs overview responded on port 8081
 Trino: coordinator API responded on port 8082</code></pre>
 
-          <p>The data proof was deliberately concrete. The API produced raw payment events, S3 held the raw and curated objects, ClickHouse held both streaming decisions and batch feature rows, Trino queried the decision table, and Redpanda showed topic progress.</p>
+          <p>The data proof was deliberately concrete. The API produced raw payment events, S3 held the raw and curated objects, ClickHouse held both streaming decisions and batch feature rows, Redpanda exposed schema subjects and topic progress, Iceberg held the lakehouse tables, Trino queried both catalogs, and the replay step produced a distinct backfill run.</p>
 
           <pre><code>S3 raw payment objects: 2632
 S3 curated feature objects: 7
 ClickHouse payment decisions: 2237
 ClickHouse Spark batch rows: 216
 Trino payment decisions: 2237
+Iceberg raw payments: 2252
+Iceberg risk events: 2252
+Iceberg batch features: 216
+Replay backfill rows: 216
 Redpanda payments.raw high watermark: 2252
 Redpanda payments.risk high watermark: 6391</code></pre>
 
@@ -1811,7 +1815,7 @@ torque stack export --config "${TORQUE_STACK_ROOT}" --out dist/fraud-platform-ru
 
           <p>The practical result is simple: a complex data platform becomes a repeatable release program. Engineers can still inspect each underlying tool, but the platform has one top-level object that explains how the pieces fit together.</p>
 
-          <blockquote>Torque does not replace Spark, Flink, Ray, Trino, Argo, Kubernetes, or S3. It gives the deployment that combines them a graph, a memory, and a proof boundary.</blockquote>
+          <blockquote>Torque does not replace Spark, Flink, Ray, Trino, Iceberg, Argo, Kubernetes, or S3. It gives the deployment that combines them a graph, a memory, and a proof boundary.</blockquote>
         </article>
       </main>
 

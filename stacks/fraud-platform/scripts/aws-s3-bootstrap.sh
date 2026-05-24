@@ -16,7 +16,7 @@ if [[ "${TORQUE_FRAUD_PROFILE}" == "prod" || "${TORQUE_FRAUD_AWS_SECRET_MODE:-}"
     kubectl --kubeconfig "${KUBECONFIG_PATH}" create namespace "${ns}" --dry-run=client -o yaml |
       kubectl --kubeconfig "${KUBECONFIG_PATH}" apply -f -
   done
-  for ns in apps argo ml; do
+  for ns in apps argo ml data; do
     kubectl --kubeconfig "${KUBECONFIG_PATH}" -n "${ns}" get secret aws-s3 >/dev/null
   done
   echo "using existing aws-s3 secrets for profile=${TORQUE_FRAUD_PROFILE}"
@@ -60,7 +60,7 @@ create_aws_secret() {
   kubectl --kubeconfig "${KUBECONFIG_PATH}" -n "${ns}" create secret generic aws-s3 "${args[@]}" --dry-run=client -o yaml |
     kubectl --kubeconfig "${KUBECONFIG_PATH}" apply -f -
 }
-for ns in apps argo ml; do
+for ns in apps argo ml data; do
   create_aws_secret "${ns}"
 done
 printf 'S3_BUCKET=%s\nAWS_REGION=%s\n' "${bucket}" "${region}" > /tmp/torque-fraud-s3.env

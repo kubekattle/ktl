@@ -144,10 +144,13 @@ var curatedExamples = map[string][]string{
 	},
 	"torque ops": {
 		"# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
+		"# Collect cached host facts for selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --cache-dir ./.torque/ops/facts",
+		"# Check guarded mutation policy before adding an adapter\ntorque ops policy check --mode guarded --operation host.command.run --mutating --format json",
 	},
 	"torque ops inventory": {
 		"# Show targets selected by a label\ntorque ops inventory show --targets ./targetgraph.yaml --selector role=db",
 		"# Export an HTML inventory graph\ntorque ops inventory graph --targets ./targetgraph.yaml --output inventory.html",
+		"# Snapshot a Git-backed TargetGraph source\ntorque ops inventory snapshot --source ./repo --type git --path targetgraph.yaml --ref HEAD --format json",
 	},
 	"torque ops inventory show": {
 		"# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
@@ -158,6 +161,46 @@ var curatedExamples = map[string][]string{
 		"# Export an HTML target graph view\ntorque ops inventory graph --targets ./targetgraph.yaml --output inventory.html",
 		"# Emit graph data as JSON for automation\ntorque ops inventory graph --targets ./targetgraph.yaml --selector role=db --format json",
 		"# Mark a limited group expansion in the graph\ntorque ops inventory graph --targets ./targetgraph.yaml --group web --limit 10 --output web.html",
+	},
+	"torque ops inventory snapshot": {
+		"# Snapshot a local TargetGraph file\ntorque ops inventory snapshot --source ./targetgraph.yaml --type file --format json",
+		"# Snapshot a generated TargetGraph without leaking source contents\ntorque ops inventory snapshot --source ./render-inventory.sh --type script --format json",
+		"# Snapshot an HTTP or Git inventory source\ntorque ops inventory snapshot --source https://example.invalid/targetgraph.yaml --type http --format json",
+	},
+	"torque ops facts": {
+		"# Collect host or Kubernetes facts from selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --format json",
+		"# Compare two fact collections\ntorque ops facts diff --from ./facts-before.json --to ./facts-after.json",
+	},
+	"torque ops facts collect": {
+		"# Collect and cache selected target facts with evidence\ntorque ops facts collect --targets ./targetgraph.yaml --group web --cache-dir ./.torque/ops/facts --out-dir ./ops-facts-evidence",
+		"# Collect namespace-scoped Kubernetes facts\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=cluster --namespace prod --format json",
+		"# Inspect cached facts without refreshing\ntorque ops facts collect --targets ./targetgraph.yaml --cache-dir ./.torque/ops/facts --cache-only",
+	},
+	"torque ops facts diff": {
+		"# Show changed fact categories between two runs\ntorque ops facts diff --from ./facts-before.json --to ./facts-after.json",
+		"# Emit a machine-readable fact diff\ntorque ops facts diff --from ./facts-before.json --to ./facts-after.json --format json",
+	},
+	"torque ops lock": {
+		"# Acquire a target lock before a planned mutation\ntorque ops lock acquire --scope target/host-01 --holder operator --operation host.command.run",
+		"# Inspect an existing lock\ntorque ops lock status --scope target/host-01 --format json",
+	},
+	"torque ops lock acquire": {
+		"# Acquire a target lock with a TTL\ntorque ops lock acquire --scope target/host-01 --holder operator --operation host.command.run --ttl 15m --format json",
+		"# Wait briefly for an existing target lock\ntorque ops lock acquire --scope target/host-01 --holder operator --wait 5s",
+	},
+	"torque ops lock release": {
+		"# Release a target lock by token\ntorque ops lock release --scope target/host-01 --token <token>",
+	},
+	"torque ops lock status": {
+		"# Show a target lock as JSON\ntorque ops lock status --scope target/host-01 --format json",
+	},
+	"torque ops policy": {
+		"# Check an observe-only policy blocks mutation\ntorque ops policy check --mode observe-only --operation host.command.run --mutating --format json",
+		"# Check an approved guarded mutation\ntorque ops policy check --mode guarded --operation host.command.run --mutating --approved",
+	},
+	"torque ops policy check": {
+		"# Block an unsafe automatic operation\ntorque ops policy check --mode automatic --operation host.command.run --mutating --unsafe --format json",
+		"# Allow an explicit unsafe local experiment\ntorque ops policy check --mode unsafe --operation host.command.run --mutating --unsafe --allow-unsafe --local-experiment",
 	},
 	"torque release": {
 		"# Run the proof-backed release autopilot over existing evidence\ntorque release autopilot proof.graph.json --key .torque/stack/keys/ed25519.json --out-dir release-autopilot",

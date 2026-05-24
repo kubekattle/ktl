@@ -150,7 +150,7 @@ nodes:
     timeout: 20m
     command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/argo-spark-batch.sh apply"
     deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/argo-spark-batch.sh delete"
-- name: verify-e2e
+- name: replay-backfill
   kind: host.command.run
   tags:
   - lab
@@ -159,6 +159,20 @@ nodes:
   - fraud-platform
   needs:
   - argo-spark-batch
+  host:
+    transport: local
+    timeout: 20m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/replay-backfill.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/replay-backfill.sh delete"
+- name: verify-e2e
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - replay-backfill
   host:
     transport: local
     timeout: 10m

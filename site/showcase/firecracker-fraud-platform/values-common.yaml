@@ -9,6 +9,23 @@ storage:
   s3:
     bucketEnv: TORQUE_FRAUD_S3_BUCKET
     regionEnv: AWS_REGION
+  iceberg:
+    catalogType: rest
+    namespace: fraud
+    warehouse: s3://${TORQUE_FRAUD_S3_BUCKET}/iceberg/warehouse
+    tables:
+    - raw_payments
+    - risk_events
+    - batch_feature_summary
+
+dataContracts:
+  schemaRegistry:
+    provider: redpanda
+    compatibility: BACKWARD
+    subjects:
+    - payments.raw-value
+    - payments.risk-value
+    - payments.decisions-value
 
 observability:
   signoz:
@@ -16,11 +33,41 @@ observability:
     clickhouseHost: signoz-clickhouse.observability.svc.cluster.local
     clickhousePasswordRef: secret://vault/fraud-platform/clickhouse#password
 
+queryEngine:
+  trino:
+    enabled: true
+    namespace: data
+    image: trinodb/trino:481
+    catalogs:
+    - clickhouse
+    - iceberg
+
+replayBackfill:
+  enabled: true
+  sourceTopic: payments.raw
+  sourceOffset: start
+  backfillTable: batch_feature_summary
+
+security:
+  secretScope: namespace-local
+  trinoAuth: planned
+  networkPolicies: planned
+  tls: planned
+
+mlLifecycle:
+  modelName: ray-serve-logistic-risk
+  modelVersion: v1
+  registry: planned
+
 verification:
   apiHealth: true
+  schemaRegistryContracts: true
   rayServeScore: true
   flinkJobs: true
   argoSparkWorkflow: true
+  replayBackfill: true
+  trinoQueries: true
+  icebergRows: true
   s3ObjectCounts: true
   clickhouseRows: true
   redpandaOffsets: true

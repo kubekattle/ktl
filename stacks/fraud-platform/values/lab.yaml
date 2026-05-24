@@ -4,7 +4,7 @@ firecracker:
   enabled: true
   hostEnv: TORQUE_LAB_SSH
   publicIPEnv: TORQUE_LAB_PUBLIC_IP
-  nodeCount: 5
+  nodeCount: 6
   runRoot: /var/lib/torque-firecracker-k8s/fraud-platform
 
 publicAccess:
@@ -16,6 +16,7 @@ publicAccess:
     argo: 2746
     flink: 8081
     spark: 8080
+    trino: 8082
     rayDashboard: 8265
     rayClient: 10001
 

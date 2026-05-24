@@ -24,7 +24,7 @@ LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@${TORQUE_LAB_PUBLIC_IP:?set TORQUE_LAB_
           ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "${LAB_TARGET}" 'bash -s' <<'TORQUE_REMOTE_COMMAND'
 set -euo pipefail
 RUN_ROOT="/var/lib/torque-firecracker-k8s/fraud-platform"
-NODE_COUNT="5"
+NODE_COUNT="6"
 SUBNET_OCTET="250"
 BRIDGE_NAME="tqfcfraud"
 TAP_PREFIX="tqfrd"
@@ -36,7 +36,7 @@ set -euo pipefail
 
 mode="${1:-apply}"
 RUN_ROOT="${RUN_ROOT:-/var/lib/torque-firecracker-k8s/fraud-platform}"
-NODE_COUNT="${NODE_COUNT:-5}"
+NODE_COUNT="${NODE_COUNT:-6}"
 SUBNET_OCTET="${SUBNET_OCTET:-250}"
 BRIDGE_NAME="${BRIDGE_NAME:-tqfcfraud}"
 TAP_PREFIX="${TAP_PREFIX:-tqfrd}"
@@ -61,6 +61,7 @@ PUBLIC_RULES=(
   "2746:${SERVER_IP}:32746"
   "8081:${SERVER_IP}:32081"
   "8080:${SERVER_IP}:32080"
+  "8082:${SERVER_IP}:32082"
   "8265:${SERVER_IP}:32665"
   "10001:${SERVER_IP}:32001"
 )
@@ -197,6 +198,7 @@ ${NET_PREFIX}.11 fc-01 observability
 ${NET_PREFIX}.12 fc-02 events
 ${NET_PREFIX}.13 fc-03 processing
 ${NET_PREFIX}.14 fc-04 mlbatch
+${NET_PREFIX}.15 fc-05 analytics
 EOF
 }
 
@@ -396,7 +398,7 @@ if [ -x "${RUN_ROOT}/fraud-k3s-lab.sh" ]; then
   RUN_ROOT="${RUN_ROOT}" "${RUN_ROOT}/fraud-k3s-lab.sh" delete
 else
   for p in "${RUN_ROOT}"/vms/*/pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null; done
-  for i in $(seq 0 4); do ip link del "tqfrd${i}" 2>/dev/null; done
+  for i in $(seq 0 5); do ip link del "tqfrd${i}" 2>/dev/null; done
   ip link set tqfcfraud down 2>/dev/null
   ip link del tqfcfraud type bridge 2>/dev/null
   iptables -t nat -D POSTROUTING -s "172.31.250.0/24" ! -o tqfcfraud -j MASQUERADE 2>/dev/null

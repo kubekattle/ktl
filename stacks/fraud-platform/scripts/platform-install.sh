@@ -17,6 +17,7 @@ k label node fc-01 fraud.torque.dev/workload=observability --overwrite
 k label node fc-02 fraud.torque.dev/workload=events --overwrite
 k label node fc-03 fraud.torque.dev/workload=processing --overwrite
 k label node fc-04 fraud.torque.dev/workload=mlbatch --overwrite
+k label node fc-05 fraud.torque.dev/workload=analytics --overwrite
 
 k apply -n argo -f https://github.com/argoproj/argo-workflows/releases/download/v3.6.19/install.yaml
 k -n argo apply -f - <<'YAML'

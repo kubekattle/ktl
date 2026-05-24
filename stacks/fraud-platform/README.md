@@ -11,6 +11,8 @@ same scenario reviewable as a stack package instead of one large YAML file.
 - `scripts/` contains the host, cluster, workload, batch, public-access, and
   verification phases.
 - `app/` contains the payment API, generator, Ray model, and Spark batch code.
+- The workload layer includes a small Trino coordinator for analyst SQL over
+  the ClickHouse and Iceberg fraud tables.
 - `images/` contains Dockerfiles for production image builds.
 - `values/` captures environment differences for review and release packaging.
 
@@ -18,7 +20,8 @@ same scenario reviewable as a stack package instead of one large YAML file.
 
 `lab` is the default profile. It expects `TORQUE_LAB_SSH` or
 `TORQUE_LAB_PUBLIC_IP`, creates/reuses the Firecracker k3s lab, exposes NodePort
-DNAT rules, enables the event generator, and verifies public endpoints.
+  DNAT rules, enables the event generator, and verifies public endpoints,
+  including the Trino query endpoint.
 
 `stage` expects an existing kubeconfig through `TORQUE_FRAUD_KUBECONFIG` or
 `KUBECONFIG`, uses the same verification graph, and keeps public access outside
@@ -72,6 +75,18 @@ bundle as a fully standalone runtime artifact.
 - Treat `values/prod.yaml` as the production contract: pinned image digests,
   generator disabled, durable S3 and ClickHouse settings, and strict
   verification gates.
+- Keep the lakehouse path durable: Spark writes raw payments, risk events, and
+  batch feature summaries to Iceberg through the REST catalog, while Trino
+  queries both Iceberg and ClickHouse.
+- Keep Redpanda subjects registered before producers and processors run:
+  `payments.raw-value`, `payments.risk-value`, and `payments.decisions-value`
+  use backward-compatible JSON schema contracts.
 - Verification is part of the graph: API health, Ray Serve response, Flink job
   state, Argo/Spark workflow success, S3 object counts, ClickHouse row counts,
-  Redpanda offsets, public endpoint checks, and no unhealthy pods.
+  Trino queries over ClickHouse and Iceberg, Redpanda schema contracts and
+  offsets, replay/backfill rows, public endpoint checks, and no unhealthy pods.
+- Security and ML lifecycle are explicit contracts, not fully solved by the
+  lab. The package scopes the S3 secret per namespace and emits model
+  name/version metadata from Ray Serve; production should add Trino auth, TLS,
+  network policies, secret rotation, and a real model registry before treating
+  this as an internet-facing deployment.

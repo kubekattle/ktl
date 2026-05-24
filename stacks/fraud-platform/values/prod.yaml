@@ -32,6 +32,10 @@ verification:
   minCuratedObjects: 1
   minPaymentDecisionRows: 1
   minBatchFeatureRows: 1
+  minIcebergRawRows: 1
+  minIcebergRiskRows: 1
+  minIcebergBatchRows: 1
+  minReplayBackfillRows: 1
   minRedpandaRiskHighWatermark: 1
 
 evidence:

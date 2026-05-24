@@ -32,7 +32,7 @@ spec:
         image: apache/spark:4.1.2-scala2.13-java17-python3-ubuntu
         command: ["/bin/bash", "-lc"]
         args:
-          - export HOME=/tmp && python3 -m pip install --no-cache-dir boto3 clickhouse-connect && /opt/spark/bin/spark-submit --master spark://spark-master.ml.svc.cluster.local:7077 --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=$(hostname -i) --conf spark.executor.memory=512m --conf spark.driver.memory=512m /opt/app/spark_batch.py
+          - export HOME=/tmp && mkdir -p /tmp/.ivy2 && python3 -m pip install --no-cache-dir boto3 clickhouse-connect && /opt/spark/bin/spark-submit --packages org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,org.apache.iceberg:iceberg-aws-bundle:1.10.1 --master spark://spark-master.ml.svc.cluster.local:7077 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=$(hostname -i) --conf spark.executor.memory=512m --conf spark.driver.memory=512m /opt/app/spark_batch.py
         envFrom:
           - secretRef:
               name: aws-s3
@@ -41,6 +41,8 @@ spec:
             value: signoz-clickhouse.observability.svc.cluster.local
           - name: CLICKHOUSE_PASSWORD
             value: torque-clickhouse
+          - name: ICEBERG_REST_URI
+            value: http://iceberg-rest.data.svc.cluster.local:8181
         volumeMounts:
           - name: spark-batch-code
             mountPath: /opt/app
