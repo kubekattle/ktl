@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>A Verified Fraud Platform Packaged As A Torque Stack | torque</title>
+    <title>Deploy Platforms Instead Of Charts | torque</title>
     <meta
       name="description"
-      content="A real-world Torque stack package with profiles, app assets, Argo Workflows, Spark, Flink, Ray, Trino, Iceberg, Redpanda schema contracts, ClickHouse, S3 evidence, replay proof, and first-class verification."
+      content="Deploy a full platform as one Torque stack: profiles, app assets, Argo Workflows, Spark, Flink, Ray, Trino, Iceberg, Redpanda schema contracts, ClickHouse, S3 evidence, replay proof, and first-class verification."
     />
     <style>
       :root {
@@ -1616,7 +1616,7 @@
 
       <main>
         <section class="article-hero">
-          <h1>A Verified Fraud Platform Packaged As A Torque Stack</h1>
+          <h1>Deploy Platforms Instead Of Charts</h1>
           <p class="dek">Torque packages the stack root, profiles, app assets, public access checks, and run evidence into one repeatable release program. The proof run used real payment events and verified S3 objects, Redpanda schema contracts and offsets, ClickHouse rows, Iceberg tables, Trino queries, Spark batch output, replay/backfill, and public endpoints.</p>
           <div class="hero-actions" aria-label="Stack source links">
             <a href="https://github.com/ingresslabs/torque/tree/devel/stacks/fraud-platform">GitHub stack package</a>
@@ -1671,7 +1671,7 @@
         </section>
 
         <article class="article-body">
-          <p>This was built as a pressure test for Torque stack packaging and verification, not as a small demo with one chart and a happy path. The stack starts from a remote Linux host, creates a Kubernetes lab on Firecracker microVMs, installs the data platform, exposes selected services publicly, generates payment traffic, scores fraud risk in real time, runs a batch feature job, writes durable data into AWS S3, Iceberg, and ClickHouse, and verifies that every major surface is alive.</p>
+          <p>This was built as a pressure test for Torque stack packaging and verification, not as a small demo with one chart and a happy path. Helmfile can coordinate chart releases, Argo CD and Flux can reconcile Git state into Kubernetes, Terraform or Pulumi can provision infrastructure, and Argo Workflows can schedule jobs. The gap appears when one deployment spans all of those boundaries. This stack starts from a remote Linux host, creates a Kubernetes lab on Firecracker microVMs, installs the data platform, exposes selected services publicly, generates payment traffic, scores fraud risk in real time, runs a batch feature job, writes durable data into AWS S3, Iceberg, and ClickHouse, and verifies that every major surface is alive.</p>
 
           <p>The source package lives in GitHub under <a href="https://github.com/ingresslabs/torque/tree/devel/stacks/fraud-platform">stacks/fraud-platform</a>. The published stackfile is attached here as <a href="./showcase/firecracker-fraud-platform/stack.yaml">stack.yaml</a>. A production-shaped package entrypoint is also attached as <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">stack-packaged.yaml</a>, with profile values such as <a href="./showcase/firecracker-fraud-platform/values-prod.yaml">values-prod.yaml</a>. The host address from the lab run has been removed. The lab stack expects <code>TORQUE_LAB_PUBLIC_IP</code> for public endpoint checks and <code>TORQUE_LAB_SSH</code> for the SSH target.</p>
 
@@ -1778,6 +1778,26 @@ Redpanda payments.risk high watermark: 6391</code></pre>
           <p>Torque turns that into a single deployment object. Dependencies are explicit. Host-side mutations are part of the graph. Kubernetes manifests and commands are part of the graph. Verification is not a follow-up note; it is a phase that can fail the run. The SQLite capture gives the run a durable record instead of disappearing with the terminal scrollback.</p>
 
           <p>That is the advantage over a pile of specialized tools. Torque does not ask Spark to be an orchestrator, Flink to be a release manager, Argo to own the host, or Terraform to understand streaming data correctness. It lets each system do its job and gives the entire release one graph and one proof trail.</p>
+
+          <h2>How To Read The Stackfile</h2>
+          <p>Read a Torque stack as a release graph, not as a rendered Kubernetes bundle. The package starts with profile values, then defines named nodes with dependencies, commands, verification, and teardown behavior. A node can install a Helm chart, run a host command, apply raw manifests, create tunnels, call an API, or execute a proof check. The <code>needs</code> edges describe ordering, so the graph says that the lab must exist before Kubernetes access is tunneled, S3 must exist before workloads receive bucket credentials, workloads must be healthy before Spark runs, and replay must pass before final verification.</p>
+
+          <pre><code>nodes:
+  - name: workloads-install
+    needs: [platform-install, aws-s3-bootstrap]
+  - name: argo-spark-batch
+    needs: [public-access]
+  - name: verify-e2e
+    needs: [replay-backfill]</code></pre>
+
+          <p>That snippet is the part Helm does not try to model. A Helm values file configures one release at render time; it does not own the Firecracker host, SSH tunnel, S3 bucket, schema registration, replay job, or final evidence query. A Git reconciler such as Argo CD is excellent at keeping Kubernetes objects aligned with Git, but it normally treats the cluster as the boundary. This stack crosses that boundary deliberately. It records the host bootstrap, cluster mutations, cloud data dependencies, application jobs, and proof output in one resumable run.</p>
+
+          <pre><code>host.command.run:
+  command: scripts/replay-backfill.sh apply
+  deleteCommand: scripts/replay-backfill.sh delete
+  timeout: 20m</code></pre>
+
+          <p>The command snippet is intentionally plain. Torque does not hide operational logic behind a controller-only abstraction; it makes the action reviewable, orders it with the rest of the graph, captures its output, and lets the same stack resume from the failed node instead of rerunning the entire platform.</p>
 
           <h2>Packaging It For Production</h2>
           <p>The lab version intentionally keeps everything visible, including the Firecracker host bootstrap and Python app sources mounted as ConfigMaps. The production package shape is different: a stack root, profile values, scripts, pinned chart inputs, app images, secret references, and sealed Torque evidence.</p>
