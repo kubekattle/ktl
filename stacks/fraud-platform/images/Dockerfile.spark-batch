@@ -1,0 +1,9 @@
+FROM bitnami/spark:3.5.6
+
+USER root
+WORKDIR /opt/app
+COPY app/spark_batch.py /opt/app/spark_batch.py
+RUN python -m pip install --no-cache-dir boto3 clickhouse-connect
+USER 1001
+
+CMD ["/opt/spark/bin/spark-submit", "/opt/app/spark_batch.py"]

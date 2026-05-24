@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+
+WORKDIR /opt/app
+COPY app/generator.py /opt/app/generator.py
+RUN python -m pip install --no-cache-dir requests
+
+CMD ["python", "/opt/app/generator.py"]

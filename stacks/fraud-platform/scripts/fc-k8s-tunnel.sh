@@ -7,6 +7,19 @@ STACK_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export TORQUE_STACK_ROOT="${TORQUE_STACK_ROOT:-${STACK_DIR}}"
 export TORQUE_FRAUD_PROFILE="${TORQUE_FRAUD_PROFILE:-${TORQUE_STACK_PROFILE:-lab}}"
 mode="${1:-apply}"
+if [[ "${TORQUE_FRAUD_PROFILE}" != "lab" ]]; then
+  KUBECONFIG_PATH="${TORQUE_FRAUD_KUBECONFIG:-/tmp/torque-fraud-platform.kubeconfig}"
+  if [[ "${mode}" == "delete" ]]; then
+    echo "skip lab API tunnel teardown for profile=${TORQUE_FRAUD_PROFILE}"
+    exit 0
+  fi
+  if [[ ! -s "${KUBECONFIG_PATH}" ]]; then
+    [[ -n "${KUBECONFIG:-}" && -s "${KUBECONFIG}" ]] || { echo "set TORQUE_FRAUD_KUBECONFIG or KUBECONFIG for profile=${TORQUE_FRAUD_PROFILE}" >&2; exit 2; }
+    cp "${KUBECONFIG}" "${KUBECONFIG_PATH}"
+  fi
+  kubectl --kubeconfig "${KUBECONFIG_PATH}" get nodes -o wide
+  exit 0
+fi
       case "${mode}" in
         apply)
 set -euo pipefail

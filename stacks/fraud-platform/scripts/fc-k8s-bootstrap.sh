@@ -7,7 +7,17 @@ STACK_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export TORQUE_STACK_ROOT="${TORQUE_STACK_ROOT:-${STACK_DIR}}"
 export TORQUE_FRAUD_PROFILE="${TORQUE_FRAUD_PROFILE:-${TORQUE_STACK_PROFILE:-lab}}"
 mode="${1:-apply}"
-      LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@${TORQUE_LAB_PUBLIC_IP:?set TORQUE_LAB_PUBLIC_IP or TORQUE_LAB_SSH}}"
+if [[ "${TORQUE_FRAUD_PROFILE}" != "lab" ]]; then
+  if [[ "${mode}" == "delete" ]]; then
+    echo "skip Firecracker lab teardown for profile=${TORQUE_FRAUD_PROFILE}"
+    exit 0
+  fi
+  KUBECONFIG_PATH="${TORQUE_FRAUD_KUBECONFIG:-${KUBECONFIG:-}}"
+  [[ -n "${KUBECONFIG_PATH}" ]] || { echo "set TORQUE_FRAUD_KUBECONFIG or KUBECONFIG for profile=${TORQUE_FRAUD_PROFILE}" >&2; exit 2; }
+  kubectl --kubeconfig "${KUBECONFIG_PATH}" get nodes -o wide
+  exit 0
+fi
+LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@${TORQUE_LAB_PUBLIC_IP:?set TORQUE_LAB_PUBLIC_IP or TORQUE_LAB_SSH}}"
       LAB_TARGET="${LAB_TARGET#ssh://}"
       case "${mode}" in
         apply)

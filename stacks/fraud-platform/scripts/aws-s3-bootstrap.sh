@@ -11,6 +11,17 @@ mode="${1:-apply}"
         apply)
 set -euo pipefail
 KUBECONFIG_PATH="${TORQUE_FRAUD_KUBECONFIG:-/tmp/torque-fraud-platform.kubeconfig}"
+if [[ "${TORQUE_FRAUD_PROFILE}" == "prod" || "${TORQUE_FRAUD_AWS_SECRET_MODE:-}" == "existing" ]]; then
+  for ns in apps data stream ml argo observability; do
+    kubectl --kubeconfig "${KUBECONFIG_PATH}" create namespace "${ns}" --dry-run=client -o yaml |
+      kubectl --kubeconfig "${KUBECONFIG_PATH}" apply -f -
+  done
+  for ns in apps argo ml; do
+    kubectl --kubeconfig "${KUBECONFIG_PATH}" -n "${ns}" get secret aws-s3 >/dev/null
+  done
+  echo "using existing aws-s3 secrets for profile=${TORQUE_FRAUD_PROFILE}"
+  exit 0
+fi
 region="${AWS_REGION:-$(aws configure get region)}"
 region="${region:-us-east-1}"
 account="$(aws sts get-caller-identity --query Account --output text)"

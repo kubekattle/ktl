@@ -7,7 +7,11 @@ STACK_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export TORQUE_STACK_ROOT="${TORQUE_STACK_ROOT:-${STACK_DIR}}"
 export TORQUE_FRAUD_PROFILE="${TORQUE_FRAUD_PROFILE:-${TORQUE_STACK_PROFILE:-lab}}"
 mode="${1:-apply}"
-      LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@${TORQUE_LAB_PUBLIC_IP:?set TORQUE_LAB_PUBLIC_IP or TORQUE_LAB_SSH}}"
+if [[ "${TORQUE_FRAUD_PROFILE}" != "lab" ]]; then
+  echo "skip lab NodePort DNAT for profile=${TORQUE_FRAUD_PROFILE}; use ingress/load balancer values instead"
+  exit 0
+fi
+LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@${TORQUE_LAB_PUBLIC_IP:?set TORQUE_LAB_PUBLIC_IP or TORQUE_LAB_SSH}}"
       LAB_TARGET="${LAB_TARGET#ssh://}"
       case "${mode}" in
         apply)

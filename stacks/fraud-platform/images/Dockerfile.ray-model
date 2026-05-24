@@ -1,0 +1,6 @@
+FROM rayproject/ray:2.55.1-py312
+
+WORKDIR /opt/app
+COPY app/ray_model.py /opt/app/ray_model.py
+
+CMD ["python", "/opt/app/ray_model.py"]
