@@ -793,11 +793,16 @@
       "content": "Operate proof-backed target graphs, inventories, and adapter-driven change workflows.\n\nUsage:\n  torque ops",
       "examples": [
         "# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
-        "# Snapshot a dynamic inventory source\ntorque ops inventory snapshot --source ./targetgraph.yaml --type file --format json",
-        "# Collect cached host facts for selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --cache-dir ./.torque/ops/facts"
+        "# Collect cached host facts for selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --cache-dir ./.torque/ops/facts",
+        "# Check guarded mutation policy before adding an adapter\ntorque ops policy check --mode guarded --operation host.command.run --mutating --format json"
       ],
       "tags": [
-        "command"
+        "command",
+        "ops",
+        "inventory",
+        "facts",
+        "locks",
+        "policy"
       ]
     },
     {
@@ -811,7 +816,10 @@
         "# Compare two fact collections\ntorque ops facts diff --from ./facts-before.json --to ./facts-after.json"
       ],
       "tags": [
-        "command"
+        "command",
+        "ops",
+        "facts",
+        "evidence"
       ]
     },
     {
@@ -857,7 +865,10 @@
         "# Snapshot a Git-backed TargetGraph source\ntorque ops inventory snapshot --source ./repo --type git --path targetgraph.yaml --ref HEAD --format json"
       ],
       "tags": [
-        "command"
+        "command",
+        "ops",
+        "inventory",
+        "targetgraph"
       ]
     },
     {
@@ -914,8 +925,15 @@
       "title": "torque ops lock",
       "subtitle": "Inspect and manage ops target locks",
       "content": "Inspect and manage ops target locks\n\nUsage:\n  torque ops lock",
+      "examples": [
+        "# Acquire a target lock before a planned mutation\ntorque ops lock acquire --scope target/host-01 --holder operator --operation host.command.run",
+        "# Inspect an existing lock\ntorque ops lock status --scope target/host-01 --format json"
+      ],
       "tags": [
-        "command"
+        "command",
+        "ops",
+        "locks",
+        "targets"
       ]
     },
     {
@@ -925,10 +943,15 @@
       "subtitle": "Acquire a target lock",
       "content": "Acquire a target lock\n\nUsage:\n  torque ops lock acquire [flags]\n\nFlags:\n      --format string      Output format: table or json (default \"table\")\n      --holder string      Lock holder identity (default \"antonvkrylov\")\n      --lock-dir string    Directory for ops target locks (default \".torque/ops/locks\")\n      --operation string   Operation guarded by the lock\n      --scope string       Lock scope, usually target/<id> or graph/<id>\n      --target string      Target ID associated with the lock\n      --ttl duration       Lock TTL (default 15m0s)\n      --wait duration      How long to wait for an existing lock",
       "examples": [
-        "torque ops lock acquire --scope target/host-01 --holder operator --operation host.command.run\n  torque ops lock acquire --scope target/host-01 --lock-dir ./.torque/ops/locks --format json"
+        "torque ops lock acquire --scope target/host-01 --holder operator --operation host.command.run\n  torque ops lock acquire --scope target/host-01 --lock-dir ./.torque/ops/locks --format json",
+        "# Acquire a target lock with a TTL\ntorque ops lock acquire --scope target/host-01 --holder operator --operation host.command.run --ttl 15m --format json",
+        "# Wait briefly for an existing target lock\ntorque ops lock acquire --scope target/host-01 --holder operator --wait 5s"
       ],
       "tags": [
-        "command"
+        "command",
+        "ops",
+        "locks",
+        "targets"
       ]
     },
     {
@@ -938,7 +961,8 @@
       "subtitle": "Release a target lock by token",
       "content": "Release a target lock by token\n\nUsage:\n  torque ops lock release [flags]\n\nFlags:\n      --format string     Output format: table or json (default \"table\")\n      --lock-dir string   Directory for ops target locks (default \".torque/ops/locks\")\n      --scope string      Lock scope\n      --token string      Lock token returned by acquire",
       "examples": [
-        "torque ops lock release --scope target/host-01 --token <token>\n  torque ops lock release --scope target/host-01 --token <token> --format json"
+        "torque ops lock release --scope target/host-01 --token <token>\n  torque ops lock release --scope target/host-01 --token <token> --format json",
+        "# Release a target lock by token\ntorque ops lock release --scope target/host-01 --token <token>"
       ],
       "tags": [
         "command"
@@ -951,7 +975,8 @@
       "subtitle": "Show a target lock",
       "content": "Show a target lock\n\nUsage:\n  torque ops lock status [flags]\n\nFlags:\n      --format string     Output format: table or json (default \"table\")\n      --lock-dir string   Directory for ops target locks (default \".torque/ops/locks\")\n      --scope string      Lock scope",
       "examples": [
-        "torque ops lock status --scope target/host-01\n  torque ops lock status --scope target/host-01 --format json"
+        "torque ops lock status --scope target/host-01\n  torque ops lock status --scope target/host-01 --format json",
+        "# Show a target lock as JSON\ntorque ops lock status --scope target/host-01 --format json"
       ],
       "tags": [
         "command"
@@ -963,8 +988,15 @@
       "title": "torque ops policy",
       "subtitle": "Evaluate ops mutation policy",
       "content": "Evaluate ops mutation policy\n\nUsage:\n  torque ops policy",
+      "examples": [
+        "# Check an observe-only policy blocks mutation\ntorque ops policy check --mode observe-only --operation host.command.run --mutating --format json",
+        "# Check an approved guarded mutation\ntorque ops policy check --mode guarded --operation host.command.run --mutating --approved"
+      ],
       "tags": [
-        "command"
+        "command",
+        "ops",
+        "policy",
+        "mutation"
       ]
     },
     {
@@ -974,10 +1006,16 @@
       "subtitle": "Check whether an ops action is allowed by mutation policy",
       "content": "Check whether an ops action is allowed by mutation policy\n\nUsage:\n  torque ops policy check [flags]\n\nFlags:\n      --adapter string      Adapter name or kind to evaluate\n      --allow-unsafe        Explicitly allow unsafe local experiment mode\n      --approved            Manual approval is present\n      --format string       Output format: table or json (default \"table\")\n      --local-experiment    Mark this check as a local experiment\n      --mode string         Mutation policy mode: automatic, guarded, manual,\n                            observe-only, unsafe (default \"guarded\")\n      --mutating            Operation would mutate a target\n      --operation string    Operation kind to evaluate\n      --proof-gate-passed   External proof gate passed\n      --target string       Target ID to evaluate\n      --unsafe              Operation is classified unsafe",
       "examples": [
-        "torque ops policy check --mode guarded --operation host.command.run --mutating\n  torque ops policy check --mode observe-only --operation host.command.run --mutating --format json\n  torque ops policy check --mode unsafe --unsafe --mutating --allow-unsafe --local-experiment"
+        "torque ops policy check --mode guarded --operation host.command.run --mutating\n  torque ops policy check --mode observe-only --operation host.command.run --mutating --format json\n  torque ops policy check --mode unsafe --unsafe --mutating --allow-unsafe --local-experiment",
+        "# Block an unsafe automatic operation\ntorque ops policy check --mode automatic --operation host.command.run --mutating --unsafe --format json",
+        "# Allow an explicit unsafe local experiment\ntorque ops policy check --mode unsafe --operation host.command.run --mutating --unsafe --allow-unsafe --local-experiment"
       ],
       "tags": [
-        "command"
+        "command",
+        "ops",
+        "policy",
+        "mutation",
+        "safety"
       ]
     },
     {

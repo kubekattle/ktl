@@ -407,7 +407,7 @@
         <section class="article-hero" aria-labelledby="title">
           <h1 id="title">Atlassian Data Center As A Torque Stack</h1>
           <p class="dek">
-            A simple field note from a two-node k3s lab: start with Atlassian
+            A simple field note from a two-node k3s deployment environment: start with Atlassian
             Helm charts, turn them into a Torque stack, replace plaintext
             passwords, gate the rollout, and build custom images for the same
             delivery path.
@@ -465,7 +465,7 @@ torque release promote ./reports/proof.graph.json \
 
           <p>I also built custom images for the same stack. The goal was not to fork Atlassian products or bake configuration into images. The goal was to prove that Torque could own the image build step as part of the same delivery story. The Dockerfiles pinned the upstream Atlassian, PostgreSQL, and NFS provisioner bases by digest, added only small operational changes where useful, and ran through Torque build with secret scanning enabled. The Bamboo agent image is the clearest example: it keeps the upstream agent base but adds common diagnostic and CI tools such as <code>curl</code>, <code>git</code>, <code>jq</code>, <code>openssh-client</code>, <code>tar</code>, and <code>unzip</code>. The built OCI layouts were imported into k3s containerd on both nodes and then referenced from the stack values as <code>torque.local/atlassian/...</code> images.</p>
 
-          <p>There were two useful debugging moments. First, generated reports showed that some chart warnings were acceptable for this lab only because the verifier gate was set to fail on high and above, not because all findings should be ignored in production. Second, one image build tripped a secret scanner false positive on packaged OpenSSH binaries inside the Bitbucket image. That is exactly the kind of case where policy should be adjustable but not disabled. I added a small scanner rules file that kept build argument and log scanning strict while avoiding that OCI-content false positive.</p>
+          <p>There were two useful debugging moments. First, generated reports showed that some chart warnings were acceptable for this proof run only because the verifier gate was set to fail on high and above, not because all findings should be ignored in production. Second, one image build tripped a secret scanner false positive on packaged OpenSSH binaries inside the Bitbucket image. That is exactly the kind of case where policy should be adjustable but not disabled. I added a small scanner rules file that kept build argument and log scanning strict while avoiding that OCI-content false positive.</p>
 
           <p><strong>Torque logs as an operational graph.</strong> The useful log view was not just "show me this pod." It was logs by stack dependency, active ReplicaSet, readiness condition, and event context. The same command family handled dependency-aware context with <code>--deps</code>, namespace-wide unhealthy pods with <code>--condition</code>, Kubernetes events with <code>--events</code>, active rollouts with <code>--deploy-mode active</code>, and durable handoff evidence with <code>--capture</code>. That is especially strong for agents because they can inspect failure context from the stack graph without guessing Kubernetes object names first.</p>
 

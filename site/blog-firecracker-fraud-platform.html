@@ -1681,8 +1681,8 @@
           Kubernetes objects in sync with Git. Terraform and Pulumi can create
           cloud resources. Argo Workflows can run jobs. This stack uses that
           kind of tooling where it fits, but the stack boundary is wider. The
-          deployment starts with a remote Linux host, creates a Firecracker
-          backed k3s lab, opens a controlled tunnel for local Kubernetes
+          deployment starts with a remote Linux host, creates a Firecracker-backed
+          k3s deployment environment, opens a controlled tunnel for local Kubernetes
           access, creates or checks the S3 bucket, installs the platform
           services, deploys the fraud workloads, runs Spark, runs replay, and
           verifies the data path from outside the cluster.</p>
@@ -1694,7 +1694,7 @@
           <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">stack-packaged.yaml</a>,
           with profile values such as
           <a href="./showcase/firecracker-fraud-platform/values-prod.yaml">values-prod.yaml</a>.
-          The lab profile expects <code>TORQUE_LAB_SSH</code> for the target
+          The proof-run profile expects <code>TORQUE_LAB_SSH</code> for the target
           host and <code>TORQUE_LAB_PUBLIC_IP</code> for public endpoint
           checks.</p>
 
@@ -1810,7 +1810,7 @@
           verification program, not a note in a runbook.</p>
 
           <p>Profiles keep environment choices out of the command text. The
-          lab profile owns the Firecracker host, public IP checks, NodePort
+          deployment profile owns the Firecracker host, public IP checks, NodePort
           exposure, and generated traffic. A stage or production profile can
           point at an existing kubeconfig, pinned images, real ingress, and
           secret references. The same graph remains readable while the
