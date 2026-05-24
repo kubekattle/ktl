@@ -1,0 +1,28 @@
+app:
+  name: fraud-platform
+  namespace: fraud-platform
+
+kubernetes:
+  kubeconfigEnv: TORQUE_FRAUD_KUBECONFIG
+
+storage:
+  s3:
+    bucketEnv: TORQUE_FRAUD_S3_BUCKET
+    regionEnv: AWS_REGION
+
+observability:
+  signoz:
+    namespace: observability
+    clickhouseHost: signoz-clickhouse.observability.svc.cluster.local
+    clickhousePasswordRef: secret://vault/fraud-platform/clickhouse#password
+
+verification:
+  apiHealth: true
+  rayServeScore: true
+  flinkJobs: true
+  argoSparkWorkflow: true
+  s3ObjectCounts: true
+  clickhouseRows: true
+  redpandaOffsets: true
+  unhealthyPods: true
+  publicEndpoints: true

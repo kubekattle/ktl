@@ -1,0 +1,28 @@
+profile: lab
+
+firecracker:
+  enabled: true
+  hostEnv: TORQUE_LAB_SSH
+  publicIPEnv: TORQUE_LAB_PUBLIC_IP
+  nodeCount: 5
+  runRoot: /var/lib/torque-firecracker-k8s/fraud-platform
+
+publicAccess:
+  mode: nodeport-dnat
+  hostIPEnv: TORQUE_LAB_PUBLIC_IP
+  ports:
+    paymentsApi: 30080
+    signoz: 3301
+    argo: 2746
+    flink: 8081
+    spark: 8080
+    rayDashboard: 8265
+    rayClient: 10001
+
+generator:
+  enabled: true
+  eventCount: 600
+  fraudRate: 0.18
+
+aws:
+  mode: local-credentials-to-kubernetes-secret

@@ -1,0 +1,166 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: fraud-platform
+defaultProfile: lab
+cli:
+  inferDeps: false
+  selector:
+    includeDeps: true
+    allowMissingDeps: false
+runner:
+  concurrency: 1
+profiles:
+  lab:
+    runner:
+      concurrency: 1
+    cli:
+      selector:
+        tags:
+        - lab
+  stage:
+    runner:
+      concurrency: 2
+    cli:
+      selector:
+        tags:
+        - stage
+      apply:
+        diff: true
+      resume:
+        allowDrift: false
+    defaults:
+      namespace: fraud-platform
+      verify:
+        enabled: true
+        failOnWarnings: true
+  prod:
+    runner:
+      concurrency: 2
+    cli:
+      selector:
+        tags:
+        - prod
+      apply:
+        diff: true
+      resume:
+        allowDrift: false
+    defaults:
+      namespace: fraud-platform
+      apply:
+        wait: true
+        atomic: true
+        timeout: 30m
+      verify:
+        enabled: true
+        failOnWarnings: true
+nodes:
+- name: fc-k8s-bootstrap
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  host:
+    transport: local
+    timeout: 90m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/fc-k8s-bootstrap.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/fc-k8s-bootstrap.sh delete"
+- name: fc-k8s-tunnel
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - fc-k8s-bootstrap
+  host:
+    transport: local
+    timeout: 5m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/fc-k8s-tunnel.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/fc-k8s-tunnel.sh delete"
+- name: aws-s3-bootstrap
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - fc-k8s-tunnel
+  host:
+    transport: local
+    timeout: 10m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/aws-s3-bootstrap.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/aws-s3-bootstrap.sh delete"
+- name: platform-install
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - aws-s3-bootstrap
+  host:
+    transport: local
+    timeout: 45m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/platform-install.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/platform-install.sh delete"
+- name: workloads-install
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - platform-install
+  host:
+    transport: local
+    timeout: 45m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/workloads-install.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/workloads-install.sh delete"
+- name: public-access
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - workloads-install
+  host:
+    transport: local
+    timeout: 5m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/public-access.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/public-access.sh delete"
+- name: argo-spark-batch
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - public-access
+  host:
+    transport: local
+    timeout: 20m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/argo-spark-batch.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/argo-spark-batch.sh delete"
+- name: verify-e2e
+  kind: host.command.run
+  tags:
+  - lab
+  - stage
+  - prod
+  - fraud-platform
+  needs:
+  - argo-spark-batch
+  host:
+    transport: local
+    timeout: 10m
+    command: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/verify-e2e.sh apply"
+    deleteCommand: "${TORQUE_STACK_ROOT:-stacks/fraud-platform}/scripts/verify-e2e.sh delete"

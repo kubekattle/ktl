@@ -1,0 +1,40 @@
+profile: prod
+
+firecracker:
+  enabled: false
+
+publicAccess:
+  mode: ingress
+  hostEnv: TORQUE_FRAUD_PUBLIC_HOST
+
+generator:
+  enabled: false
+
+aws:
+  mode: workload-identity
+  secretRef: secret://vault/fraud-platform/aws#role
+
+images:
+  paymentsApi: registry.example.com/fraud/payments-api@sha256:REPLACE_WITH_DIGEST
+  generator: registry.example.com/fraud/generator@sha256:REPLACE_WITH_DIGEST
+  rayModel: registry.example.com/fraud/ray-model@sha256:REPLACE_WITH_DIGEST
+  sparkBatch: registry.example.com/fraud/spark-batch@sha256:REPLACE_WITH_DIGEST
+
+observability:
+  signoz:
+    clickhousePasswordRef: secret://vault/fraud-platform/clickhouse#password
+
+verification:
+  failOnWarnings: true
+  requireNoUnhealthyPods: true
+  requirePublicEndpoints: true
+  minRawObjects: 1
+  minCuratedObjects: 1
+  minPaymentDecisionRows: 1
+  minBatchFeatureRows: 1
+  minRedpandaRiskHighWatermark: 1
+
+evidence:
+  capture: required
+  export: required
+  auditHtml: required

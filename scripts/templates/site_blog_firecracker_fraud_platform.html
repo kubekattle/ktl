@@ -751,15 +751,15 @@
           <div class="panel metric-grid">
             <div class="metric"><strong>5</strong><span>Firecracker k3s nodes</span></div>
             <div class="metric"><strong>3</strong><span>compute engines</span></div>
-            <div class="metric"><strong>1,736</strong><span>S3 raw events in the proof run</span></div>
-            <div class="metric"><strong>144</strong><span>Spark batch rows verified</span></div>
+            <div class="metric"><strong>2,632</strong><span>S3 raw events in the proof run</span></div>
+            <div class="metric"><strong>216</strong><span>Spark batch rows verified</span></div>
           </div>
         </section>
 
         <article class="article-body">
           <p>This was built as a pressure test for Torque stack orchestration, not as a small demo with one chart and a happy path. The stack starts from a remote Linux host, creates a Firecracker-backed k3s cluster, installs the data platform, exposes selected services publicly, generates payment traffic, scores fraud risk in real time, runs a batch feature job, writes durable data into AWS S3 and ClickHouse, and verifies that every major surface is alive.</p>
 
-          <p>The published stackfile is attached here: <a href="./showcase/firecracker-fraud-platform/stack.yaml">stack.yaml</a>. The host address from the lab run has been removed. The stack expects <code>TORQUE_LAB_PUBLIC_IP</code> for public endpoint checks and <code>TORQUE_LAB_SSH</code> for the SSH target.</p>
+          <p>The published stackfile is attached here: <a href="./showcase/firecracker-fraud-platform/stack.yaml">stack.yaml</a>. A production-shaped package entrypoint is also attached as <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">stack-packaged.yaml</a>, with profile values such as <a href="./showcase/firecracker-fraud-platform/values-prod.yaml">values-prod.yaml</a>. The host address from the lab run has been removed. The lab stack expects <code>TORQUE_LAB_PUBLIC_IP</code> for public endpoint checks and <code>TORQUE_LAB_SSH</code> for the SSH target.</p>
 
           <blockquote>Torque is useful when the deployment is not one tool. It is the VM fabric, the Kubernetes layer, the app, the data plane, the batch job, the observability stack, and the evidence that proves they agree.</blockquote>
 
@@ -794,12 +794,12 @@ Flink: jobs overview responded on port 8081</code></pre>
 
           <p>The data proof was deliberately concrete. The API produced raw payment events, S3 held the raw and curated objects, ClickHouse held both streaming decisions and batch feature rows, and Redpanda showed topic progress.</p>
 
-          <pre><code>S3 raw payment objects: 1736
-S3 curated feature objects: 5
-ClickHouse risk decisions: 1341
-ClickHouse Spark batch rows: 144
-Redpanda payments.raw high watermark: 1342
-Redpanda payments.risk high watermark: 2456</code></pre>
+          <pre><code>S3 raw payment objects: 2632
+S3 curated feature objects: 7
+ClickHouse payment decisions: 2237
+ClickHouse Spark batch rows: 216
+Redpanda payments.raw high watermark: 2252
+Redpanda payments.risk high watermark: 6391</code></pre>
 
           <p>Those numbers are not a benchmark. They are evidence that this was not a static architecture diagram. The stack generated events, moved them through streaming and batch paths, wrote the results, and checked the system from outside the host through public endpoints.</p>
 
@@ -809,6 +809,35 @@ Redpanda payments.risk high watermark: 2456</code></pre>
           <p>Torque turns that into a single deployment object. Dependencies are explicit. Host-side mutations are part of the graph. Kubernetes manifests and commands are part of the graph. Verification is not a follow-up note; it is a phase that can fail the run. The SQLite capture gives the run a durable record instead of disappearing with the terminal scrollback.</p>
 
           <p>That is the advantage over a pile of specialized tools. Torque does not ask Spark to be an orchestrator, Flink to be a release manager, Argo to own the host, or Terraform to understand streaming data correctness. It lets each system do its job and gives the entire release one graph and one proof trail.</p>
+
+          <h2>Packaging It For Production</h2>
+          <p>The lab version intentionally keeps everything visible, including the Firecracker host bootstrap and Python app sources mounted as ConfigMaps. The production package shape is different: a stack root, profile values, scripts, pinned chart inputs, app images, secret references, and sealed Torque evidence.</p>
+
+          <pre><code>stacks/fraud-platform/stack.yaml
+stacks/fraud-platform/scripts/*.sh
+stacks/fraud-platform/app/*
+stacks/fraud-platform/images/Dockerfile.*
+stacks/fraud-platform/values/common.yaml
+stacks/fraud-platform/values/lab.yaml
+stacks/fraud-platform/values/stage.yaml
+stacks/fraud-platform/values/prod.yaml</code></pre>
+
+          <p>The profiles make environment differences explicit. <code>lab</code> owns the Firecracker host, NodePort DNAT, public IP checks, and event generator. <code>stage</code> uses an existing kubeconfig, smaller resources, real S3, and ingress. <code>prod</code> expects pinned images, no generator, existing cloud identity or <code>secret://</code> backed secrets, stricter verification, and durable audit/export artifacts.</p>
+
+          <pre><code>export TORQUE_STACK_ROOT=stacks/fraud-platform
+export TORQUE_STACK_PROFILE=prod
+
+torque stack plan --config "${TORQUE_STACK_ROOT}" --bundle dist/fraud-platform-plan.tgz
+torque stack seal --config "${TORQUE_STACK_ROOT}" --profile prod --out dist/fraud-platform-prod
+torque stack apply --sealed-dir dist/fraud-platform-prod \
+  --capture dist/fraud-platform-prod.sqlite \
+  --capture-tag env=prod \
+  --capture-tag app=fraud-platform \
+  --yes
+torque stack audit --config "${TORQUE_STACK_ROOT}" --output html &gt; dist/fraud-platform-audit.html
+torque stack export --config "${TORQUE_STACK_ROOT}" --out dist/fraud-platform-run.tgz</code></pre>
+
+          <p>The point is not to hide the complexity. It is to make the complexity reviewable, sealed, repeatable, resumable, and auditable. Local assumptions move into profile values. Raw credentials move behind workload identity or <code>secret://</code> references. App code moves into digest-pinned images. Verification stays in the graph and remains the release gate.</p>
 
           <h2>Where This Fits In The Real World</h2>
           <p>The same pattern applies to fraud detection, marketplace event processing, IoT telemetry, personalization features, security analytics, billing pipelines, and internal AI platforms. These systems usually combine an API, a queue or log, a streaming job, a batch job, a model service, object storage, an analytical store, and observability. They also need public access rules, secrets, cloud credentials, health checks, and rollback or teardown behavior.</p>
