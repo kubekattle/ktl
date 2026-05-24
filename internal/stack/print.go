@@ -38,6 +38,24 @@ func PrintPlanTable(w io.Writer, p *Plan) error {
 			p.Runner.Adaptive.CooldownSevere,
 		)
 	}
+	if p.Ops != nil {
+		fmt.Fprintf(tw, "OPS\tselectedTargets=%d factEvidence=%d factSnapshots=%d locks=%d policyDecisions=%d blockers=%d\n",
+			p.Ops.Summary.SelectedTargets,
+			p.Ops.Summary.FactEvidence,
+			p.Ops.Summary.FactSnapshots,
+			p.Ops.Summary.Locks,
+			p.Ops.Summary.PolicyDecisions,
+			p.Ops.Summary.Blockers,
+		)
+		for _, blocker := range p.Ops.Blockers {
+			fmt.Fprintf(tw, "OPS_BLOCKER\t%s\t%s\t%s\t%s\n",
+				blocker.Code,
+				firstNonEmptyString(blocker.TargetID, blocker.Scope, "-"),
+				firstNonEmptyString(blocker.Source, "-"),
+				blocker.Reason,
+			)
+		}
+	}
 	fmt.Fprintln(tw)
 
 	fmt.Fprintln(tw, "GROUP\tWAVE\tROLE\tKEY\tID\tDIR\tKIND\tCHART\tTAGS\tNEEDS\tSELECTED_BY")

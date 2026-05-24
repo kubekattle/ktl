@@ -25,6 +25,7 @@ type RunPlan struct {
 	Selector    RunSelector        `json:"selector,omitempty"`
 	Nodes       []*ResolvedRelease `json:"nodes"`
 	Runner      RunnerResolved     `json:"runner,omitempty"`
+	Ops         *OpsPlanInputs     `json:"ops,omitempty"`
 
 	StackGitCommit string `json:"stackGitCommit,omitempty"`
 	StackGitDirty  bool   `json:"stackGitDirty,omitempty"`
@@ -118,6 +119,7 @@ func buildRunPlanPayload(run *runState, p *Plan) *RunPlan {
 		Selector:    run.Selector,
 		Nodes:       nodes,
 		Runner:      p.Runner,
+		Ops:         p.Ops,
 	}
 }
 

@@ -208,16 +208,23 @@ func stackArgvHasFlagAfterStack(name string) bool {
 func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 	var bundlePath string
 	var bundleDiffSummary bool
+	var opsOpts stackOpsPlanOptions
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Compile stack configs into an execution plan",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(derefString(common.remoteAgent)) != "" {
+				if opsOpts.enabled() {
+					return fmt.Errorf("torque stack plan --remote-agent does not support --ops-* plan inputs; run the plan where the ops evidence files are available")
+				}
 				return runRemoteStackPlanCommand(cmd, common, bundlePath, bundleDiffSummary)
 			}
 			_, selected, effective, err := compileInferSelect(cmd, common)
 			if err != nil {
+				return err
+			}
+			if err := attachStackOpsPlanInputs(cmd, selected, opsOpts); err != nil {
 				return err
 			}
 			if strings.TrimSpace(bundlePath) != "" {
@@ -263,6 +270,7 @@ func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 					},
 					Nodes:  selected.Nodes,
 					Runner: selected.Runner,
+					Ops:    selected.Ops,
 
 					StackGitCommit: gid.Commit,
 					StackGitDirty:  gid.Dirty,
@@ -360,6 +368,7 @@ func newStackPlanCommand(common stackCommandCommon) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&bundlePath, "bundle", "", "Write a reproducible plan bundle (.tgz) instead of printing the plan")
 	cmd.Flags().BoolVar(&bundleDiffSummary, "bundle-diff-summary", false, "Compute and embed a diff summary against the live cluster (requires cluster access)")
+	addStackOpsPlanFlags(cmd, &opsOpts)
 	return cmd
 }
 

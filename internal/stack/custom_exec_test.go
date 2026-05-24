@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ingresslabs/torque/internal/ops/locks"
 	_ "modernc.org/sqlite"
 )
 
@@ -471,6 +472,130 @@ func TestRun_HostCommandDryRunDoesNotExecute(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("missing dry-run host-command artifact in %+v", audit.Artifacts)
+	}
+}
+
+func TestRun_HostCommandOpsGuardReceipts(t *testing.T) {
+	root := t.TempDir()
+	outFile := filepath.Join(root, "ops-host-marker.txt")
+	node := &ResolvedRelease{
+		ID:        "host.command.run/ops-marker",
+		Kind:      NodeKindHostCommandRun,
+		Name:      "ops-marker",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport: "local",
+			TargetID:  "host/web-01",
+			Command:   "printf 'password=super-secret-value\\n' && printf ok > " + shellQuoteForTest(outFile),
+		},
+	}
+	plan := planForTest(root, node)
+	plan.Ops = eligibleHostCommandOpsForTest(t, root, "host/web-01")
+
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read host command output: %v", err)
+	}
+	if got := string(bytes.TrimSpace(raw)); got != "ok" {
+		t.Fatalf("host command output=%q", got)
+	}
+
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-command-observe.json", "host-command-plan.json", "host-command-execute.json", "host-command-verify.json", "host-command.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	artifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-command.json")
+	if !strings.Contains(artifact, `"guardMode": "ops"`) ||
+		!strings.Contains(artifact, `"targetId": "host/web-01"`) ||
+		!strings.Contains(artifact, `"HostCommandNodeArtifact"`) ||
+		!strings.Contains(artifact, `password=[REDACTED]`) ||
+		strings.Contains(artifact, "super-secret-value") {
+		t.Fatalf("host command artifact did not record guarded redacted receipts:\n%s", artifact)
+	}
+	verify := auditArtifactBody(t, audit.Artifacts, node.ID, "host-command-verify.json")
+	if !strings.Contains(verify, `"status": "succeeded"`) ||
+		!strings.Contains(verify, `"stdoutRedacted": true`) ||
+		!strings.Contains(verify, `"noSensitiveKeyValues": true`) {
+		t.Fatalf("host verify receipt did not prove redaction:\n%s", verify)
+	}
+}
+
+func TestRun_HostCommandOpsGuardBlocksUnselectedTarget(t *testing.T) {
+	root := t.TempDir()
+	outFile := filepath.Join(root, "blocked-marker.txt")
+	node := &ResolvedRelease{
+		ID:        "host.command.run/blocked-marker",
+		Kind:      NodeKindHostCommandRun,
+		Name:      "blocked-marker",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport: "local",
+			TargetID:  "host/web-01",
+			Command:   "printf should-not-run > " + shellQuoteForTest(outFile),
+		},
+	}
+	plan := planForTest(root, node)
+	plan.Ops = eligibleHostCommandOpsForTest(t, root, "host/other-01")
+
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "was not selected by TargetGraph") {
+		t.Fatalf("Run error = %v, want target selection block\nstderr=%s", err, errOut.String())
+	}
+	if _, statErr := os.Stat(outFile); !os.IsNotExist(statErr) {
+		t.Fatalf("blocked command wrote marker, stat err=%v", statErr)
+	}
+
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	planReceipt := auditArtifactBody(t, audit.Artifacts, node.ID, "host-command-plan.json")
+	if !strings.Contains(planReceipt, `"status": "blocked"`) ||
+		!strings.Contains(planReceipt, "was not selected by TargetGraph") {
+		t.Fatalf("host plan receipt did not record guard block:\n%s", planReceipt)
+	}
+	if auditHasArtifact(audit.Artifacts, node.ID, "host-command-execute.json") {
+		t.Fatalf("blocked command wrote execute receipt")
 	}
 }
 
@@ -2165,4 +2290,100 @@ func dbProgramNodesForSQLite(root string, dbPath string) []*ResolvedRelease {
 			},
 		},
 	}
+}
+
+func eligibleHostCommandOpsForTest(t *testing.T, root string, targetID string) *OpsPlanInputs {
+	t.Helper()
+	targetGraphPath := writeOpsPreflightTargetGraph(t, root, "role: web\n")
+	factsPath := writeOpsPreflightFactsFile(t, root, targetID, "collected")
+	policyPath := writeOpsPreflightPolicyFile(t, root, targetID, "allow")
+	lockDir := filepath.Join(root, "ops-locks-"+strings.NewReplacer("/", "-", ":", "-").Replace(targetID))
+	scope := "target/" + strings.TrimPrefix(targetID, "target/")
+	if _, err := (locks.FileStore{Dir: lockDir}).Acquire(context.Background(), locks.AcquireRequest{
+		Scope:     scope,
+		TargetID:  targetID,
+		Holder:    "test-operator",
+		Operation: NodeKindHostCommandRun,
+		TTL:       time.Minute,
+	}); err != nil {
+		t.Fatalf("acquire lock: %v", err)
+	}
+	return &OpsPlanInputs{
+		APIVersion: "torque.dev/ops/plan-inputs/v1alpha1",
+		Kind:       "OpsPlanInputs",
+		TargetGraph: &OpsTargetGraphInput{
+			Path:         targetGraphPath,
+			Name:         "ops-host",
+			SourceDigest: opsApplyPreflightFileDigest(t, targetGraphPath),
+			Selection: OpsTargetSelectionInput{
+				MatchedTargetIDs: []string{targetID},
+			},
+			Summary: OpsTargetGraphSummary{TargetCount: 1},
+		},
+		FactEvidence: []OpsFactEvidenceInput{
+			{
+				Source: factsPath,
+				Kind:   "FactCollection",
+				Digest: opsApplyPreflightFileDigest(t, factsPath),
+				Targets: []OpsFactTargetInput{
+					{TargetID: targetID, Status: "collected", Digest: "sha256:target-facts"},
+				},
+				Summary: OpsFactEvidenceSummary{
+					Selected:  1,
+					Targets:   1,
+					Snapshots: 1,
+					Collected: 1,
+				},
+			},
+		},
+		Locks: []OpsLockInput{
+			{
+				Source:   lockDir,
+				Scope:    scope,
+				Found:    true,
+				TargetID: targetID,
+				Status:   "held",
+				Holder:   "test-operator",
+			},
+		},
+		PolicyDecisions: []OpsPolicyDecisionInput{
+			{
+				Source:    policyPath,
+				Digest:    opsApplyPreflightFileDigest(t, policyPath),
+				Decision:  "allow",
+				Reason:    "guarded policy satisfied",
+				Operation: NodeKindHostCommandRun,
+				TargetID:  targetID,
+				Mutating:  true,
+			},
+		},
+		Summary: OpsPlanInputSummary{
+			TargetCount:     1,
+			SelectedTargets: 1,
+			FactEvidence:    1,
+			FactSnapshots:   1,
+			Locks:           1,
+			PolicyDecisions: 1,
+		},
+	}
+}
+
+func auditHasArtifact(artifacts []RunArtifact, nodeID string, name string) bool {
+	for _, artifact := range artifacts {
+		if artifact.NodeID == nodeID && artifact.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func auditArtifactBody(t *testing.T, artifacts []RunArtifact, nodeID string, name string) string {
+	t.Helper()
+	for _, artifact := range artifacts {
+		if artifact.NodeID == nodeID && artifact.Name == name {
+			return artifact.Body
+		}
+	}
+	t.Fatalf("missing artifact %s for %s in %+v", name, nodeID, artifacts)
+	return ""
 }

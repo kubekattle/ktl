@@ -12,6 +12,8 @@ const (
 	RunConcurrency RunEventType = "RUN_CONCURRENCY"
 	RunFinalizing  RunEventType = "RUN_FINALIZING"
 	RunFinalized   RunEventType = "RUN_FINALIZED"
+	OpsReplay      RunEventType = "OPS_REPLAY"
+	OpsPreflight   RunEventType = "OPS_PREFLIGHT"
 
 	NodeMeta RunEventType = "NODE_META"
 

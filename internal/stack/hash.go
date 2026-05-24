@@ -56,6 +56,7 @@ type EffectiveDatabaseInput struct {
 
 type EffectiveHostInput struct {
 	Transport     string `json:"transport,omitempty"`
+	TargetID      string `json:"targetId,omitempty"`
 	TargetDigest  string `json:"targetDigest,omitempty"`
 	TargetEnv     string `json:"targetEnv,omitempty"`
 	CommandDigest string `json:"commandDigest,omitempty"`
@@ -408,6 +409,7 @@ func digestDatabaseSpec(spec DatabaseSpec) (EffectiveDatabaseInput, error) {
 func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 	input := EffectiveHostInput{
 		Transport:     strings.TrimSpace(spec.Transport),
+		TargetID:      strings.TrimSpace(spec.TargetID),
 		TargetEnv:     strings.TrimSpace(spec.TargetEnv),
 		CommandDigest: digestString(spec.Command),
 		DeleteDigest:  digestString(spec.DeleteCommand),

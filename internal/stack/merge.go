@@ -270,6 +270,9 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.Transport != "" {
 		dst.Transport = strings.TrimSpace(src.Transport)
 	}
+	if src.TargetID != "" {
+		dst.TargetID = strings.TrimSpace(src.TargetID)
+	}
 	if src.Target != "" {
 		dst.Target = strings.TrimSpace(src.Target)
 	}
@@ -290,6 +293,9 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	}
 	if v := inputString(input, "transport"); v != "" {
 		dst.Transport = v
+	}
+	if v := firstNonEmptyString(inputString(input, "targetId"), inputString(input, "targetID"), inputString(input, "target_id")); v != "" {
+		dst.TargetID = v
 	}
 	if v := inputString(input, "target"); v != "" {
 		dst.Target = v

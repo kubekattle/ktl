@@ -1428,7 +1428,11 @@
       ],
       "tags": [
         "command",
-        "internal/stack"
+        "internal/stack",
+        "stack",
+        "plan",
+        "apply",
+        "graph"
       ]
     },
     {
@@ -1443,6 +1447,8 @@
       "examples": [
         "# Apply the selected stack nodes (DAG order)\ntorque stack apply --config ./stacks/prod --yes",
         "# Capture a stack run evidence bundle\ntorque stack apply --config ./stacks/prod --yes --capture ./stack.sqlite",
+        "# Apply a sealed ops plan only after the ops preflight gate passes\ntorque stack apply --from-bundle ./stack-plan.tgz --yes",
+        "# Execute a guarded host.command.run from a sealed ops plan\ntorque stack apply --from-bundle ./host-command-plan.tgz --yes",
         "# Resume the most recent run (uses stored frozen plan unless --replan is set)\ntorque stack apply --config ./stacks/prod --resume --yes",
         "# Apply a mixed graph with PostgreSQL or MariaDB cutover nodes\ntorque stack apply --config ./stacks/db-cutover --yes",
         "# Run evidence-backed action plugins inside the stack DAG\ntorque stack apply --config ./stacks/ops-program --yes",
@@ -1454,7 +1460,13 @@
       ],
       "tags": [
         "command",
-        "internal/stack"
+        "internal/stack",
+        "stack",
+        "apply",
+        "ops",
+        "preflight",
+        "host-command",
+        "evidence"
       ]
     },
     {
@@ -1573,10 +1585,12 @@
       "sources": [
         "internal/stack"
       ],
-      "content": "Compile stack configs into an execution plan\n\nUsage:\n  torque stack plan [flags]\n\nFlags:\n      --bundle string         Write a reproducible plan bundle (.tgz) instead of\n                              printing the plan\n      --bundle-diff-summary   Compute and embed a diff summary against the live\n                              cluster (requires cluster access)",
+      "content": "Compile stack configs into an execution plan\n\nUsage:\n  torque stack plan [flags]\n\nFlags:\n      --bundle string                     Write a reproducible plan bundle (.tgz)\n                                          instead of printing the plan\n      --bundle-diff-summary               Compute and embed a diff summary against the\n                                          live cluster (requires cluster access)\n      --ops-facts stringArray             Facts evidence file or evidence directory to\n                                          attach as a read-only plan input (repeatable)\n      --ops-group stringArray             TargetGraph group to include as an ops plan\n                                          input (repeatable)\n      --ops-limit int                     Maximum selected ops targets to include in\n                                          the plan input\n      --ops-lock-dir string               Directory of ops target locks to inspect as\n                                          read-only plan inputs\n      --ops-lock-scope stringArray        Ops lock scope to inspect, usually\n                                          target/<id> or graph/<id> (repeatable)\n      --ops-policy-decision stringArray   Mutation policy decision JSON to attach as a\n                                          read-only plan input (repeatable)\n      --ops-selector stringArray          TargetGraph label selector as key=value for\n                                          ops plan inputs (repeatable)\n      --ops-targets string                TargetGraph YAML file to attach as a\n                                          read-only stack plan input",
       "examples": [
         "# Write a reproducible plan bundle for review/CI\ntorque stack plan --config ./stacks/prod --bundle ./stack-plan.tgz",
         "# Embed a live diff summary in the bundle (requires cluster access)\ntorque stack plan --config ./stacks/prod --bundle ./stack-plan.tgz --bundle-diff-summary",
+        "# Attach read-only ops TargetGraph, facts, locks, and policy inputs\ntorque stack plan --config ./stacks/prod --ops-targets ./targetgraph.yaml --ops-facts ./ops-facts-evidence --ops-lock-dir ./.torque/ops/locks --ops-policy-decision ./policy.json --output json",
+        "# Seal a guarded host.command.run plan with ops evidence\ntorque stack plan --config ./stacks/host-command --ops-targets ./targetgraph.yaml --ops-facts ./ops-facts --ops-lock-dir ./.torque/ops/locks --ops-policy-decision ./policy.json --bundle ./host-command-plan.tgz",
         "# Plan a mixed graph with Helm, scripts, and DB cutover nodes\ntorque stack plan --config ./stacks/db-cutover --output json",
         "# Plan typed adapter nodes that behave like evidence-backed automation modules\ntorque stack plan --config ./stacks/ops-program --output json",
         "# Plan Kubernetes lifecycle inspect, policy-gated maintenance, verification, and summary evidence nodes\ntorque stack plan --config ./stacks/cluster-lifecycle --output json",
@@ -1585,7 +1599,14 @@
       ],
       "tags": [
         "command",
-        "internal/stack"
+        "internal/stack",
+        "stack",
+        "plan",
+        "ops",
+        "facts",
+        "locks",
+        "policy",
+        "host-command"
       ]
     },
     {
@@ -4030,6 +4051,78 @@
       "kind": "flag",
       "title": "--operation",
       "content": "Requested operation when no request file is supplied\n\nAvailable on: 4 commands",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-facts",
+      "kind": "flag",
+      "title": "--ops-facts",
+      "content": "Facts evidence file or evidence directory to attach as a read-only plan input (repeatable)\n\nDefault: []",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-group",
+      "kind": "flag",
+      "title": "--ops-group",
+      "content": "TargetGraph group to include as an ops plan input (repeatable)\n\nDefault: []",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-limit",
+      "kind": "flag",
+      "title": "--ops-limit",
+      "content": "Maximum selected ops targets to include in the plan input",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-lock-dir",
+      "kind": "flag",
+      "title": "--ops-lock-dir",
+      "content": "Directory of ops target locks to inspect as read-only plan inputs",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-lock-scope",
+      "kind": "flag",
+      "title": "--ops-lock-scope",
+      "content": "Ops lock scope to inspect, usually target/<id> or graph/<id> (repeatable)\n\nDefault: []",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-policy-decision",
+      "kind": "flag",
+      "title": "--ops-policy-decision",
+      "content": "Mutation policy decision JSON to attach as a read-only plan input (repeatable)\n\nDefault: []",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-selector",
+      "kind": "flag",
+      "title": "--ops-selector",
+      "content": "TargetGraph label selector as key=value for ops plan inputs (repeatable)\n\nDefault: []",
+      "tags": [
+        "flag"
+      ]
+    },
+    {
+      "id": "flag:ops-targets",
+      "kind": "flag",
+      "title": "--ops-targets",
+      "content": "TargetGraph YAML file to attach as a read-only stack plan input",
       "tags": [
         "flag"
       ]

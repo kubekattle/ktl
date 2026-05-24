@@ -790,6 +790,7 @@ func opsFactTransport(graph *targetgraph.TargetGraph, target targetgraph.Target,
 			Target:       ref,
 			Timeout:      timeout,
 			RedactValues: redactValues,
+			ExtraArgs:    strings.Fields(strings.TrimSpace(os.Getenv("TORQUE_LAB_SSH_OPTS"))),
 		})
 		return client, "ssh", err
 	}
@@ -816,6 +817,7 @@ func opsFactTransport(graph *targetgraph.TargetGraph, target targetgraph.Target,
 		client, err := sshtransport.New(sshtransport.Config{
 			Target:       sshTarget,
 			IdentityFile: opsConfigString(transportRef.Config, "identityFile", "identity_file"),
+			ExtraArgs:    strings.Fields(strings.TrimSpace(os.Getenv("TORQUE_LAB_SSH_OPTS"))),
 			Timeout:      timeout,
 			RedactValues: redactValues,
 		})

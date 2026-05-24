@@ -22,6 +22,8 @@ type Plan struct {
 	Order     []string                      `json:"order,omitempty"`
 	Runner    RunnerResolved                `json:"runner,omitempty"`
 	Hooks     StackHooksConfig              `json:"hooks,omitempty"`
+	Ops       *OpsPlanInputs                `json:"ops,omitempty"`
+	Sealed    *SealedPlanMetadata           `json:"sealed,omitempty"`
 	ByID      map[string]*ResolvedRelease   `json:"-"`
 	ByCluster map[string][]*ResolvedRelease `json:"-"`
 }

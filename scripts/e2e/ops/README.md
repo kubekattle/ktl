@@ -60,6 +60,39 @@ scripts/e2e/ops/STACK-FC-K8S-001.sh \
   --cleanup
 ```
 
+## OPS-HOST-001
+
+`OPS-HOST-001.sh` proves the first guarded host adapter on the real
+Firecracker lab host. It boots one microVM on `root@141.105.65.227`, collects
+facts over SSH through the lab host, seals TargetGraph/facts/lock/policy inputs
+into stack plan bundles, runs an approved `host.command.run` inside the VM,
+proves a policy-blocked command does not execute, proves a timeout receipt,
+then audits, exports, and cleans up.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-001.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-CLI-004b
+
+`OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved
+stack apply replay. It runs an eligible `--from-bundle --yes` host command, then
+proves replay blocks before mutation when approval is missing, TargetGraph
+changes, fact evidence changes, policy changes, or the planned lock holder
+changes.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-CLI-004b.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## STACK-LIFE-008
 
 `STACK-LIFE-008.sh` proves the GitLab Firecracker hybrid Kubernetes lifecycle

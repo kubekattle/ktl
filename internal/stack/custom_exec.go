@@ -188,17 +188,21 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 		} else if e.diff {
 			reason = "diff"
 		}
-		payload := map[string]any{
-			"apiVersion": "torque.dev/host-command-node/v1",
-			"kind":       "HostCommandNodeArtifact",
-			"nodeId":     node.ID,
-			"nodeKind":   normalizeNodeKind(node.Kind),
-			"phase":      phase,
-			"status":     "skipped",
-			"reason":     reason,
+		observe := e.hostCommandObserveReceipt(node, phase, "")
+		plan := e.hostCommandPlanReceipt(node, phase, remoteCommand, "skipped", reason)
+		verify := hostCommandVerifyReceipt{
+			APIVersion:    "torque.dev/host-command-node/v1",
+			Kind:          "HostCommandVerifyReceipt",
+			NodeID:        node.ID,
+			TargetID:      strings.TrimSpace(spec.TargetID),
+			Phase:         phase,
+			Status:        "skipped",
+			Reason:        reason,
+			Redaction:     hostCommandRedactionProof{},
+			VerifiedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+			ReceiptStatus: "skipped",
 		}
-		e.run.RecordJSONArtifact(node.ID, phase+".json", payload)
-		e.run.RecordJSONArtifact(node.ID, "decision.json", payload)
+		e.recordHostCommandReceipts(node, phase, "skipped", reason, observe, plan, nil, verify)
 		e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "skipped: "+reason, map[string]any{
 			"phase":  phase,
 			"status": "skipped",
@@ -212,19 +216,37 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
-	receipt := transportClient.Run(ctx, remoteCommand)
-	payload := map[string]any{
-		"apiVersion":   "torque.dev/host-command-node/v1",
-		"kind":         "HostCommandNodeArtifact",
-		"nodeId":       node.ID,
-		"nodeKind":     normalizeNodeKind(node.Kind),
-		"phase":        phase,
-		"status":       receipt.Status,
-		"targetDigest": receipt.TargetDigest,
-		"receipt":      receipt,
+	targetDigest := transportClient.TargetDigest()
+	observe := e.hostCommandObserveReceipt(node, phase, targetDigest)
+	plan := e.hostCommandPlanReceipt(node, phase, remoteCommand, "planned", "eligible")
+	if guardErr := e.validateHostCommandOpsGuard(node, &plan); guardErr != nil {
+		plan.Status = "blocked"
+		plan.Reason = guardErr.Error()
+		verify := hostCommandVerifyReceipt{
+			APIVersion:    "torque.dev/host-command-node/v1",
+			Kind:          "HostCommandVerifyReceipt",
+			NodeID:        node.ID,
+			TargetID:      plan.TargetID,
+			Phase:         phase,
+			Status:        "blocked",
+			Reason:        guardErr.Error(),
+			Redaction:     hostCommandRedactionProof{},
+			VerifiedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+			ReceiptStatus: "blocked",
+		}
+		e.recordHostCommandReceipts(node, phase, "blocked", guardErr.Error(), observe, plan, nil, verify)
+		runErr := &RunError{Class: "HOST_COMMAND_BLOCKED", Message: guardErr.Error(), Digest: computeRunErrorDigest("HOST_COMMAND_BLOCKED", guardErr.Error())}
+		e.run.emitEvent(node.ID, PhaseCompleted, node.Attempt, guardErr.Error(), map[string]any{
+			"phase":    phase,
+			"status":   "blocked",
+			"targetId": plan.TargetID,
+			"cursor":   cursor,
+		}, runErr, true)
+		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("host command phase %s: %w", phase, guardErr))
 	}
-	e.run.RecordJSONArtifact(node.ID, phase+".json", payload)
-	e.run.RecordJSONArtifact(node.ID, "decision.json", payload)
+	receipt := transportClient.Run(ctx, remoteCommand)
+	verify := e.hostCommandVerifyReceipt(node, phase, plan.TargetID, receipt)
+	e.recordHostCommandReceipts(node, phase, receipt.Status, strings.TrimSpace(receipt.Error), observe, plan, &receipt, verify)
 	if !nodeStepSucceeded(receipt.Status) {
 		msg := strings.TrimSpace(receipt.Error)
 		if msg == "" {
@@ -249,6 +271,341 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 		"receipt": receipt,
 	}, nil)
 	return nil
+}
+
+type hostCommandObserveReceipt struct {
+	APIVersion       string   `json:"apiVersion"`
+	Kind             string   `json:"kind"`
+	NodeID           string   `json:"nodeId"`
+	NodeKind         string   `json:"nodeKind"`
+	TargetID         string   `json:"targetId,omitempty"`
+	Phase            string   `json:"phase"`
+	Status           string   `json:"status"`
+	GuardMode        string   `json:"guardMode"`
+	SelectedTargetID string   `json:"selectedTargetId,omitempty"`
+	SelectedTargets  []string `json:"selectedTargets,omitempty"`
+	FactSources      []string `json:"factSources,omitempty"`
+	FactDigests      []string `json:"factDigests,omitempty"`
+	TargetDigest     string   `json:"targetDigest,omitempty"`
+	ObservedAt       string   `json:"observedAt"`
+}
+
+type hostCommandPlanReceipt struct {
+	APIVersion      string   `json:"apiVersion"`
+	Kind            string   `json:"kind"`
+	NodeID          string   `json:"nodeId"`
+	NodeKind        string   `json:"nodeKind"`
+	TargetID        string   `json:"targetId,omitempty"`
+	Phase           string   `json:"phase"`
+	Status          string   `json:"status"`
+	Reason          string   `json:"reason,omitempty"`
+	GuardMode       string   `json:"guardMode"`
+	Operation       string   `json:"operation"`
+	CommandDigest   string   `json:"commandDigest,omitempty"`
+	SelectedTargets []string `json:"selectedTargets,omitempty"`
+	LockScopes      []string `json:"lockScopes,omitempty"`
+	PolicySources   []string `json:"policySources,omitempty"`
+	PlannedAt       string   `json:"plannedAt"`
+}
+
+type hostCommandVerifyReceipt struct {
+	APIVersion    string                    `json:"apiVersion"`
+	Kind          string                    `json:"kind"`
+	NodeID        string                    `json:"nodeId"`
+	TargetID      string                    `json:"targetId,omitempty"`
+	Phase         string                    `json:"phase"`
+	Status        string                    `json:"status"`
+	Reason        string                    `json:"reason,omitempty"`
+	ReceiptStatus string                    `json:"receiptStatus"`
+	ExitCode      int                       `json:"exitCode,omitempty"`
+	StdoutDigest  string                    `json:"stdoutDigest,omitempty"`
+	StderrDigest  string                    `json:"stderrDigest,omitempty"`
+	Redaction     hostCommandRedactionProof `json:"redaction"`
+	VerifiedAt    string                    `json:"verifiedAt"`
+}
+
+type hostCommandRedactionProof struct {
+	StdoutBytes           int  `json:"stdoutBytes"`
+	StderrBytes           int  `json:"stderrBytes"`
+	StdoutRedacted        bool `json:"stdoutRedacted"`
+	StderrRedacted        bool `json:"stderrRedacted"`
+	NoSecretRefs          bool `json:"noSecretRefs"`
+	NoSensitiveKV         bool `json:"noSensitiveKeyValues"`
+	NoAuthorizationBearer bool `json:"noAuthorizationBearer"`
+}
+
+func (e *customNodeExecutor) hostCommandObserveReceipt(node *runNode, phase string, targetDigest string) hostCommandObserveReceipt {
+	targetID, guardMode, selected := e.hostCommandTargetContext(node)
+	var factSources []string
+	var factDigests []string
+	if e != nil && e.run != nil && e.run.Plan != nil && e.run.Plan.Ops != nil {
+		for _, facts := range e.run.Plan.Ops.FactEvidence {
+			if strings.TrimSpace(facts.Source) != "" {
+				factSources = append(factSources, strings.TrimSpace(facts.Source))
+			}
+			if strings.TrimSpace(facts.Digest) != "" {
+				factDigests = append(factDigests, strings.TrimSpace(facts.Digest))
+			}
+		}
+	}
+	sort.Strings(factSources)
+	sort.Strings(factDigests)
+	return hostCommandObserveReceipt{
+		APIVersion:       "torque.dev/host-command-node/v1",
+		Kind:             "HostCommandObserveReceipt",
+		NodeID:           node.ID,
+		NodeKind:         normalizeNodeKind(node.Kind),
+		TargetID:         targetID,
+		Phase:            phase,
+		Status:           "observed",
+		GuardMode:        guardMode,
+		SelectedTargetID: targetID,
+		SelectedTargets:  selected,
+		FactSources:      factSources,
+		FactDigests:      factDigests,
+		TargetDigest:     strings.TrimSpace(targetDigest),
+		ObservedAt:       time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (e *customNodeExecutor) hostCommandPlanReceipt(node *runNode, phase string, remoteCommand string, status string, reason string) hostCommandPlanReceipt {
+	targetID, guardMode, selected := e.hostCommandTargetContext(node)
+	var lockScopes []string
+	var policySources []string
+	if e != nil && e.run != nil && e.run.Plan != nil && e.run.Plan.Ops != nil {
+		for _, lockInput := range e.run.Plan.Ops.Locks {
+			if strings.TrimSpace(lockInput.Scope) != "" {
+				lockScopes = append(lockScopes, strings.TrimSpace(lockInput.Scope))
+			}
+		}
+		for _, decision := range e.run.Plan.Ops.PolicyDecisions {
+			if strings.TrimSpace(decision.Source) != "" {
+				policySources = append(policySources, strings.TrimSpace(decision.Source))
+			}
+		}
+	}
+	sort.Strings(lockScopes)
+	sort.Strings(policySources)
+	return hostCommandPlanReceipt{
+		APIVersion:      "torque.dev/host-command-node/v1",
+		Kind:            "HostCommandPlanReceipt",
+		NodeID:          node.ID,
+		NodeKind:        normalizeNodeKind(node.Kind),
+		TargetID:        targetID,
+		Phase:           phase,
+		Status:          status,
+		Reason:          reason,
+		GuardMode:       guardMode,
+		Operation:       NodeKindHostCommandRun,
+		CommandDigest:   digestString(remoteCommand),
+		SelectedTargets: selected,
+		LockScopes:      lockScopes,
+		PolicySources:   policySources,
+		PlannedAt:       time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (e *customNodeExecutor) hostCommandVerifyReceipt(node *runNode, phase string, targetID string, receipt transport.OperationResult) hostCommandVerifyReceipt {
+	status := "succeeded"
+	reason := "command receipt succeeded"
+	if !nodeStepSucceeded(receipt.Status) {
+		status = "failed"
+		reason = firstNonEmptyString(receipt.Error, receipt.Stderr, "command receipt failed")
+	}
+	return hostCommandVerifyReceipt{
+		APIVersion:    "torque.dev/host-command-node/v1",
+		Kind:          "HostCommandVerifyReceipt",
+		NodeID:        node.ID,
+		TargetID:      strings.TrimSpace(targetID),
+		Phase:         phase,
+		Status:        status,
+		Reason:        reason,
+		ReceiptStatus: strings.TrimSpace(receipt.Status),
+		ExitCode:      receipt.ExitCode,
+		StdoutDigest:  digestString(receipt.Stdout),
+		StderrDigest:  digestString(receipt.Stderr),
+		Redaction:     hostCommandRedaction(receipt),
+		VerifiedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (e *customNodeExecutor) recordHostCommandReceipts(node *runNode, phase string, status string, reason string, observe hostCommandObserveReceipt, plan hostCommandPlanReceipt, execute *transport.OperationResult, verify hostCommandVerifyReceipt) {
+	payload := map[string]any{
+		"apiVersion": "torque.dev/host-command-node/v1",
+		"kind":       "HostCommandNodeArtifact",
+		"nodeId":     node.ID,
+		"nodeKind":   normalizeNodeKind(node.Kind),
+		"phase":      phase,
+		"status":     strings.TrimSpace(status),
+		"targetId":   strings.TrimSpace(plan.TargetID),
+		"guardMode":  strings.TrimSpace(plan.GuardMode),
+		"observe":    observe,
+		"plan":       plan,
+		"verify":     verify,
+	}
+	if strings.TrimSpace(reason) != "" {
+		payload["reason"] = strings.TrimSpace(reason)
+	}
+	if execute != nil {
+		payload["targetDigest"] = execute.TargetDigest
+		payload["receipt"] = *execute
+		payload["execute"] = *execute
+	}
+	e.run.RecordJSONArtifact(node.ID, "host-command-observe.json", observe)
+	e.run.RecordJSONArtifact(node.ID, "host-command-plan.json", plan)
+	if execute != nil {
+		e.run.RecordJSONArtifact(node.ID, "host-command-execute.json", *execute)
+	}
+	e.run.RecordJSONArtifact(node.ID, "host-command-verify.json", verify)
+	e.run.RecordJSONArtifact(node.ID, phase+".json", payload)
+	e.run.RecordJSONArtifact(node.ID, "decision.json", payload)
+}
+
+func hostCommandRedaction(receipt transport.OperationResult) hostCommandRedactionProof {
+	stdout := strings.TrimSpace(receipt.Stdout)
+	stderr := strings.TrimSpace(receipt.Stderr)
+	combined := strings.ToLower(stdout + "\n" + stderr)
+	return hostCommandRedactionProof{
+		StdoutBytes:           len(receipt.Stdout),
+		StderrBytes:           len(receipt.Stderr),
+		StdoutRedacted:        strings.Contains(stdout, "[REDACTED"),
+		StderrRedacted:        strings.Contains(stderr, "[REDACTED"),
+		NoSecretRefs:          !strings.Contains(combined, "secret://"),
+		NoSensitiveKV:         !hostCommandHasRawSensitiveKV(combined),
+		NoAuthorizationBearer: !strings.Contains(combined, "authorization: bearer "),
+	}
+}
+
+func hostCommandHasRawSensitiveKV(value string) bool {
+	for _, key := range []string{"password=", "passwd=", "token=", "secret="} {
+		idx := strings.Index(value, key)
+		for idx >= 0 {
+			rest := value[idx+len(key):]
+			if !strings.HasPrefix(rest, "[redacted]") {
+				return true
+			}
+			next := strings.Index(rest, key)
+			if next < 0 {
+				break
+			}
+			idx += len(key) + next
+		}
+	}
+	return false
+}
+
+func (e *customNodeExecutor) validateHostCommandOpsGuard(node *runNode, plan *hostCommandPlanReceipt) error {
+	if e == nil || e.run == nil || e.run.Plan == nil || e.run.Plan.Ops == nil {
+		if plan != nil {
+			plan.GuardMode = "legacy"
+		}
+		return nil
+	}
+	ops := e.run.Plan.Ops
+	targetID := strings.TrimSpace(plan.TargetID)
+	if targetID == "" {
+		return fmt.Errorf("ops-backed host.command.run requires host.targetId or exactly one selected TargetGraph target")
+	}
+	if ops.TargetGraph == nil {
+		return fmt.Errorf("ops-backed host.command.run requires TargetGraph plan inputs")
+	}
+	if !stringInSlice(targetID, ops.TargetGraph.Selection.MatchedTargetIDs) {
+		return fmt.Errorf("host target %s was not selected by TargetGraph", targetID)
+	}
+	if !opsFactsContainTarget(ops, targetID) {
+		return fmt.Errorf("host target %s has no fresh fact evidence", targetID)
+	}
+	if !opsLockAllowsTarget(ops, targetID) {
+		return fmt.Errorf("host target %s has no held target lock", targetID)
+	}
+	if !opsPolicyAllowsTarget(ops, targetID) {
+		return fmt.Errorf("host target %s has no allow policy decision", targetID)
+	}
+	return nil
+}
+
+func (e *customNodeExecutor) hostCommandTargetContext(node *runNode) (string, string, []string) {
+	targetID := ""
+	if node != nil {
+		targetID = strings.TrimSpace(node.Host.TargetID)
+	}
+	guardMode := "legacy"
+	var selected []string
+	if e != nil && e.run != nil && e.run.Plan != nil && e.run.Plan.Ops != nil {
+		guardMode = "ops"
+		if e.run.Plan.Ops.TargetGraph != nil {
+			selected = append([]string(nil), e.run.Plan.Ops.TargetGraph.Selection.MatchedTargetIDs...)
+		}
+		if targetID == "" && len(selected) == 1 {
+			targetID = selected[0]
+		}
+	}
+	sort.Strings(selected)
+	return targetID, guardMode, selected
+}
+
+func opsFactsContainTarget(ops *OpsPlanInputs, targetID string) bool {
+	if ops == nil || targetID == "" {
+		return false
+	}
+	for _, facts := range ops.FactEvidence {
+		for _, target := range facts.Targets {
+			if strings.TrimSpace(target.TargetID) != targetID {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(target.Status)) {
+			case "", "collected", "cached", "fresh", "succeeded", "success":
+				return true
+			default:
+				return false
+			}
+		}
+	}
+	return false
+}
+
+func opsLockAllowsTarget(ops *OpsPlanInputs, targetID string) bool {
+	if ops == nil || targetID == "" {
+		return false
+	}
+	for _, lockInput := range ops.Locks {
+		if strings.TrimSpace(lockInput.TargetID) != targetID {
+			continue
+		}
+		if lockInput.Found && strings.EqualFold(strings.TrimSpace(lockInput.Status), "held") {
+			return true
+		}
+	}
+	return false
+}
+
+func opsPolicyAllowsTarget(ops *OpsPlanInputs, targetID string) bool {
+	if ops == nil {
+		return false
+	}
+	for _, decision := range ops.PolicyDecisions {
+		decisionTarget := strings.TrimSpace(decision.TargetID)
+		if decisionTarget != "" && decisionTarget != targetID {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(decision.Operation), NodeKindHostCommandRun) && strings.TrimSpace(decision.Decision) == "allow" {
+			return true
+		}
+		if strings.TrimSpace(decision.Operation) == "" && strings.TrimSpace(decision.Decision) == "allow" {
+			return true
+		}
+	}
+	return false
+}
+
+func stringInSlice(needle string, haystack []string) bool {
+	needle = strings.TrimSpace(needle)
+	for _, item := range haystack {
+		if strings.TrimSpace(item) == needle {
+			return true
+		}
+	}
+	return false
 }
 
 type hostCommandRunner interface {

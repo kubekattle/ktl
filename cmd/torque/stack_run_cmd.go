@@ -93,6 +93,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 			}
 			var p *stack.Plan
 			var cleanup func()
+			sealedOpsReplay := false
 
 			runSelector := buildRunSelector(common)
 			planOutput := strings.ToLower(strings.TrimSpace(*common.output))
@@ -341,6 +342,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 				if cleanup != nil {
 					defer cleanup()
 				}
+				sealedOpsReplay = kind == stackRunApply && p != nil && p.Ops != nil
 			} else if opts.Resume && !opts.Replan {
 				resumeFromRunID := strings.TrimSpace(opts.RunID)
 				if resumeFromRunID == "" {
@@ -451,6 +453,12 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 
 			runOpts := buildRunOptions(kind, common, p, opts, effective, adaptiveOpts, secretOptions)
 			runOpts.Selector = runSelector
+			if sealedOpsReplay {
+				runOpts.OpsReplay = stack.OpsApplyReplayOptions{
+					Required: true,
+					Approved: opts.Yes,
+				}
+			}
 			return runWithViews(p, runOpts)
 		},
 	}

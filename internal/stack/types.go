@@ -381,6 +381,7 @@ type EffectiveInput struct {
 
 type HostCommandSpec struct {
 	Transport     string         `yaml:"transport,omitempty" json:"transport,omitempty"`
+	TargetID      string         `yaml:"targetId,omitempty" json:"targetId,omitempty"`
 	Target        string         `yaml:"target,omitempty" json:"target,omitempty"`
 	TargetEnv     string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
 	Command       string         `yaml:"command,omitempty" json:"command,omitempty"`

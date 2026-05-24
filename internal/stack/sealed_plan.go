@@ -57,6 +57,20 @@ type LoadSealedPlanOptions struct {
 	TrustedPubKey []byte
 }
 
+type SealedPlanMetadata struct {
+	APIVersion                 string `json:"apiVersion"`
+	Kind                       string `json:"kind"`
+	SourceKind                 string `json:"sourceKind"`
+	SourcePath                 string `json:"sourcePath,omitempty"`
+	PlanHash                   string `json:"planHash,omitempty"`
+	ComputedPlanHash           string `json:"computedPlanHash,omitempty"`
+	InputsBundle               string `json:"inputsBundle,omitempty"`
+	InputsBundleDigest         string `json:"inputsBundleDigest,omitempty"`
+	ObservedInputsBundleDigest string `json:"observedInputsBundleDigest,omitempty"`
+	InputManifestPlanHash      string `json:"inputManifestPlanHash,omitempty"`
+	Verified                   bool   `json:"verified"`
+}
+
 // LoadSealedPlan loads a run plan (plan.json + inputs.tar.gz) either from a directory produced by
 // `torque stack seal` or from a portable .tgz bundle.
 //
@@ -73,7 +87,11 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 
 	var cleanupFuncs []func()
 	dir := sealedDir
+	sourceKind := "sealed-dir"
+	sourcePath := sealedDir
 	if dir == "" {
+		sourceKind = "bundle"
+		sourcePath = bundlePath
 		if opts.VerifyBundle {
 			if err := VerifyBundleIntegrity(bundlePath); err != nil {
 				return nil, nil, err
@@ -100,6 +118,8 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 
 	wantPlanHash := strings.TrimSpace(rp.PlanHash)
 	bundleFile := "inputs.tar.gz"
+	inputsBundleDigest := ""
+	observedInputsBundleDigest := ""
 	attPath := filepath.Join(dir, "attestation.json")
 	if _, err := os.Stat(attPath); err == nil {
 		att, err := readSealAttestation(attPath)
@@ -118,11 +138,13 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 			bundleFile = strings.TrimSpace(att.InputsBundle)
 		}
 		if strings.TrimSpace(att.InputsBundleSH) != "" {
+			inputsBundleDigest = strings.TrimSpace(att.InputsBundleSH)
 			sum, err := sha256File(filepath.Join(dir, bundleFile))
 			if err != nil {
 				return nil, nil, err
 			}
 			got := "sha256:" + sum
+			observedInputsBundleDigest = got
 			if got != strings.TrimSpace(att.InputsBundleSH) {
 				return nil, nil, &SealedPlanError{Kind: SealedPlanErrBundleDigestMismatch, Want: strings.TrimSpace(att.InputsBundleSH), Got: got}
 			}
@@ -135,6 +157,9 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 	}
 	if wantPlanHash != "" && gotPlanHash != wantPlanHash {
 		return nil, nil, &SealedPlanError{Kind: SealedPlanErrPlanHashMismatch, Want: wantPlanHash, Got: gotPlanHash}
+	}
+	if wantPlanHash == "" {
+		wantPlanHash = gotPlanHash
 	}
 
 	p, err := PlanFromRunPlan(rp)
@@ -154,6 +179,14 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 	}
 	if strings.TrimSpace(manifest.PlanHash) != "" && wantPlanHash != "" && manifest.PlanHash != wantPlanHash {
 		return nil, nil, &SealedPlanError{Kind: SealedPlanErrBundlePlanHashMismatch, Want: wantPlanHash, Got: manifest.PlanHash}
+	}
+	if observedInputsBundleDigest == "" {
+		if sum, err := sha256File(filepath.Join(dir, bundleFile)); err == nil {
+			observedInputsBundleDigest = "sha256:" + sum
+			if inputsBundleDigest == "" {
+				inputsBundleDigest = observedInputsBundleDigest
+			}
+		}
 	}
 	if err := ApplyInputBundleToPlan(p, tmpDir, manifest); err != nil {
 		return nil, nil, err
@@ -176,6 +209,19 @@ func LoadSealedPlan(ctx context.Context, opts LoadSealedPlanOptions) (*Plan, fun
 	}
 
 	p.StackRoot = strings.TrimSpace(opts.StateStoreRoot)
+	p.Sealed = &SealedPlanMetadata{
+		APIVersion:                 "torque.dev/stack-sealed-plan/v1",
+		Kind:                       "SealedPlanMetadata",
+		SourceKind:                 sourceKind,
+		SourcePath:                 strings.TrimSpace(sourcePath),
+		PlanHash:                   strings.TrimSpace(wantPlanHash),
+		ComputedPlanHash:           strings.TrimSpace(gotPlanHash),
+		InputsBundle:               strings.TrimSpace(bundleFile),
+		InputsBundleDigest:         strings.TrimSpace(inputsBundleDigest),
+		ObservedInputsBundleDigest: strings.TrimSpace(observedInputsBundleDigest),
+		InputManifestPlanHash:      strings.TrimSpace(manifest.PlanHash),
+		Verified:                   true,
+	}
 
 	var cleanup func()
 	if len(cleanupFuncs) > 0 {

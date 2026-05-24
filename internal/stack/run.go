@@ -29,6 +29,7 @@ type RunOptions struct {
 	Diff           bool
 	CacheApply     bool
 	PolicyOverride bool
+	OpsReplay      OpsApplyReplayOptions
 	Executor       NodeExecutor
 	Secrets        *deploy.SecretOptions
 
@@ -534,6 +535,70 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		"failMode":    strings.TrimSpace(run.FailMode),
 	}, nil)
 
+	if cmd == "apply" {
+		if replay := EvaluateOpsApplyReplay(ctx, run.Plan, opts.OpsReplay); replay != nil {
+			run.RecordJSONArtifact("", "ops-replay.json", replay)
+			run.AppendEvent("", OpsReplay, 0, replay.Status, map[string]any{
+				"status":   replay.Status,
+				"checks":   replay.Summary.Checks,
+				"blocked":  replay.Summary.Blocked,
+				"artifact": "ops-replay.json",
+				"planHash": replay.Summary.PlanHash,
+			}, nil)
+			if replay.Status == "blocked" {
+				replayErr := fmt.Errorf("ops replay blocked: %d blocker(s)", len(replay.Blockers))
+				for _, n := range run.Nodes {
+					run.AppendEvent(n.ID, NodeBlocked, n.Attempt, "ops replay blocked before mutation", map[string]any{
+						"blockers": len(replay.Blockers),
+						"artifact": "ops-replay.json",
+					}, nil)
+				}
+				run.AppendEvent("", RunCompleted, 0, "blocked", map[string]any{
+					"status":   "blocked",
+					"reason":   replayErr.Error(),
+					"blockers": len(replay.Blockers),
+					"artifact": "ops-replay.json",
+				}, &RunError{Class: "OPS_REPLAY_BLOCKED", Message: replayErr.Error(), Digest: computeRunErrorDigest("OPS_REPLAY_BLOCKED", replayErr.Error())})
+				run.WriteSummarySnapshot(run.BuildSummary("blocked", start, blockedPreflightSnapshot(run.Nodes, replayErr)))
+				if run.store != nil {
+					_, _ = run.store.FinalizeRun(context.Background(), run.RunID, time.Now().UTC().UnixNano(), run.eventPrevHash)
+					_ = run.store.CheckpointPortable(context.Background())
+				}
+				return replayErr
+			}
+		}
+		if preflight := EvaluateOpsApplyPreflight(ctx, run.Plan); preflight != nil {
+			run.RecordJSONArtifact("", "ops-preflight.json", preflight)
+			run.AppendEvent("", OpsPreflight, 0, preflight.Status, map[string]any{
+				"status":   preflight.Status,
+				"checks":   preflight.Summary.Checks,
+				"blocked":  preflight.Summary.Blocked,
+				"artifact": "ops-preflight.json",
+			}, nil)
+			if preflight.Status == "blocked" {
+				preflightErr := fmt.Errorf("ops preflight blocked: %d blocker(s)", len(preflight.Blockers))
+				for _, n := range run.Nodes {
+					run.AppendEvent(n.ID, NodeBlocked, n.Attempt, "ops preflight blocked before mutation", map[string]any{
+						"blockers": len(preflight.Blockers),
+						"artifact": "ops-preflight.json",
+					}, nil)
+				}
+				run.AppendEvent("", RunCompleted, 0, "blocked", map[string]any{
+					"status":   "blocked",
+					"reason":   preflightErr.Error(),
+					"blockers": len(preflight.Blockers),
+					"artifact": "ops-preflight.json",
+				}, &RunError{Class: "OPS_PREFLIGHT_BLOCKED", Message: preflightErr.Error(), Digest: computeRunErrorDigest("OPS_PREFLIGHT_BLOCKED", preflightErr.Error())})
+				run.WriteSummarySnapshot(run.BuildSummary("blocked", start, blockedPreflightSnapshot(run.Nodes, preflightErr)))
+				if run.store != nil {
+					_, _ = run.store.FinalizeRun(context.Background(), run.RunID, time.Now().UTC().UnixNano(), run.eventPrevHash)
+					_ = run.store.CheckpointPortable(context.Background())
+				}
+				return preflightErr
+			}
+		}
+	}
+
 	// Stack-level runOnce hooks (pre).
 	run.AppendEvent("", StackHooksStarted, 0, "stack hooks: pre-"+cmd, map[string]any{"stage": "pre-" + cmd}, nil)
 	if err := runHookList(ctx, hookRunContext{
@@ -961,6 +1026,23 @@ type scheduler struct {
 type schedulerSnapshot struct {
 	Status map[string]string
 	Errors map[string]error
+}
+
+func blockedPreflightSnapshot(nodes []*runNode, err error) schedulerSnapshot {
+	snap := schedulerSnapshot{
+		Status: map[string]string{},
+		Errors: map[string]error{},
+	}
+	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		snap.Status[n.ID] = "blocked"
+		if err != nil {
+			snap.Errors[n.ID] = err
+		}
+	}
+	return snap
 }
 
 func newScheduler(nodes []*runNode, command string) *scheduler {
