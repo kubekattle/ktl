@@ -37,7 +37,32 @@ spec:
         image: apache/spark:4.1.2-scala2.13-java17-python3-ubuntu
         command: ["/bin/bash", "-lc"]
         args:
-          - export HOME=/tmp && mkdir -p /tmp/.ivy2 && python3 -m pip install --no-cache-dir boto3 clickhouse-connect && /opt/spark/bin/spark-submit --packages org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,org.apache.iceberg:iceberg-aws-bundle:1.10.1 --master spark://spark-master.ml.svc.cluster.local:7077 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=\$(hostname -i) --conf spark.executor.memory=512m --conf spark.driver.memory=512m /opt/app/spark_batch.py
+          - |
+            export HOME=/tmp
+            mkdir -p /tmp/.ivy2
+            python3 -m pip install --no-cache-dir boto3 clickhouse-connect
+            aws_region="\${AWS_REGION:-\${AWS_DEFAULT_REGION:-us-east-1}}"
+            spark_extra=(
+              --conf "spark.jars.ivy=/tmp/.ivy2"
+              --conf "spark.driver.extraJavaOptions=-Daws.region=\${aws_region}"
+              --conf "spark.executor.extraJavaOptions=-Daws.region=\${aws_region}"
+              --conf "spark.executorEnv.AWS_REGION=\${aws_region}"
+              --conf "spark.executorEnv.AWS_DEFAULT_REGION=\${aws_region}"
+              --conf "spark.executorEnv.AWS_ACCESS_KEY_ID=\${AWS_ACCESS_KEY_ID}"
+              --conf "spark.executorEnv.AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_ACCESS_KEY}"
+            )
+            if [[ -n "\${AWS_SESSION_TOKEN:-}" ]]; then
+              spark_extra+=(--conf "spark.executorEnv.AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}")
+            fi
+            /opt/spark/bin/spark-submit \
+              --packages org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.1,org.apache.iceberg:iceberg-aws-bundle:1.10.1 \
+              --master spark://spark-master.ml.svc.cluster.local:7077 \
+              "\${spark_extra[@]}" \
+              --conf spark.driver.bindAddress=0.0.0.0 \
+              --conf spark.driver.host=\$(hostname -i) \
+              --conf spark.executor.memory=512m \
+              --conf spark.driver.memory=512m \
+              /opt/app/spark_batch.py
         envFrom:
           - secretRef:
               name: aws-s3
