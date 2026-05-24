@@ -134,7 +134,7 @@ func (e *customNodeExecutor) verifyKubernetesCluster(ctx context.Context, node *
 		receipt := runner.Run(ctx, kubernetesClusterAPICommand(spec))
 		evidence.APIReceipts = append(evidence.APIReceipts, receipt)
 		if !nodeStepSucceeded(receipt.Status) {
-			return evidence, fmt.Errorf("Kubernetes API verify failed: %s", firstReceiptMessage(receipt))
+			return evidence, fmt.Errorf("kubernetes API verify failed: %s", firstReceiptMessage(receipt))
 		}
 		if i+1 < iterations {
 			select {
@@ -148,7 +148,7 @@ func (e *customNodeExecutor) verifyKubernetesCluster(ctx context.Context, node *
 	nodesReceipt := runner.Run(ctx, kubernetesClusterNodesCommand(spec))
 	evidence.NodesReceipt = nodesReceipt
 	if !nodeStepSucceeded(nodesReceipt.Status) {
-		return evidence, fmt.Errorf("Kubernetes nodes verify failed: %s", firstReceiptMessage(nodesReceipt))
+		return evidence, fmt.Errorf("kubernetes nodes verify failed: %s", firstReceiptMessage(nodesReceipt))
 	}
 	total, ready, notReady, err := parseKubernetesNodeReadiness(nodesReceipt.Stdout)
 	if err != nil {
@@ -158,13 +158,13 @@ func (e *customNodeExecutor) verifyKubernetesCluster(ctx context.Context, node *
 	evidence.ReadyNodes = ready
 	evidence.NotReadyNodes = notReady
 	if total == 0 {
-		return evidence, fmt.Errorf("Kubernetes nodes verify failed: no nodes returned")
+		return evidence, fmt.Errorf("kubernetes nodes verify failed: no nodes returned")
 	}
 	if spec.MinReadyNodes > 0 && ready < spec.MinReadyNodes {
-		return evidence, fmt.Errorf("Kubernetes nodes verify failed: ready nodes %d < required %d", ready, spec.MinReadyNodes)
+		return evidence, fmt.Errorf("kubernetes nodes verify failed: ready nodes %d < required %d", ready, spec.MinReadyNodes)
 	}
 	if len(notReady) > 0 {
-		return evidence, fmt.Errorf("Kubernetes nodes verify failed: not ready nodes: %s", strings.Join(notReady, ", "))
+		return evidence, fmt.Errorf("kubernetes nodes verify failed: not ready nodes: %s", strings.Join(notReady, ", "))
 	}
 
 	for _, namespace := range kubernetesClusterVerifyNamespaces(spec.Namespaces) {
@@ -172,7 +172,7 @@ func (e *customNodeExecutor) verifyKubernetesCluster(ctx context.Context, node *
 		nsEvidence := kubernetesClusterVerifyNamespaceEvidence{Namespace: namespace, Receipt: receipt}
 		if !nodeStepSucceeded(receipt.Status) {
 			evidence.Namespaces = append(evidence.Namespaces, nsEvidence)
-			return evidence, fmt.Errorf("Kubernetes pods verify failed in namespace %s: %s", namespace, firstReceiptMessage(receipt))
+			return evidence, fmt.Errorf("kubernetes pods verify failed in namespace %s: %s", namespace, firstReceiptMessage(receipt))
 		}
 		totalPods, readyPods, badPods, err := parseKubernetesPodReadiness(receipt.Stdout)
 		if err != nil {
@@ -184,7 +184,7 @@ func (e *customNodeExecutor) verifyKubernetesCluster(ctx context.Context, node *
 		nsEvidence.BadPods = badPods
 		evidence.Namespaces = append(evidence.Namespaces, nsEvidence)
 		if len(badPods) > 0 {
-			return evidence, fmt.Errorf("Kubernetes pods verify failed in namespace %s: unhealthy pods: %s", namespace, strings.Join(badPods, ", "))
+			return evidence, fmt.Errorf("kubernetes pods verify failed in namespace %s: unhealthy pods: %s", namespace, strings.Join(badPods, ", "))
 		}
 	}
 
@@ -193,14 +193,14 @@ func (e *customNodeExecutor) verifyKubernetesCluster(ctx context.Context, node *
 		probeEvidence := kubernetesClusterVerifyAppProbeEvidence{ID: strings.TrimSpace(probe.ID), Expect: strings.TrimSpace(probe.Expect), Receipt: receipt}
 		if !nodeStepSucceeded(receipt.Status) {
 			evidence.AppProbes = append(evidence.AppProbes, probeEvidence)
-			return evidence, fmt.Errorf("Kubernetes app probe %s failed: %s", probe.ID, firstReceiptMessage(receipt))
+			return evidence, fmt.Errorf("kubernetes app probe %s failed: %s", probe.ID, firstReceiptMessage(receipt))
 		}
 		if strings.TrimSpace(probe.Expect) != "" {
 			combined := receipt.Stdout + "\n" + receipt.Stderr
 			probeEvidence.Matched = strings.Contains(combined, strings.TrimSpace(probe.Expect))
 			if !probeEvidence.Matched {
 				evidence.AppProbes = append(evidence.AppProbes, probeEvidence)
-				return evidence, fmt.Errorf("Kubernetes app probe %s did not match expected output", probe.ID)
+				return evidence, fmt.Errorf("kubernetes app probe %s did not match expected output", probe.ID)
 			}
 		}
 		evidence.AppProbes = append(evidence.AppProbes, probeEvidence)

@@ -533,12 +533,8 @@ func (e *customNodeExecutor) evaluateKubernetesLifecyclePolicyOverride(node *run
 }
 
 func kubernetesLifecyclePolicyOverrideRuntime(node *runNode, runners []kubernetesCertTargetRunner) kubernetesLifecyclePolicyOverrideRuntimeScope {
-	runtime := kubernetesLifecyclePolicyOverrideRuntimeScope{
-		NodeID:       strings.TrimSpace(node.ID),
-		NodeName:     strings.TrimSpace(node.Name),
-		IntentDigest: strings.TrimSpace(node.EffectiveInputHash),
-	}
-	if node != nil && node.ResolvedRelease != nil {
+	var runtime kubernetesLifecyclePolicyOverrideRuntimeScope
+	if node != nil {
 		runtime.NodeID = strings.TrimSpace(node.ID)
 		runtime.NodeName = strings.TrimSpace(node.Name)
 		runtime.IntentDigest = strings.TrimSpace(node.EffectiveInputHash)

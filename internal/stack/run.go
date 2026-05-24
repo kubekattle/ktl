@@ -1033,10 +1033,6 @@ func newScheduler(nodes []*runNode, command string) *scheduler {
 	return s
 }
 
-func schedulerKey(cluster string, name string) string {
-	return strings.TrimSpace(cluster) + "\n" + strings.TrimSpace(name)
-}
-
 func (s *scheduler) sortReady() {
 	sort.Slice(s.ready, func(i, j int) bool {
 		return releaseReadyKey(s.nodes[s.ready[i]].ResolvedRelease) < releaseReadyKey(s.nodes[s.ready[j]].ResolvedRelease)
