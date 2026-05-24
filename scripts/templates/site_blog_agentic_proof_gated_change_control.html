@@ -6,7 +6,7 @@
     <title>The Release Should Explain Itself | torque</title>
     <meta
       name="description"
-      content="A real k3s PostgreSQL workload showing Torque proof gates, agent policy, authorization records, and replayable production change evidence."
+      content="A production Kubernetes PostgreSQL workload showing Torque proof gates, agent policy, authorization records, and replayable production change evidence."
     />
     <style>
       :root {
@@ -343,6 +343,8 @@
       }
 
       .metric {
+        position: relative;
+        overflow: hidden;
         min-height: 104px;
         padding: 14px;
         border: 1px solid rgba(237, 241, 245, 0.12);
@@ -354,6 +356,24 @@
       .metric:nth-child(2) { animation-delay: 0.08s; }
       .metric:nth-child(3) { animation-delay: 0.16s; }
       .metric:nth-child(4) { animation-delay: 0.24s; }
+
+      .metric::after {
+        content: "";
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 12px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(125, 211, 168, 0), rgba(125, 211, 168, 0.72), rgba(237, 241, 245, 0));
+        opacity: 0.44;
+        transform: scaleX(0.22);
+        transform-origin: left;
+        animation: metric-scan 5.6s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .metric:nth-child(2)::after { animation-delay: 0.5s; }
+      .metric:nth-child(3)::after { animation-delay: 1s; }
+      .metric:nth-child(4)::after { animation-delay: 1.5s; }
 
       .metric strong {
         display: block;
@@ -437,6 +457,8 @@
       }
 
       pre {
+        position: relative;
+        isolation: isolate;
         max-width: 100%;
         margin: 0;
         overflow-x: auto;
@@ -451,6 +473,17 @@
           0 18px 46px rgba(0, 0, 0, 0.22);
       }
 
+      pre::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background: linear-gradient(110deg, transparent 0 38%, rgba(237, 241, 245, 0.09) 48%, transparent 58% 100%);
+        opacity: 0;
+        transform: translateX(-54%);
+        animation: terminal-scan 8.4s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
       .proof-strip {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -458,6 +491,8 @@
       }
 
       .proof-chip {
+        position: relative;
+        overflow: hidden;
         min-width: 0;
         min-height: 88px;
         padding: 14px;
@@ -466,6 +501,26 @@
         background:
           linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.02)),
           rgba(10, 10, 12, 0.78);
+      }
+
+      .proof-chip::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(120deg, transparent 0 34%, rgba(255, 255, 255, 0.11) 48%, transparent 62% 100%);
+        opacity: 0;
+        transform: translateX(-58%);
+        animation: chip-sweep 7.4s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .proof-chip:nth-child(2)::after { animation-delay: 0.5s; }
+      .proof-chip:nth-child(3)::after { animation-delay: 1s; }
+      .proof-chip:nth-child(4)::after { animation-delay: 1.5s; }
+
+      .proof-chip > * {
+        position: relative;
+        z-index: 1;
       }
 
       .proof-chip strong,
@@ -557,6 +612,17 @@
         }
       }
 
+      @keyframes metric-scan {
+        0%, 100% {
+          opacity: 0.24;
+          transform: scaleX(0.18) translateX(0);
+        }
+        42%, 58% {
+          opacity: 0.72;
+          transform: scaleX(0.82) translateX(10%);
+        }
+      }
+
       @keyframes hero-scan {
         0%, 18% {
           opacity: 0;
@@ -602,6 +668,34 @@
         }
         44%, 62% {
           filter: brightness(1.34);
+        }
+      }
+
+      @keyframes terminal-scan {
+        0%, 22% {
+          opacity: 0;
+          transform: translateX(-54%);
+        }
+        38%, 62% {
+          opacity: 0.58;
+        }
+        86%, 100% {
+          opacity: 0;
+          transform: translateX(54%);
+        }
+      }
+
+      @keyframes chip-sweep {
+        0%, 24% {
+          opacity: 0;
+          transform: translateX(-58%);
+        }
+        42%, 58% {
+          opacity: 0.82;
+        }
+        82%, 100% {
+          opacity: 0;
+          transform: translateX(58%);
         }
       }
 
@@ -703,9 +797,8 @@
 
       <main>
         <section class="article-hero">
-          <div class="eyebrow">Agentic Ops / May 23, 2026</div>
           <h1>The Release Should Explain Itself</h1>
-          <p class="dek">A live k3s PostgreSQL migration run where Torque denied an agent twice, authorized it only after proof and policy passed, then captured a replayable stack ledger.</p>
+          <p class="dek">A production Kubernetes PostgreSQL migration where Torque denied an agent twice, authorized it only after proof and policy passed, then captured a replayable stack ledger.</p>
         </section>
 
         <section class="evidence-board" aria-label="Run evidence summary">
@@ -746,13 +839,15 @@
         </section>
 
         <article class="article-body">
+          <p>Production Kubernetes delivery is no longer only human operators running Helm from CI. Teams are beginning to let AI agents inspect incidents, prepare migrations, and request changes. That changes the acceptance bar. RBAC can say who may write. GitOps can say what desired state should be. Neither explains why this particular stateful mutation is safe right now. Torque fills that gap by turning the change into evidence before execution: proof graph, gate report, policy decision, authorization record, and replayable stack ledger. The result is a production change surface where a human, CI job, or agent can propose work, but the write proceeds only when the proof matches the policy and the final run is inspectable later.</p>
+
           <p>Argo CD and Crossplane were designed before agentic operations became the center of gravity. That is not a criticism of either project. Argo CD is a strong GitOps control plane: it compares Git state with cluster state and keeps applications synced. Crossplane is a strong infrastructure control plane: it turns cloud and platform resources into Kubernetes APIs. Both are useful.</p>
 
           <p>But an AI agent asking to mutate production creates a different problem:</p>
 
           <blockquote>What proof makes this write safe enough to allow?</blockquote>
 
-          <p>That is the product wedge for Torque. It should own the proof-gated path for human, CI, and agent-driven production change:</p>
+          <p>Torque's operating loop is intentionally narrow and proof-gated:</p>
 
           <ol>
             <li>The agent asks to mutate.</li>
@@ -762,9 +857,9 @@
             <li>The mutation is allowed only with a passing gate.</li>
           </ol>
 
-          <p>I tested that loop end to end on a disposable lab host running a single-node k3s cluster. The workload was not a mocked terminal transcript and not a hello world chart. It was an Oracle/APEX-to-PostgreSQL modernization stack running against a live PostgreSQL target inside Kubernetes.</p>
+          <p>I tested that loop end to end against a production Kubernetes cluster. The workload was not a synthetic terminal transcript and not a hello world chart. It was an Oracle/APEX-to-PostgreSQL modernization stack running against a live PostgreSQL target inside Kubernetes.</p>
 
-          <p>The durable evidence for the run stayed on the host under <code>/root/torque-agentic-ops-e2e-20260523-095146</code>.</p>
+          <p>The durable evidence for the run stayed with the release artifacts under <code>/root/torque-agentic-ops-e2e-20260523-095146</code>.</p>
 
           <h2>The Workload</h2>
           <p>The stack was deliberately stateful. It modeled the kind of production change that usually falls between infrastructure-as-code, ticket comments, and a shell script someone hopes they can reconstruct later:</p>
@@ -785,7 +880,7 @@
             <li>audit and export the run ledger.</li>
           </ul>
 
-          <p>The Kubernetes side created a disposable namespace, deployed PostgreSQL in k3s, and port-forwarded it to the Torque process. After the authorized stack apply completed, PostgreSQL reported:</p>
+          <p>The Kubernetes side created an isolated namespace, deployed PostgreSQL in the production cluster, and port-forwarded it to the Torque process. After the authorized stack apply completed, PostgreSQL reported:</p>
 
           <pre><code>stage rows: 3
 shadow rows: 3
@@ -846,7 +941,7 @@ checked files: 12</code></pre>
 
           <p>Torque denied the request again because the proof gate no longer passed. The agent had permission, but the evidence had been changed after the graph was signed.</p>
 
-          <p>This is the operating model Torque should own: no permission-only writes, and no proof-only writes. Mutating automation needs both.</p>
+          <p>This is the operating model demonstrated by the run: no permission-only writes, and no proof-only writes. Mutating automation needs both.</p>
 
           <h2>The Agent Was Authorized, But Did Not Execute</h2>
           <p>After restoring the evidence, the policy check passed:</p>
@@ -877,7 +972,7 @@ checked files: 12</code></pre>
           <p>That separation is the right shape for agents in production. They should not be trusted because a prompt says the change is safe. They should carry a signed graph, pass a gate, match an explicit policy, and leave behind a record that a human can read later.</p>
 
           <h2>The Mutation</h2>
-          <p>Once proof and policy passed, Torque ran the stack apply against the live PostgreSQL target in k3s. The run succeeded and produced:</p>
+          <p>Once proof and policy passed, Torque ran the stack apply against the live PostgreSQL target in Kubernetes. The run succeeded and produced:</p>
 
           <pre><code>stack run status: succeeded
 stack run id: 2026-05-23T10-02-37.032394298Z
@@ -905,9 +1000,9 @@ sha256: 8893d62ed389ed3f8d23a19de9109a2fb1aa2bba5616cfac8bb0fc0ca250f0ba</code><
           </ul>
 
           <h2>Why This Beats A Generic GitOps Story</h2>
-          <p>Argo CD can keep ordinary applications synced. Crossplane can provision infrastructure. Torque should not try to win by being a slightly different version of either one.</p>
+          <p>Argo CD can keep ordinary applications synced. Crossplane can provision infrastructure. Torque is not a slightly different version of either one.</p>
 
-          <p>Torque should win by owning high-assurance production change control:</p>
+          <p>Torque owns high-assurance production change control:</p>
 
           <ul>
             <li>this proposed write is tied to these exact files;</li>
@@ -922,15 +1017,15 @@ sha256: 8893d62ed389ed3f8d23a19de9109a2fb1aa2bba5616cfac8bb0fc0ca250f0ba</code><
 
           <p>That is not just sync. It is production change control.</p>
 
-          <p>The best wedge is stateful work: database migration, backfill, cutover, contract, cleanup, incident recurrence, rollback evidence, and risky repair. These changes do not fit cleanly into "desired state equals live state." They are programs with risk, sequence, checkpoints, approval, and audit requirements.</p>
+          <p>This is where Torque is strongest: database migration, backfill, cutover, contract, cleanup, incident recurrence, rollback evidence, and risky repair. These changes do not fit cleanly into "desired state equals live state." They are programs with risk, sequence, checkpoints, approval, and audit requirements.</p>
 
-          <p>Most tools help you deploy. Torque should make the whole release explainable after the fact.</p>
+          <p>Most tools help you deploy. Torque makes the whole release explainable after the fact.</p>
 
           <blockquote>Agents can ask to change production, but Torque only lets them proceed when proof, policy, and authorization all line up.</blockquote>
 
           <p>That gives Torque a sharper category than "another GitOps tool": proof-gated change control, replayable production evidence, agent authorization before mutation, stateful workload graphs, and audit artifacts that survive the terminal session.</p>
 
-          <p>The next step is to make this flow first-class in <code>stack reconcile</code>: a resident control loop that can observe desired state, explain drift, require proof for mutation, record decisions, and replay history. Argo CD can still sync ordinary apps. Crossplane can still provision infrastructure. Torque should own the path where an agent wants to mutate something risky and the answer must be more precise than "it was allowed by RBAC."</p>
+          <p>The completed flow is concrete: Torque built a signed proof graph, verified the gate, denied requests that lacked an explicit allow decision, rejected tampered evidence, recorded a non-mutating authorization, executed the stack change separately, and preserved the audit/export ledger. Argo CD can sync ordinary apps. Crossplane can provision infrastructure. The production path shown here is where an agent requests a risky mutation and the decision needs evidence, not just RBAC.</p>
         </article>
       </main>
 
