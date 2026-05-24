@@ -1,0 +1,20 @@
+profile: stage
+
+firecracker:
+  enabled: false
+
+publicAccess:
+  mode: ingress
+  hostEnv: TORQUE_FRAUD_PUBLIC_HOST
+
+generator:
+  enabled: true
+  eventCount: 250
+  fraudRate: 0.12
+
+aws:
+  mode: real-s3
+  secretMode: existing-or-workload-identity
+
+resources:
+  size: small

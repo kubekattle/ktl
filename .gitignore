@@ -3,6 +3,8 @@ torque-report-*
 torque-capture-*.sqlite
 torque-capture-*.sqlite-wal
 torque-capture-*.sqlite-shm
+manifest.json
+state.sqlite
 testdata/build/dockerfile/dist/*
 dist/
 *.deb

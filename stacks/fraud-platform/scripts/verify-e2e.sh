@@ -19,6 +19,7 @@ curl -fsS "http://${HOST_PUBLIC_IP}:3301/api/v1/health?live=1" || curl -fsS "htt
 curl -fsS "http://${HOST_PUBLIC_IP}:8265/api/version"
 curl -fsS "http://${HOST_PUBLIC_IP}:8080/json/"
 curl -fsS "http://${HOST_PUBLIC_IP}:8081/overview"
+curl -fsS "http://${HOST_PUBLIC_IP}:8082/v1/info"
 api_pod="$(k -n apps get pod -l app=payments-api -o jsonpath='{.items[0].metadata.name}')"
 s3_counts="$(k -n apps exec -i "${api_pod}" -- python - <<'PY'
 import os
@@ -56,6 +57,43 @@ print({"clickhouse_decisions": decisions, "clickhouse_batch_rows": batches})
 if decisions <= 0 or batches <= 0:
     raise SystemExit(1)
 PY
+k -n apps exec -i "${api_pod}" -- python - <<'PY'
+import json
+import urllib.request
+
+base = "http://redpanda.data.svc.cluster.local:8081"
+subjects = set(json.loads(urllib.request.urlopen(f"{base}/subjects", timeout=5).read()))
+required = {"payments.raw-value", "payments.risk-value", "payments.decisions-value"}
+missing = required - subjects
+if missing:
+    raise SystemExit(f"missing schema subjects: {sorted(missing)}")
+compat = {}
+for subject in sorted(required):
+    payload = json.loads(urllib.request.urlopen(f"{base}/config/{subject}", timeout=5).read())
+    compat[subject] = payload.get("compatibilityLevel", payload.get("compatibility"))
+print({"schema_subjects": sorted(required), "compatibility": compat})
+PY
+trino_pod="$(k -n data get pod -l app=trino -o jsonpath='{.items[0].metadata.name}')"
+trino_count() {
+  local catalog="$1"
+  local query="$2"
+  k -n data exec "${trino_pod}" -- trino \
+    --server http://localhost:8080 \
+    --catalog "${catalog}" \
+    --schema fraud \
+    --output-format CSV \
+    --execute "${query}" |
+    tr -d '\r"' |
+    awk -F, '/^[0-9]+/{value=$1} END{print value+0}'
+}
+trino_decisions="$(trino_count clickhouse "SELECT count(*) FROM payment_decisions")"
+[[ "${trino_decisions:-0}" -gt 0 ]] || { echo "Trino could not query ClickHouse payment decisions" >&2; exit 1; }
+iceberg_raw="$(trino_count iceberg "SELECT count(*) FROM raw_payments")"
+iceberg_risk="$(trino_count iceberg "SELECT count(*) FROM risk_events")"
+iceberg_batches="$(trino_count iceberg "SELECT count(*) FROM batch_feature_summary")"
+[[ "${iceberg_raw:-0}" -gt 0 ]] || { echo "Trino could not query Iceberg raw payments" >&2; exit 1; }
+[[ "${iceberg_risk:-0}" -gt 0 ]] || { echo "Trino could not query Iceberg risk events" >&2; exit 1; }
+[[ "${iceberg_batches:-0}" -gt 0 ]] || { echo "Trino could not query Iceberg batch features" >&2; exit 1; }
 redpanda_pod="$(k -n data get pod -l app=redpanda -o jsonpath='{.items[0].metadata.name}')"
 risk_high_watermark=0
 for attempt in $(seq 1 30); do
@@ -68,6 +106,10 @@ k -n data exec "${redpanda_pod}" -- rpk topic consume payments.risk -n 1 -X brok
 test -s /tmp/torque-fraud-risk-message.json
 echo "s3_raw_objects=${raw_count}"
 echo "s3_curated_objects=${curated_count}"
+echo "trino_payment_decisions=${trino_decisions}"
+echo "iceberg_raw_payments=${iceberg_raw}"
+echo "iceberg_risk_events=${iceberg_risk}"
+echo "iceberg_batch_features=${iceberg_batches}"
 echo "risk_high_watermark=${risk_high_watermark}"
 echo "risk_message_sample=$(head -c 300 /tmp/torque-fraud-risk-message.json)"
           ;;
