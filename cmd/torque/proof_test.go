@@ -199,7 +199,7 @@ func TestProofAttestSignsVerifiedGraph(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	root.SetArgs([]string{"proof", "attest", graphPath, "--release", "v1.0.8", "--key", keyPath, "--out", attestPath, "--format", "json"})
+	root.SetArgs([]string{"proof", "attest", graphPath, "--release", "v1.0.9", "--key", keyPath, "--out", attestPath, "--format", "json"})
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("proof attest: %v\n%s", err, out.String())
 	}
@@ -211,7 +211,7 @@ func TestProofAttestSignsVerifiedGraph(t *testing.T) {
 	if err := json.Unmarshal(raw, &attestation); err != nil {
 		t.Fatalf("decode attestation: %v", err)
 	}
-	if attestation.Release != "v1.0.8" || !attestation.Verified || attestation.Signature == nil || attestation.Signature.Algorithm != "ed25519" {
+	if attestation.Release != "v1.0.9" || !attestation.Verified || attestation.Signature == nil || attestation.Signature.Algorithm != "ed25519" {
 		t.Fatalf("unexpected attestation: %#v", attestation)
 	}
 	if attestation.Artifacts == 0 || attestation.FilesChecked == 0 || attestation.Commit == "" {

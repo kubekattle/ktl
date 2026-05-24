@@ -223,7 +223,7 @@ Build, verify, diff, gate, and attest release proof graphs.
 
 **Gate**: `torque proof gate proof.graph.json --out proof.gate.json`
 
-**Attest**: `torque proof attest proof.graph.json --release v1.0.8 --key .torque/keys/proof-ed25519.json --out release.attestation.json`
+**Attest**: `torque proof attest proof.graph.json --release v1.0.9 --key .torque/keys/proof-ed25519.json --out release.attestation.json`
 
 ## torque agent
 Authorize AI or automation agent operations with proof-backed permissions.

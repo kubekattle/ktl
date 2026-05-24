@@ -195,7 +195,7 @@ torque proof verify proof.graph.json --require-signature
 torque proof diff previous-proof.graph.json proof.graph.json
 torque proof gate proof.graph.json --out proof.gate.json
 torque proof attest proof.graph.json \
-  --release v1.0.8 \
+  --release v1.0.9 \
   --key .torque/keys/proof-ed25519.json \
   --out release.attestation.json
 torque release score proof.graph.json --out release-score.json

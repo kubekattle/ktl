@@ -105,7 +105,7 @@ var curatedExamples = map[string][]string{
 		"# Sign a proof graph with an ed25519 key\ntorque proof graph ./apply-proof.json --out proof.graph.json --key .torque/stack/keys/ed25519.json",
 		"# Verify a signed graph in CI\ntorque proof verify proof.graph.json --require-signature",
 		"# Block promotion when release evidence is incomplete\ntorque proof gate proof.graph.json --out proof.gate.json",
-		"# Sign a compact release verdict for PRs and release notes\ntorque proof attest proof.graph.json --release v1.0.8 --key .torque/stack/keys/ed25519.json --out release.attestation.json",
+		"# Sign a compact release verdict for PRs and release notes\ntorque proof attest proof.graph.json --release v1.0.9 --key .torque/stack/keys/ed25519.json --out release.attestation.json",
 	},
 	"torque proof graph": {
 		"# Link apply proof, Guardian drift, and repair evidence\ntorque proof graph ./apply-proof.json --attach drift-proof.json --attach repair-pr.md --out proof.graph.json --html proof.html",
@@ -124,8 +124,8 @@ var curatedExamples = map[string][]string{
 		"# Use a custom release policy and emit JSON\ntorque proof gate proof.graph.json --policy release-policy.yaml --format json",
 	},
 	"torque proof attest": {
-		"# Sign a pasteable release verdict\ntorque proof attest proof.graph.json --release v1.0.8 --key .torque/stack/keys/ed25519.json --out release.attestation.json",
-		"# Emit the signed verdict as JSON for CI\ntorque proof attest proof.graph.json --release v1.0.8 --key .torque/stack/keys/ed25519.json --format json",
+		"# Sign a pasteable release verdict\ntorque proof attest proof.graph.json --release v1.0.9 --key .torque/stack/keys/ed25519.json --out release.attestation.json",
+		"# Emit the signed verdict as JSON for CI\ntorque proof attest proof.graph.json --release v1.0.9 --key .torque/stack/keys/ed25519.json --format json",
 	},
 	"torque agent": {
 		"# Check whether an agent may run a mutating operation\ntorque agent policy check agent-request.json --proof proof.graph.json --allow apply --require-gate",

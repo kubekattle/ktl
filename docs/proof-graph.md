@@ -103,7 +103,7 @@ PR descriptions, release notes, or change-management records:
 
 ```bash
 torque proof attest proof.graph.json \
-  --release v1.0.8 \
+  --release v1.0.9 \
   --key .torque/keys/proof-ed25519.json \
   --out release.attestation.json
 ```
@@ -111,7 +111,7 @@ torque proof attest proof.graph.json \
 Text output is intentionally pasteable:
 
 ```text
-release=v1.0.8 commit=<commit> graph=<graph-sha256> verified=true artifacts=22 checked=14 signed=true
+release=v1.0.9 commit=<commit> graph=<graph-sha256> verified=true artifacts=22 checked=14 signed=true
 ```
 
 ## Agent-Safe Operations
