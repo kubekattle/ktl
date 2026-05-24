@@ -182,14 +182,14 @@ func (e *customNodeExecutor) inspectKubernetesCluster(ctx context.Context, node 
 	configReceipt := runner.Run(ctx, kubernetesClusterConfigCommand(spec))
 	evidence.Receipts = append(evidence.Receipts, compactKubernetesClusterInspectReceipt(configReceipt))
 	if !nodeStepSucceeded(configReceipt.Status) {
-		return evidence, fmt.Errorf("Kubernetes config inspect failed: %s", firstReceiptMessage(configReceipt))
+		return evidence, fmt.Errorf("kubernetes config inspect failed: %s", firstReceiptMessage(configReceipt))
 	}
 	evidence.API.Server = parseKubernetesClusterServer(configReceipt.Stdout)
 
 	versionReceipt := runner.Run(ctx, kubernetesClusterInspectAPICommand(spec))
 	evidence.Receipts = append(evidence.Receipts, compactKubernetesClusterInspectReceipt(versionReceipt))
 	if !nodeStepSucceeded(versionReceipt.Status) {
-		return evidence, fmt.Errorf("Kubernetes API inspect failed: %s", firstReceiptMessage(versionReceipt))
+		return evidence, fmt.Errorf("kubernetes API inspect failed: %s", firstReceiptMessage(versionReceipt))
 	}
 	api, err := parseKubernetesClusterVersion(versionReceipt.Stdout)
 	if err != nil {
@@ -201,7 +201,7 @@ func (e *customNodeExecutor) inspectKubernetesCluster(ctx context.Context, node 
 	nodesReceipt := runner.Run(ctx, kubernetesClusterNodesCommand(spec))
 	evidence.Receipts = append(evidence.Receipts, compactKubernetesClusterInspectReceipt(nodesReceipt))
 	if !nodeStepSucceeded(nodesReceipt.Status) {
-		return evidence, fmt.Errorf("Kubernetes node inspect failed: %s", firstReceiptMessage(nodesReceipt))
+		return evidence, fmt.Errorf("kubernetes node inspect failed: %s", firstReceiptMessage(nodesReceipt))
 	}
 	nodes, err := parseKubernetesClusterInspectNodes(nodesReceipt.Stdout)
 	if err != nil {
@@ -212,7 +212,7 @@ func (e *customNodeExecutor) inspectKubernetesCluster(ctx context.Context, node 
 	namespacesReceipt := runner.Run(ctx, kubernetesClusterNamespacesCommand(spec))
 	evidence.Receipts = append(evidence.Receipts, compactKubernetesClusterInspectReceipt(namespacesReceipt))
 	if !nodeStepSucceeded(namespacesReceipt.Status) {
-		return evidence, fmt.Errorf("Kubernetes namespace inspect failed: %s", firstReceiptMessage(namespacesReceipt))
+		return evidence, fmt.Errorf("kubernetes namespace inspect failed: %s", firstReceiptMessage(namespacesReceipt))
 	}
 	namespaces, err := parseKubernetesClusterInspectNamespaces(namespacesReceipt.Stdout)
 	if err != nil {
@@ -224,7 +224,7 @@ func (e *customNodeExecutor) inspectKubernetesCluster(ctx context.Context, node 
 		receipt := runner.Run(ctx, kubernetesClusterPodsCommand(spec, namespace))
 		evidence.Receipts = append(evidence.Receipts, compactKubernetesClusterInspectReceipt(receipt))
 		if !nodeStepSucceeded(receipt.Status) {
-			return evidence, fmt.Errorf("Kubernetes core pod inspect failed in namespace %s: %s", namespace, firstReceiptMessage(receipt))
+			return evidence, fmt.Errorf("kubernetes core pod inspect failed in namespace %s: %s", namespace, firstReceiptMessage(receipt))
 		}
 		pods, err := parseKubernetesClusterInspectPods(receipt.Stdout)
 		if err != nil {

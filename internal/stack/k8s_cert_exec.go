@@ -845,14 +845,14 @@ func kubernetesCertRenewCommand(provider string, spec KubernetesCertTarget, cert
 			restart = `systemctl restart kubelet
 systemctl is-active kubelet`
 		}
-		return `set -euo pipefail
+		return `set -eu
 backup="/etc/kubernetes/pki.torque.$(date -u +%Y%m%dT%H%M%SZ)"
 if [ -d /etc/kubernetes/pki ]; then cp -a /etc/kubernetes/pki "${backup}"; fi
 ` + kubeadmRenew + `
 ` + restart
 	case "rke2":
 		if strings.TrimSpace(spec.RestartCommand) != "" {
-			return `set -euo pipefail
+			return `set -eu
 rke2 certificate rotate` + serviceFlags + `
 ` + strings.TrimSpace(spec.RestartCommand)
 		}
@@ -860,7 +860,7 @@ rke2 certificate rotate` + serviceFlags + `
 		if service == "" {
 			service = "$(systemctl list-unit-files 'rke2-*.service' --no-legend 2>/dev/null | awk '{print $1}' | sed 's/\\.service$//' | head -1)"
 		}
-		return `set -euo pipefail
+		return `set -eu
 svc=` + shellAssignValue(service) + `
 if [ -z "${svc}" ]; then svc="rke2-server"; fi
 systemctl stop "${svc}"
@@ -869,7 +869,7 @@ systemctl start "${svc}"
 systemctl is-active "${svc}"`
 	case "k3s":
 		if strings.TrimSpace(spec.RestartCommand) != "" {
-			return `set -euo pipefail
+			return `set -eu
 k3s certificate rotate` + serviceFlags + `
 ` + strings.TrimSpace(spec.RestartCommand)
 		}
@@ -877,7 +877,7 @@ k3s certificate rotate` + serviceFlags + `
 		if service == "" {
 			service = "$(systemctl list-units --type=service --all 'k3s*.service' --no-legend 2>/dev/null | awk '{print $1}' | sed 's/\\.service$//' | head -1)"
 		}
-		return `set -euo pipefail
+		return `set -eu
 svc=` + shellAssignValue(service) + `
 if [ -z "${svc}" ]; then svc="k3s"; fi
 systemctl stop "${svc}"
