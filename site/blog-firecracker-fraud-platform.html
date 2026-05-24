@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>A Firecracker Data Platform As A Torque Stack | torque</title>
+    <title>A Verified Fraud Platform Packaged As A Torque Stack | torque</title>
     <meta
       name="description"
-      content="A real-world Torque stack running Firecracker VMs, k3s, Argo Workflows, Spark, Flink, Ray, SigNoz, ClickHouse, Redpanda, a payments API, and S3-backed fraud data evidence."
+      content="A real-world Torque stack package with profiles, app assets, Argo Workflows, Spark, Flink, Ray, Trino, SigNoz, ClickHouse, Redpanda, a public payments API, S3 evidence, and first-class verification."
     />
     <style>
       :root {
@@ -139,6 +139,7 @@
         display: grid;
         gap: 22px;
         max-width: 1040px;
+        overflow: hidden;
         animation: article-rise 0.92s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
 
@@ -204,171 +205,840 @@
         line-height: 1.55;
       }
 
+      .hero-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .hero-actions a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 42px;
+        padding: 0 14px;
+        border: 1px solid rgba(237, 241, 245, 0.16);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.052);
+        color: var(--text);
+        font: 0.76rem/1 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .hero-actions a:first-child {
+        border-color: rgba(125, 211, 168, 0.32);
+        color: var(--ok);
+      }
+
       .evidence-board {
         position: relative;
         display: grid;
-        grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+        grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
         gap: 18px;
-        align-items: stretch;
+        align-items: start;
         min-width: 0;
+        perspective: 1200px;
         animation: article-rise 1s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
       }
 
-      .panel {
+      .release-core,
+      .verify-pane,
+      .evidence-pane {
         position: relative;
         overflow: hidden;
-        border: 1px solid rgba(237, 241, 245, 0.12);
+        min-width: 0;
+        border: 0;
         border-radius: var(--radius);
         background:
-          linear-gradient(180deg, rgba(16, 16, 20, 0.96), rgba(10, 10, 12, 0.90)),
+          linear-gradient(180deg, rgba(20, 21, 24, 0.98), rgba(8, 9, 11, 0.92)),
           var(--surface);
         padding: clamp(18px, 3vw, 30px);
-        min-width: 0;
         box-shadow:
           inset 0 1px 0 rgba(255, 255, 255, 0.08),
           0 18px 48px rgba(0, 0, 0, 0.28);
+        transition: transform 0.36s ease, border-color 0.36s ease;
+        animation: demo-rise 0.92s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
 
-      .panel::after {
+      .release-core {
+        min-height: 560px;
+        display: grid;
+        grid-template-rows: auto minmax(250px, 1fr) auto;
+        gap: 20px;
+      }
+
+      .release-side {
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: 18px;
+        min-width: 0;
+      }
+
+      .release-core::before,
+      .verify-pane::before,
+      .evidence-pane::before,
+      .release-core::after,
+      .verify-pane::after,
+      .evidence-pane::after {
+        content: "";
+        position: absolute;
+        pointer-events: none;
+      }
+
+      .release-core::before,
+      .verify-pane::before,
+      .evidence-pane::before {
+        inset: 0;
+        background:
+          linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent),
+          repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 74px);
+        opacity: 0.24;
+        transform: translateX(-62%);
+        animation: demo-scan 7.4s ease-in-out infinite;
+      }
+
+      .release-core::after,
+      .verify-pane::after,
+      .evidence-pane::after {
+        inset: auto 18px 18px 18px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(125, 211, 168, 0.7), transparent);
+        opacity: 0.58;
+        animation: demo-line 4.8s ease-in-out infinite;
+      }
+
+      .release-core:hover,
+      .release-core:focus-within,
+      .verify-pane:hover,
+      .verify-pane:focus-within,
+      .evidence-pane:hover,
+      .evidence-pane:focus-within {
+        transform: translateY(-4px);
+        border-color: rgba(125, 211, 168, 0.32);
+      }
+
+      .demo-copy,
+      .package-graph,
+      .package-strip,
+      .verify-list,
+      .evidence-grid {
+        position: relative;
+        z-index: 1;
+      }
+
+      .demo-kicker {
+        margin: 0 0 10px;
+        color: var(--ok);
+        font: 0.72rem/1.3 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .demo-title {
+        margin: 0;
+        color: var(--text);
+        font-size: clamp(1.25rem, 2.1vw, 1.78rem);
+        line-height: 1.08;
+        font-weight: 780;
+        letter-spacing: 0;
+        text-wrap: balance;
+      }
+
+      .demo-copy p:not(.demo-kicker) {
+        margin: 12px 0 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .package-graph {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-rows: repeat(2, minmax(92px, 1fr));
+        gap: 14px;
+        min-height: 282px;
+        padding: 16px;
+        border: 1px solid rgba(237, 241, 245, 0.08);
+        border-radius: 7px;
+        background:
+          linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px),
+          rgba(3, 4, 5, 0.52);
+        background-size: 36px 36px, 36px 36px, auto;
+      }
+
+      .package-graph::before {
+        content: "";
+        position: absolute;
+        left: 9%;
+        right: 9%;
+        top: 50%;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(237, 241, 245, 0.28), rgba(125, 211, 168, 0.42), transparent);
+        pointer-events: none;
+      }
+
+      .graph-node {
+        position: relative;
+        display: grid;
+        align-content: space-between;
+        gap: 12px;
+        min-width: 0;
+        padding: 14px;
+        border: 1px solid rgba(237, 241, 245, 0.13);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.052);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+        animation: graph-node-pulse 6.2s ease-in-out infinite;
+      }
+
+      .graph-node:nth-child(2) { animation-delay: 0.28s; }
+      .graph-node:nth-child(3) { animation-delay: 0.56s; }
+      .graph-node:nth-child(4) { animation-delay: 0.84s; }
+      .graph-node:nth-child(5) { animation-delay: 1.12s; }
+      .graph-node:nth-child(6) { animation-delay: 1.40s; }
+
+      .graph-node strong {
+        color: var(--text);
+        font: 0.76rem/1.25 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        overflow-wrap: anywhere;
+      }
+
+      .graph-node span {
+        color: var(--muted);
+        font: 0.72rem/1.32 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .node-profile { grid-column: 1; grid-row: 1; }
+      .node-build { grid-column: 2; grid-row: 1; }
+      .node-seal { grid-column: 3; grid-row: 1; }
+      .node-apply { grid-column: 4; grid-row: 1 / span 2; }
+      .node-verify { grid-column: 3; grid-row: 2; }
+      .node-audit { grid-column: 2; grid-row: 2; }
+
+      .graph-packet {
+        position: absolute;
+        z-index: 1;
+        width: 38px;
+        height: 4px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, transparent, var(--ok));
+        box-shadow: 0 0 18px rgba(125, 211, 168, 0.28);
+        animation: packet-run 6.2s linear infinite;
+      }
+
+      .graph-packet:nth-of-type(1) {
+        left: 7%;
+        top: 31%;
+      }
+
+      .graph-packet:nth-of-type(2) {
+        left: 28%;
+        top: 64%;
+        animation-delay: 1.1s;
+        background: linear-gradient(90deg, transparent, var(--warn));
+        box-shadow: 0 0 18px rgba(247, 199, 107, 0.24);
+      }
+
+      .graph-packet:nth-of-type(3) {
+        left: 50%;
+        top: 49%;
+        animation-delay: 2.2s;
+        background: linear-gradient(90deg, transparent, var(--accent));
+      }
+
+      .package-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .package-step {
+        position: relative;
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid rgba(237, 241, 245, 0.11);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.045);
+      }
+
+      .package-step strong {
+        display: block;
+        color: var(--text);
+        font: 0.74rem/1.2 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .package-step span {
+        display: block;
+        margin-top: 7px;
+        color: var(--muted);
+        font: 0.72rem/1.32 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .verify-pane {
+        min-height: 336px;
+        animation-delay: 0.08s;
+      }
+
+      .verify-list {
+        display: grid;
+        gap: 9px;
+        margin-top: 24px;
+      }
+
+      .verify-row {
+        position: relative;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+        min-height: 40px;
+        padding: 10px;
+        border: 1px solid rgba(237, 241, 245, 0.10);
+        border-radius: 7px;
+        background: rgba(3, 4, 5, 0.50);
+        color: var(--muted);
+        font: 0.74rem/1.25 var(--font-mono);
+        overflow: hidden;
+      }
+
+      .verify-row::after {
+        content: "";
+        position: absolute;
+        inset: auto auto 0 0;
+        width: 100%;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(125, 211, 168, 0.18), rgba(125, 211, 168, 0.78), transparent);
+        transform: translateX(-100%);
+        animation: verify-sweep 4.6s ease-in-out infinite;
+      }
+
+      .verify-row:nth-child(2)::after { animation-delay: 0.38s; }
+      .verify-row:nth-child(3)::after { animation-delay: 0.76s; }
+      .verify-row:nth-child(4)::after { animation-delay: 1.14s; }
+      .verify-row:nth-child(5)::after { animation-delay: 1.52s; }
+
+      .verify-row b {
+        color: var(--ok);
+        font-weight: 700;
+      }
+
+      .verify-row span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .verify-row em {
+        color: var(--text);
+        font-style: normal;
+      }
+
+      .evidence-pane {
+        animation-delay: 0.16s;
+      }
+
+      .evidence-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 24px;
+      }
+
+      .evidence-stat {
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid rgba(237, 241, 245, 0.11);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.045);
+      }
+
+      .evidence-stat strong {
+        display: block;
+        color: var(--text);
+        font-size: clamp(1.45rem, 3.2vw, 2.35rem);
+        line-height: 1;
+        overflow-wrap: anywhere;
+      }
+
+      .evidence-stat span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font: 0.72rem/1.28 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        overflow-wrap: anywhere;
+      }
+
+      .verify-pane .demo-kicker {
+        color: var(--accent);
+      }
+
+      .verify-pane::after {
+        background: linear-gradient(90deg, transparent, rgba(109, 180, 255, 0.76), transparent);
+      }
+
+      .evidence-pane .demo-kicker {
+        color: var(--warn);
+      }
+
+      .evidence-pane::after {
+        background: linear-gradient(90deg, transparent, rgba(247, 199, 107, 0.68), transparent);
+      }
+
+      .graph-node,
+      .graph-packet,
+      .verify-row,
+      .package-step,
+      .evidence-stat {
+        pointer-events: none;
+      }
+
+      .proof-blueprint {
+        grid-template-columns: minmax(0, 1.06fr) minmax(320px, 0.94fr);
+        perspective: none;
+      }
+
+      .blueprint-panel {
+        position: relative;
+        overflow: hidden;
+        min-width: 0;
+        border: 1px solid rgba(237, 241, 245, 0.13);
+        border-radius: var(--radius);
+        background:
+          radial-gradient(circle at 18% 18%, rgba(125, 211, 168, 0.10), transparent 31%),
+          radial-gradient(circle at 82% 40%, rgba(109, 180, 255, 0.08), transparent 28%),
+          linear-gradient(180deg, rgba(18, 19, 22, 0.97), rgba(7, 8, 10, 0.92)),
+          var(--surface);
+        padding: clamp(18px, 3vw, 30px);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.05),
+          0 18px 48px rgba(0, 0, 0, 0.26);
+      }
+
+      .blueprint-main {
+        display: grid;
+        gap: 18px;
+        min-width: 0;
+      }
+
+      .blueprint-main {
+        gap: 22px;
+      }
+
+      .diagram-head {
+        display: grid;
+        gap: 9px;
+        max-width: 900px;
+      }
+
+      .diagram-kicker {
+        color: var(--ok);
+        font: 0.72rem/1.3 var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .diagram-title {
+        margin: 0;
+        color: var(--text);
+        font-size: clamp(1.28rem, 2.2vw, 1.9rem);
+        line-height: 1.08;
+        font-weight: 780;
+        letter-spacing: 0;
+        text-wrap: balance;
+      }
+
+      .diagram-copy {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .release-flow {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 10px;
+        padding: 16px;
+        border: 1px solid rgba(237, 241, 245, 0.11);
+        border-radius: 7px;
+        background:
+          linear-gradient(rgba(255,255,255,0.024) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.024) 1px, transparent 1px),
+          rgba(3, 4, 5, 0.42);
+        background-size: 38px 38px, 38px 38px, auto;
+      }
+
+      .release-flow::before {
+        content: "";
+        position: absolute;
+        left: 34px;
+        right: 34px;
+        top: 46px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(125, 211, 168, 0.18), rgba(237, 241, 245, 0.34), rgba(109, 180, 255, 0.22));
+      }
+
+      .flow-card {
+        position: relative;
+        z-index: 1;
+        min-width: 0;
+        min-height: 132px;
+        display: grid;
+        align-content: space-between;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid rgba(237, 241, 245, 0.12);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.045);
+      }
+
+      .flow-card::before {
+        content: "";
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--ok);
+        box-shadow: 0 0 0 5px rgba(125, 211, 168, 0.08);
+      }
+
+      .flow-card:nth-child(3)::before,
+      .flow-card:nth-child(4)::before {
+        background: var(--accent);
+        box-shadow: 0 0 0 5px rgba(237, 241, 245, 0.08);
+      }
+
+      .flow-card:nth-child(5)::before,
+      .flow-card:nth-child(6)::before {
+        background: var(--warn);
+        box-shadow: 0 0 0 5px rgba(247, 199, 107, 0.08);
+      }
+
+      .flow-card strong {
+        display: block;
+        color: var(--text);
+        font: 0.74rem/1.22 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .flow-card span {
+        color: var(--muted);
+        font: 0.72rem/1.32 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .profile-matrix {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .profile-card,
+      .proof-fact {
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid rgba(237, 241, 245, 0.11);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.04);
+      }
+
+      .profile-card strong,
+      .proof-fact strong {
+        display: block;
+        color: var(--text);
+        font: 0.74rem/1.22 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .profile-card span,
+      .proof-fact span {
+        display: block;
+        margin-top: 7px;
+        color: var(--muted);
+        font: 0.72rem/1.34 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .verification-table {
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .verification-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(237, 241, 245, 0.10);
+        color: var(--muted);
+        font: 0.74rem/1.28 var(--font-mono);
+      }
+
+      .verification-item:last-child {
+        border-bottom: 0;
+      }
+
+      .verification-item b {
+        color: var(--ok);
+        font-weight: 760;
+      }
+
+      .verification-item span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .verification-item em {
+        color: var(--text);
+        font-style: normal;
+      }
+
+      .proof-facts {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .proof-fact strong {
+        font: 1.55rem/1 var(--font-mono);
+        letter-spacing: 0;
+      }
+
+      .proof-fact:first-child {
+        border-color: rgba(125, 211, 168, 0.22);
+      }
+
+      .platform-blueprint {
+        grid-template-columns: minmax(0, 1fr);
+        perspective: none;
+      }
+
+      .architecture-map {
+        position: relative;
+        overflow: hidden;
+        display: grid;
+        gap: 10px;
+        margin-top: 22px;
+        padding: 18px;
+        border: 0;
+        border-radius: 7px;
+        background:
+          linear-gradient(rgba(255,255,255,0.024) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.024) 1px, transparent 1px),
+          rgba(3, 4, 5, 0.30);
+        background-size: 38px 38px, 38px 38px, auto;
+      }
+
+      .architecture-map::after {
         content: "";
         position: absolute;
         inset: 0;
         pointer-events: none;
-        background: linear-gradient(115deg, transparent 0 34%, rgba(255,255,255,0.10) 44%, transparent 56% 100%);
+        background: linear-gradient(115deg, transparent 0 35%, rgba(255,255,255,0.075) 49%, transparent 64% 100%);
+        background-size: 220% 100%;
         opacity: 0;
-        transform: translateX(-48%);
-        transition: opacity 0.42s ease, transform 0.78s ease;
+        animation: architecture-scan 8.5s ease-in-out infinite;
       }
 
-      .panel:hover::after,
-      .panel:focus-within::after {
-        opacity: 1;
-        transform: translateX(48%);
-      }
-
-      .flow {
-        display: grid;
-        gap: 10px;
-      }
-
-      .flow::before {
-        content: "";
-        position: absolute;
-        top: 54px;
-        bottom: 54px;
-        left: calc(clamp(18px, 3vw, 30px) + 14px);
-        width: 1px;
-        background:
-          linear-gradient(180deg, transparent, rgba(125, 211, 168, 0.66), rgba(237, 241, 245, 0.18), transparent);
-        transform-origin: top;
-        animation: gate-line 5.8s cubic-bezier(0.37, 0, 0.2, 1) infinite;
-      }
-
-      .flow-row {
+      .arch-lane {
+        --lane: rgba(125, 211, 168, 0.78);
+        --lane-soft: rgba(125, 211, 168, 0.08);
         position: relative;
         z-index: 1;
         display: grid;
-        grid-template-columns: 28px 1fr auto;
-        gap: 12px;
+        grid-template-columns: 72px minmax(128px, 1fr) 56px minmax(128px, 1fr) 56px minmax(150px, 1.08fr);
+        gap: 9px;
         align-items: center;
-        min-height: 48px;
         min-width: 0;
-        color: #d7dbe0;
+        padding: 8px;
+        border: 0;
+        border-radius: 7px;
+        background: linear-gradient(90deg, var(--lane-soft), rgba(255, 255, 255, 0.014) 44%, transparent);
       }
 
-      .flow-row > div {
-        min-width: 0;
+      .arch-lane:nth-child(2) {
+        --lane: rgba(125, 211, 168, 0.82);
+        --lane-soft: rgba(125, 211, 168, 0.08);
       }
 
-      .dot {
-        width: 28px;
-        height: 28px;
+      .arch-lane:nth-child(3) {
+        --lane: rgba(247, 199, 107, 0.82);
+        --lane-soft: rgba(247, 199, 107, 0.08);
+      }
+
+      .arch-lane:nth-child(4) {
+        --lane: rgba(109, 180, 255, 0.82);
+        --lane-soft: rgba(109, 180, 255, 0.08);
+      }
+
+      .arch-lane::before,
+      .arch-lane::after {
+        content: "";
+        position: absolute;
+        pointer-events: none;
+        z-index: 0;
+        top: 50%;
+        transform: translateY(-50%);
+      }
+
+      .arch-lane::before {
+        left: 92px;
+        right: 18px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--lane), transparent);
+        opacity: 0.34;
+      }
+
+      .arch-lane::after {
+        left: 92px;
+        right: 18px;
+        height: 2px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, transparent 0%, var(--lane) 18%, transparent 36%, transparent 100%);
+        background-size: 220% 100%;
+        opacity: 0.58;
+        filter: drop-shadow(0 0 10px var(--lane));
+        animation: lane-flow 5.8s ease-in-out infinite;
+      }
+
+      .arch-lane:nth-child(2)::after { animation-delay: 0.72s; }
+      .arch-lane:nth-child(3)::after { animation-delay: 1.44s; }
+      .arch-lane:nth-child(4)::after { animation-delay: 2.16s; }
+
+      .arch-label,
+      .arch-node,
+      .arch-edge {
+        position: relative;
+        z-index: 1;
+      }
+
+      .arch-label {
+        color: var(--lane);
+        font: 0.68rem/1.2 var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        writing-mode: sideways-lr;
+        justify-self: center;
+      }
+
+      .arch-node {
+        min-width: 0;
+        min-height: 68px;
         display: grid;
-        place-items: center;
-        border-radius: 50%;
-        border: 1px solid rgba(237, 241, 245, 0.22);
-        background: rgba(10, 10, 12, 0.96);
-        color: var(--ok);
-        font: 0.72rem/1 var(--font-mono);
-        box-shadow: 0 0 0 rgba(125, 211, 168, 0);
-        animation: gate-dot 5.8s ease-in-out infinite;
+        align-content: center;
+        gap: 5px;
+        padding: 11px 12px;
+        border: 0;
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.06);
+        transition: border-color 0.28s ease, background 0.28s ease, transform 0.28s ease;
       }
 
-      .flow-row:nth-child(2) .dot { animation-delay: 0.42s; }
-      .flow-row:nth-child(3) .dot { animation-delay: 0.84s; }
-      .flow-row:nth-child(4) .dot { animation-delay: 1.26s; }
-      .flow-row:nth-child(5) .dot { animation-delay: 1.68s; }
+      .arch-lane:hover .arch-node {
+        transform: translateY(-1px);
+      }
 
-      .flow-row strong {
-        display: block;
+      .arch-node strong {
         color: var(--text);
-        font-size: 1rem;
-        line-height: 1.2;
+        font: 0.72rem/1.18 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
       }
 
-      .flow-row span {
-        display: block;
-        min-width: 0;
+      .arch-node span {
         color: var(--muted);
-        font: 0.78rem/1.3 var(--font-mono);
+        font: 0.68rem/1.26 var(--font-mono);
         overflow-wrap: anywhere;
       }
 
-      .badge {
-        color: var(--ok);
-        font: 0.74rem/1 var(--font-mono);
-        padding: 8px 10px;
-        border: 1px solid rgba(125, 211, 168, 0.26);
-        border-radius: 7px;
-        background: rgba(125, 211, 168, 0.06);
-        animation: badge-flash 5.8s ease-in-out infinite;
+      .arch-node.primary {
+        background: rgba(125, 211, 168, 0.10);
       }
 
-      .flow-row:nth-child(3) .badge {
-        color: var(--warn);
-        border-color: rgba(247, 199, 107, 0.30);
-        background: rgba(247, 199, 107, 0.07);
+      .arch-node.store {
+        background: rgba(247, 199, 107, 0.09);
       }
 
-      .flow-row:nth-child(4) .badge,
-      .flow-row:nth-child(5) .badge {
-        animation-delay: 1s;
+      .arch-node.observe {
+        background: rgba(109, 180, 255, 0.09);
       }
 
-      .metric-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
+      .arch-node.broker {
+        background: rgba(186, 152, 255, 0.09);
+      }
+
+      .arch-node.compute {
+        background: rgba(237, 241, 245, 0.07);
+      }
+
+      .arch-node.model {
+        background: rgba(125, 211, 168, 0.12);
+      }
+
+      .arch-edge {
+        position: relative;
         min-width: 0;
-      }
-
-      .metric {
-        min-height: 104px;
-        padding: 14px;
-        border: 1px solid rgba(237, 241, 245, 0.12);
-        border-radius: 7px;
-        background: rgba(237, 241, 245, 0.045);
-        animation: metric-rise 0.86s cubic-bezier(0.16, 1, 0.3, 1) both;
-      }
-
-      .metric:nth-child(2) { animation-delay: 0.08s; }
-      .metric:nth-child(3) { animation-delay: 0.16s; }
-      .metric:nth-child(4) { animation-delay: 0.24s; }
-
-      .metric strong {
-        display: block;
-        color: var(--text);
-        font-size: clamp(1.8rem, 4vw, 3rem);
-        line-height: 1;
-      }
-
-      .metric span {
-        display: block;
-        margin-top: 8px;
         color: var(--muted);
-        font: 0.78rem/1.3 var(--font-mono);
+        font: 0.58rem/1.2 var(--font-mono);
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.04em;
+        text-align: center;
+      }
+
+      .arch-edge::before {
+        display: none;
+      }
+
+      .arch-edge span {
+        position: relative;
+        z-index: 1;
+        display: inline-block;
+        padding: 3px 5px;
+        background: rgba(8, 9, 11, 0.95);
+      }
+
+      @keyframes architecture-scan {
+        0%, 72%, 100% {
+          opacity: 0;
+          background-position: 120% 0;
+        }
+        12%, 34% {
+          opacity: 0.36;
+        }
+        58% {
+          opacity: 0;
+          background-position: -80% 0;
+        }
+      }
+
+      @keyframes lane-flow {
+        0%, 100% {
+          opacity: 0.14;
+          background-position: 120% 0;
+        }
+        18%, 56% {
+          opacity: 0.78;
+        }
+        76% {
+          opacity: 0.14;
+          background-position: -80% 0;
+        }
       }
 
       .article-body {
@@ -494,6 +1164,142 @@
         line-height: 1.4;
       }
 
+      .article-architecture {
+        display: grid;
+        gap: 12px;
+      }
+
+      .mini-arch {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+        border-radius: 8px;
+        background:
+          radial-gradient(circle at 15% 15%, rgba(125, 211, 168, 0.10), transparent 34%),
+          radial-gradient(circle at 86% 60%, rgba(109, 180, 255, 0.08), transparent 30%),
+          rgba(237, 241, 245, 0.045);
+      }
+
+      .mini-title {
+        color: var(--text);
+        font: 0.76rem/1.2 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      .mini-row {
+        --mini-line: rgba(125, 211, 168, 0.72);
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr) 52px minmax(0, 1fr) 52px minmax(0, 1fr);
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+        padding: 6px 0;
+      }
+
+      .mini-row.batch {
+        --mini-line: rgba(247, 199, 107, 0.74);
+      }
+
+      .mini-row.telemetry {
+        --mini-line: rgba(109, 180, 255, 0.76);
+      }
+
+      .mini-label {
+        color: var(--mini-line);
+        font: 0.68rem/1.2 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .mini-node {
+        min-width: 0;
+        padding: 10px 11px;
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.065);
+      }
+
+      .mini-node.hot { background: rgba(125, 211, 168, 0.11); }
+      .mini-node.queue { background: rgba(186, 152, 255, 0.10); }
+      .mini-node.store { background: rgba(247, 199, 107, 0.10); }
+      .mini-node.observe { background: rgba(109, 180, 255, 0.10); }
+
+      .mini-node strong,
+      .mini-node span {
+        display: block;
+      }
+
+      .mini-node strong {
+        color: var(--text);
+        font: 0.7rem/1.18 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        white-space: nowrap;
+      }
+
+      .mini-node span {
+        margin-top: 5px;
+        color: var(--muted);
+        font: 0.66rem/1.26 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .mini-edge {
+        position: relative;
+        min-width: 0;
+        min-height: 20px;
+        color: var(--muted);
+        font: 0.55rem/1 var(--font-mono);
+        text-transform: uppercase;
+        text-align: center;
+        letter-spacing: 0.04em;
+      }
+
+      .mini-edge::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--mini-line), transparent);
+        opacity: 0.55;
+      }
+
+      .mini-edge::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: calc(50% - 1px);
+        width: 18px;
+        height: 2px;
+        border-radius: 999px;
+        background: var(--mini-line);
+        opacity: 0;
+        animation: mini-flow 4.8s ease-in-out infinite;
+      }
+
+      .mini-edge span {
+        position: relative;
+        z-index: 1;
+        padding: 3px 4px;
+        background: #08080a;
+      }
+
+      @keyframes mini-flow {
+        0%, 100% {
+          opacity: 0;
+          transform: translateX(0);
+        }
+        28%, 58% {
+          opacity: 0.75;
+        }
+        78% {
+          opacity: 0;
+          transform: translateX(24px);
+        }
+      }
+
       footer {
         display: grid;
         grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
@@ -552,14 +1358,16 @@
         }
       }
 
-      @keyframes metric-rise {
+      @keyframes demo-rise {
         from {
           opacity: 0;
-          transform: translateY(34px) scale(0.94);
+          transform: translate3d(0, 44px, -30px) rotateX(7deg) scale(0.95);
+          filter: blur(4px) saturate(0.82);
         }
         to {
           opacity: 1;
-          transform: translateY(0) scale(1);
+          transform: translate3d(0, 0, 0) rotateX(0deg) scale(1);
+          filter: blur(0) saturate(1);
         }
       }
 
@@ -577,37 +1385,69 @@
         }
       }
 
-      @keyframes gate-line {
-        0%, 100% {
-          opacity: 0.22;
-          transform: scaleY(0.32);
+      @keyframes demo-scan {
+        0%, 18% {
+          opacity: 0;
+          transform: translateX(-62%);
         }
-        44%, 62% {
-          opacity: 0.9;
-          transform: scaleY(1);
+        34%, 64% {
+          opacity: 0.36;
         }
-      }
-
-      @keyframes gate-dot {
-        0%, 100% {
-          color: var(--ok);
-          transform: scale(0.88);
-          box-shadow: 0 0 0 rgba(125, 211, 168, 0);
-        }
-        44%, 62% {
-          color: #ffffff;
-          transform: scale(1.12);
-          border-color: rgba(125, 211, 168, 0.58);
-          box-shadow: 0 0 26px rgba(125, 211, 168, 0.22);
+        82%, 100% {
+          opacity: 0;
+          transform: translateX(62%);
         }
       }
 
-      @keyframes badge-flash {
+      @keyframes demo-line {
         0%, 100% {
-          filter: brightness(1);
+          opacity: 0.2;
+          transform: scaleX(0.26);
         }
         44%, 62% {
-          filter: brightness(1.34);
+          opacity: 0.78;
+          transform: scaleX(1);
+        }
+      }
+
+      @keyframes graph-node-pulse {
+        0%, 100% {
+          transform: translateY(0);
+          border-color: rgba(237, 241, 245, 0.13);
+          background: rgba(237, 241, 245, 0.045);
+        }
+        44%, 62% {
+          transform: translateY(-5px);
+          border-color: rgba(125, 211, 168, 0.46);
+          background: rgba(125, 211, 168, 0.08);
+        }
+      }
+
+      @keyframes packet-run {
+        0% {
+          opacity: 0;
+          transform: translateX(0) scaleX(0.6);
+        }
+        12%, 78% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+          transform: translateX(420px) scaleX(1);
+        }
+      }
+
+      @keyframes verify-sweep {
+        0%, 100% {
+          transform: translateX(-100%);
+          opacity: 0;
+        }
+        38%, 68% {
+          opacity: 1;
+        }
+        86% {
+          transform: translateX(0);
+          opacity: 0;
         }
       }
 
@@ -660,18 +1500,85 @@
           max-width: 8.4ch;
           font-size: clamp(2.75rem, 13vw, 4.35rem);
         }
-        .metric-grid {
-          grid-template-columns: 1fr;
-        }
         .dek {
           max-width: 32ch;
         }
-        .flow-row {
-          grid-template-columns: 28px minmax(0, 1fr);
+        .release-core,
+        .verify-pane,
+        .evidence-pane {
+          min-height: auto;
+          transform: none;
         }
-        .badge {
+        .release-core {
+          grid-template-rows: auto;
+        }
+        .release-side {
+          grid-template-rows: auto;
+        }
+        .package-graph,
+        .package-strip,
+        .evidence-grid {
+          grid-template-columns: 1fr;
+        }
+        .package-graph {
+          grid-template-rows: none;
+          min-height: auto;
+        }
+        .package-graph::before,
+        .graph-packet {
+          display: none;
+        }
+        .node-profile,
+        .node-build,
+        .node-seal,
+        .node-apply,
+        .node-verify,
+        .node-audit {
+          grid-column: auto;
+          grid-row: auto;
+        }
+        .verify-row {
+          grid-template-columns: auto minmax(0, 1fr);
+        }
+        .verify-row em {
           grid-column: 2;
           justify-self: start;
+        }
+        .arch-lane {
+          grid-template-columns: 1fr;
+        }
+        .arch-edge {
+          min-height: 18px;
+          text-align: left;
+        }
+        .arch-edge::before {
+          display: none;
+        }
+        .arch-lane::before,
+        .arch-lane::after {
+          display: none;
+        }
+        .arch-edge span {
+          padding-left: 0;
+          background: transparent;
+        }
+        .mini-row {
+          grid-template-columns: 1fr;
+        }
+        .mini-edge {
+          min-height: 16px;
+          text-align: left;
+        }
+        .mini-edge::before,
+        .mini-edge::after {
+          display: none;
+        }
+        .mini-edge span {
+          padding-left: 0;
+          background: transparent;
+        }
+        .mini-node strong {
+          white-space: normal;
         }
         footer {
           grid-template-columns: minmax(0, 1fr);
@@ -709,95 +1616,153 @@
 
       <main>
         <section class="article-hero">
-          <div class="eyebrow">Platform Engineering / May 24, 2026</div>
-          <h1>A Firecracker Data Platform As A Torque Stack</h1>
-          <p class="dek">One stackfile brought up Firecracker VMs, k3s, a public payments API, Redpanda, Flink, Ray, Spark, Argo, S3, SigNoz, and ClickHouse, then proved the whole path with real data.</p>
+          <h1>A Verified Fraud Platform Packaged As A Torque Stack</h1>
+          <p class="dek">Torque packages the stack root, profiles, app assets, public access checks, and run evidence into one repeatable release program. The proof run used real payment events and verified S3 objects, Redpanda offsets, ClickHouse rows, Trino queries, Spark batch output, and public endpoints.</p>
+          <div class="hero-actions" aria-label="Stack source links">
+            <a href="https://github.com/ingresslabs/torque/tree/devel/stacks/fraud-platform">GitHub stack package</a>
+            <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">Packaged stackfile</a>
+            <a href="./showcase/firecracker-fraud-platform/values-prod.yaml">Production values</a>
+          </div>
         </section>
 
-        <section class="evidence-board" aria-label="Platform flow">
-          <div class="panel flow">
-            <div class="flow-row">
-              <div class="dot">1</div>
-              <div><strong>Host becomes VM fabric</strong><span>remote Firecracker microVMs boot a k3s cluster</span></div>
-              <div class="badge">5 nodes</div>
+        <section class="evidence-board platform-blueprint" aria-label="Fraud platform architecture diagrams">
+          <article class="blueprint-panel blueprint-main">
+            <div class="diagram-head">
+              <span class="diagram-kicker">Platform architecture</span>
+              <h2 class="diagram-title">Payments stream in real time while batch features rebuild from the lake</h2>
+              <p class="diagram-copy">The API writes raw events to Redpanda and S3. Flink scores the stream with Ray Serve, ClickHouse stores decisions, Trino exposes analyst SQL, and Argo schedules Spark to build curated feature tables.</p>
             </div>
-            <div class="flow-row">
-              <div class="dot">2</div>
-              <div><strong>Platform services land</strong><span>Argo, Spark, Flink, Ray, Redpanda, SigNoz, ClickHouse</span></div>
-              <div class="badge">ready</div>
+            <div class="architecture-map" aria-label="Streaming, model, batch, and observability paths">
+              <div class="arch-lane">
+                <div class="arch-label">stream</div>
+                <div class="arch-node primary"><strong>Payments API</strong><span>public event ingress</span></div>
+                <div class="arch-edge"><span>raw</span></div>
+                <div class="arch-node broker"><strong>Redpanda</strong><span>payments.raw topic</span></div>
+                <div class="arch-edge"><span>consume</span></div>
+                <div class="arch-node compute"><strong>Flink</strong><span>continuous risk job</span></div>
+              </div>
+              <div class="arch-lane">
+                <div class="arch-label">scoring</div>
+                <div class="arch-node compute"><strong>Flink</strong><span>feature window</span></div>
+                <div class="arch-edge"><span>score</span></div>
+                <div class="arch-node model"><strong>Ray Serve</strong><span>risk model endpoint</span></div>
+                <div class="arch-edge"><span>write</span></div>
+                <div class="arch-node store"><strong>ClickHouse</strong><span>payment decisions</span></div>
+              </div>
+              <div class="arch-lane">
+                <div class="arch-label">batch</div>
+                <div class="arch-node compute"><strong>Argo</strong><span>scheduled workflow</span></div>
+                <div class="arch-edge"><span>run</span></div>
+                <div class="arch-node compute"><strong>Spark</strong><span>bounded feature job</span></div>
+                <div class="arch-edge"><span>persist</span></div>
+                <div class="arch-node store"><strong>S3 + ClickHouse</strong><span>curated features</span></div>
+              </div>
+              <div class="arch-lane">
+                <div class="arch-label">telemetry</div>
+                <div class="arch-node"><strong>Workloads</strong><span>API, jobs, model service</span></div>
+                <div class="arch-edge"><span>signals</span></div>
+                <div class="arch-node observe"><strong>SigNoz</strong><span>service health surface</span></div>
+                <div class="arch-edge"><span>store</span></div>
+                <div class="arch-node observe"><strong>ClickHouse</strong><span>observability backend</span></div>
+              </div>
             </div>
-            <div class="flow-row">
-              <div class="dot">3</div>
-              <div><strong>API generates payments</strong><span>public ingress, Redpanda topics, S3 raw objects</span></div>
-              <div class="badge">live</div>
-            </div>
-            <div class="flow-row">
-              <div class="dot">4</div>
-              <div><strong>Flink and Ray score risk</strong><span>stream processing calls a model service and writes decisions</span></div>
-              <div class="badge">stream</div>
-            </div>
-            <div class="flow-row">
-              <div class="dot">5</div>
-              <div><strong>Argo schedules Spark</strong><span>bounded batch features are computed from S3 into ClickHouse</span></div>
-              <div class="badge">batch</div>
-            </div>
-            <div class="flow-row">
-              <div class="dot">6</div>
-              <div><strong>Torque verifies the system</strong><span>public endpoints, pods, topics, S3 counts, database rows</span></div>
-              <div class="badge">proved</div>
-            </div>
-          </div>
+          </article>
 
-          <div class="panel metric-grid">
-            <div class="metric"><strong>5</strong><span>Firecracker k3s nodes</span></div>
-            <div class="metric"><strong>3</strong><span>compute engines</span></div>
-            <div class="metric"><strong>2,632</strong><span>S3 raw events in the proof run</span></div>
-            <div class="metric"><strong>216</strong><span>Spark batch rows verified</span></div>
-          </div>
         </section>
 
         <article class="article-body">
-          <p>This was built as a pressure test for Torque stack orchestration, not as a small demo with one chart and a happy path. The stack starts from a remote Linux host, creates a Firecracker-backed k3s cluster, installs the data platform, exposes selected services publicly, generates payment traffic, scores fraud risk in real time, runs a batch feature job, writes durable data into AWS S3 and ClickHouse, and verifies that every major surface is alive.</p>
+          <p>This was built as a pressure test for Torque stack packaging and verification, not as a small demo with one chart and a happy path. The stack starts from a remote Linux host, creates a Kubernetes lab on Firecracker microVMs, installs the data platform, exposes selected services publicly, generates payment traffic, scores fraud risk in real time, runs a batch feature job, writes durable data into AWS S3 and ClickHouse, and verifies that every major surface is alive.</p>
 
-          <p>The published stackfile is attached here: <a href="./showcase/firecracker-fraud-platform/stack.yaml">stack.yaml</a>. A production-shaped package entrypoint is also attached as <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">stack-packaged.yaml</a>, with profile values such as <a href="./showcase/firecracker-fraud-platform/values-prod.yaml">values-prod.yaml</a>. The host address from the lab run has been removed. The lab stack expects <code>TORQUE_LAB_PUBLIC_IP</code> for public endpoint checks and <code>TORQUE_LAB_SSH</code> for the SSH target.</p>
+          <p>The source package lives in GitHub under <a href="https://github.com/ingresslabs/torque/tree/devel/stacks/fraud-platform">stacks/fraud-platform</a>. The published stackfile is attached here as <a href="./showcase/firecracker-fraud-platform/stack.yaml">stack.yaml</a>. A production-shaped package entrypoint is also attached as <a href="./showcase/firecracker-fraud-platform/stack-packaged.yaml">stack-packaged.yaml</a>, with profile values such as <a href="./showcase/firecracker-fraud-platform/values-prod.yaml">values-prod.yaml</a>. The host address from the lab run has been removed. The lab stack expects <code>TORQUE_LAB_PUBLIC_IP</code> for public endpoint checks and <code>TORQUE_LAB_SSH</code> for the SSH target.</p>
 
-          <blockquote>Torque is useful when the deployment is not one tool. It is the VM fabric, the Kubernetes layer, the app, the data plane, the batch job, the observability stack, and the evidence that proves they agree.</blockquote>
+          <blockquote>Torque is useful when the deployment needs to be packaged, reviewed, resumed, verified, and audited as one release program.</blockquote>
 
           <h2>The Shape Of The Deployment</h2>
-          <p>The stack models a realistic fraud platform. A payments API accepts generated events and writes them to Redpanda and S3. Flink consumes the stream, calls a Ray Serve model for risk scoring, and writes decisions into ClickHouse. Argo launches a Spark batch job that computes aggregate features from the raw S3 objects and persists the curated result. SigNoz and ClickHouse provide the observability and analytics substrate.</p>
+          <p>The stack models a realistic fraud platform. A payments API accepts generated events and writes them to Redpanda and S3. Flink consumes the stream, calls a Ray Serve model for risk scoring, and writes decisions into ClickHouse. Trino exposes those fraud tables for analyst SQL. Argo launches a Spark batch job that computes aggregate features from the raw S3 objects and persists the curated result. SigNoz and ClickHouse provide the observability and analytics substrate.</p>
 
-          <p>The important part is not the list of products. The important part is that the products cross normal ownership boundaries. Firecracker belongs to the host. k3s belongs to the cluster. Argo, Spark, Flink, Ray, Redpanda, SigNoz, ClickHouse, and the API are Kubernetes workloads. S3 is a cloud data lake. Public access is host networking. Verification touches all of them.</p>
+          <p>The important part is not the list of products. The important part is that the products cross normal ownership boundaries. The lab substrate belongs to the host. Kubernetes belongs to the cluster. Argo, Spark, Flink, Ray, Trino, Redpanda, SigNoz, ClickHouse, and the API are workloads. S3 is a cloud data lake. Public access is host networking. Verification touches all of them.</p>
 
           <p>Most deployment tools are strongest inside one of those boundaries. Torque is valuable when the deployment graph crosses several of them and still needs to be operated as one system.</p>
 
+          <h2>Architecture Walkthrough</h2>
+          <p>The platform has two data loops. The first is the low-latency stream. The payments API is the only public event ingress and it immediately writes raw events into Redpanda while also preserving raw objects in S3. Redpanda is the buffer between request traffic and processing traffic, so the API can stay simple and Flink can own ordering, windows, retries, and stream progress. Flink enriches the payment event into a scoring request, calls Ray Serve for model inference, then writes the risk decision into ClickHouse. That keeps model serving isolated from stream execution while still giving analysts a fast table for decisions, fraud rates, merchant behavior, and replay checks.</p>
+
+          <div class="article-architecture" aria-label="Detailed platform architecture">
+            <div class="mini-arch">
+              <strong class="mini-title">Stream And Scoring</strong>
+              <div class="mini-row">
+                <div class="mini-label">stream</div>
+                <div class="mini-node hot"><strong>Payments API</strong><span>public event ingress</span></div>
+                <div class="mini-edge"><span>raw</span></div>
+                <div class="mini-node queue"><strong>Redpanda</strong><span>payments.raw topic</span></div>
+                <div class="mini-edge"><span>consume</span></div>
+                <div class="mini-node"><strong>Flink</strong><span>continuous risk job</span></div>
+              </div>
+              <div class="mini-row">
+                <div class="mini-label">scoring</div>
+                <div class="mini-node"><strong>Flink</strong><span>feature window</span></div>
+                <div class="mini-edge"><span>score</span></div>
+                <div class="mini-node hot"><strong>Ray Serve</strong><span>risk model endpoint</span></div>
+                <div class="mini-edge"><span>write</span></div>
+                <div class="mini-node store"><strong>ClickHouse</strong><span>payment decisions</span></div>
+              </div>
+            </div>
+
+            <div class="mini-arch">
+              <strong class="mini-title">Batch And Telemetry</strong>
+              <div class="mini-row batch">
+                <div class="mini-label">batch</div>
+                <div class="mini-node"><strong>Argo</strong><span>scheduled workflow</span></div>
+                <div class="mini-edge"><span>run</span></div>
+                <div class="mini-node"><strong>Spark</strong><span>bounded feature job</span></div>
+                <div class="mini-edge"><span>persist</span></div>
+                <div class="mini-node store"><strong>S3 + ClickHouse</strong><span>curated features</span></div>
+              </div>
+              <div class="mini-row telemetry">
+                <div class="mini-label">telemetry</div>
+                <div class="mini-node"><strong>Workloads</strong><span>API, jobs, model service</span></div>
+                <div class="mini-edge"><span>signals</span></div>
+                <div class="mini-node observe"><strong>SigNoz</strong><span>service health surface</span></div>
+                <div class="mini-edge"><span>store</span></div>
+                <div class="mini-node observe"><strong>ClickHouse</strong><span>observability backend</span></div>
+              </div>
+            </div>
+          </div>
+
+          <p>The second loop is the bounded batch path. Argo schedules Spark because the batch job has a different shape from the stream job: it reads a known slice of raw S3 data, computes aggregate features, and writes curated feature outputs back to S3 and ClickHouse. S3 is the durable source of truth for reprocessing, while ClickHouse is the query surface for operators and downstream analysis. That separation matters in a fraud platform because real-time decisions need immediate availability, but feature quality and auditability depend on a durable lake that can be recomputed when rules, schemas, or model versions change.</p>
+
+          <p>Observability follows the same architecture rather than sitting beside it. The API, stream job, model service, Spark job, and supporting workloads emit health and runtime signals to SigNoz, with ClickHouse backing the telemetry store. That gives the platform two kinds of evidence: business data that proves events moved through the fraud pipeline, and operational data that proves the services were healthy while the data moved. The result is a system where streaming, model serving, batch processing, analytical storage, object storage, and observability each have a clear responsibility instead of being collapsed into one overloaded runtime.</p>
+
           <h2>What Torque Adds</h2>
-          <p>Terraform can create infrastructure. Helm can install charts. Argo can run workflows. Spark can compute batch features. Flink can process streams. Ray can serve models and distribute Python work. SigNoz can show telemetry. None of those tools should be replaced by Torque.</p>
+          <p>Terraform can create infrastructure. Helm can install charts. Argo can run workflows. Spark can compute batch features. Flink can process streams. Ray can serve models and distribute Python work. Trino can federate analyst SQL. SigNoz can show telemetry. None of those tools should be replaced by Torque.</p>
 
           <p>Torque sits above them as the release program. It carries the ordered graph, the dependencies, the local and remote commands, the Kubernetes bootstrap, the public access mutations, the workload installation, the verification, and the run capture in one stack. That means the operator can reason about the whole delivery path instead of searching through a collection of shell history, Terraform state, Helm releases, Kubernetes objects, and dashboard screenshots.</p>
 
           <div class="proof-strip" aria-label="Torque responsibilities">
-            <div class="proof-chip"><strong>Graph</strong><span>Firecracker, k3s, platform install, workload install, public access, batch, verify.</span></div>
-            <div class="proof-chip"><strong>Evidence</strong><span>Pods, public endpoints, Redpanda offsets, S3 object counts, ClickHouse rows.</span></div>
+            <div class="proof-chip"><strong>Graph</strong><span>Package, profiles, platform install, workload install, public access, batch, verify.</span></div>
+            <div class="proof-chip"><strong>Evidence</strong><span>Pods, public endpoints, Redpanda offsets, S3 object counts, ClickHouse rows, Trino query results.</span></div>
             <div class="proof-chip"><strong>Resume</strong><span>A failed phase can be rerun without rebuilding the whole lab.</span></div>
             <div class="proof-chip"><strong>Boundary</strong><span>Host operations, cluster operations, and cloud storage stay in one reviewable run.</span></div>
           </div>
 
           <h2>The Proof Run</h2>
-          <p>The final run used a real public host and a real AWS S3 bucket. After the stack completed, the Firecracker VMs reported as Ready k3s nodes, the application pods were healthy, the public endpoints responded, and the data path produced durable records.</p>
+          <p>The final run used a real public host and a real AWS S3 bucket. After the stack completed, the Firecracker-backed Kubernetes nodes were Ready, the application pods were healthy, the public endpoints responded, and the data path produced durable records.</p>
 
           <pre><code>k3s nodes: fc-00, fc-01, fc-02, fc-03, fc-04
 public API: /healthz responded on port 30080
 SigNoz: public UI responded on port 3301
 Ray: dashboard API responded on port 8265
 Spark: master UI responded on port 8080
-Flink: jobs overview responded on port 8081</code></pre>
+Flink: jobs overview responded on port 8081
+Trino: coordinator API responded on port 8082</code></pre>
 
-          <p>The data proof was deliberately concrete. The API produced raw payment events, S3 held the raw and curated objects, ClickHouse held both streaming decisions and batch feature rows, and Redpanda showed topic progress.</p>
+          <p>The data proof was deliberately concrete. The API produced raw payment events, S3 held the raw and curated objects, ClickHouse held both streaming decisions and batch feature rows, Trino queried the decision table, and Redpanda showed topic progress.</p>
 
           <pre><code>S3 raw payment objects: 2632
 S3 curated feature objects: 7
 ClickHouse payment decisions: 2237
 ClickHouse Spark batch rows: 216
+Trino payment decisions: 2237
 Redpanda payments.raw high watermark: 2252
 Redpanda payments.risk high watermark: 6391</code></pre>
 
@@ -822,7 +1787,7 @@ stacks/fraud-platform/values/lab.yaml
 stacks/fraud-platform/values/stage.yaml
 stacks/fraud-platform/values/prod.yaml</code></pre>
 
-          <p>The profiles make environment differences explicit. <code>lab</code> owns the Firecracker host, NodePort DNAT, public IP checks, and event generator. <code>stage</code> uses an existing kubeconfig, smaller resources, real S3, and ingress. <code>prod</code> expects pinned images, no generator, existing cloud identity or <code>secret://</code> backed secrets, stricter verification, and durable audit/export artifacts.</p>
+          <p>The profiles make environment differences explicit. <code>lab</code> owns the host substrate, NodePort DNAT, public IP checks, and event generator. <code>stage</code> uses an existing kubeconfig, smaller resources, real S3, and ingress. <code>prod</code> expects pinned images, no generator, existing cloud identity or <code>secret://</code> backed secrets, stricter verification, and durable audit/export artifacts.</p>
 
           <pre><code>export TORQUE_STACK_ROOT=stacks/fraud-platform
 export TORQUE_STACK_PROFILE=prod
@@ -846,13 +1811,13 @@ torque stack export --config "${TORQUE_STACK_ROOT}" --out dist/fraud-platform-ru
 
           <p>The practical result is simple: a complex data platform becomes a repeatable release program. Engineers can still inspect each underlying tool, but the platform has one top-level object that explains how the pieces fit together.</p>
 
-          <blockquote>Torque does not replace Spark, Flink, Ray, Argo, Kubernetes, or S3. It gives the deployment that combines them a graph, a memory, and a proof boundary.</blockquote>
+          <blockquote>Torque does not replace Spark, Flink, Ray, Trino, Argo, Kubernetes, or S3. It gives the deployment that combines them a graph, a memory, and a proof boundary.</blockquote>
         </article>
       </main>
 
       <footer>
         <span>Complex platforms need one release graph.</span>
-        <span>Firecracker, Kubernetes, streaming, batch, ML, S3, and observability in one Torque stack.</span>
+        <span>Packaging, verification, streaming, batch, ML, S3, and observability in one Torque stack.</span>
       </footer>
     </div>
   </body>
