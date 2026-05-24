@@ -7,8 +7,8 @@
   <a href="./LICENSE">License</a>
 </p>
 
-`torque` is an agent-first delivery CLI for Kubernetes and production-like
-platform labs. It keeps builds, plans, applies, verification, logs, stack
+`torque` is an agent-first delivery CLI for Kubernetes and production platform
+operations. It keeps builds, plans, applies, verification, logs, stack
 execution, and release evidence file-first so humans, CI, and AI agents can
 review the same artifacts.
 
