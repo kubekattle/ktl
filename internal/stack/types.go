@@ -90,6 +90,7 @@ type StackFile struct {
 	CLI      StackCLIConfig   `yaml:"cli,omitempty" json:"cli,omitempty"`
 	Hooks    StackHooksConfig `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 	Releases []ReleaseSpec    `yaml:"releases,omitempty" json:"releases,omitempty"`
+	Nodes    []NodeSpec       `yaml:"nodes,omitempty" json:"nodes,omitempty"`
 }
 
 type StackHooksConfig struct {
@@ -250,6 +251,7 @@ type RunnerAdaptiveResolved struct {
 type ReleaseFile struct {
 	APIVersionKind `yaml:",inline" json:",inline"`
 
+	NodeKind     string            `yaml:"nodeKind,omitempty" json:"nodeKind,omitempty"`
 	Name         string            `yaml:"name,omitempty" json:"name,omitempty"`
 	Chart        string            `yaml:"chart,omitempty" json:"chart,omitempty"`
 	ChartVersion string            `yaml:"chartVersion,omitempty" json:"chartVersion,omitempty"`
@@ -265,9 +267,13 @@ type ReleaseFile struct {
 	Apply        ApplyOptions      `yaml:"apply,omitempty" json:"apply,omitempty"`
 	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
 	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
+	Action       ActionSpec        `yaml:"action,omitempty" json:"action,omitempty"`
+	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
+	Kubernetes   KubernetesSpec    `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
 }
 
 type ReleaseSpec struct {
+	Kind         string            `yaml:"kind,omitempty" json:"kind,omitempty"`
 	Name         string            `yaml:"name,omitempty" json:"name,omitempty"`
 	Chart        string            `yaml:"chart,omitempty" json:"chart,omitempty"`
 	ChartVersion string            `yaml:"chartVersion,omitempty" json:"chartVersion,omitempty"`
@@ -284,10 +290,20 @@ type ReleaseSpec struct {
 	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
 	Verify       VerifyOptions     `yaml:"verify,omitempty" json:"verify,omitempty"`
 	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
+	Action       ActionSpec        `yaml:"action,omitempty" json:"action,omitempty"`
+	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
+	Host         HostCommandSpec   `yaml:"host,omitempty" json:"host,omitempty"`
+	Kubernetes   KubernetesSpec    `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
+	Input        map[string]any    `yaml:"input,omitempty" json:"input,omitempty"`
 }
+
+// NodeSpec is the generic stack node config shape. ReleaseSpec remains as the
+// backward-compatible Helm-oriented alias accepted under `releases:`.
+type NodeSpec = ReleaseSpec
 
 type ResolvedRelease struct {
 	ID        string        `json:"id"`
+	Kind      string        `json:"kind,omitempty"`
 	Name      string        `json:"name"`
 	Dir       string        `json:"dir"`
 	Cluster   ClusterTarget `json:"cluster"`
@@ -308,7 +324,11 @@ type ResolvedRelease struct {
 	Delete DeleteOptions `json:"delete"`
 	Verify VerifyOptions `json:"verify,omitempty"`
 
-	Hooks StackHooksConfig `json:"hooks,omitempty"`
+	Hooks      StackHooksConfig `json:"hooks,omitempty"`
+	Action     ActionSpec       `json:"action,omitempty"`
+	Database   DatabaseSpec     `json:"database,omitempty"`
+	Host       HostCommandSpec  `json:"host,omitempty"`
+	Kubernetes KubernetesSpec   `json:"kubernetes,omitempty"`
 
 	SelectedBy []string `json:"selectedBy,omitempty"`
 
@@ -341,17 +361,199 @@ type EffectiveInput struct {
 	TorqueGitCommit string `json:"torqueGitCommit,omitempty"`
 
 	NodeID string `json:"nodeId"`
+	Kind   string `json:"kind,omitempty"`
 
 	Chart EffectiveChartInput `json:"chart"`
 
 	Values []FileDigest `json:"values,omitempty"`
 
-	SetDigest     string `json:"setDigest,omitempty"`
-	ClusterDigest string `json:"clusterDigest,omitempty"`
+	SetDigest        string `json:"setDigest,omitempty"`
+	ClusterDigest    string `json:"clusterDigest,omitempty"`
+	ActionDigest     string `json:"actionDigest,omitempty"`
+	DatabaseDigest   string `json:"databaseDigest,omitempty"`
+	HostDigest       string `json:"hostDigest,omitempty"`
+	KubernetesDigest string `json:"kubernetesDigest,omitempty"`
 
 	Apply  EffectiveApplyInput  `json:"apply"`
 	Delete EffectiveDeleteInput `json:"delete"`
 	Verify EffectiveVerifyInput `json:"verify"`
+}
+
+type HostCommandSpec struct {
+	Transport     string         `yaml:"transport,omitempty" json:"transport,omitempty"`
+	Target        string         `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv     string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	Command       string         `yaml:"command,omitempty" json:"command,omitempty"`
+	DeleteCommand string         `yaml:"deleteCommand,omitempty" json:"deleteCommand,omitempty"`
+	Timeout       *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+}
+
+type KubernetesSpec struct {
+	Provider     string                `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Certificates KubernetesCertSpec    `yaml:"certificates,omitempty" json:"certificates,omitempty"`
+	Cluster      KubernetesClusterSpec `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+}
+
+type KubernetesClusterSpec struct {
+	Transport         string               `yaml:"transport,omitempty" json:"transport,omitempty"`
+	Target            string               `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv         string               `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	Timeout           *time.Duration       `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Kubeconfig        string               `yaml:"kubeconfig,omitempty" json:"kubeconfig,omitempty"`
+	KubeconfigEnv     string               `yaml:"kubeconfigEnv,omitempty" json:"kubeconfigEnv,omitempty"`
+	Context           string               `yaml:"context,omitempty" json:"context,omitempty"`
+	MinReadyNodes     int                  `yaml:"minReadyNodes,omitempty" json:"minReadyNodes,omitempty"`
+	Namespaces        []string             `yaml:"namespaces,omitempty" json:"namespaces,omitempty"`
+	StableIterations  int                  `yaml:"stableIterations,omitempty" json:"stableIterations,omitempty"`
+	StableInterval    *time.Duration       `yaml:"stableInterval,omitempty" json:"stableInterval,omitempty"`
+	ConfigCommand     string               `yaml:"configCommand,omitempty" json:"configCommand,omitempty"`
+	APICommand        string               `yaml:"apiCommand,omitempty" json:"apiCommand,omitempty"`
+	NodesCommand      string               `yaml:"nodesCommand,omitempty" json:"nodesCommand,omitempty"`
+	NamespacesCommand string               `yaml:"namespacesCommand,omitempty" json:"namespacesCommand,omitempty"`
+	PodsCommand       string               `yaml:"podsCommand,omitempty" json:"podsCommand,omitempty"`
+	AppProbes         []KubernetesAppProbe `yaml:"appProbes,omitempty" json:"appProbes,omitempty"`
+}
+
+type KubernetesAppProbe struct {
+	ID      string `yaml:"id,omitempty" json:"id,omitempty"`
+	Command string `yaml:"command,omitempty" json:"command,omitempty"`
+	Expect  string `yaml:"expect,omitempty" json:"expect,omitempty"`
+}
+
+type KubernetesCertSpec struct {
+	Targets            []KubernetesCertTarget        `yaml:"targets,omitempty" json:"targets,omitempty"`
+	TargetsFrom        KubernetesCertTargetsFromSpec `yaml:"targetsFrom,omitempty" json:"targetsFrom,omitempty"`
+	RenewBefore        *time.Duration                `yaml:"renewBefore,omitempty" json:"renewBefore,omitempty"`
+	Force              bool                          `yaml:"force,omitempty" json:"force,omitempty"`
+	ForceOnceID        string                        `yaml:"forceOnceId,omitempty" json:"forceOnceId,omitempty"`
+	StatePath          string                        `yaml:"statePath,omitempty" json:"statePath,omitempty"`
+	Services           []string                      `yaml:"services,omitempty" json:"services,omitempty"`
+	Order              string                        `yaml:"order,omitempty" json:"order,omitempty"`
+	BatchSize          int                           `yaml:"batchSize,omitempty" json:"batchSize,omitempty"`
+	HealthCheckCommand string                        `yaml:"healthCheckCommand,omitempty" json:"healthCheckCommand,omitempty"`
+	VerifyCommand      string                        `yaml:"verifyCommand,omitempty" json:"verifyCommand,omitempty"`
+	Policy             KubernetesLifecyclePolicySpec `yaml:"policy,omitempty" json:"policy,omitempty"`
+}
+
+type KubernetesLifecyclePolicySpec struct {
+	MaxUnavailable           int                                   `yaml:"maxUnavailable,omitempty" json:"maxUnavailable,omitempty"`
+	RequireFreshInspect      bool                                  `yaml:"requireFreshInspect,omitempty" json:"requireFreshInspect,omitempty"`
+	MaxInspectAge            *time.Duration                        `yaml:"maxInspectAge,omitempty" json:"maxInspectAge,omitempty"`
+	RequireHealthyInspect    bool                                  `yaml:"requireHealthyInspect,omitempty" json:"requireHealthyInspect,omitempty"`
+	RequireSupportedProvider bool                                  `yaml:"requireSupportedProvider,omitempty" json:"requireSupportedProvider,omitempty"`
+	MaintenanceWindow        KubernetesMaintenanceWindowSpec       `yaml:"maintenanceWindow,omitempty" json:"maintenanceWindow,omitempty"`
+	AppProbes                []KubernetesAppProbe                  `yaml:"appProbes,omitempty" json:"appProbes,omitempty"`
+	Override                 KubernetesLifecyclePolicyOverrideSpec `yaml:"override,omitempty" json:"override,omitempty"`
+}
+
+type KubernetesMaintenanceWindowSpec struct {
+	Start    string   `yaml:"start,omitempty" json:"start,omitempty"`
+	End      string   `yaml:"end,omitempty" json:"end,omitempty"`
+	TimeZone string   `yaml:"timeZone,omitempty" json:"timeZone,omitempty"`
+	Days     []string `yaml:"days,omitempty" json:"days,omitempty"`
+}
+
+type KubernetesLifecyclePolicyOverrideSpec struct {
+	Reason    string                                     `yaml:"reason,omitempty" json:"reason,omitempty"`
+	Ticket    string                                     `yaml:"ticket,omitempty" json:"ticket,omitempty"`
+	ChangeID  string                                     `yaml:"changeId,omitempty" json:"changeId,omitempty"`
+	Approver  string                                     `yaml:"approver,omitempty" json:"approver,omitempty"`
+	ExpiresAt string                                     `yaml:"expiresAt,omitempty" json:"expiresAt,omitempty"`
+	Scope     KubernetesLifecyclePolicyOverrideScopeSpec `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+type KubernetesLifecyclePolicyOverrideScopeSpec struct {
+	NodeID          string   `yaml:"nodeId,omitempty" json:"nodeId,omitempty"`
+	RunID           string   `yaml:"runId,omitempty" json:"runId,omitempty"`
+	IntentDigest    string   `yaml:"intentDigest,omitempty" json:"intentDigest,omitempty"`
+	TargetIDs       []string `yaml:"targetIds,omitempty" json:"targetIds,omitempty"`
+	TargetSetDigest string   `yaml:"targetSetDigest,omitempty" json:"targetSetDigest,omitempty"`
+}
+
+type KubernetesCertTargetsFromSpec struct {
+	SourceNode          string         `yaml:"sourceNode,omitempty" json:"sourceNode,omitempty"`
+	SourceNodeID        string         `yaml:"sourceNodeId,omitempty" json:"sourceNodeId,omitempty"`
+	Artifact            string         `yaml:"artifact,omitempty" json:"artifact,omitempty"`
+	Roles               []string       `yaml:"roles,omitempty" json:"roles,omitempty"`
+	IncludeNotReady     bool           `yaml:"includeNotReady,omitempty" json:"includeNotReady,omitempty"`
+	AddressType         string         `yaml:"addressType,omitempty" json:"addressType,omitempty"`
+	Transport           string         `yaml:"transport,omitempty" json:"transport,omitempty"`
+	Target              string         `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv           string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	TargetTemplate      string         `yaml:"targetTemplate,omitempty" json:"targetTemplate,omitempty"`
+	Timeout             *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Provider            string         `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Service             string         `yaml:"service,omitempty" json:"service,omitempty"`
+	NodeAddressTemplate string         `yaml:"nodeAddressTemplate,omitempty" json:"nodeAddressTemplate,omitempty"`
+	NodeIdentityFile    string         `yaml:"nodeIdentityFile,omitempty" json:"nodeIdentityFile,omitempty"`
+	NodeSSHOptions      string         `yaml:"nodeSshOptions,omitempty" json:"nodeSshOptions,omitempty"`
+	InspectCommand      string         `yaml:"inspectCommand,omitempty" json:"inspectCommand,omitempty"`
+	RenewCommand        string         `yaml:"renewCommand,omitempty" json:"renewCommand,omitempty"`
+	RestartCommand      string         `yaml:"restartCommand,omitempty" json:"restartCommand,omitempty"`
+}
+
+type KubernetesCertTarget struct {
+	ID               string         `yaml:"id,omitempty" json:"id,omitempty"`
+	Role             string         `yaml:"role,omitempty" json:"role,omitempty"`
+	Provider         string         `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Transport        string         `yaml:"transport,omitempty" json:"transport,omitempty"`
+	Target           string         `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv        string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	Timeout          *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Service          string         `yaml:"service,omitempty" json:"service,omitempty"`
+	NodeAddress      string         `yaml:"nodeAddress,omitempty" json:"nodeAddress,omitempty"`
+	NodeIdentityFile string         `yaml:"nodeIdentityFile,omitempty" json:"nodeIdentityFile,omitempty"`
+	NodeSSHOptions   string         `yaml:"nodeSshOptions,omitempty" json:"nodeSshOptions,omitempty"`
+	InspectCommand   string         `yaml:"inspectCommand,omitempty" json:"inspectCommand,omitempty"`
+	RenewCommand     string         `yaml:"renewCommand,omitempty" json:"renewCommand,omitempty"`
+	RestartCommand   string         `yaml:"restartCommand,omitempty" json:"restartCommand,omitempty"`
+}
+
+type ActionSpec struct {
+	Idempotent bool              `yaml:"idempotent,omitempty" json:"idempotent,omitempty"`
+	Apply      *ScriptHookConfig `yaml:"apply,omitempty" json:"apply,omitempty"`
+	Delete     *ScriptHookConfig `yaml:"delete,omitempty" json:"delete,omitempty"`
+	Plugin     *ActionPluginSpec `yaml:"plugin,omitempty" json:"plugin,omitempty"`
+}
+
+type ActionPluginSpec struct {
+	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	WorkDir string            `yaml:"workDir,omitempty" json:"workDir,omitempty"`
+	Timeout *time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Phases  []string          `yaml:"phases,omitempty" json:"phases,omitempty"`
+	Config  map[string]any    `yaml:"config,omitempty" json:"config,omitempty"`
+}
+
+type BackfillSpec struct {
+	CheckpointTable string         `yaml:"checkpointTable,omitempty" json:"checkpointTable,omitempty"`
+	CheckpointKey   string         `yaml:"checkpointKey,omitempty" json:"checkpointKey,omitempty"`
+	StartSQL        string         `yaml:"startSQL,omitempty" json:"startSQL,omitempty"`
+	EndSQL          string         `yaml:"endSQL,omitempty" json:"endSQL,omitempty"`
+	BatchSQL        string         `yaml:"batchSQL,omitempty" json:"batchSQL,omitempty"`
+	BatchSize       int64          `yaml:"batchSize,omitempty" json:"batchSize,omitempty"`
+	BatchSleep      *time.Duration `yaml:"batchSleep,omitempty" json:"batchSleep,omitempty"`
+	MaxBatches      int            `yaml:"maxBatches,omitempty" json:"maxBatches,omitempty"`
+}
+
+type DatabaseSpec struct {
+	Driver              string         `yaml:"driver,omitempty" json:"driver,omitempty"`
+	DSN                 string         `yaml:"dsn,omitempty" json:"-"`
+	DSNEnv              string         `yaml:"dsnEnv,omitempty" json:"dsnEnv,omitempty"`
+	MetadataTable       string         `yaml:"metadataTable,omitempty" json:"metadataTable,omitempty"`
+	RestorePointSQL     string         `yaml:"restorePointSQL,omitempty" json:"restorePointSQL,omitempty"`
+	ExpandSQL           string         `yaml:"expandSQL,omitempty" json:"expandSQL,omitempty"`
+	ContractSQL         string         `yaml:"contractSQL,omitempty" json:"contractSQL,omitempty"`
+	PrepareSQL          string         `yaml:"prepareSQL,omitempty" json:"prepareSQL,omitempty"`
+	ArmSQL              string         `yaml:"armSQL,omitempty" json:"armSQL,omitempty"`
+	CommitSQL           string         `yaml:"commitSQL,omitempty" json:"commitSQL,omitempty"`
+	VerifySQL           string         `yaml:"verifySQL,omitempty" json:"verifySQL,omitempty"`
+	FinalizeSQL         string         `yaml:"finalizeSQL,omitempty" json:"finalizeSQL,omitempty"`
+	VerifyExpectMessage string         `yaml:"verifyExpectMessage,omitempty" json:"verifyExpectMessage,omitempty"`
+	StabilizationWindow *time.Duration `yaml:"stabilizationWindow,omitempty" json:"stabilizationWindow,omitempty"`
+	RequireFencing      *bool          `yaml:"requireFencing,omitempty" json:"requireFencing,omitempty"`
+	AmbiguityPolicy     string         `yaml:"ambiguityPolicy,omitempty" json:"ambiguityPolicy,omitempty"`
+	Backfill            BackfillSpec   `yaml:"backfill,omitempty" json:"backfill,omitempty"`
 }
 
 type EffectiveChartInput struct {

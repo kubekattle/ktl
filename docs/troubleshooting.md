@@ -70,7 +70,7 @@ Next steps:
 
 ## Stack selection surprises
 
-### Symptom: “selection matched 0 releases”
+### Symptom: “selection matched 0 nodes”
 
 Why:
 - Selector defaults/overrides are too strict.

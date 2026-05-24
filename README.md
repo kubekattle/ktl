@@ -542,3 +542,28 @@ torque stack plan --config ./stacks/prod --bundle ./stack-plan.tgz
 torque stack apply --config ./stacks/prod --yes --capture ./stack.sqlite
 torque stack status --config ./stacks/prod --follow
 ```
+
+Stack files now accept generic `nodes:` while keeping `releases:` as a
+backward-compatible Helm alias. Stack nodes can model non-Helm automation as
+typed, evidence-backed actions. `kind: host.command.run` executes a local or SSH
+transport receipt inside the same DAG, and `kind: action.plugin` runs an adapter
+executable that reads a Torque JSON request from stdin, returns a JSON result,
+and records
+`plugin-<phase>.json`, `decision.json`, and adapter artifacts in the stack run
+ledger. A plugin can block mutation with `status=blocked` or
+`safeToRun=false`, which makes host operations, database edge steps, and other
+Ansible-like tasks auditable through the same DAG, retry, audit, and export
+paths as Helm releases. `kind: k8s.cluster.inspect`,
+`kind: k8s.cert.inspect`, `kind: k8s.cert.renew`, and
+`kind: k8s.cluster.verify` add provider-neutral Kubernetes lifecycle steps with
+kubectl-based topology/provider discovery, kubeadm/k3s/RKE2 auto-detection,
+dynamic `targetsFrom` wiring from cluster inspect evidence, explicit custom
+commands, provider-matrix evidence (`kubeadm`, `k3s`, `rke2`, and explicit
+custom commands), per-target checkpoints, health-change blockers, rolling
+order/batch controls, policy gates (`maxUnavailable`, fresh inspect, provider
+support, maintenance windows, and pre-mutation app probes), scoped override approvals
+that require `--policy-override` and write
+`k8s-lifecycle-policy-override.json`, post-maintenance node/pod health gates,
+app probes, and a `k8s-lifecycle-summary.json` proof chain that links inspect,
+policy, override, derived targets, certificate decisions, checkpoints, verify
+results, and before/after application continuity evidence by artifact digest.

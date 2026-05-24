@@ -62,6 +62,10 @@ func inferClusterDependencies(ctx context.Context, clusterName string, nodes []*
 	// Render each release once and collect facts.
 	factsByID := map[string]*releaseFacts{}
 	for _, n := range nodes {
+		if !isHelmNode(n) {
+			factsByID[n.ID] = &releaseFacts{}
+			continue
+		}
 		objs, role, facts, err := renderAndExtractFacts(ctx, n, defaultKubeconfig, defaultKubeContext, opts)
 		if err != nil {
 			return fmt.Errorf("infer deps (%s): %w", n.ID, err)

@@ -60,6 +60,9 @@ func ExportRunBundle(ctx context.Context, root string, runID string, outPath str
 	if err := copyRunNodeSteps(ctx, src.db, dst.db, runID); err != nil {
 		return "", err
 	}
+	if err := copyRunArtifacts(ctx, src.db, dst.db, runID); err != nil {
+		return "", err
+	}
 	if err := copyRunEvents(ctx, src.db, dst.db, runID); err != nil {
 		return "", err
 	}
@@ -165,7 +168,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 
 func copyRunEvents(ctx context.Context, src *sql.DB, dst *sql.DB, runID string) error {
 	rows, err := src.QueryContext(ctx, `
-SELECT ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
+SELECT ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32
 FROM torque_stack_events
 WHERE run_id = ?
 ORDER BY id ASC
@@ -176,16 +179,16 @@ ORDER BY id ASC
 	defer rows.Close()
 	for rows.Next() {
 		var tsNS int64
-		var nodeID, typ, msg, errClass, errMsg, errDigest, prevDigest, digest, crc32 string
+		var nodeID, typ, msg, fieldsJSON, errClass, errMsg, errDigest, prevDigest, digest, crc32 string
 		var attempt int
 		var seq int64
-		if err := rows.Scan(&tsNS, &nodeID, &typ, &attempt, &msg, &errClass, &errMsg, &errDigest, &seq, &prevDigest, &digest, &crc32); err != nil {
+		if err := rows.Scan(&tsNS, &nodeID, &typ, &attempt, &msg, &fieldsJSON, &errClass, &errMsg, &errDigest, &seq, &prevDigest, &digest, &crc32); err != nil {
 			return err
 		}
 		_, err := dst.ExecContext(ctx, `
-INSERT INTO torque_stack_events (run_id, ts_ns, node_id, type, attempt, message, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`, runID, tsNS, nodeID, typ, attempt, msg, errClass, errMsg, errDigest, seq, prevDigest, digest, crc32)
+INSERT INTO torque_stack_events (run_id, ts_ns, node_id, type, attempt, message, fields_json, error_class, error_message, error_digest, seq, prev_digest, digest, crc32)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`, runID, tsNS, nodeID, typ, attempt, msg, fieldsJSON, errClass, errMsg, errDigest, seq, prevDigest, digest, crc32)
 		if err != nil {
 			return err
 		}
@@ -221,6 +224,39 @@ INSERT INTO torque_stack_node_steps (
   error_class, error_message, error_digest, cursor_json
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, runID, nodeID, attempt, step, startedAtNS, completedAtNS, status, message, errClass, errMsg, errDigest, cursorJSON)
+		if err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func copyRunArtifacts(ctx context.Context, src *sql.DB, dst *sql.DB, runID string) error {
+	rows, err := src.QueryContext(ctx, `
+SELECT node_id, artifact_name, content_type, body_text, sha256, size_bytes, created_at_ns
+FROM torque_stack_run_artifacts
+WHERE run_id = ?
+ORDER BY node_id ASC, artifact_name ASC
+`, runID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return nil
+		}
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var nodeID, name, contentType, body, sha string
+		var sizeBytes int
+		var createdAtNS int64
+		if err := rows.Scan(&nodeID, &name, &contentType, &body, &sha, &sizeBytes, &createdAtNS); err != nil {
+			return err
+		}
+		_, err := dst.ExecContext(ctx, `
+INSERT INTO torque_stack_run_artifacts (
+  run_id, node_id, artifact_name, content_type, body_text, sha256, size_bytes, created_at_ns
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`, runID, nodeID, name, contentType, body, sha, sizeBytes, createdAtNS)
 		if err != nil {
 			return err
 		}

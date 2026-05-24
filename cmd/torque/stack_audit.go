@@ -19,18 +19,20 @@ func newStackAuditCommand(rootDir *string) *cobra.Command {
 	var eventsLimit int
 	var includePlan bool
 	var includeEvents bool
+	var includeArtifacts bool
 	cmd := &cobra.Command{
 		Use:   "audit",
 		Short: "Show who/what/when for a stack run (sqlite-backed)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := stack.GetRunAudit(cmd.Context(), stack.RunAuditOptions{
-				RootDir:       *rootDir,
-				RunID:         runID,
-				Verify:        verify,
-				EventsLimit:   eventsLimit,
-				IncludePlan:   includePlan,
-				IncludeEvents: includeEvents,
+				RootDir:          *rootDir,
+				RunID:            runID,
+				Verify:           verify,
+				EventsLimit:      eventsLimit,
+				IncludePlan:      includePlan,
+				IncludeEvents:    includeEvents,
+				IncludeArtifacts: includeArtifacts,
 			})
 			if err != nil {
 				return err
@@ -55,5 +57,6 @@ func newStackAuditCommand(rootDir *string) *cobra.Command {
 	cmd.Flags().IntVar(&eventsLimit, "events", 1000, "How many events to include in json/html output (0 uses default, -1 means all)")
 	cmd.Flags().BoolVar(&includePlan, "include-plan", true, "Include the stored run plan in json/html output")
 	cmd.Flags().BoolVar(&includeEvents, "include-events", true, "Include stored events in json/html output")
+	cmd.Flags().BoolVar(&includeArtifacts, "include-artifacts", true, "Include stored node artifacts in json/html output")
 	return cmd
 }

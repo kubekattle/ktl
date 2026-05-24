@@ -52,7 +52,7 @@ func compileInferSelectWithConfig(cmd *cobra.Command, common stackCommandCommon,
 		return nil, nil, stackCommandConfig{}, withSelectionHint(err)
 	}
 	if selected != nil && len(selected.Nodes) == 0 {
-		return nil, nil, stackCommandConfig{}, fmt.Errorf("selection matched 0 releases\nhint: set stack.yaml cli.selector.* defaults or use TORQUE_STACK_TAG / TORQUE_STACK_RELEASE (run `torque env --match stack`)")
+		return nil, nil, stackCommandConfig{}, fmt.Errorf("selection matched 0 nodes\nhint: set stack.yaml cli.selector.* defaults or use TORQUE_STACK_TAG / TORQUE_STACK_RELEASE (run `torque env --match stack`)")
 	}
 
 	return u, selected, cfg, nil
@@ -64,7 +64,7 @@ func withSelectionHint(err error) error {
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
-	case strings.Contains(msg, "unknown release"):
+	case strings.Contains(msg, "unknown release") || strings.Contains(msg, "unknown node"):
 		return fmt.Errorf("%w\nhint: configure stack.yaml cli.selector.releases or set TORQUE_STACK_RELEASE", err)
 	case strings.Contains(msg, "ambiguous release name"):
 		return fmt.Errorf("%w\nhint: disambiguate with --cluster (or set TORQUE_STACK_CLUSTER)", err)

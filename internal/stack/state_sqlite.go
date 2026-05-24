@@ -199,7 +199,7 @@ CREATE TABLE IF NOT EXISTS torque_stack_runs (
   FOREIGN KEY (run_id) REFERENCES torque_stack_runs(run_id) ON DELETE CASCADE
 	);`,
 		`
-	CREATE TABLE IF NOT EXISTS torque_stack_node_steps (
+CREATE TABLE IF NOT EXISTS torque_stack_node_steps (
 	  run_id TEXT NOT NULL,
 	  node_id TEXT NOT NULL,
 	  attempt INTEGER NOT NULL,
@@ -213,6 +213,19 @@ CREATE TABLE IF NOT EXISTS torque_stack_runs (
 	  error_digest TEXT NOT NULL DEFAULT '',
 	  cursor_json TEXT NOT NULL DEFAULT '',
 	  PRIMARY KEY (run_id, node_id, attempt, step),
+	  FOREIGN KEY (run_id) REFERENCES torque_stack_runs(run_id) ON DELETE CASCADE
+	);`,
+		`
+	CREATE TABLE IF NOT EXISTS torque_stack_run_artifacts (
+	  run_id TEXT NOT NULL,
+	  node_id TEXT NOT NULL DEFAULT '',
+	  artifact_name TEXT NOT NULL,
+	  content_type TEXT NOT NULL DEFAULT '',
+	  body_text TEXT NOT NULL DEFAULT '',
+	  sha256 TEXT NOT NULL DEFAULT '',
+	  size_bytes INTEGER NOT NULL DEFAULT 0,
+	  created_at_ns INTEGER NOT NULL DEFAULT 0,
+	  PRIMARY KEY (run_id, node_id, artifact_name),
 	  FOREIGN KEY (run_id) REFERENCES torque_stack_runs(run_id) ON DELETE CASCADE
 	);`,
 		`
@@ -238,6 +251,7 @@ CREATE TABLE IF NOT EXISTS torque_stack_runs (
 		`CREATE INDEX IF NOT EXISTS idx_torque_stack_events_run_id_error_digest ON torque_stack_events(run_id, error_digest);`,
 		`CREATE INDEX IF NOT EXISTS idx_torque_stack_nodes_run_id_status ON torque_stack_nodes(run_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_torque_stack_node_steps_by_run_node ON torque_stack_node_steps(run_id, node_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_torque_stack_run_artifacts_by_run_node ON torque_stack_run_artifacts(run_id, node_id);`,
 		`
 	CREATE TABLE IF NOT EXISTS torque_stack_lock (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -368,6 +382,87 @@ LIMIT 1
 		LastRunID:     strings.TrimSpace(lastRunID),
 		UpdatedAtNS:   updatedAtNS,
 	}, true, nil
+}
+
+func (s *stackStateStore) UpsertArtifact(ctx context.Context, artifact RunArtifact) error {
+	if s == nil || s.db == nil || s.readOnly {
+		return nil
+	}
+	runID := strings.TrimSpace(artifact.RunID)
+	name := strings.TrimSpace(artifact.Name)
+	if runID == "" || name == "" {
+		return nil
+	}
+	nodeID := strings.TrimSpace(artifact.NodeID)
+	contentType := strings.TrimSpace(artifact.ContentType)
+	body := artifact.Body
+	if artifact.SizeBytes <= 0 {
+		artifact.SizeBytes = len(body)
+	}
+	if strings.TrimSpace(artifact.SHA256) == "" && body != "" {
+		artifact.SHA256 = "sha256:" + hashBytes([]byte(body))
+	}
+	createdAtNS := time.Now().UTC().UnixNano()
+	if strings.TrimSpace(artifact.CreatedAt) != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, artifact.CreatedAt); err == nil {
+			createdAtNS = ts.UnixNano()
+		}
+	}
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO torque_stack_run_artifacts (
+  run_id, node_id, artifact_name, content_type, body_text, sha256, size_bytes, created_at_ns
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(run_id, node_id, artifact_name) DO UPDATE SET
+  content_type = CASE WHEN excluded.content_type != '' THEN excluded.content_type ELSE torque_stack_run_artifacts.content_type END,
+  body_text = CASE WHEN excluded.body_text != '' THEN excluded.body_text ELSE torque_stack_run_artifacts.body_text END,
+  sha256 = CASE WHEN excluded.sha256 != '' THEN excluded.sha256 ELSE torque_stack_run_artifacts.sha256 END,
+  size_bytes = CASE WHEN excluded.size_bytes > 0 THEN excluded.size_bytes ELSE torque_stack_run_artifacts.size_bytes END,
+  created_at_ns = CASE WHEN excluded.created_at_ns > 0 THEN excluded.created_at_ns ELSE torque_stack_run_artifacts.created_at_ns END
+`, runID, nodeID, name, contentType, body, strings.TrimSpace(artifact.SHA256), artifact.SizeBytes, createdAtNS)
+	return err
+}
+
+func (s *stackStateStore) ListArtifacts(ctx context.Context, runID string) ([]RunArtifact, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT node_id, artifact_name, content_type, body_text, sha256, size_bytes, created_at_ns
+FROM torque_stack_run_artifacts
+WHERE run_id = ?
+ORDER BY node_id ASC, artifact_name ASC
+`, runID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RunArtifact
+	for rows.Next() {
+		var nodeID, name, contentType, body, sha string
+		var sizeBytes int
+		var createdAtNS int64
+		if err := rows.Scan(&nodeID, &name, &contentType, &body, &sha, &sizeBytes, &createdAtNS); err != nil {
+			return nil, err
+		}
+		out = append(out, RunArtifact{
+			RunID:       runID,
+			NodeID:      strings.TrimSpace(nodeID),
+			Name:        strings.TrimSpace(name),
+			ContentType: strings.TrimSpace(contentType),
+			Body:        body,
+			SHA256:      strings.TrimSpace(sha),
+			SizeBytes:   sizeBytes,
+			CreatedAt:   time.Unix(0, createdAtNS).UTC().Format(time.RFC3339Nano),
+		})
+	}
+	return out, rows.Err()
 }
 
 func (s *stackStateStore) UpsertApplyCache(ctx context.Context, key ApplyCacheKey, desiredDigest string, hasHooks bool, runID string, updatedAtNS int64) error {

@@ -10,12 +10,7 @@ import (
 )
 
 func assignExecutionGroups(p *Plan) error {
-	for _, nodes := range p.ByCluster {
-		if err := assignClusterExecutionGroups(nodes); err != nil {
-			return err
-		}
-	}
-	return nil
+	return assignPlanExecutionGroups(p.Nodes)
 }
 
 // RecomputeExecutionGroups recalculates execution groups after mutating dependencies.
@@ -29,11 +24,7 @@ func RecomputeExecutionGroups(p *Plan) error {
 	return nil
 }
 
-func assignClusterExecutionGroups(nodes []*ResolvedRelease) error {
-	byName := map[string]*ResolvedRelease{}
-	for _, n := range nodes {
-		byName[n.Name] = n
-	}
+func assignPlanExecutionGroups(nodes []*ResolvedRelease) error {
 	byID := map[string]*ResolvedRelease{}
 	for _, n := range nodes {
 		byID[n.ID] = n
@@ -47,12 +38,9 @@ func assignClusterExecutionGroups(nodes []*ResolvedRelease) error {
 
 	for _, n := range nodes {
 		for _, depName := range n.Needs {
-			dep, ok := byName[depName]
-			if !ok {
-				return fmt.Errorf("release %s needs missing dependency %q", n.ID, depName)
-			}
-			if dep.Cluster.Name != n.Cluster.Name {
-				return fmt.Errorf("release %s needs %q but it resolves to a different cluster (%s)", n.ID, depName, dep.Cluster.Name)
+			dep, err := resolveDependencyNode(nodes, n, depName)
+			if err != nil {
+				return fmt.Errorf("node %s needs %q: %w", n.ID, depName, err)
 			}
 			inDegree[n.ID]++
 			dependents[dep.ID] = append(dependents[dep.ID], n.ID)

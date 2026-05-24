@@ -75,10 +75,20 @@ func Discover(root string) (*Universe, error) {
 				}
 			}
 			for i := range sf.Releases {
-				rel := sf.Releases[i]
+				node := NodeSpec(sf.Releases[i])
+				if strings.TrimSpace(node.Kind) == "" {
+					node.Kind = NodeKindHelm
+				}
 				u.Releases = append(u.Releases, discoveredRelease{
 					Dir:        dir,
-					FromInline: &rel,
+					FromInline: &node,
+				})
+			}
+			for i := range sf.Nodes {
+				node := sf.Nodes[i]
+				u.Releases = append(u.Releases, discoveredRelease{
+					Dir:        dir,
+					FromInline: &node,
 				})
 			}
 		case releaseFileName:
@@ -127,8 +137,18 @@ func readStackFile(path string) (*StackFile, error) {
 		if strings.TrimSpace(sf.Releases[i].Name) == "" {
 			return nil, fmt.Errorf("%s: releases[%d].name is required", path, i)
 		}
-		if strings.TrimSpace(sf.Releases[i].Chart) == "" {
-			return nil, fmt.Errorf("%s: releases[%d].chart is required", path, i)
+		kind := normalizeNodeKind(sf.Releases[i].Kind)
+		if kind == NodeKindHelm && strings.TrimSpace(sf.Releases[i].Chart) == "" {
+			return nil, fmt.Errorf("%s: releases[%d].chart is required for helm nodes", path, i)
+		}
+	}
+	for i := range sf.Nodes {
+		if strings.TrimSpace(sf.Nodes[i].Name) == "" {
+			return nil, fmt.Errorf("%s: nodes[%d].name is required", path, i)
+		}
+		kind := normalizeNodeKind(sf.Nodes[i].Kind)
+		if kind == NodeKindHelm && strings.TrimSpace(sf.Nodes[i].Chart) == "" {
+			return nil, fmt.Errorf("%s: nodes[%d].chart is required for helm nodes", path, i)
 		}
 	}
 	return &sf, nil
@@ -152,8 +172,8 @@ func readReleaseFile(path string) (*ReleaseFile, error) {
 	if strings.TrimSpace(rf.Name) == "" {
 		return nil, errors.New(path + ": name is required")
 	}
-	if strings.TrimSpace(rf.Chart) == "" {
-		return nil, errors.New(path + ": chart is required")
+	if normalizeNodeKind(rf.NodeKind) == NodeKindHelm && strings.TrimSpace(rf.Chart) == "" {
+		return nil, errors.New(path + ": chart is required for helm nodes")
 	}
 	return &rf, nil
 }

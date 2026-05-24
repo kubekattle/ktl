@@ -53,6 +53,10 @@ func BuildStackDiffSummary(ctx context.Context, p *Plan, defaultKubeconfig strin
 		if n == nil {
 			continue
 		}
+		if !isHelmNode(n) {
+			out.Nodes[n.ID] = NodeDiffSummary{}
+			continue
+		}
 		sum, err := diffSummaryForNode(ctx, n, defaultKubeconfig, defaultKubeContext, secrets)
 		if err != nil {
 			out.Nodes[n.ID] = NodeDiffSummary{Error: err.Error()}

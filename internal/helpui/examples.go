@@ -142,6 +142,23 @@ var curatedExamples = map[string][]string{
 		"# Produce a non-mutating authorization record for the caller\ntorque agent run agent-request.json --proof proof.graph.json --allow apply --require-gate --out agent-run.json",
 		"# Build the request from flags when no request file exists\ntorque agent run --actor codex --operation apply --command 'torque apply --chart ./chart --release api -n prod' --proof proof.graph.json --allow apply --require-gate",
 	},
+	"torque ops": {
+		"# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
+	},
+	"torque ops inventory": {
+		"# Show targets selected by a label\ntorque ops inventory show --targets ./targetgraph.yaml --selector role=db",
+		"# Export an HTML inventory graph\ntorque ops inventory graph --targets ./targetgraph.yaml --output inventory.html",
+	},
+	"torque ops inventory show": {
+		"# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
+		"# Emit selected targets as JSON\ntorque ops inventory show --targets ./targetgraph.yaml --selector role=db --format json",
+		"# Limit a group-expanded inventory view\ntorque ops inventory show --targets ./targetgraph.yaml --group web --limit 10",
+	},
+	"torque ops inventory graph": {
+		"# Export an HTML target graph view\ntorque ops inventory graph --targets ./targetgraph.yaml --output inventory.html",
+		"# Emit graph data as JSON for automation\ntorque ops inventory graph --targets ./targetgraph.yaml --selector role=db --format json",
+		"# Mark a limited group expansion in the graph\ntorque ops inventory graph --targets ./targetgraph.yaml --group web --limit 10 --output web.html",
+	},
 	"torque release": {
 		"# Run the proof-backed release autopilot over existing evidence\ntorque release autopilot proof.graph.json --key .torque/stack/keys/ed25519.json --out-dir release-autopilot",
 		"# Promote through a proof-backed canary ladder\ntorque release promote proof.graph.json --strategy canary --steps 5,25,50,100 --slo slo.yaml --rollback-on-fail",
@@ -264,25 +281,35 @@ var curatedExamples = map[string][]string{
 	"torque stack plan": {
 		"# Write a reproducible plan bundle for review/CI\ntorque stack plan --config ./stacks/prod --bundle ./stack-plan.tgz",
 		"# Embed a live diff summary in the bundle (requires cluster access)\ntorque stack plan --config ./stacks/prod --bundle ./stack-plan.tgz --bundle-diff-summary",
+		"# Plan a mixed graph with Helm, scripts, and DB cutover nodes\ntorque stack plan --config ./stacks/db-cutover --output json",
+		"# Plan typed adapter nodes that behave like evidence-backed automation modules\ntorque stack plan --config ./stacks/ops-program --output json",
+		"# Plan Kubernetes lifecycle inspect, policy-gated maintenance, verification, and summary evidence nodes\ntorque stack plan --config ./stacks/cluster-lifecycle --output json",
+		"# Plan a full DB change program with restore/backfill/cutover nodes\ntorque stack plan --config ./stacks/db-program --output json",
+		"# Plan the Oracle/APEX -> PostgreSQL target cutover showcase\ntorque stack plan --config ./docs/showcase/oracle-postgres-k8s/stack.postgres.yaml --output json",
 	},
 	"torque stack graph": {
 		"# Render a Graphviz DOT graph\ntorque stack graph --config ./stacks/prod > stack.dot",
 		"# Render a Mermaid graph\ntorque stack graph --config ./stacks/prod --format mermaid > stack.mmd",
 	},
 	"torque stack explain": {
-		"# Explain why a release is selected (by name)\ntorque stack explain --config ./stacks/prod api",
+		"# Explain why a stack node is selected (by name)\ntorque stack explain --config ./stacks/prod api",
 		"# Print only selection reasons\ntorque stack explain --config ./stacks/prod api --why",
 	},
 	"torque stack apply": {
-		"# Apply the selected releases (DAG order)\ntorque stack apply --config ./stacks/prod --yes",
+		"# Apply the selected stack nodes (DAG order)\ntorque stack apply --config ./stacks/prod --yes",
 		"# Capture a stack run evidence bundle\ntorque stack apply --config ./stacks/prod --yes --capture ./stack.sqlite",
 		"# Resume the most recent run (uses stored frozen plan unless --replan is set)\ntorque stack apply --config ./stacks/prod --resume --yes",
+		"# Apply a mixed graph with PostgreSQL or MariaDB cutover nodes\ntorque stack apply --config ./stacks/db-cutover --yes",
+		"# Run evidence-backed action plugins inside the stack DAG\ntorque stack apply --config ./stacks/ops-program --yes",
+		"# Inspect topology, apply lifecycle policy gates, derive cert targets, verify, and export summary evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes",
+		"# Apply an approved lifecycle policy override with scoped approval evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes --policy-override",
+		"# Run the Oracle/APEX -> PostgreSQL local proof harness\ntorque stack apply --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --yes",
 		"# Enable manifest diffs (defaulted via env)\nTORQUE_STACK_APPLY_DIFF=1 torque stack apply --config ./stacks/prod --yes",
 		"# Apply with secret references\ntorque stack apply --config ./stacks/prod --secret-provider vault --yes",
 	},
 	"torque stack delete": {
-		"# Delete the selected releases (reverse DAG order)\ntorque stack delete --config ./stacks/prod --yes",
-		"# Prompt only when deleting 50+ releases\ntorque stack delete --config ./stacks/prod --delete-confirm-threshold 50",
+		"# Delete the selected stack nodes (reverse DAG order)\ntorque stack delete --config ./stacks/prod --yes",
+		"# Prompt only when deleting 50+ stack nodes\ntorque stack delete --config ./stacks/prod --delete-confirm-threshold 50",
 	},
 	"torque stack status": {
 		"# Tail the most recent run\ntorque stack status --config ./stacks/prod --follow",
@@ -294,10 +321,14 @@ var curatedExamples = map[string][]string{
 	"torque stack audit": {
 		"# Show audit table for the most recent run\ntorque stack audit --config ./stacks/prod",
 		"# Export a shareable HTML report\ntorque stack audit --config ./stacks/prod --output html > stack-audit.html",
+		"# Inspect stored DB node artifacts from the run ledger\ntorque stack audit --config ./stacks/db-program --output json --include-artifacts > audit.json",
+		"# Inspect Oracle/APEX -> PostgreSQL receipts and cutover artifacts\ntorque stack audit --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --output json --include-artifacts > oracle-postgres-audit.json",
 	},
 	"torque stack export": {
 		"# Export the most recent run as a portable bundle\ntorque stack export --config ./stacks/prod",
 		"# Export a specific run ID\ntorque stack export --config ./stacks/prod --run-id 2025-12-30T12-34-56.000000000Z --out ./exports/run.tgz",
+		"# Export the DB program run ledger and artifacts as a portable bundle\ntorque stack export --config ./stacks/db-program --out ./db-program-export.tgz",
+		"# Export the Oracle/APEX -> PostgreSQL showcase run ledger\ntorque stack export --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --out ./oracle-postgres-run.tgz",
 	},
 	"torque stack seal": {
 		"# Seal a plan directory for CI (includes inputs bundle by default)\ntorque stack seal --config ./stacks/prod --out ./.torque/stack/sealed --command apply",

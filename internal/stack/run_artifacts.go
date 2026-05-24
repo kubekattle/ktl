@@ -62,6 +62,17 @@ type RunEvent struct {
 	CRC32      string `json:"crc32,omitempty"`
 }
 
+type RunArtifact struct {
+	RunID       string `json:"runId"`
+	NodeID      string `json:"nodeId,omitempty"`
+	Name        string `json:"name"`
+	ContentType string `json:"contentType,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	SizeBytes   int    `json:"sizeBytes,omitempty"`
+	CreatedAt   string `json:"createdAt,omitempty"`
+	Body        string `json:"body,omitempty"`
+}
+
 type RunError struct {
 	Class   string `json:"class,omitempty"`
 	Message string `json:"message,omitempty"`
@@ -143,8 +154,7 @@ func computeRunEventIntegrity(ev RunEvent) (digest string, crc string) {
 	write(ev.Type)
 	write(fmt.Sprintf("attempt=%d", ev.Attempt))
 	write(ev.Message)
-	raw, _ := json.Marshal(ev.Fields)
-	write(string(raw))
+	write(canonicalEventFieldsJSON(ev.Fields))
 	if ev.Error != nil {
 		write(ev.Error.Class)
 		write(ev.Error.Message)
@@ -157,6 +167,22 @@ func computeRunEventIntegrity(ev RunEvent) (digest string, crc string) {
 	write(ev.PrevDigest)
 
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), fmt.Sprintf("crc32:%08x", c.Sum32())
+}
+
+func canonicalEventFieldsJSON(fields map[string]any) string {
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return "null"
+	}
+	var normalized any
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return string(raw)
+	}
+	raw, err = json.Marshal(normalized)
+	if err != nil {
+		return "null"
+	}
+	return string(raw)
 }
 
 // VerifyRunEventChain checks the per-event digest/crc chain produced by computeRunEventIntegrity.

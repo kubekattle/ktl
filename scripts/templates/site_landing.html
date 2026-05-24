@@ -317,6 +317,8 @@
       }
 
       .blog-entry {
+        --demo-offset-x: 0;
+        --demo-tilt: 0deg;
         display: grid;
         grid-template-columns: minmax(0, 0.8fr) minmax(280px, 1.2fr);
         gap: clamp(22px, 4vw, 54px);
@@ -332,6 +334,19 @@
         box-shadow:
           inset 0 1px 0 rgba(255, 255, 255, 0.08),
           0 22px 58px rgba(0, 0, 0, 0.26);
+        animation: demo-rise 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .blog-entry:nth-of-type(2) { animation-delay: 0.08s; }
+      .blog-entry:nth-of-type(3) { animation-delay: 0.16s; }
+      .blog-entry:nth-of-type(4) { animation-delay: 0.24s; }
+
+      .blog-entry:hover,
+      .blog-entry:focus-within {
+        border-color: rgba(237, 241, 245, 0.28);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.10),
+          0 34px 74px rgba(0, 0, 0, 0.38);
       }
 
       .blog-entry h2 {
@@ -1007,7 +1022,8 @@
         html {
           scroll-behavior: auto;
         }
-        .demo {
+        .demo,
+        .blog-entry {
           animation: none;
           transition: none;
         }
@@ -1038,7 +1054,9 @@
           transform: none;
         }
         .demo:hover,
-        .demo:focus-within {
+        .demo:focus-within,
+        .blog-entry:hover,
+        .blog-entry:focus-within {
           transform: none;
           scale: 1;
           translate: 0 0;
@@ -1046,7 +1064,8 @@
       }
 
       @supports (animation-timeline: view()) {
-        .demo {
+        .demo,
+        .blog-entry {
           animation-name: demo-rise;
           animation-duration: auto;
           animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
@@ -1065,7 +1084,8 @@
         .demo:nth-child(10),
         .demo:nth-child(11),
         .demo:nth-child(12),
-        .demo:nth-child(13) {
+        .demo:nth-child(13),
+        .blog-entry {
           animation-delay: 0s;
         }
       }
@@ -1419,6 +1439,32 @@
               </details>
             </div>
           </div>
+
+          <article class="blog-entry" aria-labelledby="blog-firecracker-title">
+            <div>
+              <h2 id="blog-firecracker-title"><a href="./blog-firecracker-fraud-platform.html">A Firecracker data platform as a Torque stack.</a></h2>
+            </div>
+            <div>
+              <p>
+                One stackfile brought up Firecracker VMs, k3s, Argo, Spark,
+                Flink, Ray, Redpanda, SigNoz, ClickHouse, a public payments API,
+                and S3-backed fraud data evidence.
+              </p>
+            </div>
+          </article>
+
+          <article class="blog-entry" aria-labelledby="blog-agentic-title">
+            <div>
+              <h2 id="blog-agentic-title"><a href="./blog-agentic-proof-gated-change-control.html">The release should explain itself.</a></h2>
+            </div>
+            <div>
+              <p>
+                A real k3s PostgreSQL workload where Torque denied an agent
+                twice, allowed it only after proof and policy passed, then
+                captured a replayable stack ledger for review.
+              </p>
+            </div>
+          </article>
 
           <article class="blog-entry" aria-labelledby="blog-sandbox-title">
             <div>

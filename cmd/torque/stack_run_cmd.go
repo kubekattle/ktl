@@ -78,9 +78,9 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 		ConsoleFilter:          "all",
 	}
 
-	short := "Apply the selected stack releases in DAG order"
+	short := "Apply the selected stack nodes in DAG order"
 	if kind == stackRunDelete {
-		short = "Delete the selected stack releases in reverse DAG order"
+		short = "Delete the selected stack nodes in reverse DAG order"
 	}
 
 	cmd := &cobra.Command{
@@ -429,7 +429,7 @@ func newStackRunCommand(kind stackRunKind, common stackCommandCommon) *cobra.Com
 					if err != nil {
 						return err
 					}
-					prompt := fmt.Sprintf("About to delete %d releases. Only 'yes' will be accepted:", len(p.Nodes))
+					prompt := fmt.Sprintf("About to delete %d stack nodes. Only 'yes' will be accepted:", len(p.Nodes))
 					if err := confirmAction(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), dec, prompt, confirmModeYes, ""); err != nil {
 						return err
 					}
@@ -482,6 +482,7 @@ type stackRunCLIOptions struct {
 	DryRun                 bool
 	Diff                   bool
 	CacheApply             bool
+	PolicyOverride         bool
 	HelmLogs               string
 	Resume                 bool
 	RunID                  string
@@ -546,8 +547,8 @@ func (o stackRunCLIOptions) runnerOverrides() stackRunnerOverrides {
 }
 
 func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOptions) {
-	cmd.Flags().BoolVar(&opts.FailFast, "fail-fast", opts.FailFast, "Stop scheduling new releases on first error")
-	cmd.Flags().BoolVar(&opts.ContinueOnError, "continue-on-error", opts.ContinueOnError, "Continue scheduling independent releases after failures")
+	cmd.Flags().BoolVar(&opts.FailFast, "fail-fast", opts.FailFast, "Stop scheduling new nodes on first error")
+	cmd.Flags().BoolVar(&opts.ContinueOnError, "continue-on-error", opts.ContinueOnError, "Continue scheduling independent nodes after failures")
 	cmd.Flags().BoolVar(&opts.Yes, "yes", opts.Yes, "Skip confirmation prompts")
 
 	cmd.Flags().StringVar(&opts.HelmLogs, "helm-logs", opts.HelmLogs, "Helm log capture + TTY rendering mode: off|on|all (default off)")
@@ -560,9 +561,9 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	cmd.Flags().BoolVar(&opts.Replan, "replan", opts.Replan, "Recompute the plan from current config when resuming")
 	cmd.Flags().BoolVar(&opts.AllowDrift, "allow-drift", opts.AllowDrift, "Allow resume even when inputs changed since the plan was written (unsafe)")
 	cmd.Flags().BoolVar(&opts.RerunFailed, "rerun-failed", opts.RerunFailed, "When resuming, schedule only failed nodes")
-	cmd.Flags().IntVar(&opts.Retry, "retry", opts.Retry, "Maximum attempts per release (includes the initial attempt)")
+	cmd.Flags().IntVar(&opts.Retry, "retry", opts.Retry, "Maximum attempts per node (includes the initial attempt)")
 
-	cmd.Flags().IntVar(&opts.Concurrency, "concurrency", opts.Concurrency, "Maximum number of concurrent releases to run")
+	cmd.Flags().IntVar(&opts.Concurrency, "concurrency", opts.Concurrency, "Maximum number of concurrent nodes to run")
 	cmd.Flags().BoolVar(&opts.ProgressiveConcurrency, "progressive-concurrency", opts.ProgressiveConcurrency, "Start at 1 worker, then ramp up/down based on successes/failures")
 
 	cmd.Flags().BoolVar(&opts.Lock, "lock", opts.Lock, "Acquire a stack state lock for this run")
@@ -573,9 +574,10 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 	if kind == stackRunApply {
 		cmd.Flags().BoolVar(&opts.DryRun, "dry-run", opts.DryRun, "Preview changes without applying them")
 		cmd.Flags().BoolVar(&opts.Diff, "diff", opts.Diff, "Print a manifest diff during apply")
+		cmd.Flags().BoolVar(&opts.PolicyOverride, "policy-override", opts.PolicyOverride, "Allow scoped lifecycle policy overrides that have approval evidence in stack config")
 	}
 	if kind == stackRunDelete {
-		cmd.Flags().IntVar(&opts.DeleteConfirmThreshold, "delete-confirm-threshold", opts.DeleteConfirmThreshold, "Prompt when deleting at least this many releases (0 disables)")
+		cmd.Flags().IntVar(&opts.DeleteConfirmThreshold, "delete-confirm-threshold", opts.DeleteConfirmThreshold, "Prompt when deleting at least this many nodes (0 disables)")
 	}
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.WSListenAddr, name: "--ws-listen", allowEmpty: true, validator: validateWSListenAddr}, "ws-listen", "Expose the stack run event stream over WebSocket at this address (e.g. :9090)")
 	cmd.Flags().Var(&validatedStringValue{dest: &opts.CapturePath, name: "--capture", allowEmpty: true, validator: nil}, "capture", "Capture stack run events and artifacts to a SQLite database at this path")
@@ -610,9 +612,9 @@ func addStackRunFlags(cmd *cobra.Command, kind stackRunKind, opts *stackRunCLIOp
 func addStackRunnerFlags(cmd *cobra.Command, opts *stackRunCLIOptions) {
 	cmd.Flags().Float32Var(&opts.RunnerKubeQPS, "kube-qps", opts.RunnerKubeQPS, "Override Kubernetes client QPS for Helm operations (0 uses defaults)")
 	cmd.Flags().IntVar(&opts.RunnerKubeBurst, "kube-burst", opts.RunnerKubeBurst, "Override Kubernetes client burst for Helm operations (0 uses defaults)")
-	cmd.Flags().IntVar(&opts.RunnerMaxParallelPerNamespace, "max-parallel-per-namespace", opts.RunnerMaxParallelPerNamespace, "Limit concurrent releases per target namespace (0 disables)")
-	cmd.Flags().StringSliceVar(&opts.RunnerMaxParallelKind, "max-parallel-kind", opts.RunnerMaxParallelKind, "Limit concurrent releases by inferred primary kind (repeatable, format Kind=N)")
-	cmd.Flags().IntVar(&opts.RunnerParallelismGroupLimit, "parallelism-group-limit", opts.RunnerParallelismGroupLimit, "Concurrency limit for releases sharing the same parallelismGroup")
+	cmd.Flags().IntVar(&opts.RunnerMaxParallelPerNamespace, "max-parallel-per-namespace", opts.RunnerMaxParallelPerNamespace, "Limit concurrent nodes per target namespace (0 disables)")
+	cmd.Flags().StringSliceVar(&opts.RunnerMaxParallelKind, "max-parallel-kind", opts.RunnerMaxParallelKind, "Limit concurrent nodes by inferred primary kind (repeatable, format Kind=N)")
+	cmd.Flags().IntVar(&opts.RunnerParallelismGroupLimit, "parallelism-group-limit", opts.RunnerParallelismGroupLimit, "Concurrency limit for nodes sharing the same parallelismGroup")
 	cmd.Flags().IntVar(&opts.RunnerAdaptiveMin, "adaptive-min", 1, "Minimum worker target when using --progressive-concurrency")
 	cmd.Flags().IntVar(&opts.RunnerAdaptiveWindow, "adaptive-window", 20, "Outcome window size for adaptive concurrency when using --progressive-concurrency")
 	cmd.Flags().IntVar(&opts.RunnerAdaptiveRampSuccesses, "adaptive-ramp-successes", 2, "Successes required before increasing worker target when using --progressive-concurrency")
@@ -685,6 +687,7 @@ func buildRunOptions(kind stackRunKind, common stackCommandCommon, plan *stack.P
 		DryRun:                     kind == stackRunApply && opts.DryRun,
 		Diff:                       kind == stackRunApply && opts.Diff,
 		CacheApply:                 kind == stackRunApply && opts.CacheApply,
+		PolicyOverride:             kind == stackRunApply && opts.PolicyOverride,
 		Secrets:                    secrets,
 		HelmLogs:                   helmLogsMode != "off",
 		KubeQPS:                    effective.KubeQPS,
@@ -718,6 +721,7 @@ type stackCaptureOptions struct {
 	DryRun                 bool              `json:"dryRun,omitempty"`
 	Diff                   bool              `json:"diff,omitempty"`
 	CacheApply             bool              `json:"cacheApply,omitempty"`
+	PolicyOverride         bool              `json:"policyOverride,omitempty"`
 	HelmLogs               bool              `json:"helmLogs,omitempty"`
 	Selector               stack.RunSelector `json:"selector,omitempty"`
 }
@@ -733,6 +737,7 @@ func stackCaptureRunOptions(opts stack.RunOptions) stackCaptureOptions {
 		DryRun:                 opts.DryRun,
 		Diff:                   opts.Diff,
 		CacheApply:             opts.CacheApply,
+		PolicyOverride:         opts.PolicyOverride,
 		HelmLogs:               opts.HelmLogs,
 		Selector:               opts.Selector,
 	}

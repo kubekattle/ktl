@@ -1,0 +1,255 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: oracle-postgres-k8s
+
+defaults:
+  cluster:
+    name: target-k8s
+  namespace: data-platform
+  apply:
+    atomic: true
+    wait: true
+    createNamespace: true
+    timeout: 20m
+
+runner:
+  concurrency: 1
+
+cli:
+  inferDeps: false
+  inferConfigRefs: false
+  apply:
+    failFast: true
+
+releases:
+  - name: cnpg-ready
+    kind: action.script
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/k8s-ready.sh"]
+        env:
+          TORQUE_COMPONENT: cnpg-operator
+          TORQUE_NAMESPACE: data-platform
+          TORQUE_SERVICE: cnpg-controller-manager
+          TORQUE_ENDPOINT: cnpg-controller-manager.data-platform.svc.cluster.local
+          TORQUE_CAPABILITY: operator-ready
+
+  - name: postgres-cluster-ready
+    kind: action.script
+    needs: [cnpg-ready]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/k8s-ready.sh"]
+        env:
+          TORQUE_COMPONENT: postgres-cluster
+          TORQUE_NAMESPACE: data-platform
+          TORQUE_SERVICE: pg-rw
+          TORQUE_ENDPOINT: pg-rw.data-platform.svc.cluster.local:5432
+          TORQUE_CAPABILITY: primary-ready
+
+  - name: pgbouncer-ready
+    kind: action.script
+    needs: [postgres-cluster-ready]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/k8s-ready.sh"]
+        env:
+          TORQUE_COMPONENT: pgbouncer
+          TORQUE_NAMESPACE: data-platform
+          TORQUE_SERVICE: pgbouncer-rw
+          TORQUE_ENDPOINT: pgbouncer-rw.data-platform.svc.cluster.local:5432
+          TORQUE_CAPABILITY: pooler-ready
+
+  - name: app-shadow-ready
+    kind: action.script
+    needs: [pgbouncer-ready]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/k8s-ready.sh"]
+        env:
+          TORQUE_COMPONENT: app-shadow
+          TORQUE_NAMESPACE: data-platform
+          TORQUE_SERVICE: api-shadow
+          TORQUE_ENDPOINT: api-shadow.data-platform.svc.cluster.local
+          TORQUE_CAPABILITY: shadow-route-ready
+
+  - name: change-window-approved
+    kind: action.script
+    needs: [app-shadow-ready]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/change-window-approved.sh"]
+        env:
+          TORQUE_CHANGE_REQUEST: CRQ-4242
+          TORQUE_CHANGE_WINDOW: sat-2200z
+
+  - name: apex-readonly-window
+    kind: action.script
+    needs: [change-window-approved]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/apex-readonly-window.sh"]
+        env:
+          TORQUE_SOURCE_SYSTEM: apex-prod
+          TORQUE_SOURCE_MODE: readonly
+
+  - name: oracle-export
+    kind: action.script
+    needs: [apex-readonly-window]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/oracle-export.sh"]
+        env:
+          TORQUE_SOURCE_SYSTEM: apex-prod
+          TORQUE_EXPORT_SCHEMA: APEX_CUSTOMERS
+          TORQUE_EXPORT_ROWS: "3"
+          TORQUE_ORACLE_EXPORT_FILE: ./runtime/oracle-export.json
+          TORQUE_ORACLE_EXPORT_CSV: ./runtime/oracle-export.csv
+
+  - name: pg-restore
+    kind: db.restore-point
+    needs: [oracle-export]
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_ORACLE_PG_DSN
+      restorePointSQL: |
+        CREATE TABLE IF NOT EXISTS restore_points(marker TEXT PRIMARY KEY, created_at TEXT NOT NULL, source_system TEXT NOT NULL);
+        INSERT INTO restore_points(marker, created_at, source_system)
+        VALUES ('oracle-apex-before-cutover', 'now', 'apex-prod')
+        ON CONFLICT(marker) DO NOTHING
+      verifySQL: |
+        SELECT COUNT(*) > 0, (SELECT COUNT(*) FROM restore_points)
+        FROM restore_points
+        WHERE marker = 'oracle-apex-before-cutover'
+
+  - name: pg-expand
+    kind: db.schema-expand
+    needs: [pg-restore]
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_ORACLE_PG_DSN
+      expandSQL: |
+        CREATE TABLE IF NOT EXISTS oracle_stage_accounts(
+          id INTEGER PRIMARY KEY,
+          email TEXT NOT NULL,
+          plan TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS accounts_shadow(
+          id INTEGER PRIMARY KEY,
+          email TEXT NOT NULL,
+          plan TEXT NOT NULL,
+          source_system TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS route_flags(
+          name TEXT PRIMARY KEY,
+          live BOOLEAN NOT NULL DEFAULT FALSE,
+          verified BOOLEAN NOT NULL DEFAULT FALSE,
+          contracted BOOLEAN NOT NULL DEFAULT FALSE
+        );
+        INSERT INTO oracle_stage_accounts(id, email, plan) VALUES
+          (101, 'apex-admin@example.com', 'enterprise'),
+          (102, 'billing@example.com', 'team'),
+          (103, 'ops@example.com', 'starter')
+        ON CONFLICT(id) DO NOTHING;
+        INSERT INTO route_flags(name, live, verified, contracted)
+        VALUES ('apex', FALSE, FALSE, FALSE)
+        ON CONFLICT(name) DO NOTHING
+      verifySQL: |
+        SELECT (SELECT COUNT(*) FROM oracle_stage_accounts) = 3,
+               (SELECT COUNT(*) FROM oracle_stage_accounts)
+
+  - name: pg-backfill
+    kind: db.backfill
+    needs: [pg-expand]
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_ORACLE_PG_DSN
+      verifySQL: |
+        SELECT (SELECT COUNT(*) FROM accounts_shadow) = (SELECT COUNT(*) FROM oracle_stage_accounts),
+               (SELECT COUNT(*) FROM accounts_shadow)
+      backfill:
+        checkpointTable: torque_backfill_state
+        checkpointKey: apex-oracle-export
+        startSQL: SELECT COALESCE(MIN(id), 1) - 1 FROM oracle_stage_accounts
+        endSQL: SELECT COALESCE(MAX(id), 0) FROM oracle_stage_accounts
+        batchSQL: |
+          INSERT INTO accounts_shadow(id, email, plan, source_system)
+          SELECT id, email, plan, 'oracle-apex'
+          FROM oracle_stage_accounts
+          WHERE id > {{.cursor_start}} AND id <= {{.cursor_end}}
+          ON CONFLICT(id) DO NOTHING
+        batchSize: 2
+
+  - name: pg-verify
+    kind: db.verify
+    needs: [pg-backfill]
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_ORACLE_PG_DSN
+      verifySQL: |
+        SELECT
+          (SELECT COUNT(*) FROM accounts_shadow) = 3
+          AND (SELECT COUNT(*) FROM route_flags WHERE name = 'apex' AND live = FALSE) = 1,
+          (SELECT COUNT(*) FROM accounts_shadow)
+
+  - name: pg-cutover
+    kind: db.cutover
+    needs: [pg-verify]
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_ORACLE_PG_DSN
+      metadataTable: torque_cutover_state
+      prepareSQL: |
+        UPDATE route_flags SET live = FALSE, verified = FALSE WHERE name = 'apex'
+      commitSQL: |
+        UPDATE route_flags SET live = TRUE WHERE name = 'apex'
+      verifySQL: |
+        SELECT live, verified FROM route_flags WHERE name = 'apex'
+      finalizeSQL: |
+        UPDATE route_flags SET verified = TRUE WHERE name = 'apex'
+
+  - name: app-route-promote
+    kind: action.script
+    needs: [pg-cutover]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/app-route-promote.sh"]
+        env:
+          TORQUE_TARGET_ROUTE: api-postgres
+          TORQUE_POOLER_SERVICE: pgbouncer-rw.data-platform.svc.cluster.local:5432
+          TORQUE_ROUTE_STATE_FILE: ./runtime/app-route-promote.json
+
+  - name: pg-contract
+    kind: db.schema-contract
+    needs: [app-route-promote]
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_ORACLE_PG_DSN
+      contractSQL: |
+        UPDATE route_flags SET contracted = TRUE WHERE name = 'apex';
+        CREATE TABLE IF NOT EXISTS migration_audit(entry TEXT PRIMARY KEY, phase TEXT NOT NULL);
+        INSERT INTO migration_audit(entry, phase)
+        VALUES ('oracle-apex-to-postgres', 'contracted')
+        ON CONFLICT(entry) DO NOTHING
+      verifySQL: |
+        SELECT contracted, live, verified FROM route_flags WHERE name = 'apex'
+
+  - name: post-cutover-check
+    kind: action.script
+    needs: [pg-contract]
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "./scripts/post-cutover-check.sh"]
+        env:
+          TORQUE_TARGET_ROUTE: api-postgres
+          TORQUE_ROUTE_STATE_FILE: ./runtime/app-route-promote.json
+          TORQUE_POST_CHECK_FILE: ./runtime/post-cutover-check.json

@@ -32,7 +32,8 @@ type InputBundleManifest struct {
 
 type InputBundleNode struct {
 	ID       string             `json:"id"`
-	ChartDir string             `json:"chartDir"`
+	Kind     string             `json:"kind,omitempty"`
+	ChartDir string             `json:"chartDir,omitempty"`
 	Values   []InputBundleValue `json:"values,omitempty"`
 }
 
@@ -100,25 +101,27 @@ func WriteInputBundle(ctx context.Context, outPath string, planHash string, node
 		chartDir := path.Join("nodes", nodeKey, "chart")
 		valuesDir := path.Join("nodes", nodeKey, "values")
 
-		ch, err := loadHelmChartForBundle(n.Chart, n.ChartVersion, settings)
-		if err != nil {
-			_ = tw.Close()
-			_ = gw.Close()
-			_ = f.Close()
-			_ = os.Remove(tmp)
-			return nil, "", err
-		}
-		if err := writeChartToTar(tw, chartDir, ch); err != nil {
-			_ = tw.Close()
-			_ = gw.Close()
-			_ = f.Close()
-			_ = os.Remove(tmp)
-			return nil, "", err
-		}
-
 		nodeEntry := InputBundleNode{
-			ID:       n.ID,
-			ChartDir: chartDir,
+			ID:   n.ID,
+			Kind: normalizeNodeKind(n.Kind),
+		}
+		if isHelmNode(n) {
+			ch, err := loadHelmChartForBundle(n.Chart, n.ChartVersion, settings)
+			if err != nil {
+				_ = tw.Close()
+				_ = gw.Close()
+				_ = f.Close()
+				_ = os.Remove(tmp)
+				return nil, "", err
+			}
+			if err := writeChartToTar(tw, chartDir, ch); err != nil {
+				_ = tw.Close()
+				_ = gw.Close()
+				_ = f.Close()
+				_ = os.Remove(tmp)
+				return nil, "", err
+			}
+			nodeEntry.ChartDir = chartDir
 		}
 
 		for i, vp := range n.Values {
@@ -287,7 +290,9 @@ func ApplyInputBundleToPlan(p *Plan, bundleRoot string, manifest *InputBundleMan
 		if !ok {
 			return &BundleMissingNodeError{NodeID: n.ID}
 		}
-		n.Chart = filepath.Join(bundleRoot, filepath.FromSlash(entry.ChartDir))
+		if strings.TrimSpace(entry.ChartDir) != "" {
+			n.Chart = filepath.Join(bundleRoot, filepath.FromSlash(entry.ChartDir))
+		}
 		var vals []string
 		for _, v := range entry.Values {
 			vals = append(vals, filepath.Join(bundleRoot, filepath.FromSlash(v.BundlePath)))

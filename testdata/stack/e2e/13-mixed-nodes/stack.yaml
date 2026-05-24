@@ -1,0 +1,25 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: e2e-13-mixed-nodes
+cli:
+  inferDeps: false
+defaults:
+  namespace: torque-stack-e2e
+nodes:
+  - name: e2e13-host-prep
+    kind: host.command.run
+    input:
+      transport: local
+      command: "printf stack-ops-001-host-prep"
+      deleteCommand: "true"
+  - name: e2e13-app
+    kind: release.helm
+    chart: ./charts/cm
+    cluster: { name: test-cluster, kubeconfig: ~/.kube/config }
+    needs: [e2e13-host-prep]
+    set: { fixture: "13-mixed-nodes" }
+releases:
+  - name: e2e13-legacy
+    chart: ./charts/cm
+    cluster: { name: test-cluster, kubeconfig: ~/.kube/config }
+    set: { fixture: "13-legacy-release-alias" }

@@ -1,0 +1,2168 @@
+package stack
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+func TestCompile_AllowsCustomNodeKinds(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "cutover.db")
+	stackYAML := `apiVersion: torque.dev/v1
+kind: Stack
+name: custom
+defaults:
+  cluster:
+    name: dev
+releases:
+  - name: smoke
+    kind: action.script
+    action:
+      idempotent: true
+      apply:
+        command: ["sh", "-c", "true"]
+  - name: cutover
+    kind: db.cutover
+    database:
+      driver: sqlite
+      dsn: ` + dbPath + `
+      commitSQL: CREATE TABLE IF NOT EXISTS switches(value TEXT PRIMARY KEY);
+`
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack.yaml: %v", err)
+	}
+
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/smoke"].Kind); got != NodeKindAction {
+		t.Fatalf("smoke kind=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/cutover"].Kind); got != NodeKindDBCutover {
+		t.Fatalf("cutover kind=%q", got)
+	}
+}
+
+func TestCompile_AllowsMariaDBCutoverNode(t *testing.T) {
+	root := t.TempDir()
+	stackYAML := `apiVersion: torque.dev/v1
+kind: Stack
+name: custom
+defaults:
+  cluster:
+    name: dev
+releases:
+  - name: cutover
+    kind: db.cutover
+    database:
+      driver: mariadb
+      dsnEnv: TORQUE_DB_DSN
+      commitSQL: UPDATE cutover_flags SET live = TRUE WHERE name = 'api'
+`
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack.yaml: %v", err)
+	}
+
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/cutover"].Kind); got != NodeKindDBCutover {
+		t.Fatalf("cutover kind=%q", got)
+	}
+	if got := p.ByID["dev/default/cutover"].Database.Driver; got != "mariadb" {
+		t.Fatalf("driver=%q", got)
+	}
+}
+
+func TestCompile_AllowsFullDBProgramKinds(t *testing.T) {
+	root := t.TempDir()
+	stackYAML := `apiVersion: torque.dev/v1
+kind: Stack
+name: custom
+defaults:
+  cluster:
+    name: dev
+releases:
+  - name: restore
+    kind: db.restore-point
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_DB_DSN
+      restorePointSQL: CREATE TABLE IF NOT EXISTS restore_points(marker TEXT PRIMARY KEY)
+  - name: expand
+    kind: db.schema-expand
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_DB_DSN
+      expandSQL: CREATE TABLE IF NOT EXISTS shadow_users(id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+  - name: backfill
+    kind: db.backfill
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_DB_DSN
+      backfill:
+        startSQL: SELECT 0
+        endSQL: SELECT 10
+        batchSQL: INSERT INTO shadow_users(id, name) VALUES ({{.cursor_end}}, 'x')
+        batchSize: 5
+  - name: verify
+    kind: db.verify
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_DB_DSN
+      verifySQL: SELECT 1
+  - name: cutover
+    kind: db.cutover
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_DB_DSN
+      commitSQL: INSERT INTO shadow_users(id, name) VALUES (11, 'y')
+  - name: contract
+    kind: db.schema-contract
+    database:
+      driver: sqlite
+      dsnEnv: TORQUE_DB_DSN
+      contractSQL: CREATE TABLE IF NOT EXISTS contract_log(entry TEXT PRIMARY KEY)
+`
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack.yaml: %v", err)
+	}
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	for _, name := range []string{"restore", "expand", "backfill", "verify", "cutover", "contract"} {
+		id := "dev/default/" + name
+		if _, ok := p.ByID[id]; !ok {
+			t.Fatalf("missing node %s", id)
+		}
+	}
+}
+
+func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
+	stackRoot := t.TempDir()
+	gid := &GitIdentity{Commit: "abc123", Dirty: false}
+
+	actionA := &ResolvedRelease{
+		ID:        "c/default/a",
+		Kind:      NodeKindAction,
+		Name:      "a",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "c"},
+		Action: ActionSpec{
+			Idempotent: true,
+			Apply:      &ScriptHookConfig{Command: []string{"sh", "-c", "echo a"}},
+		},
+	}
+	actionB := *actionA
+	actionB.Action.Apply = &ScriptHookConfig{Command: []string{"sh", "-c", "echo b"}}
+
+	hashA, _, err := ComputeEffectiveInputHashWithOptions(actionA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash actionA: %v", err)
+	}
+	hashB, _, err := ComputeEffectiveInputHashWithOptions(&actionB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash actionB: %v", err)
+	}
+	if hashA == hashB {
+		t.Fatalf("expected action hash to change")
+	}
+
+	dbA := &ResolvedRelease{
+		ID:        "c/default/db",
+		Kind:      NodeKindDBCutover,
+		Name:      "db",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "c"},
+		Database: DatabaseSpec{
+			Driver:    "sqlite",
+			DSN:       filepath.Join(stackRoot, "db.sqlite"),
+			CommitSQL: "INSERT INTO flags(value) VALUES ('a')",
+		},
+	}
+	dbB := *dbA
+	dbB.Database.CommitSQL = "INSERT INTO flags(value) VALUES ('b')"
+
+	dbHashA, _, err := ComputeEffectiveInputHashWithOptions(dbA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash dbA: %v", err)
+	}
+	dbHashB, _, err := ComputeEffectiveInputHashWithOptions(&dbB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash dbB: %v", err)
+	}
+	if dbHashA == dbHashB {
+		t.Fatalf("expected db hash to change")
+	}
+
+	renewBefore := 24 * time.Hour
+	k8sA := &ResolvedRelease{
+		ID:        "k8s.cert.renew/certs",
+		Kind:      NodeKindK8sCertRenew,
+		Name:      "certs",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Provider: "custom",
+			Certificates: KubernetesCertSpec{
+				RenewBefore: &renewBefore,
+				Force:       true,
+				ForceOnceID: "run-a",
+				StatePath:   "/var/lib/torque/certs.json",
+				Targets: []KubernetesCertTarget{
+					{
+						ID:             "cp-1",
+						Transport:      "local",
+						Target:         "local://localhost",
+						InspectCommand: "inspect",
+						RenewCommand:   "renew",
+					},
+				},
+			},
+		},
+	}
+	k8sB := *k8sA
+	k8sB.Kubernetes.Certificates.ForceOnceID = "run-b"
+
+	k8sHashA, _, err := ComputeEffectiveInputHashWithOptions(k8sA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash k8sA: %v", err)
+	}
+	k8sHashB, _, err := ComputeEffectiveInputHashWithOptions(&k8sB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash k8sB: %v", err)
+	}
+	if k8sHashA == k8sHashB {
+		t.Fatalf("expected k8s hash to change")
+	}
+}
+
+func TestRun_ActionScriptNode(t *testing.T) {
+	root := t.TempDir()
+	outFile := filepath.Join(root, "action.txt")
+	node := &ResolvedRelease{
+		ID:        "local/default/action",
+		Kind:      NodeKindAction,
+		Name:      "action",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "local"},
+		Action: ActionSpec{
+			Idempotent: true,
+			Apply: &ScriptHookConfig{
+				Command: []string{"sh", "-c", "printf '%s\n' '{\"status\":\"ok\",\"component\":\"precheck\"}' && echo ok > " + shellQuoteForTest(outFile)},
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run: %v\nstderr=%s", err, errOut.String())
+	}
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read action output: %v", err)
+	}
+	if got := string(bytes.TrimSpace(raw)); got != "ok" {
+		t.Fatalf("action output=%q", got)
+	}
+
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	if !audit.Integrity.EventsOK || !audit.Integrity.RunDigestOK {
+		t.Fatalf("unexpected audit integrity: %#v", audit.Integrity)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID == node.ID && artifact.Name == "script-output.json" {
+			found = strings.Contains(artifact.Body, `"outputFormat": "json"`) &&
+				strings.Contains(artifact.Body, `"component": "precheck"`) &&
+				strings.Contains(artifact.Body, `"status": "ok"`)
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing script-output.json artifact in %+v", audit.Artifacts)
+	}
+}
+
+func TestRun_HostCommandRunLocalNode(t *testing.T) {
+	root := t.TempDir()
+	outFile := filepath.Join(root, "host-command.txt")
+	node := &ResolvedRelease{
+		ID:        "host.command.run/write-marker",
+		Kind:      NodeKindHostCommandRun,
+		Name:      "write-marker",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:     "local",
+			Command:       "printf ok > " + shellQuoteForTest(outFile),
+			DeleteCommand: "rm -f " + shellQuoteForTest(outFile),
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read host command output: %v", err)
+	}
+	if got := string(bytes.TrimSpace(raw)); got != "ok" {
+		t.Fatalf("host command output=%q", got)
+	}
+
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID == node.ID && artifact.Name == "host-command.json" {
+			found = strings.Contains(artifact.Body, `"HostCommandNodeArtifact"`) &&
+				strings.Contains(artifact.Body, `"status": "succeeded"`)
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing host-command.json artifact in %+v", audit.Artifacts)
+	}
+	bundlePath := filepath.Join(root, "host-export.tgz")
+	if _, err := ExportRunBundle(context.Background(), root, runID, bundlePath); err != nil {
+		t.Fatalf("ExportRunBundle: %v", err)
+	}
+	extracted, err := ExtractBundleToTempDir(bundlePath)
+	if err != nil {
+		t.Fatalf("ExtractBundleToTempDir: %v", err)
+	}
+	defer os.RemoveAll(extracted)
+	exportDB, err := sql.Open("sqlite", filepath.Join(extracted, "state.sqlite"))
+	if err != nil {
+		t.Fatalf("open exported sqlite: %v", err)
+	}
+	defer exportDB.Close()
+	var fieldsJSON string
+	if err := exportDB.QueryRow(`SELECT fields_json FROM torque_stack_events WHERE node_id = ? AND type = ? AND message = ?`, node.ID, string(PhaseCompleted), "success").Scan(&fieldsJSON); err != nil {
+		t.Fatalf("query exported host event fields: %v", err)
+	}
+	if !strings.Contains(fieldsJSON, `"receipt"`) || !strings.Contains(fieldsJSON, `"targetDigest"`) {
+		t.Fatalf("exported host event lost fields_json: %q", fieldsJSON)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete command to remove marker, stat err=%v", err)
+	}
+}
+
+func TestRun_HostCommandDryRunDoesNotExecute(t *testing.T) {
+	root := t.TempDir()
+	outFile := filepath.Join(root, "dry-run-marker.txt")
+	node := &ResolvedRelease{
+		ID:        "host.command.run/dry-run-marker",
+		Kind:      NodeKindHostCommandRun,
+		Name:      "dry-run-marker",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport: "local",
+			Command:   "printf should-not-run > " + shellQuoteForTest(outFile),
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+		DryRun:      true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run dry-run: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+		t.Fatalf("dry-run executed host command, stat err=%v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID == node.ID && artifact.Name == "host-command.json" {
+			found = strings.Contains(artifact.Body, `"status": "skipped"`) &&
+				strings.Contains(artifact.Body, `"reason": "dry-run"`)
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing dry-run host-command artifact in %+v", audit.Artifacts)
+	}
+}
+
+func TestRun_KubernetesCertInspectCustomLocalNode(t *testing.T) {
+	root := t.TempDir()
+	node := &ResolvedRelease{
+		ID:        "k8s.cert.inspect/certs",
+		Kind:      NodeKindK8sCertInspect,
+		Name:      "certs",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Provider: "custom",
+			Certificates: KubernetesCertSpec{
+				Targets: []KubernetesCertTarget{
+					{
+						ID:             "cp-1",
+						Transport:      "local",
+						Target:         "local://localhost",
+						InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+					},
+				},
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID == node.ID && artifact.Name == "k8s-cert-inspect.json" {
+			found = strings.Contains(artifact.Body, `"KubernetesCertificateLifecycle"`) &&
+				strings.Contains(artifact.Body, `"status": "succeeded"`) &&
+				strings.Contains(artifact.Body, `"earliestExpiry": "2035-01-01T00:00:00Z"`)
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing k8s cert lifecycle artifact in %+v", audit.Artifacts)
+	}
+}
+
+func TestRun_KubernetesClusterInspectLocalNode(t *testing.T) {
+	root := t.TempDir()
+	node := &ResolvedRelease{
+		ID:        "k8s.cluster.inspect/cluster",
+		Kind:      NodeKindK8sClusterInspect,
+		Name:      "cluster",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{
+				Transport:         "local",
+				Target:            "local://localhost",
+				Namespaces:        []string{"gitlab"},
+				ConfigCommand:     `printf '%s\n' '{"clusters":[{"name":"lab","cluster":{"server":"https://127.0.0.1:6443"}}]}'`,
+				APICommand:        `printf '%s\n' '{"clientVersion":{"gitVersion":"v1.30.0"},"serverVersion":{"gitVersion":"v1.30.4+k3s1","major":"1","minor":"30","platform":"linux/amd64"}}'`,
+				NodesCommand:      `printf '%s\n' '{"items":[{"metadata":{"name":"node-1","labels":{"node-role.kubernetes.io/control-plane":"","k3s.io/hostname":"node-1"}},"spec":{"providerID":"firecracker://node-1"},"status":{"addresses":[{"type":"InternalIP","address":"172.31.245.10"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1","osImage":"Ubuntu","kernelVersion":"6.8.0","containerRuntimeVersion":"containerd://1.7.0"}}}]}'`,
+				NamespacesCommand: `printf '%s\n' '{"items":[{"metadata":{"name":"kube-system"},"status":{"phase":"Active"}},{"metadata":{"name":"gitlab"},"status":{"phase":"Active"}}]}'`,
+				PodsCommand:       `case "{{namespace}}" in kube-system) printf '%s\n' '{"items":[{"metadata":{"name":"coredns","namespace":"kube-system"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}}]}' ;; gitlab) printf '%s\n' '{"items":[{"metadata":{"name":"webservice","namespace":"gitlab"},"status":{"phase":"Running","containerStatuses":[{"ready":true},{"ready":true}]}}]}' ;; esac`,
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID != node.ID || artifact.Name != "k8s-cluster-inspect.json" {
+			continue
+		}
+		found = strings.Contains(artifact.Body, `"KubernetesClusterInspect"`) &&
+			strings.Contains(artifact.Body, `"status": "succeeded"`) &&
+			strings.Contains(artifact.Body, `"server": "https://127.0.0.1:6443"`) &&
+			strings.Contains(artifact.Body, `"distribution": "k3s"`) &&
+			strings.Contains(artifact.Body, `"provider": "k3s"`) &&
+			strings.Contains(artifact.Body, `"namespace": "gitlab"`) &&
+			strings.Contains(artifact.Body, `"stdoutDigest"`) &&
+			!strings.Contains(artifact.Body, `"stdout":`)
+		break
+	}
+	if !found {
+		t.Fatalf("missing k8s cluster inspect artifact in %+v", audit.Artifacts)
+	}
+}
+
+func TestRun_KubernetesCertTargetsFromClusterInspect(t *testing.T) {
+	root := t.TempDir()
+	inspect := &ResolvedRelease{
+		ID:        "k8s.cluster.inspect/cluster",
+		Kind:      NodeKindK8sClusterInspect,
+		Name:      "cluster",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{
+				Transport:         "local",
+				Target:            "local://localhost",
+				ConfigCommand:     `printf '%s\n' '{"clusters":[{"name":"lab","cluster":{"server":"https://127.0.0.1:6443"}}]}'`,
+				APICommand:        `printf '%s\n' '{"serverVersion":{"gitVersion":"v1.30.4+k3s1","major":"1","minor":"30"}}'`,
+				NodesCommand:      `printf '%s\n' '{"items":[{"metadata":{"name":"cp-1","labels":{"node-role.kubernetes.io/control-plane":""}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.10"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1"}}},{"metadata":{"name":"worker-1","labels":{}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.11"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1"}}}]}'`,
+				NamespacesCommand: `printf '%s\n' '{"items":[{"metadata":{"name":"kube-system"},"status":{"phase":"Active"}}]}'`,
+				PodsCommand:       `printf '%s\n' '{"items":[]}'`,
+			},
+		},
+	}
+	certs := &ResolvedRelease{
+		ID:        "k8s.cert.inspect/certs",
+		Kind:      NodeKindK8sCertInspect,
+		Name:      "certs",
+		Dir:       root,
+		Namespace: "default",
+		Needs:     []string{"cluster"},
+		Kubernetes: KubernetesSpec{
+			Provider: "auto",
+			Certificates: KubernetesCertSpec{
+				TargetsFrom: KubernetesCertTargetsFromSpec{
+					SourceNode:     "cluster",
+					Roles:          []string{"control-plane", "worker"},
+					Transport:      "local",
+					TargetTemplate: "local://{{ .Name }}",
+					InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+				},
+			},
+		},
+	}
+	plan := planForTest(root, inspect, certs)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID != certs.ID || artifact.Name != "k8s-cert-inspect.json" {
+			continue
+		}
+		found = strings.Contains(artifact.Body, `"targetsFrom"`) &&
+			strings.Contains(artifact.Body, `"derivedCount": 2`) &&
+			strings.Contains(artifact.Body, `"id": "cp-1"`) &&
+			strings.Contains(artifact.Body, `"id": "worker-1"`) &&
+			strings.Contains(artifact.Body, `"provider": "k3s"`) &&
+			strings.Contains(artifact.Body, `"targetCount": 2`)
+		break
+	}
+	if !found {
+		t.Fatalf("missing dynamic targetsFrom cert artifact in %+v", audit.Artifacts)
+	}
+}
+
+func TestRun_KubernetesClusterVerifyLocalNode(t *testing.T) {
+	root := t.TempDir()
+	node := &ResolvedRelease{
+		ID:        "k8s.cluster.verify/cluster",
+		Kind:      NodeKindK8sClusterVerify,
+		Name:      "cluster",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{
+				Transport:        "local",
+				Target:           "local://localhost",
+				StableIterations: 2,
+				StableInterval:   durationPtrCustom(0),
+				MinReadyNodes:    1,
+				Namespaces:       []string{"kube-system"},
+				APICommand:       "printf api-ok",
+				NodesCommand:     `printf '%s\n' '{"items":[{"metadata":{"name":"node-1"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}'`,
+				PodsCommand:      `printf '%s\n' '{"items":[{"metadata":{"name":"coredns","namespace":"kube-system"},"status":{"phase":"Running","containerStatuses":[{"name":"coredns","ready":true}]}}]}'`,
+				AppProbes: []KubernetesAppProbe{
+					{ID: "gitlab", Command: "printf 'Sign in - GitLab'", Expect: "GitLab"},
+				},
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID == node.ID && artifact.Name == "k8s-cluster-verify.json" {
+			found = strings.Contains(artifact.Body, `"KubernetesClusterVerify"`) &&
+				strings.Contains(artifact.Body, `"status": "succeeded"`) &&
+				strings.Contains(artifact.Body, `"readyNodes": 1`) &&
+				strings.Contains(artifact.Body, `"id": "gitlab"`)
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing k8s cluster verify artifact in %+v", audit.Artifacts)
+	}
+}
+
+func TestRun_KubernetesLifecycleSummaryArtifact(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "cert-renewal-state.json")
+	renewLog := filepath.Join(root, "renew.log")
+	maxInspectAge := 15 * time.Minute
+	inspect := &ResolvedRelease{
+		ID:        "k8s.cluster.inspect/cluster",
+		Kind:      NodeKindK8sClusterInspect,
+		Name:      "cluster",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{
+				Transport:         "local",
+				Target:            "local://localhost",
+				Namespaces:        []string{"gitlab"},
+				ConfigCommand:     `printf '%s\n' '{"clusters":[{"name":"lab","cluster":{"server":"https://127.0.0.1:6443"}}]}'`,
+				APICommand:        `printf '%s\n' '{"serverVersion":{"gitVersion":"v1.30.4+k3s1","major":"1","minor":"30"}}'`,
+				NodesCommand:      `printf '%s\n' '{"items":[{"metadata":{"name":"cp-1","labels":{"node-role.kubernetes.io/control-plane":"","k3s.io/hostname":"cp-1"}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.10"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1"}}},{"metadata":{"name":"worker-1","labels":{}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.11"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"v1.30.4+k3s1"}}}]}'`,
+				NamespacesCommand: `printf '%s\n' '{"items":[{"metadata":{"name":"kube-system"},"status":{"phase":"Active"}},{"metadata":{"name":"gitlab"},"status":{"phase":"Active"}}]}'`,
+				PodsCommand:       `case "{{namespace}}" in kube-system) printf '%s\n' '{"items":[{"metadata":{"name":"coredns","namespace":"kube-system"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}}]}' ;; gitlab) printf '%s\n' '{"items":[{"metadata":{"name":"webservice","namespace":"gitlab"},"status":{"phase":"Running","containerStatuses":[{"ready":true},{"ready":true}]}}]}' ;; esac`,
+			},
+		},
+	}
+	certInspect := &ResolvedRelease{
+		ID:        "k8s.cert.inspect/cert-inspect",
+		Kind:      NodeKindK8sCertInspect,
+		Name:      "cert-inspect",
+		Dir:       root,
+		Namespace: "default",
+		Needs:     []string{"cluster"},
+		Kubernetes: KubernetesSpec{
+			Provider: "auto",
+			Certificates: KubernetesCertSpec{
+				TargetsFrom: KubernetesCertTargetsFromSpec{
+					SourceNode:     "cluster",
+					Roles:          []string{"control-plane", "worker"},
+					Transport:      "local",
+					TargetTemplate: "local://{{ .Name }}",
+					InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+				},
+			},
+		},
+	}
+	certRenew := &ResolvedRelease{
+		ID:        "k8s.cert.renew/cert-renew",
+		Kind:      NodeKindK8sCertRenew,
+		Name:      "cert-renew",
+		Dir:       root,
+		Namespace: "default",
+		Needs:     []string{"cert-inspect"},
+		Kubernetes: KubernetesSpec{
+			Provider: "auto",
+			Certificates: KubernetesCertSpec{
+				Force:              true,
+				ForceOnceID:        "summary-test",
+				StatePath:          statePath,
+				HealthCheckCommand: "printf healthy",
+				Order:              "control-plane-first",
+				BatchSize:          1,
+				Policy: KubernetesLifecyclePolicySpec{
+					MaxUnavailable:           1,
+					RequireFreshInspect:      true,
+					MaxInspectAge:            &maxInspectAge,
+					RequireHealthyInspect:    true,
+					RequireSupportedProvider: true,
+					MaintenanceWindow: KubernetesMaintenanceWindowSpec{
+						Start:    "00:00",
+						End:      "23:59",
+						TimeZone: "UTC",
+					},
+					AppProbes: []KubernetesAppProbe{
+						{ID: "gitlab-before-renew", Command: "printf 'GitLab ready'", Expect: "GitLab"},
+					},
+				},
+				TargetsFrom: KubernetesCertTargetsFromSpec{
+					SourceNode:     "cluster",
+					Roles:          []string{"control-plane", "worker"},
+					Transport:      "local",
+					TargetTemplate: "local://{{ .Name }}",
+					InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+					RenewCommand:   "printf renewed >> " + shellQuoteForTest(renewLog),
+				},
+			},
+		},
+	}
+	verify := &ResolvedRelease{
+		ID:        "k8s.cluster.verify/verify",
+		Kind:      NodeKindK8sClusterVerify,
+		Name:      "verify",
+		Dir:       root,
+		Namespace: "default",
+		Needs:     []string{"cert-renew"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{
+				Transport:     "local",
+				Target:        "local://localhost",
+				MinReadyNodes: 2,
+				Namespaces:    []string{"gitlab"},
+				APICommand:    "printf api-ok",
+				NodesCommand:  `printf '%s\n' '{"items":[{"metadata":{"name":"cp-1"},"status":{"conditions":[{"type":"Ready","status":"True"}]}},{"metadata":{"name":"worker-1"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}'`,
+				PodsCommand:   `printf '%s\n' '{"items":[{"metadata":{"name":"webservice","namespace":"gitlab"},"status":{"phase":"Running","containerStatuses":[{"name":"web","ready":true},{"name":"sidekiq","ready":true}]}}]}'`,
+				AppProbes: []KubernetesAppProbe{
+					{ID: "gitlab-signin", Command: "printf '<title>Sign in - GitLab</title>'", Expect: "GitLab"},
+				},
+			},
+		},
+	}
+	plan := planForTest(root, inspect, certInspect, certRenew, verify)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	var summary kubernetesLifecycleSummary
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID != verify.ID || artifact.Name != kubernetesLifecycleSummaryArtifact {
+			continue
+		}
+		if strings.Contains(artifact.Body, `"stdout":`) || strings.Contains(artifact.Body, `"stderr":`) {
+			t.Fatalf("summary copied raw transport payloads:\n%s", artifact.Body)
+		}
+		if err := json.Unmarshal([]byte(artifact.Body), &summary); err != nil {
+			t.Fatalf("unmarshal summary: %v\n%s", err, artifact.Body)
+		}
+		break
+	}
+	var policyDecision kubernetesLifecyclePolicyDecision
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID != certRenew.ID || artifact.Name != kubernetesLifecyclePolicyDecisionArtifact {
+			continue
+		}
+		if strings.Contains(artifact.Body, `"stdout":`) || strings.Contains(artifact.Body, `"stderr":`) {
+			t.Fatalf("policy copied raw transport payloads:\n%s", artifact.Body)
+		}
+		if err := json.Unmarshal([]byte(artifact.Body), &policyDecision); err != nil {
+			t.Fatalf("unmarshal policy: %v\n%s", err, artifact.Body)
+		}
+		break
+	}
+	if policyDecision.Kind != "KubernetesLifecyclePolicyDecision" || policyDecision.Status != "allowed" || len(policyDecision.AppProbes) != 1 || !policyDecision.AppProbes[0].Matched {
+		t.Fatalf("unexpected lifecycle policy decision: %#v", policyDecision)
+	}
+	if summary.Kind != "KubernetesLifecycleSummary" {
+		t.Fatalf("missing lifecycle summary artifact in %+v", audit.Artifacts)
+	}
+	if len(summary.SourceArtifacts) != 5 {
+		t.Fatalf("source artifact count=%d summary=%#v", len(summary.SourceArtifacts), summary)
+	}
+	for _, source := range summary.SourceArtifacts {
+		if !strings.HasPrefix(source.SHA256, "sha256:") {
+			t.Fatalf("source artifact without digest: %#v", source)
+		}
+	}
+	if summary.Inspect == nil || summary.Inspect.Provider.Distribution != "k3s" || summary.Inspect.Topology.TotalNodes != 2 || summary.Inspect.Topology.ControlPlaneNodes != 1 {
+		t.Fatalf("unexpected inspect summary: %#v", summary.Inspect)
+	}
+	if summary.CertificateRenew == nil || summary.CertificateRenew.TargetsFrom == nil || summary.CertificateRenew.TargetsFrom.DerivedCount != 2 {
+		t.Fatalf("unexpected cert renew summary: %#v", summary.CertificateRenew)
+	}
+	if summary.Policy == nil || summary.Policy.Status != "allowed" || summary.Policy.MaxUnavailable != 1 || len(summary.Policy.Checks) == 0 {
+		t.Fatalf("unexpected lifecycle policy summary: %#v", summary.Policy)
+	}
+	if summary.CertificateRenew.TargetsFrom.SourceArtifactDigest == "" || summary.CertificateRenew.SourceArtifactDigest == "" {
+		t.Fatalf("missing cert digest links: %#v", summary.CertificateRenew)
+	}
+	if len(summary.CertificateRenew.Targets) != 2 || summary.CertificateRenew.Targets[0].CheckpointStatus == "" || summary.CertificateRenew.Targets[1].CheckpointStatus == "" {
+		t.Fatalf("missing checkpoint target summary: %#v", summary.CertificateRenew.Targets)
+	}
+	if summary.Verify == nil || summary.Verify.ReadyNodes != 2 || len(summary.Verify.AppProbes) != 1 || !summary.Verify.AppProbes[0].Matched {
+		t.Fatalf("unexpected verify summary: %#v", summary.Verify)
+	}
+	if summary.ApplicationGate == nil || summary.ApplicationGate.Status != "passed" || len(summary.ApplicationGate.BeforeProbes) != 1 || len(summary.ApplicationGate.AfterProbes) != 1 {
+		t.Fatalf("unexpected application gate summary: %#v", summary.ApplicationGate)
+	}
+	if summary.ApplicationGate.BeforeSourceArtifactDigest == "" || summary.ApplicationGate.AfterSourceArtifactDigest == "" {
+		t.Fatalf("missing application gate digest links: %#v", summary.ApplicationGate)
+	}
+}
+
+func TestRun_KubernetesLifecycleProviderMatrix(t *testing.T) {
+	cases := []struct {
+		name                string
+		inspectDistribution string
+		effectiveProvider   string
+		fakeBinary          string
+		customTargetsFrom   bool
+	}{
+		{name: "kubeadm", inspectDistribution: "kubeadm", effectiveProvider: "kubeadm", fakeBinary: "kubeadm"},
+		{name: "k3s", inspectDistribution: "k3s", effectiveProvider: "k3s", fakeBinary: "k3s"},
+		{name: "rke2", inspectDistribution: "rke2", effectiveProvider: "rke2", fakeBinary: "rke2"},
+		{name: "custom", inspectDistribution: "unknown", effectiveProvider: "custom", customTargetsFrom: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			statePath := filepath.Join(root, "cert-renewal-state.json")
+			renewLog := filepath.Join(root, "renew.log")
+			if tc.fakeBinary != "" {
+				fakeBin := filepath.Join(root, "bin")
+				writeProviderMatrixFakeBinary(t, fakeBin, tc.fakeBinary)
+				t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+				t.Setenv("TORQUE_PROVIDER_MATRIX_LOG", renewLog)
+			}
+			maxInspectAge := 15 * time.Minute
+			inspect := &ResolvedRelease{
+				ID:        "k8s.cluster.inspect/" + tc.name + "-cluster-inspect",
+				Kind:      NodeKindK8sClusterInspect,
+				Name:      tc.name + "-cluster-inspect",
+				Dir:       root,
+				Namespace: "default",
+				Kubernetes: KubernetesSpec{
+					Cluster: KubernetesClusterSpec{
+						Transport:         "local",
+						Target:            "local://localhost",
+						Namespaces:        []string{"app"},
+						ConfigCommand:     providerMatrixJSONCommand(`{"clusters":[{"name":"provider-matrix","cluster":{"server":"https://127.0.0.1:6443"}}]}`),
+						APICommand:        providerMatrixAPICommand(tc.name),
+						NodesCommand:      providerMatrixNodesCommand(tc.name),
+						NamespacesCommand: providerMatrixJSONCommand(`{"items":[{"metadata":{"name":"kube-system"},"status":{"phase":"Active"}},{"metadata":{"name":"app"},"status":{"phase":"Active"}}]}`),
+						PodsCommand:       providerMatrixPodsCommand(tc.name),
+					},
+				},
+			}
+			certInspect := &ResolvedRelease{
+				ID:        "k8s.cert.inspect/" + tc.name + "-cert-inspect",
+				Kind:      NodeKindK8sCertInspect,
+				Name:      tc.name + "-cert-inspect",
+				Dir:       root,
+				Namespace: "default",
+				Needs:     []string{inspect.Name},
+				Kubernetes: KubernetesSpec{
+					Provider: "auto",
+					Certificates: KubernetesCertSpec{
+						TargetsFrom: providerMatrixTargetsFrom(inspect.Name, tc.effectiveProvider, renewLog, tc.customTargetsFrom),
+					},
+				},
+			}
+			certRenew := &ResolvedRelease{
+				ID:        "k8s.cert.renew/" + tc.name + "-cert-renew",
+				Kind:      NodeKindK8sCertRenew,
+				Name:      tc.name + "-cert-renew",
+				Dir:       root,
+				Namespace: "default",
+				Needs:     []string{certInspect.Name},
+				Kubernetes: KubernetesSpec{
+					Provider: "auto",
+					Certificates: KubernetesCertSpec{
+						Force:              true,
+						ForceOnceID:        "provider-matrix-" + tc.name,
+						StatePath:          statePath,
+						HealthCheckCommand: "printf healthy",
+						Order:              "control-plane-first",
+						BatchSize:          1,
+						Policy: KubernetesLifecyclePolicySpec{
+							MaxUnavailable:           1,
+							RequireFreshInspect:      true,
+							MaxInspectAge:            &maxInspectAge,
+							RequireHealthyInspect:    true,
+							RequireSupportedProvider: true,
+							AppProbes: []KubernetesAppProbe{
+								{ID: "matrix-app-before-renew", Command: "printf 'app-ok'", Expect: "app-ok"},
+							},
+						},
+						TargetsFrom: providerMatrixTargetsFrom(inspect.Name, tc.effectiveProvider, renewLog, tc.customTargetsFrom),
+					},
+				},
+			}
+			verify := &ResolvedRelease{
+				ID:        "k8s.cluster.verify/" + tc.name + "-cluster-verify",
+				Kind:      NodeKindK8sClusterVerify,
+				Name:      tc.name + "-cluster-verify",
+				Dir:       root,
+				Namespace: "default",
+				Needs:     []string{certRenew.Name},
+				Kubernetes: KubernetesSpec{
+					Cluster: KubernetesClusterSpec{
+						Transport:        "local",
+						Target:           "local://localhost",
+						MinReadyNodes:    2,
+						Namespaces:       []string{"app"},
+						StableIterations: 1,
+						StableInterval:   durationPtrCustom(0),
+						APICommand:       "printf api-ok",
+						NodesCommand:     providerMatrixNodesCommand(tc.name),
+						PodsCommand:      providerMatrixPodsCommand(tc.name),
+						AppProbes: []KubernetesAppProbe{
+							{ID: "matrix-app", Command: "printf '<title>app-ok</title>'", Expect: "app-ok"},
+						},
+					},
+				},
+			}
+			plan := planForTest(root, inspect, certInspect, certRenew, verify)
+			var out, errOut bytes.Buffer
+			if err := Run(context.Background(), RunOptions{
+				Command:     "apply",
+				Plan:        plan,
+				Concurrency: 1,
+				Lock:        true,
+			}, &out, &errOut); err != nil {
+				t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+			}
+			if got := readTrimmedFile(t, renewLog); !strings.Contains(got, "renew-"+tc.effectiveProvider) {
+				t.Fatalf("renew log for %s missing provider marker, got %q", tc.name, got)
+			}
+			runID, err := LoadMostRecentRun(root)
+			if err != nil {
+				t.Fatalf("LoadMostRecentRun: %v", err)
+			}
+			audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+				RootDir:          root,
+				RunID:            runID,
+				Verify:           true,
+				IncludeArtifacts: true,
+			})
+			if err != nil {
+				t.Fatalf("GetRunAudit: %v", err)
+			}
+			var summary kubernetesLifecycleSummary
+			for _, artifact := range audit.Artifacts {
+				if artifact.NodeID != verify.ID || artifact.Name != kubernetesLifecycleSummaryArtifact {
+					continue
+				}
+				if err := json.Unmarshal([]byte(artifact.Body), &summary); err != nil {
+					t.Fatalf("unmarshal summary: %v\n%s", err, artifact.Body)
+				}
+				break
+			}
+			if summary.Kind != "KubernetesLifecycleSummary" || summary.Status != "succeeded" {
+				t.Fatalf("missing successful summary for %s: %#v", tc.name, summary)
+			}
+			if summary.Inspect == nil || summary.Inspect.Provider.Distribution != tc.inspectDistribution {
+				t.Fatalf("unexpected inspect provider for %s: %#v", tc.name, summary.Inspect)
+			}
+			if summary.CertificateInspect == nil || summary.CertificateInspect.TargetsFrom == nil || summary.CertificateInspect.TargetsFrom.Provider != tc.effectiveProvider || summary.CertificateInspect.TargetsFrom.DerivedCount != 2 {
+				t.Fatalf("unexpected cert inspect targetsFrom for %s: %#v", tc.name, summary.CertificateInspect)
+			}
+			if summary.Policy == nil || summary.Policy.Status != "allowed" || summary.Policy.Inspect == nil || summary.Policy.Inspect.EffectiveCertificateRenewal == nil {
+				t.Fatalf("unexpected policy summary for %s: %#v", tc.name, summary.Policy)
+			}
+			if got := summary.Policy.Inspect.EffectiveCertificateRenewal.Provider; got != tc.effectiveProvider {
+				t.Fatalf("effective provider for %s=%q", tc.name, got)
+			}
+			if !summary.Policy.Inspect.EffectiveCertificateRenewal.Supported {
+				t.Fatalf("effective provider not supported for %s: %#v", tc.name, summary.Policy.Inspect.EffectiveCertificateRenewal)
+			}
+			if summary.CertificateRenew == nil || summary.CertificateRenew.TargetsFrom == nil || summary.CertificateRenew.TargetsFrom.Provider != tc.effectiveProvider {
+				t.Fatalf("unexpected cert renew summary for %s: %#v", tc.name, summary.CertificateRenew)
+			}
+			if summary.Verify == nil || summary.Verify.ReadyNodes != 2 || len(summary.Verify.AppProbes) != 1 || !summary.Verify.AppProbes[0].Matched {
+				t.Fatalf("unexpected verify summary for %s: %#v", tc.name, summary.Verify)
+			}
+		})
+	}
+}
+
+func TestRun_KubernetesClusterVerifyFailsUnhealthyPods(t *testing.T) {
+	root := t.TempDir()
+	node := &ResolvedRelease{
+		ID:        "k8s.cluster.verify/cluster",
+		Kind:      NodeKindK8sClusterVerify,
+		Name:      "cluster",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{
+				Transport:     "local",
+				Target:        "local://localhost",
+				MinReadyNodes: 1,
+				Namespaces:    []string{"gitlab"},
+				APICommand:    "printf api-ok",
+				NodesCommand:  `printf '%s\n' '{"items":[{"metadata":{"name":"node-1"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}'`,
+				PodsCommand:   `printf '%s\n' '{"items":[{"metadata":{"name":"webservice","namespace":"gitlab"},"status":{"phase":"Running","containerStatuses":[{"name":"web","ready":false}]}}]}'`,
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "unhealthy pods") {
+		t.Fatalf("expected unhealthy pods error, got %v\nstderr=%s", err, errOut.String())
+	}
+}
+
+func TestRun_KubernetesCertRenewCheckpointsAndSkipsCompletedIntent(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "cert-renewal-state.json")
+	renewLog := filepath.Join(root, "renew.log")
+	node := &ResolvedRelease{
+		ID:        "k8s.cert.renew/certs",
+		Kind:      NodeKindK8sCertRenew,
+		Name:      "certs",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Provider: "custom",
+			Certificates: KubernetesCertSpec{
+				Force:              true,
+				ForceOnceID:        "intent-1",
+				StatePath:          statePath,
+				HealthCheckCommand: "printf healthy",
+				Order:              "control-plane-first",
+				BatchSize:          2,
+				Targets: []KubernetesCertTarget{
+					{
+						ID:             "cp-1",
+						Role:           "control-plane",
+						Transport:      "local",
+						Target:         "local://localhost",
+						InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+						RenewCommand:   "printf renewed >> " + shellQuoteForTest(renewLog),
+					},
+				},
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run first apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if got := readTrimmedFile(t, renewLog); got != "renewed" {
+		t.Fatalf("renew log=%q", got)
+	}
+	var state kubernetesCertTargetState
+	rawState, err := os.ReadFile(kubernetesCertTargetStatePath(node.Kubernetes.Certificates, "cp-1"))
+	if err != nil {
+		t.Fatalf("read checkpoint: %v", err)
+	}
+	if err := json.Unmarshal(rawState, &state); err != nil {
+		t.Fatalf("unmarshal checkpoint: %v\n%s", err, string(rawState))
+	}
+	if state.Status != "succeeded" || state.Phase != "post-renew" || state.IntentDigest == "" || state.HealthDigest == "" {
+		t.Fatalf("unexpected checkpoint: %#v", state)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run second apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if got := readTrimmedFile(t, renewLog); got != "renewed" {
+		t.Fatalf("expected checkpoint skip to avoid second renewal, log=%q", got)
+	}
+}
+
+func TestRun_KubernetesCertRenewBlocksWhenCheckpointHealthChanged(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "cert-renewal-state.json")
+	renewLog := filepath.Join(root, "renew.log")
+	node := &ResolvedRelease{
+		ID:        "k8s.cert.renew/certs",
+		Kind:      NodeKindK8sCertRenew,
+		Name:      "certs",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Provider: "custom",
+			Certificates: KubernetesCertSpec{
+				Force:              true,
+				ForceOnceID:        "intent-1",
+				StatePath:          statePath,
+				HealthCheckCommand: "printf new-health",
+				Targets: []KubernetesCertTarget{
+					{
+						ID:             "cp-1",
+						Transport:      "local",
+						Target:         "local://localhost",
+						InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+						RenewCommand:   "printf renewed >> " + shellQuoteForTest(renewLog),
+					},
+				},
+			},
+		},
+	}
+	intent, _, err := ComputeEffectiveInputHash(root, node, true)
+	if err != nil {
+		t.Fatalf("ComputeEffectiveInputHash: %v", err)
+	}
+	node.EffectiveInputHash = intent
+	oldDigest, err := hashJSONStable(struct {
+		Stdout string `json:"stdout,omitempty"`
+		Stderr string `json:"stderr,omitempty"`
+	}{Stdout: "old-health"})
+	if err != nil {
+		t.Fatalf("hash old health: %v", err)
+	}
+	state := kubernetesCertTargetCheckpoint(
+		&runNode{ResolvedRelease: node},
+		kubernetesCertTargetEvidence{ID: "cp-1", IntentDigest: kubernetesCertTargetIntentDigest(&runNode{ResolvedRelease: node}, node.Kubernetes.Certificates.Targets[0])},
+		"running",
+		"pre-renew",
+		oldDigest,
+		digestString("inspect"),
+		"",
+	)
+	if err := os.MkdirAll(filepath.Dir(kubernetesCertTargetStatePath(node.Kubernetes.Certificates, "cp-1")), 0o755); err != nil {
+		t.Fatalf("mkdir checkpoint dir: %v", err)
+	}
+	rawState, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	if err := os.WriteFile(kubernetesCertTargetStatePath(node.Kubernetes.Certificates, "cp-1"), rawState, 0o644); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	err = Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "checkpoint blocked") {
+		t.Fatalf("expected checkpoint blocked error, got %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(renewLog); !os.IsNotExist(err) {
+		t.Fatalf("renew command ran despite changed health, stat err=%v", err)
+	}
+}
+
+func TestRun_KubernetesLifecyclePolicyBlocksUnsafeBatch(t *testing.T) {
+	root := t.TempDir()
+	renewLog := filepath.Join(root, "renew.log")
+	node := kubernetesLifecyclePolicyOverrideTestNode(root, renewLog)
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "lifecycle policy blocked") {
+		t.Fatalf("expected lifecycle policy blocked error, got %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(renewLog); !os.IsNotExist(err) {
+		t.Fatalf("renew command ran despite lifecycle policy block, stat err=%v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	var decision kubernetesLifecyclePolicyDecision
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID == node.ID && artifact.Name == kubernetesLifecyclePolicyDecisionArtifact {
+			if err := json.Unmarshal([]byte(artifact.Body), &decision); err != nil {
+				t.Fatalf("unmarshal policy decision: %v\n%s", err, artifact.Body)
+			}
+			break
+		}
+	}
+	if decision.Status != "blocked" || decision.MaxUnavailable != 1 || !strings.Contains(decision.Message, "largest maintenance batch") {
+		t.Fatalf("unexpected policy decision: %#v", decision)
+	}
+}
+
+func TestRun_KubernetesLifecyclePolicyOverrideApprovesScopedBlock(t *testing.T) {
+	root := t.TempDir()
+	renewLog := filepath.Join(root, "renew.log")
+	node := kubernetesLifecyclePolicyOverrideTestNode(root, renewLog)
+	attachKubernetesLifecyclePolicyOverrideForTest(t, root, node, func(spec *KubernetesLifecyclePolicyOverrideSpec) {})
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:        "apply",
+		Plan:           plan,
+		Concurrency:    1,
+		Lock:           true,
+		PolicyOverride: true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply with policy override: %v\nstderr=%s", err, errOut.String())
+	}
+	if got := readTrimmedFile(t, renewLog); got != "cp-1cp-2" {
+		t.Fatalf("renew log=%q", got)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	var policy kubernetesLifecyclePolicyDecision
+	var override kubernetesLifecyclePolicyOverrideDecision
+	for _, artifact := range audit.Artifacts {
+		switch {
+		case artifact.NodeID == node.ID && artifact.Name == kubernetesLifecyclePolicyDecisionArtifact:
+			if err := json.Unmarshal([]byte(artifact.Body), &policy); err != nil {
+				t.Fatalf("unmarshal policy: %v\n%s", err, artifact.Body)
+			}
+		case artifact.NodeID == node.ID && artifact.Name == kubernetesLifecyclePolicyOverrideArtifact:
+			if err := json.Unmarshal([]byte(artifact.Body), &override); err != nil {
+				t.Fatalf("unmarshal override: %v\n%s", err, artifact.Body)
+			}
+		}
+	}
+	if policy.Status != "override-approved" || !strings.Contains(policy.Message, "CHG-123") {
+		t.Fatalf("unexpected policy decision: %#v", policy)
+	}
+	if override.Status != "approved" || !override.RuntimeEnabled || override.RuntimeScope.TargetSetDigest == "" {
+		t.Fatalf("unexpected override decision: %#v", override)
+	}
+}
+
+func TestRun_KubernetesLifecyclePolicyOverrideRejectsInvalidApproval(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*KubernetesLifecyclePolicyOverrideSpec)
+		want   string
+	}{
+		{
+			name: "expired",
+			mutate: func(spec *KubernetesLifecyclePolicyOverrideSpec) {
+				spec.ExpiresAt = time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+			},
+			want: "expired",
+		},
+		{
+			name: "wrong_node",
+			mutate: func(spec *KubernetesLifecyclePolicyOverrideSpec) {
+				spec.Scope.NodeID = "k8s.cert.renew/other"
+			},
+			want: "scope.nodeId",
+		},
+		{
+			name: "changed_intent",
+			mutate: func(spec *KubernetesLifecyclePolicyOverrideSpec) {
+				spec.Scope.IntentDigest = "sha256:changed"
+			},
+			want: "intent",
+		},
+		{
+			name: "missing_reason",
+			mutate: func(spec *KubernetesLifecyclePolicyOverrideSpec) {
+				spec.Reason = ""
+			},
+			want: "reason",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			renewLog := filepath.Join(root, "renew.log")
+			node := kubernetesLifecyclePolicyOverrideTestNode(root, renewLog)
+			attachKubernetesLifecyclePolicyOverrideForTest(t, root, node, tc.mutate)
+			plan := planForTest(root, node)
+			var out, errOut bytes.Buffer
+			err := Run(context.Background(), RunOptions{
+				Command:        "apply",
+				Plan:           plan,
+				Concurrency:    1,
+				Lock:           true,
+				PolicyOverride: true,
+			}, &out, &errOut)
+			if err == nil || !strings.Contains(err.Error(), "lifecycle policy override rejected") {
+				t.Fatalf("expected override rejection, got %v\nstderr=%s", err, errOut.String())
+			}
+			if _, err := os.Stat(renewLog); !os.IsNotExist(err) {
+				t.Fatalf("renew command ran despite rejected override, stat err=%v", err)
+			}
+			runID, err := LoadMostRecentRun(root)
+			if err != nil {
+				t.Fatalf("LoadMostRecentRun: %v", err)
+			}
+			audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+				RootDir:          root,
+				RunID:            runID,
+				IncludeArtifacts: true,
+			})
+			if err != nil {
+				t.Fatalf("GetRunAudit: %v", err)
+			}
+			var override kubernetesLifecyclePolicyOverrideDecision
+			for _, artifact := range audit.Artifacts {
+				if artifact.NodeID == node.ID && artifact.Name == kubernetesLifecyclePolicyOverrideArtifact {
+					if err := json.Unmarshal([]byte(artifact.Body), &override); err != nil {
+						t.Fatalf("unmarshal override: %v\n%s", err, artifact.Body)
+					}
+					break
+				}
+			}
+			if override.Status != "rejected" || !strings.Contains(override.Message, tc.want) {
+				t.Fatalf("unexpected override decision: %#v", override)
+			}
+		})
+	}
+}
+
+func kubernetesLifecyclePolicyOverrideTestNode(root string, renewLog string) *ResolvedRelease {
+	return &ResolvedRelease{
+		ID:        "k8s.cert.renew/certs",
+		Kind:      NodeKindK8sCertRenew,
+		Name:      "certs",
+		Dir:       root,
+		Namespace: "default",
+		Kubernetes: KubernetesSpec{
+			Provider: "custom",
+			Certificates: KubernetesCertSpec{
+				Force:     true,
+				BatchSize: 2,
+				Policy: KubernetesLifecyclePolicySpec{
+					MaxUnavailable: 1,
+				},
+				Targets: []KubernetesCertTarget{
+					{
+						ID:             "cp-1",
+						Transport:      "local",
+						Target:         "local://localhost",
+						InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+						RenewCommand:   "printf cp-1 >> " + shellQuoteForTest(renewLog),
+					},
+					{
+						ID:             "cp-2",
+						Transport:      "local",
+						Target:         "local://localhost",
+						InspectCommand: `printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'`,
+						RenewCommand:   "printf cp-2 >> " + shellQuoteForTest(renewLog),
+					},
+				},
+			},
+		},
+	}
+}
+
+func attachKubernetesLifecyclePolicyOverrideForTest(t *testing.T, root string, node *ResolvedRelease, mutate func(*KubernetesLifecyclePolicyOverrideSpec)) {
+	t.Helper()
+	intent, _, err := ComputeEffectiveInputHash(root, node, true)
+	if err != nil {
+		t.Fatalf("ComputeEffectiveInputHash: %v", err)
+	}
+	override := KubernetesLifecyclePolicyOverrideSpec{
+		Reason:    "emergency maintenance window",
+		ChangeID:  "CHG-123",
+		Approver:  "sre@example.com",
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+		Scope: KubernetesLifecyclePolicyOverrideScopeSpec{
+			NodeID:       node.ID,
+			IntentDigest: intent,
+			TargetIDs:    []string{"cp-1", "cp-2"},
+		},
+	}
+	if mutate != nil {
+		mutate(&override)
+	}
+	node.Kubernetes.Certificates.Policy.Override = override
+}
+
+func TestKubernetesCertHelpers(t *testing.T) {
+	expiry, count := parseKubernetesCertExpiry(`{"items":[{"notAfter":"2031-01-01T00:00:00Z"},{"expiration":"2030-01-01T00:00:00Z"}]}`)
+	if count != 2 || expiry.UTC().Format(time.RFC3339) != "2030-01-01T00:00:00Z" {
+		t.Fatalf("json expiry=%s count=%d", expiry.UTC().Format(time.RFC3339), count)
+	}
+	expiry, count = parseKubernetesCertExpiry("CERT 2032-02-03T04:05:06Z")
+	if count != 1 || expiry.UTC().Format(time.RFC3339) != "2032-02-03T04:05:06Z" {
+		t.Fatalf("text expiry=%s count=%d", expiry.UTC().Format(time.RFC3339), count)
+	}
+	expiry, count = parseKubernetesCertExpiry("CERTIFICATE  Jun 10, 2035 11:11 UTC")
+	if count != 1 || expiry.UTC().Format(time.RFC3339) != "2035-06-10T11:11:00Z" {
+		t.Fatalf("human text expiry=%s count=%d", expiry.UTC().Format(time.RFC3339), count)
+	}
+
+	nested := nestedSSHCommand(KubernetesCertTarget{
+		NodeAddress:      "root@10.0.0.10",
+		NodeIdentityFile: "/tmp/lab_key",
+		NodeSSHOptions:   "-p 2222",
+	}, "echo ok")
+	for _, want := range []string{"ssh", "root@10.0.0.10", "/tmp/lab_key", "-p", "2222", "echo ok"} {
+		if !strings.Contains(nested, want) {
+			t.Fatalf("nested ssh command %q missing %q", nested, want)
+		}
+	}
+
+	kubeadm := kubernetesCertRenewCommand("kubeadm", KubernetesCertTarget{RestartCommand: "systemctl restart kubelet"}, KubernetesCertSpec{Services: []string{"apiserver"}})
+	if !strings.Contains(kubeadm, "kubeadm certs renew") || strings.Contains(kubeadm, "--service") || !strings.Contains(kubeadm, "systemctl restart kubelet") {
+		t.Fatalf("unexpected kubeadm renew command:\n%s", kubeadm)
+	}
+	k3s := kubernetesCertRenewCommand("k3s", KubernetesCertTarget{Service: "k3s"}, KubernetesCertSpec{Services: []string{"serving-kubelet.crt", "client-kube-proxy.crt"}})
+	if !strings.Contains(k3s, "--service") || !strings.Contains(k3s, "client-kube-proxy.crt,serving-kubelet.crt") {
+		t.Fatalf("unexpected k3s service flags:\n%s", k3s)
+	}
+	custom := kubernetesCertRenewCommand("custom", KubernetesCertTarget{RenewCommand: "renew", RestartCommand: "restart"}, KubernetesCertSpec{})
+	if custom != "renew\nrestart" {
+		t.Fatalf("custom command=%q", custom)
+	}
+	unsupported := kubernetesCertRenewCommand("custom", KubernetesCertTarget{}, KubernetesCertSpec{})
+	if !strings.Contains(unsupported, "unsupported Kubernetes certificate provider") || !strings.Contains(unsupported, "exit 2") {
+		t.Fatalf("unsupported command=%q", unsupported)
+	}
+
+	certs := KubernetesCertSpec{StatePath: "/var/lib/torque/cert-renewal-state.json"}
+	stateA := kubernetesCertTargetStatePath(certs, "cp/1")
+	stateB := kubernetesCertTargetStatePath(certs, "cp/2")
+	if stateA == stateB || !strings.Contains(stateA, "cp_1") || !strings.Contains(stateB, "cp_2") {
+		t.Fatalf("state paths not target-specific: %q %q", stateA, stateB)
+	}
+
+	batches := kubernetesCertTargetBatches([]kubernetesCertTargetRunner{
+		{spec: KubernetesCertTarget{ID: "worker-1", Role: "worker"}},
+		{spec: KubernetesCertTarget{ID: "cp-1", Role: "control-plane"}},
+		{spec: KubernetesCertTarget{ID: "worker-2", Role: "worker"}},
+	}, KubernetesCertSpec{Order: "control-plane-first", BatchSize: 2})
+	if len(batches) != 2 || batches[0].Targets[0].spec.ID != "cp-1" || batches[0].Targets[1].spec.ID != "worker-1" || batches[1].Targets[0].spec.ID != "worker-2" {
+		t.Fatalf("unexpected batches: %#v", batches)
+	}
+}
+
+func TestRun_DBCutoverResumesWithoutSecondCommit(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "cutover.sqlite")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE switches(value TEXT PRIMARY KEY);`); err != nil {
+		t.Fatalf("create switches: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO switches(value) VALUES ('live');`); err != nil {
+		t.Fatalf("seed switches: %v", err)
+	}
+	node := &ResolvedRelease{
+		ID:        "local/default/cutover",
+		Kind:      NodeKindDBCutover,
+		Name:      "cutover",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "local"},
+		Database: DatabaseSpec{
+			Driver:              "sqlite",
+			DSN:                 dbPath,
+			MetadataTable:       "torque_cutover_state",
+			CommitSQL:           `INSERT INTO switches(value) VALUES ('live');`,
+			VerifySQL:           `SELECT COUNT(*) > 0 FROM switches WHERE value = 'live';`,
+			FinalizeSQL:         `CREATE TABLE IF NOT EXISTS finalizations(value TEXT PRIMARY KEY); INSERT INTO finalizations(value) VALUES ('done');`,
+			StabilizationWindow: durationPtrCustom(0),
+		},
+	}
+	hash, _, err := ComputeEffectiveInputHash(root, node, true)
+	if err != nil {
+		t.Fatalf("ComputeEffectiveInputHashWithOptions: %v", err)
+	}
+	node.EffectiveInputHash = hash
+
+	dialect, err := dialectFor("sqlite")
+	if err != nil {
+		t.Fatalf("dialectFor: %v", err)
+	}
+	if err := ensureCutoverTable(context.Background(), db, dialect, "torque_cutover_state"); err != nil {
+		t.Fatalf("ensureCutoverTable: %v", err)
+	}
+	state := &cutoverState{
+		ObjectID:     node.ID,
+		CutoverEpoch: "epoch-1",
+		Phase:        "commit",
+		PhaseStatus:  "success",
+		FenceToken:   "fence-1",
+		CommitMarker: "commit-1",
+		UpdatedAtNS:  time.Now().UTC().UnixNano(),
+	}
+	if err := upsertCutoverState(context.Background(), db, dialect, "torque_cutover_state", state); err != nil {
+		t.Fatalf("upsertCutoverState: %v", err)
+	}
+
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run: %v\nstderr=%s", err, errOut.String())
+	}
+
+	var switchCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM switches WHERE value = 'live'`).Scan(&switchCount); err != nil {
+		t.Fatalf("count switches: %v", err)
+	}
+	if switchCount != 1 {
+		t.Fatalf("expected commit to stay single-shot, count=%d", switchCount)
+	}
+	var finalizeCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM finalizations WHERE value = 'done'`).Scan(&finalizeCount); err != nil {
+		t.Fatalf("count finalizations: %v", err)
+	}
+	if finalizeCount != 1 {
+		t.Fatalf("expected finalize to run once, count=%d", finalizeCount)
+	}
+}
+
+func TestRun_DBCutover_MultiStatementSQLite(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "cutover.sqlite")
+	node := &ResolvedRelease{
+		ID:        "local/default/cutover",
+		Kind:      NodeKindDBCutover,
+		Name:      "cutover",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "local"},
+		Database: DatabaseSpec{
+			Driver:              "sqlite",
+			DSN:                 dbPath,
+			MetadataTable:       "torque_cutover_state",
+			PrepareSQL:          `CREATE TABLE IF NOT EXISTS cutover_flags(name TEXT PRIMARY KEY, live INTEGER NOT NULL DEFAULT 0, verified INTEGER NOT NULL DEFAULT 0); INSERT INTO cutover_flags(name, live, verified) VALUES ('api;v1', 0, 0) ON CONFLICT(name) DO NOTHING;`,
+			ArmSQL:              `UPDATE cutover_flags SET live = 0 WHERE name = 'api;v1';`,
+			CommitSQL:           `UPDATE cutover_flags SET live = 1 WHERE name = 'api;v1';`,
+			VerifySQL:           `SELECT live FROM cutover_flags WHERE name = 'api;v1';`,
+			FinalizeSQL:         `UPDATE cutover_flags SET verified = 1 WHERE name = 'api;v1'; CREATE TABLE IF NOT EXISTS audit_log(entry TEXT PRIMARY KEY); INSERT INTO audit_log(entry) VALUES ('cutover complete') ON CONFLICT(entry) DO NOTHING;`,
+			StabilizationWindow: durationPtrCustom(0),
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run: %v\nstderr=%s", err, errOut.String())
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	var state string
+	if err := db.QueryRow(`SELECT CAST(live AS TEXT) || ',' || CAST(verified AS TEXT) FROM cutover_flags WHERE name = 'api;v1'`).Scan(&state); err != nil {
+		t.Fatalf("query cutover_flags: %v", err)
+	}
+	if state != "1,1" {
+		t.Fatalf("unexpected cutover state %q", state)
+	}
+	var auditCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE entry = 'cutover complete'`).Scan(&auditCount); err != nil {
+		t.Fatalf("query audit_log: %v", err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("unexpected audit_count=%d", auditCount)
+	}
+}
+
+func TestRun_DBBackfillResumesFromCheckpointSQLite(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "backfill.sqlite")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`
+CREATE TABLE source_users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE shadow_users(id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+INSERT INTO source_users(id, name) VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e');
+INSERT INTO shadow_users(id, name) VALUES (1, 'a'), (2, 'b');
+`); err != nil {
+		t.Fatalf("seed sqlite: %v", err)
+	}
+	dialect, err := dialectFor("sqlite")
+	if err != nil {
+		t.Fatalf("dialectFor: %v", err)
+	}
+	if err := ensureBackfillTable(context.Background(), db, dialect, "torque_backfill_state"); err != nil {
+		t.Fatalf("ensureBackfillTable: %v", err)
+	}
+
+	node := &ResolvedRelease{
+		ID:        "local/default/backfill",
+		Kind:      NodeKindDBBackfill,
+		Name:      "backfill",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "local"},
+		Database: DatabaseSpec{
+			Driver:    "sqlite",
+			DSN:       dbPath,
+			VerifySQL: `SELECT (SELECT COUNT(*) FROM shadow_users) = (SELECT COUNT(*) FROM source_users), (SELECT COUNT(*) FROM shadow_users)`,
+			Backfill: BackfillSpec{
+				CheckpointTable: "torque_backfill_state",
+				CheckpointKey:   "local/default/backfill",
+				StartSQL:        `SELECT COALESCE(MIN(id), 1) - 1 FROM source_users`,
+				EndSQL:          `SELECT COALESCE(MAX(id), 0) FROM source_users`,
+				BatchSQL:        `INSERT INTO shadow_users(id, name) SELECT id, name FROM source_users WHERE id > {{.cursor_start}} AND id <= {{.cursor_end}} ON CONFLICT(id) DO NOTHING`,
+				BatchSize:       2,
+			},
+		},
+	}
+	hash, _, err := ComputeEffectiveInputHashWithOptions(node, EffectiveInputHashOptions{
+		StackRoot:        root,
+		StackGitIdentity: &GitIdentity{Commit: "abc123", Dirty: false},
+	})
+	if err != nil {
+		t.Fatalf("ComputeEffectiveInputHashWithOptions: %v", err)
+	}
+	node.EffectiveInputHash = hash
+	if err := upsertBackfillState(context.Background(), db, dialect, "torque_backfill_state", &backfillState{
+		ObjectID:         "local/default/backfill",
+		IntentDigest:     "",
+		CheckpointKey:    "local/default/backfill",
+		StartCursor:      1,
+		CurrentCursor:    2,
+		EndCursor:        5,
+		BatchSize:        2,
+		BatchesCompleted: 1,
+		PhaseStatus:      "running",
+		UpdatedAtNS:      time.Now().UTC().UnixNano(),
+	}); err != nil {
+		t.Fatalf("upsertBackfillState: %v", err)
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run: %v\nstderr=%s", err, errOut.String())
+	}
+	var shadowCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM shadow_users`).Scan(&shadowCount); err != nil {
+		t.Fatalf("count shadow_users: %v", err)
+	}
+	if shadowCount != 5 {
+		t.Fatalf("unexpected shadow count %d", shadowCount)
+	}
+	var status string
+	var currentCursor int64
+	if err := db.QueryRow(`SELECT phase_status, current_cursor FROM torque_backfill_state WHERE object_id = 'local/default/backfill'`).Scan(&status, &currentCursor); err != nil {
+		t.Fatalf("query backfill state: %v", err)
+	}
+	if status != "success" || currentCursor != 5 {
+		t.Fatalf("unexpected backfill state status=%q current=%d", status, currentCursor)
+	}
+}
+
+func TestRun_DBProgramArtifactsAppearInAuditAndExport(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "program.sqlite")
+	nodes := dbProgramNodesForSQLite(root, dbPath)
+	plan := planForTest(root, nodes...)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run: %v\nstderr=%s", err, errOut.String())
+	}
+
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	if len(audit.Artifacts) < 12 {
+		t.Fatalf("expected artifacts for full db program, got %d", len(audit.Artifacts))
+	}
+	wantArtifacts := []string{
+		"restore-point.json",
+		"schema-expand.json",
+		"backfill.json",
+		"verify.json",
+		"cutover.json",
+		"schema-contract.json",
+		"decision.json",
+	}
+	joined := make([]string, 0, len(audit.Artifacts))
+	for _, artifact := range audit.Artifacts {
+		joined = append(joined, artifact.NodeID+":"+artifact.Name)
+	}
+	for _, want := range wantArtifacts {
+		found := false
+		for _, got := range joined {
+			if strings.HasSuffix(got, ":"+want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing artifact %s in %v", want, joined)
+		}
+	}
+
+	bundlePath := filepath.Join(root, "export.tgz")
+	if _, err := ExportRunBundle(context.Background(), root, runID, bundlePath); err != nil {
+		t.Fatalf("ExportRunBundle: %v", err)
+	}
+	extracted, err := ExtractBundleToTempDir(bundlePath)
+	if err != nil {
+		t.Fatalf("ExtractBundleToTempDir: %v", err)
+	}
+	defer os.RemoveAll(extracted)
+
+	exportDB, err := sql.Open("sqlite", filepath.Join(extracted, "state.sqlite"))
+	if err != nil {
+		t.Fatalf("open exported sqlite: %v", err)
+	}
+	defer exportDB.Close()
+	var artifactCount int
+	if err := exportDB.QueryRow(`SELECT COUNT(*) FROM torque_stack_run_artifacts WHERE run_id = ?`, runID).Scan(&artifactCount); err != nil {
+		t.Fatalf("count exported artifacts: %v", err)
+	}
+	if artifactCount != len(audit.Artifacts) {
+		t.Fatalf("exported artifact count=%d want=%d", artifactCount, len(audit.Artifacts))
+	}
+}
+
+func TestSplitSQLStatements_QuotedSemicolons(t *testing.T) {
+	stmts := splitSQLStatements(`
+CREATE TABLE demo(v TEXT);
+INSERT INTO demo(v) VALUES ('a;b');
+-- preserve comments; ignore separator parsing inside text
+UPDATE demo SET v = "c;d";
+`)
+	if len(stmts) != 3 {
+		t.Fatalf("expected 3 statements, got %d: %#v", len(stmts), stmts)
+	}
+	if stmts[1] != "INSERT INTO demo(v) VALUES ('a;b')" {
+		t.Fatalf("unexpected statement %q", stmts[1])
+	}
+	if stmts[2] != "-- preserve comments; ignore separator parsing inside text\nUPDATE demo SET v = \"c;d\"" {
+		t.Fatalf("unexpected statement %q", stmts[2])
+	}
+}
+
+func planForTest(root string, nodes ...*ResolvedRelease) *Plan {
+	p := &Plan{
+		StackRoot: root,
+		StackName: "test",
+		Profile:   "",
+		Nodes:     nodes,
+		ByID:      map[string]*ResolvedRelease{},
+		ByCluster: map[string][]*ResolvedRelease{},
+	}
+	for _, n := range nodes {
+		p.ByID[n.ID] = n
+		p.ByCluster[n.Cluster.Name] = append(p.ByCluster[n.Cluster.Name], n)
+	}
+	_ = assignExecutionGroups(p)
+	return p
+}
+
+func shellQuoteForTest(path string) string {
+	return "'" + filepath.ToSlash(path) + "'"
+}
+
+func shellQuoteStringForTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func providerMatrixJSONCommand(raw string) string {
+	return "printf '%s\\n' " + shellQuoteStringForTest(raw)
+}
+
+func providerMatrixAPICommand(provider string) string {
+	version := "v1.30.4"
+	switch provider {
+	case "k3s":
+		version = "v1.30.4+k3s1"
+	case "rke2":
+		version = "v1.30.4+rke2r1"
+	}
+	return providerMatrixJSONCommand(`{"clientVersion":{"gitVersion":"v1.30.0"},"serverVersion":{"gitVersion":"` + version + `","major":"1","minor":"30","platform":"linux/amd64"}}`)
+}
+
+func providerMatrixNodesCommand(provider string) string {
+	cpLabels := `"node-role.kubernetes.io/control-plane":""`
+	kubeletVersion := "v1.30.4"
+	switch provider {
+	case "k3s":
+		cpLabels += `,"k3s.io/hostname":"cp-1"`
+		kubeletVersion = "v1.30.4+k3s1"
+	case "rke2":
+		cpLabels += `,"rke2.io/hostname":"cp-1"`
+		kubeletVersion = "v1.30.4+rke2r1"
+	}
+	return providerMatrixJSONCommand(`{"items":[{"metadata":{"name":"cp-1","labels":{` + cpLabels + `}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.10"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"` + kubeletVersion + `","osImage":"Ubuntu","kernelVersion":"6.8.0","containerRuntimeVersion":"containerd://1.7.0"}}},{"metadata":{"name":"worker-1","labels":{}},"status":{"addresses":[{"type":"InternalIP","address":"10.0.0.11"}],"conditions":[{"type":"Ready","status":"True"}],"nodeInfo":{"kubeletVersion":"` + kubeletVersion + `","osImage":"Ubuntu","kernelVersion":"6.8.0","containerRuntimeVersion":"containerd://1.7.0"}}}]}`)
+}
+
+func providerMatrixPodsCommand(provider string) string {
+	systemPods := `{"items":[{"metadata":{"name":"coredns","namespace":"kube-system"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}}]}`
+	if provider == "kubeadm" {
+		systemPods = `{"items":[{"metadata":{"name":"kube-apiserver-cp-1","namespace":"kube-system"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}},{"metadata":{"name":"kube-controller-manager-cp-1","namespace":"kube-system"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}},{"metadata":{"name":"kube-scheduler-cp-1","namespace":"kube-system"},"status":{"phase":"Running","containerStatuses":[{"ready":true}]}}]}`
+	}
+	appPods := `{"items":[{"metadata":{"name":"web","namespace":"app"},"status":{"phase":"Running","containerStatuses":[{"ready":true},{"ready":true}]}}]}`
+	return `case "{{namespace}}" in kube-system) ` + providerMatrixJSONCommand(systemPods) + ` ;; app) ` + providerMatrixJSONCommand(appPods) + ` ;; *) ` + providerMatrixJSONCommand(`{"items":[]}`) + ` ;; esac`
+}
+
+func providerMatrixTargetsFrom(sourceNode string, provider string, renewLog string, custom bool) KubernetesCertTargetsFromSpec {
+	spec := KubernetesCertTargetsFromSpec{
+		SourceNode:       sourceNode,
+		Roles:            []string{"control-plane", "worker"},
+		Transport:        "local",
+		TargetTemplate:   "local://{{ .Name }}",
+		RestartCommand:   "printf 'restart-" + provider + "\\n' >> " + shellQuoteForTest(renewLog),
+		NodeSSHOptions:   "",
+		NodeIdentityFile: "",
+	}
+	if custom {
+		spec.Provider = "custom"
+		spec.InspectCommand = providerMatrixJSONCommand(`{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}`)
+		spec.RenewCommand = "printf 'renew-custom\\n' >> " + shellQuoteForTest(renewLog)
+	}
+	return spec
+}
+
+func writeProviderMatrixFakeBinary(t *testing.T, dir string, name string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	path := filepath.Join(dir, name)
+	script := `#!/bin/sh
+set -eu
+log="${TORQUE_PROVIDER_MATRIX_LOG:?}"
+binary="$(basename "$0")"
+case "${binary}:$*" in
+  kubeadm:certs\ check-expiration*)
+    printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'
+    ;;
+  kubeadm:certs\ renew*)
+    printf '%s\n' "renew-kubeadm" >>"${log}"
+    ;;
+  k3s:certificate\ check*)
+    printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'
+    ;;
+  k3s:certificate\ rotate*)
+    printf '%s\n' "renew-k3s" >>"${log}"
+    ;;
+  rke2:certificate\ check*)
+    printf '%s\n' '{"certificates":[{"notAfter":"2035-01-01T00:00:00Z"}]}'
+    ;;
+  rke2:certificate\ rotate*)
+    printf '%s\n' "renew-rke2" >>"${log}"
+    ;;
+  *)
+    printf 'unexpected provider matrix command: %s %s\n' "${binary}" "$*" >&2
+    exit 2
+    ;;
+esac
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake provider binary: %v", err)
+	}
+}
+
+func readTrimmedFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(bytes.TrimSpace(raw))
+}
+
+func durationPtrCustom(v time.Duration) *time.Duration {
+	return &v
+}
+
+func dbProgramNodesForSQLite(root string, dbPath string) []*ResolvedRelease {
+	common := DatabaseSpec{
+		Driver: "sqlite",
+		DSN:    dbPath,
+	}
+	return []*ResolvedRelease{
+		{
+			ID:        "local/default/restore",
+			Kind:      NodeKindDBRestorePoint,
+			Name:      "restore",
+			Dir:       root,
+			Namespace: "default",
+			Cluster:   ClusterTarget{Name: "local"},
+			Database: DatabaseSpec{
+				Driver:          common.Driver,
+				DSN:             common.DSN,
+				RestorePointSQL: `CREATE TABLE IF NOT EXISTS restore_points(marker TEXT PRIMARY KEY, created_at TEXT NOT NULL); INSERT INTO restore_points(marker, created_at) VALUES ('before-program', 'now') ON CONFLICT(marker) DO NOTHING`,
+				VerifySQL:       `SELECT COUNT(*) > 0, (SELECT COUNT(*) FROM restore_points) FROM restore_points WHERE marker = 'before-program'`,
+			},
+		},
+		{
+			ID:        "local/default/expand",
+			Kind:      NodeKindDBSchemaExpand,
+			Name:      "expand",
+			Dir:       root,
+			Namespace: "default",
+			Cluster:   ClusterTarget{Name: "local"},
+			Needs:     []string{"restore"},
+			Database: DatabaseSpec{
+				Driver:    common.Driver,
+				DSN:       common.DSN,
+				ExpandSQL: `CREATE TABLE IF NOT EXISTS source_users(id INTEGER PRIMARY KEY, name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS shadow_users(id INTEGER PRIMARY KEY, name TEXT NOT NULL); CREATE TABLE IF NOT EXISTS cutover_flags(name TEXT PRIMARY KEY, live INTEGER NOT NULL DEFAULT 0, verified INTEGER NOT NULL DEFAULT 0, contracted INTEGER NOT NULL DEFAULT 0); INSERT INTO source_users(id, name) VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e') ON CONFLICT(id) DO NOTHING; INSERT INTO cutover_flags(name, live, verified, contracted) VALUES ('api', 0, 0, 0) ON CONFLICT(name) DO NOTHING`,
+				VerifySQL: `SELECT EXISTS(SELECT 1 FROM source_users WHERE id = 5), (SELECT COUNT(*) FROM source_users)`,
+			},
+		},
+		{
+			ID:        "local/default/backfill",
+			Kind:      NodeKindDBBackfill,
+			Name:      "backfill",
+			Dir:       root,
+			Namespace: "default",
+			Cluster:   ClusterTarget{Name: "local"},
+			Needs:     []string{"expand"},
+			Database: DatabaseSpec{
+				Driver:    common.Driver,
+				DSN:       common.DSN,
+				VerifySQL: `SELECT (SELECT COUNT(*) FROM shadow_users) = (SELECT COUNT(*) FROM source_users), (SELECT COUNT(*) FROM shadow_users)`,
+				Backfill: BackfillSpec{
+					CheckpointTable: "torque_backfill_state",
+					CheckpointKey:   "program",
+					StartSQL:        `SELECT COALESCE(MIN(id), 1) - 1 FROM source_users`,
+					EndSQL:          `SELECT COALESCE(MAX(id), 0) FROM source_users`,
+					BatchSQL:        `INSERT INTO shadow_users(id, name) SELECT id, name FROM source_users WHERE id > {{.cursor_start}} AND id <= {{.cursor_end}} ON CONFLICT(id) DO NOTHING`,
+					BatchSize:       2,
+				},
+			},
+		},
+		{
+			ID:        "local/default/verify",
+			Kind:      NodeKindDBVerify,
+			Name:      "verify",
+			Dir:       root,
+			Namespace: "default",
+			Cluster:   ClusterTarget{Name: "local"},
+			Needs:     []string{"backfill"},
+			Database: DatabaseSpec{
+				Driver:    common.Driver,
+				DSN:       common.DSN,
+				VerifySQL: `SELECT (SELECT COUNT(*) FROM shadow_users) = (SELECT COUNT(*) FROM source_users), (SELECT COUNT(*) FROM shadow_users)`,
+			},
+		},
+		{
+			ID:        "local/default/cutover",
+			Kind:      NodeKindDBCutover,
+			Name:      "cutover",
+			Dir:       root,
+			Namespace: "default",
+			Cluster:   ClusterTarget{Name: "local"},
+			Needs:     []string{"verify"},
+			Database: DatabaseSpec{
+				Driver:              common.Driver,
+				DSN:                 common.DSN,
+				MetadataTable:       "torque_cutover_state",
+				PrepareSQL:          `UPDATE cutover_flags SET live = 0, verified = 0 WHERE name = 'api'`,
+				CommitSQL:           `UPDATE cutover_flags SET live = 1 WHERE name = 'api'`,
+				VerifySQL:           `SELECT live, verified FROM cutover_flags WHERE name = 'api'`,
+				FinalizeSQL:         `UPDATE cutover_flags SET verified = 1 WHERE name = 'api'`,
+				StabilizationWindow: durationPtrCustom(0),
+			},
+		},
+		{
+			ID:        "local/default/contract",
+			Kind:      NodeKindDBSchemaContract,
+			Name:      "contract",
+			Dir:       root,
+			Namespace: "default",
+			Cluster:   ClusterTarget{Name: "local"},
+			Needs:     []string{"cutover"},
+			Database: DatabaseSpec{
+				Driver:      common.Driver,
+				DSN:         common.DSN,
+				ContractSQL: `UPDATE cutover_flags SET contracted = 1 WHERE name = 'api'; CREATE TABLE IF NOT EXISTS contract_log(entry TEXT PRIMARY KEY); INSERT INTO contract_log(entry) VALUES ('contract-complete') ON CONFLICT(entry) DO NOTHING`,
+				VerifySQL:   `SELECT contracted, live, verified FROM cutover_flags WHERE name = 'api'`,
+			},
+		},
+	}
+}

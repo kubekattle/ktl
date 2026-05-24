@@ -1,0 +1,3 @@
+apiVersion: v2
+name: stack-e2e-cm
+version: 0.1.0

@@ -1,0 +1,474 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-ray-cluster
+cli:
+  inferDeps: false
+runner:
+  concurrency: 1
+nodes:
+  - name: ray-vms-bootstrap
+    kind: host.command.run
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 90m
+      command: |
+        set -euo pipefail
+        RUN_ROOT="/var/lib/torque-firecracker-direct/ray-cluster"
+        NODE_COUNT="3"
+        SUBNET_OCTET="246"
+        BRIDGE_NAME="tqfcray"
+        TAP_PREFIX="tqray"
+        RUN_ID="ray-cluster"
+        mkdir -p "${RUN_ROOT}"
+        cat >"${RUN_ROOT}/ray-vm-lab.sh" <<'REMOTE'
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        mode="${1:-apply-vms}"
+        RUN_ROOT="${RUN_ROOT:-/var/lib/torque-firecracker-direct/ray-cluster}"
+        NODE_COUNT="${NODE_COUNT:-3}"
+        SUBNET_OCTET="${SUBNET_OCTET:-246}"
+        BRIDGE_NAME="${BRIDGE_NAME:-tqfcray}"
+        TAP_PREFIX="${TAP_PREFIX:-tqray}"
+        RUN_ID="${RUN_ID:-ray-cluster}"
+        BASE_ROOTFS="${BASE_ROOTFS:-/opt/firecracker-sandbox-lab/rootfs.ext4}"
+        KERNEL="${KERNEL:-/opt/firecracker-sandbox-lab/vmlinux.bin}"
+        FIRECRACKER="${FIRECRACKER:-/usr/local/bin/firecracker}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        CACHE_ROOT="${CACHE_ROOT:-/var/lib/torque-firecracker-direct/cache}"
+        RAY_VERSION="${RAY_VERSION:-2.55.1}"
+        NET_PREFIX="172.31.${SUBNET_OCTET}"
+        GATEWAY="${NET_PREFIX}.1"
+        HEAD_IP="${NET_PREFIX}.10"
+        CIDR="${NET_PREFIX}.0/24"
+        RAY_PACKAGES="openssh-server ca-certificates curl wget python3 python3-venv python3-pip iptables procps"
+        SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
+
+        node_ip() { printf '%s.%d' "${NET_PREFIX}" "$((10 + $1))"; }
+        node_name() { printf 'ray-%02d' "$1"; }
+
+        public_ip() {
+          ip -4 route get 1.1.1.1 | awk '{for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}'
+        }
+
+        remove_public_access() {
+          local pub
+          pub="$(public_ip)"
+          for port in 8265 10001 8000; do
+            iptables -t nat -D PREROUTING -d "${pub}/32" -p tcp -m tcp --dport "${port}" -j DNAT --to-destination "${HEAD_IP}:${port}" 2>/dev/null || true
+            iptables -D FORWARD -p tcp -d "${HEAD_IP}/32" -m tcp --dport "${port}" -j ACCEPT 2>/dev/null || true
+          done
+        }
+
+        cleanup_run() {
+          local remove_root="${1:-0}"
+          set +e
+          remove_public_access
+          if [[ -d "${RUN_ROOT}/vms" ]]; then
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill "$(cat "${pid_file}")" 2>/dev/null
+            done
+            sleep 1
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -9 "$(cat "${pid_file}")" 2>/dev/null
+            done
+          fi
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip link del "${TAP_PREFIX}${i}" 2>/dev/null
+          done
+          ip link set "${BRIDGE_NAME}" down 2>/dev/null
+          ip link del "${BRIDGE_NAME}" type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null
+          if [[ "${remove_root}" == "1" ]]; then
+            rm -rf "${RUN_ROOT}"
+          else
+            rm -rf "${RUN_ROOT}/vms" "${RUN_ROOT}/receipt.json" "${RUN_ROOT}/nodes.txt" "${RUN_ROOT}/verify-ray.txt"
+            mkdir -p "${RUN_ROOT}"
+          fi
+          set -e
+        }
+
+        require_cmd() {
+          command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 2; }
+        }
+
+        prepare_base_image() {
+          local cache_key prepared tmp mnt
+          mkdir -p "${CACHE_ROOT}"
+          cache_key="$(
+            {
+              sha256sum "${BASE_ROOTFS}" "${KERNEL}"
+              printf 'packages=%s\n' "${RAY_PACKAGES}"
+              printf 'ray=%s\n' "${RAY_VERSION}"
+              printf 'rootfs-size=5G\n'
+            } | sha256sum | awk '{print substr($1,1,16)}'
+          )"
+          prepared="${CACHE_ROOT}/prepared-ray-${cache_key}.ext4"
+          if [[ -s "${prepared}" ]]; then
+            echo "${prepared}"
+            return
+          fi
+          tmp="${prepared}.tmp"
+          mnt="${CACHE_ROOT}/mnt-ray-${cache_key}"
+          rm -f "${tmp}"
+          cp --reflink=auto "${BASE_ROOTFS}" "${tmp}" 2>/dev/null || cp "${BASE_ROOTFS}" "${tmp}"
+          set +e
+          e2fsck -fy "${tmp}" >/tmp/torque-fc-ray-e2fsck-${cache_key}.log 2>&1
+          local e=$?
+          set -e
+          [[ "${e}" -le 1 ]] || { cat /tmp/torque-fc-ray-e2fsck-${cache_key}.log >&2; exit "${e}"; }
+          truncate -s 5G "${tmp}"
+          resize2fs "${tmp}" >/tmp/torque-fc-ray-resize-${cache_key}.log 2>&1
+          mkdir -p "${mnt}"
+          mount -o loop "${tmp}" "${mnt}"
+          cleanup_mounts() {
+            set +e
+            mountpoint -q "${mnt}/proc" && umount "${mnt}/proc"
+            mountpoint -q "${mnt}/sys" && umount "${mnt}/sys"
+            mountpoint -q "${mnt}/dev" && umount "${mnt}/dev"
+            mountpoint -q "${mnt}/run" && umount "${mnt}/run"
+            mountpoint -q "${mnt}" && umount "${mnt}"
+          }
+          trap cleanup_mounts RETURN
+          rm -f "${mnt}/etc/resolv.conf"
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+          mount -t proc proc "${mnt}/proc"
+          mount -t sysfs sysfs "${mnt}/sys"
+          mount --bind /dev "${mnt}/dev"
+          mount --bind /run "${mnt}/run"
+          chroot "${mnt}" apt-get update >/tmp/torque-fc-ray-apt-update-${cache_key}.log 2>&1
+          chroot "${mnt}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${RAY_PACKAGES} >/tmp/torque-fc-ray-apt-install-${cache_key}.log 2>&1
+          chroot "${mnt}" /bin/bash -lc "python3 -m venv /opt/ray-venv && /opt/ray-venv/bin/python -m pip install --upgrade pip setuptools wheel && /opt/ray-venv/bin/pip install --no-cache-dir 'ray[default]==${RAY_VERSION}'" >/tmp/torque-fc-ray-pip-${cache_key}.log 2>&1
+          chroot "${mnt}" update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true
+          chroot "${mnt}" update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy >/dev/null 2>&1 || true
+          chroot "${mnt}" /bin/bash -lc "apt-get clean && rm -rf /var/lib/apt/lists/* /root/.cache/pip"
+          cleanup_mounts
+          trap - RETURN
+          mv "${tmp}" "${prepared}"
+          echo "${prepared}"
+        }
+
+        write_hosts_file() {
+          cat <<EOF
+        127.0.0.1 localhost
+        127.0.1.1 $(node_name "$1")
+        ${NET_PREFIX}.10 ray-00 ray-head
+        ${NET_PREFIX}.11 ray-01 ray-worker-1
+        ${NET_PREFIX}.12 ray-02 ray-worker-2
+        EOF
+        }
+
+        apply_vms() {
+          for cmd in cp e2fsck mount resize2fs sha256sum ssh sysctl truncate umount; do require_cmd "${cmd}"; done
+          for path in "${BASE_ROOTFS}" "${KERNEL}" "${FIRECRACKER}" "${LAB_KEY}"; do
+            [[ -e "${path}" ]] || { echo "missing ${path}" >&2; exit 2; }
+          done
+          mkdir -p "${RUN_ROOT}/vms"
+          local prepared
+          prepared="$(prepare_base_image)"
+
+          if [[ -s "${RUN_ROOT}/receipt.json" && -d "${RUN_ROOT}/vms" ]]; then
+            local live_count=0 ssh_count=0
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -0 "$(cat "${pid_file}")" 2>/dev/null && live_count="$((live_count + 1))"
+            done
+            for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+              ssh "${SSH_OPTS[@]}" "root@$(node_ip "${i}")" true >/dev/null 2>&1 && ssh_count="$((ssh_count + 1))" || true
+            done
+            if [[ "${live_count}" -ge "${NODE_COUNT}" && "${ssh_count}" -ge "${NODE_COUNT}" ]]; then
+              write_nodes >"${RUN_ROOT}/nodes.txt"
+              cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-direct/v1","kind":"FirecrackerRayVMReceipt","status":"succeeded","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"sshReady":${ssh_count},"subnet":"${CIDR}","bridge":"${BRIDGE_NAME}","idempotentReuse":true}
+        EOF
+              echo "ray-vms-already-ready ssh=${ssh_count} live=${live_count}"
+              cat "${RUN_ROOT}/nodes.txt"
+              return
+            fi
+          fi
+
+          cleanup_run
+          mkdir -p "${RUN_ROOT}/vms"
+          ip link add name "${BRIDGE_NAME}" type bridge
+          ip addr add "${GATEWAY}/24" dev "${BRIDGE_NAME}"
+          ip link set "${BRIDGE_NAME}" up
+          sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          iptables -t nat -C POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null ||
+            iptables -t nat -A POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE
+
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            local vm ip name tap mac mnt
+            vm="${RUN_ROOT}/vms/node${i}"
+            ip="$(node_ip "${i}")"
+            name="$(node_name "${i}")"
+            tap="${TAP_PREFIX}${i}"
+            mac="$(printf '06:00:00:%02x:01:%02x' "${SUBNET_OCTET}" "$((10 + i))")"
+            mkdir -p "${vm}"
+            cp --reflink=auto "${prepared}" "${vm}/rootfs.ext4" 2>/dev/null || cp "${prepared}" "${vm}/rootfs.ext4"
+            e2fsck -fy "${vm}/rootfs.ext4" >/dev/null 2>&1 || true
+            mnt="${vm}/mnt"
+            mkdir -p "${mnt}"
+            mount -o loop "${vm}/rootfs.ext4" "${mnt}"
+            printf '%s\n' "${name}" >"${mnt}/etc/hostname"
+            write_hosts_file "${i}" >"${mnt}/etc/hosts"
+            cat >"${mnt}/etc/network/interfaces" <<EOF
+        auto lo
+        iface lo inet loopback
+
+        auto eth0
+        iface eth0 inet static
+            address ${ip}
+            netmask 255.255.255.0
+            gateway ${GATEWAY}
+        EOF
+            rm -f "${mnt}/etc/resolv.conf"
+            printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+            rm -f "${mnt}/etc/machine-id" "${mnt}/var/lib/dbus/machine-id" 2>/dev/null || true
+            touch "${mnt}/etc/machine-id"
+            mkdir -p "${mnt}/etc/systemd/system/multi-user.target.wants"
+            ln -sf /lib/systemd/system/ssh.service "${mnt}/etc/systemd/system/multi-user.target.wants/ssh.service"
+            umount "${mnt}"
+            ip tuntap add dev "${tap}" mode tap
+            ip link set "${tap}" master "${BRIDGE_NAME}"
+            ip link set "${tap}" up
+            cat >"${vm}/vm.json" <<EOF
+        {"boot-source":{"kernel_image_path":"${KERNEL}","boot_args":"console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw random.trust_cpu=on systemd.unified_cgroup_hierarchy=0 systemd.legacy_systemd_cgroup_controller=1 systemd.mask=serial-getty@ttyS0.service systemd.mask=systemd-random-seed.service"},"drives":[{"drive_id":"rootfs","path_on_host":"${vm}/rootfs.ext4","is_root_device":true,"is_read_only":false}],"machine-config":{"vcpu_count":1,"mem_size_mib":1280},"network-interfaces":[{"iface_id":"eth0","host_dev_name":"${tap}","guest_mac":"${mac}"}],"logger":{"log_path":"${vm}/firecracker.log","level":"Info","show_level":true,"show_log_origin":true}}
+        EOF
+            "${FIRECRACKER}" --api-sock "${vm}/fc.sock" --config-file "${vm}/vm.json" >"${vm}/console.log" 2>&1 &
+            echo $! >"${vm}/pid"
+            echo "started ${name} ${ip}"
+          done
+
+          local ssh_count=0
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            local ip
+            ip="$(node_ip "${i}")"
+            for _ in $(seq 1 180); do
+              if ssh "${SSH_OPTS[@]}" "root@${ip}" true >/dev/null 2>&1; then
+                ssh_count="$((ssh_count + 1))"
+                break
+              fi
+              sleep 2
+            done
+          done
+          write_nodes >"${RUN_ROOT}/nodes.txt"
+          cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-direct/v1","kind":"FirecrackerRayVMReceipt","status":"succeeded","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"sshReady":${ssh_count},"subnet":"${CIDR}","bridge":"${BRIDGE_NAME}"}
+        EOF
+          [[ "${ssh_count}" -eq "${NODE_COUNT}" ]] || { echo "only ${ssh_count}/${NODE_COUNT} VMs reachable" >&2; exit 1; }
+          cat "${RUN_ROOT}/nodes.txt"
+        }
+
+        write_nodes() {
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            local ip name status
+            ip="$(node_ip "${i}")"
+            name="$(node_name "${i}")"
+            status="unreachable"
+            ssh "${SSH_OPTS[@]}" "root@${ip}" 'printf "%s %s %s\n" "$(hostname)" "$(hostname -I | awk '\''{print $1}'\'')" "$(uname -r)"' >/tmp/torque-ray-node-${RUN_ID}-${i}.txt 2>/dev/null && status="$(cat /tmp/torque-ray-node-${RUN_ID}-${i}.txt)"
+            printf '%s %s %s\n' "${name}" "${ip}" "${status}"
+          done
+        }
+
+        guest() {
+          local idx="$1"
+          shift
+          ssh "${SSH_OPTS[@]}" "root@$(node_ip "${idx}")" "$@"
+        }
+
+        install_ray_service() {
+          local idx="$1"
+          local ip
+          ip="$(node_ip "${idx}")"
+          if [[ "${idx}" == "0" ]]; then
+            guest "${idx}" "RAY_NODE_IP='${ip}' bash -se" <<'HEAD'
+        set -euo pipefail
+        cat >/etc/systemd/system/ray.service <<EOF
+        [Unit]
+        Description=Ray Head
+        After=network-online.target
+        Wants=network-online.target
+        [Service]
+        Type=simple
+        Environment=RAY_USAGE_STATS_ENABLED=0
+        ExecStart=/opt/ray-venv/bin/ray start --head --node-ip-address=${RAY_NODE_IP} --port=6379 --include-dashboard=true --dashboard-host=0.0.0.0 --dashboard-port=8265 --ray-client-server-port=10001 --num-cpus=1 --object-store-memory=120000000 --disable-usage-stats --block
+        ExecStop=/opt/ray-venv/bin/ray stop --force
+        Restart=always
+        RestartSec=5s
+        LimitNOFILE=1048576
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+        systemctl daemon-reload
+        systemctl enable --now ray >/dev/null
+        HEAD
+          else
+            guest "${idx}" "RAY_NODE_IP='${ip}' HEAD_IP='${HEAD_IP}' bash -se" <<'WORKER'
+        set -euo pipefail
+        cat >/etc/systemd/system/ray.service <<EOF
+        [Unit]
+        Description=Ray Worker
+        After=network-online.target
+        Wants=network-online.target
+        [Service]
+        Type=simple
+        Environment=RAY_USAGE_STATS_ENABLED=0
+        ExecStart=/opt/ray-venv/bin/ray start --address=${HEAD_IP}:6379 --node-ip-address=${RAY_NODE_IP} --num-cpus=1 --object-store-memory=120000000 --disable-usage-stats --block
+        ExecStop=/opt/ray-venv/bin/ray stop --force
+        Restart=always
+        RestartSec=5s
+        LimitNOFILE=1048576
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+        systemctl daemon-reload
+        systemctl enable --now ray >/dev/null
+        WORKER
+          fi
+        }
+
+        apply_ray() {
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            echo "configure-ray-node-${i}"
+            install_ray_service "${i}"
+          done
+          for attempt in $(seq 1 120); do
+            if guest 0 "/opt/ray-venv/bin/python - <<'PY'
+        import ray
+        ray.init(address='${HEAD_IP}:6379')
+        alive = [n for n in ray.nodes() if n.get('Alive')]
+        print('alive_nodes=%d resources=%s' % (len(alive), ray.cluster_resources()))
+        raise SystemExit(0 if len(alive) >= ${NODE_COUNT} else 1)
+        PY"; then
+              return
+            fi
+            if (( attempt % 10 == 0 )); then
+              echo "waiting-ray-cluster attempt=${attempt}" >&2
+              guest 0 'systemctl --no-pager --full status ray || true' >&2 || true
+              guest 0 '/opt/ray-venv/bin/ray status --address=172.31.246.10:6379 || true' >&2 || true
+            fi
+            sleep 3
+          done
+          echo "ray cluster did not reach ${NODE_COUNT} nodes" >&2
+          exit 1
+        }
+
+        apply_public_access() {
+          local pub
+          pub="$(public_ip)"
+          remove_public_access
+          for port in 8265 10001; do
+            iptables -t nat -A PREROUTING -d "${pub}/32" -p tcp -m tcp --dport "${port}" -j DNAT --to-destination "${HEAD_IP}:${port}"
+            iptables -A FORWARD -p tcp -d "${HEAD_IP}/32" -m tcp --dport "${port}" -j ACCEPT
+          done
+          echo "ray-public-dashboard=http://${pub}:8265"
+          echo "ray-client=ray://${pub}:10001"
+        }
+
+        verify_ray() {
+          guest 0 "HEAD_IP='${HEAD_IP}' bash -se" <<'VERIFY' | tee "${RUN_ROOT}/verify-ray.txt"
+        set -euo pipefail
+        /opt/ray-venv/bin/python - <<'PY'
+        import json
+        import socket
+        import ray
+
+        ray.init(address="172.31.246.10:6379")
+
+        @ray.remote(num_cpus=0)
+        def probe(ip):
+            return {"ip": ip, "host": socket.gethostname()}
+
+        target_ips = ["172.31.246.10", "172.31.246.11", "172.31.246.12"]
+        results = ray.get([
+            probe.options(resources={f"node:{ip}": 0.001}).remote(ip)
+            for ip in target_ips
+        ])
+        alive = [n for n in ray.nodes() if n.get("Alive")]
+        print(json.dumps({
+            "alive_nodes": len(alive),
+            "cluster_resources": ray.cluster_resources(),
+            "task_hosts": sorted(set(item["host"] for item in results)),
+            "results": results,
+        }, sort_keys=True))
+        if len(alive) < 3:
+            raise SystemExit("expected at least 3 Ray nodes")
+        PY
+        VERIFY
+          grep -q '"alive_nodes": 3' "${RUN_ROOT}/verify-ray.txt" || { echo "Ray node-count proof failed" >&2; exit 1; }
+          grep -q '"task_hosts": \["ray-00", "ray-01", "ray-02"\]' "${RUN_ROOT}/verify-ray.txt" || { echo "Ray per-node task proof failed" >&2; exit 1; }
+        }
+
+        case "${mode}" in
+          apply-vms) apply_vms ;;
+          ray-apply) apply_ray ;;
+          public-apply) apply_public_access ;;
+          public-delete) remove_public_access ;;
+          ray-verify) verify_ray ;;
+          delete|cleanup) cleanup_run 1 ;;
+          *) echo "unknown mode: ${mode}" >&2; exit 2 ;;
+        esac
+        REMOTE
+        chmod +x "${RUN_ROOT}/ray-vm-lab.sh"
+        RUN_ROOT="${RUN_ROOT}" NODE_COUNT="${NODE_COUNT}" SUBNET_OCTET="${SUBNET_OCTET}" BRIDGE_NAME="${BRIDGE_NAME}" TAP_PREFIX="${TAP_PREFIX}" RUN_ID="${RUN_ID}" \
+          "${RUN_ROOT}/ray-vm-lab.sh" apply-vms
+      deleteCommand: |
+        set +e
+        RUN_ROOT="/var/lib/torque-firecracker-direct/ray-cluster"
+        if [ -x "${RUN_ROOT}/ray-vm-lab.sh" ]; then
+          RUN_ROOT="${RUN_ROOT}" "${RUN_ROOT}/ray-vm-lab.sh" delete
+        else
+          for p in "${RUN_ROOT}"/vms/*/pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null; done
+          for i in $(seq 0 2); do ip link del "tqray${i}" 2>/dev/null; done
+          ip link set tqfcray down 2>/dev/null
+          ip link del tqfcray type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "172.31.246.0/24" ! -o tqfcray -j MASQUERADE 2>/dev/null
+          rm -rf "${RUN_ROOT}"
+        fi
+
+  - name: ray-cluster-apply
+    kind: host.command.run
+    needs: [ray-vms-bootstrap]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 15m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/ray-cluster/ray-vm-lab.sh ray-apply
+      deleteCommand: |
+        set +e
+        for ip in 172.31.246.10 172.31.246.11 172.31.246.12; do
+          ssh -i /opt/firecracker-sandbox-lab/lab_ssh_key -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${ip}" \
+            'systemctl disable --now ray >/dev/null 2>&1 || true; /opt/ray-venv/bin/ray stop --force >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
+        done
+
+  - name: ray-public-access
+    kind: host.command.run
+    needs: [ray-cluster-apply]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/ray-cluster/ray-vm-lab.sh public-apply
+      deleteCommand: |
+        set +e
+        RUN_ROOT="/var/lib/torque-firecracker-direct/ray-cluster"
+        if [ -x "${RUN_ROOT}/ray-vm-lab.sh" ]; then
+          RUN_ROOT="${RUN_ROOT}" "${RUN_ROOT}/ray-vm-lab.sh" public-delete
+        fi
+
+  - name: ray-verify
+    kind: host.command.run
+    needs: [ray-public-access]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 10m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/ray-cluster/ray-vm-lab.sh ray-verify
+        curl -fsS http://172.31.246.10:8265/api/version
+      deleteCommand: "true"

@@ -43,6 +43,9 @@ func runRemoteStackRunCommand(cmd *cobra.Command, kind stackRunKind, common stac
 	if opts.Resume || opts.Replan || strings.TrimSpace(opts.SealedDir) != "" || strings.TrimSpace(opts.FromBundle) != "" {
 		return fmt.Errorf("torque stack %s --remote-agent currently supports config-based runs only; resume and sealed bundles must run on the agent host", kind)
 	}
+	if opts.PolicyOverride {
+		return fmt.Errorf("torque stack %s --remote-agent does not support --policy-override yet; run the approved override on the agent host", kind)
+	}
 	conn, err := dialRemoteStackAgent(cmd, derefString(common.remoteAgent))
 	if err != nil {
 		return err
@@ -72,7 +75,7 @@ func runRemoteStackRunCommand(cmd *cobra.Command, kind stackRunKind, common stac
 			if err != nil {
 				return err
 			}
-			prompt := fmt.Sprintf("About to delete %d releases on remote agent %s. Only 'yes' will be accepted:", plan.GetNodeCount(), strings.TrimSpace(derefString(common.remoteAgent)))
+			prompt := fmt.Sprintf("About to delete %d stack nodes on remote agent %s. Only 'yes' will be accepted:", plan.GetNodeCount(), strings.TrimSpace(derefString(common.remoteAgent)))
 			if err := confirmAction(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), dec, prompt, confirmModeYes, ""); err != nil {
 				return err
 			}

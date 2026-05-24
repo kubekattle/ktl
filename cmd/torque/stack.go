@@ -1,5 +1,5 @@
 // File: cmd/torque/stack.go
-// Brief: CLI wiring for `torque stack` (multi-release orchestration).
+// Brief: CLI wiring for `torque stack` (change graph orchestration).
 
 package main
 
@@ -39,25 +39,25 @@ func newStackCommand(kubeconfig *string, kubeContext *string, logLevel *string, 
 
 	cmd := &cobra.Command{
 		Use:   "stack",
-		Short: "Compile and orchestrate many Helm releases as a dependency graph",
-		Long:  "torque stack discovers stack.yaml/release.yaml, compiles them with inheritance into a DAG, and runs torque apply/delete per release.\n\nMinimal-flags workflow: put defaults into stack.yaml `cli:` and/or TORQUE_STACK_* env vars (see docs/stack-cli-defaults.md). Run `torque env --match stack` to discover environment overrides.",
+		Short: "Compile and orchestrate stack nodes as a change graph",
+		Long:  "torque stack discovers stack.yaml/release.yaml, compiles stack nodes with inheritance into a DAG, and runs apply/delete through the matching node executors.\n\nMinimal-flags workflow: put defaults into stack.yaml `cli:` and/or TORQUE_STACK_* env vars (see docs/stack-cli-defaults.md). Run `torque env --match stack` to discover environment overrides.",
 	}
 	cmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to stack root directory or stack.yaml/release.yaml")
 	cmd.PersistentFlags().StringVar(&rootDir, "root", ".", "Stack root directory (deprecated: use --config)")
 	cmd.PersistentFlags().StringVar(&profile, "profile", "", "Profile overlay name (defaults to stack.yaml.defaultProfile when present)")
 	cmd.PersistentFlags().StringSliceVar(&clusters, "cluster", nil, "Filter the universe by cluster name (repeatable or comma-separated)")
-	cmd.PersistentFlags().StringSliceVar(&tags, "tag", nil, "Select releases by tag (repeatable or comma-separated)")
-	cmd.PersistentFlags().StringSliceVar(&fromPaths, "from-path", nil, "Select releases under a directory subtree (repeatable or comma-separated)")
-	cmd.PersistentFlags().StringSliceVar(&releases, "release", nil, "Select releases by name (repeatable or comma-separated)")
-	cmd.PersistentFlags().StringVar(&gitRange, "git-range", "", "Select releases affected by a git diff range (example: origin/main...HEAD)")
+	cmd.PersistentFlags().StringSliceVar(&tags, "tag", nil, "Select stack nodes by tag (repeatable or comma-separated)")
+	cmd.PersistentFlags().StringSliceVar(&fromPaths, "from-path", nil, "Select stack nodes under a directory subtree (repeatable or comma-separated)")
+	cmd.PersistentFlags().StringSliceVar(&releases, "release", nil, "Select stack nodes by name (legacy selector flag; repeatable or comma-separated)")
+	cmd.PersistentFlags().StringVar(&gitRange, "git-range", "", "Select stack nodes affected by a git diff range (example: origin/main...HEAD)")
 	cmd.PersistentFlags().BoolVar(&gitIncludeDeps, "git-include-deps", false, "When using --git-range, expand selection to include dependencies")
 	cmd.PersistentFlags().BoolVar(&gitIncludeDependents, "git-include-dependents", false, "When using --git-range, expand selection to include dependents")
 	cmd.PersistentFlags().BoolVar(&includeDeps, "include-deps", false, "Expand selection to include dependencies")
 	cmd.PersistentFlags().BoolVar(&includeDependents, "include-dependents", false, "Expand selection to include dependents")
-	cmd.PersistentFlags().BoolVar(&allowMissingDeps, "allow-missing-deps", false, "Allow selected releases to run even if their declared needs are not selected (missing needs are ignored)")
+	cmd.PersistentFlags().BoolVar(&allowMissingDeps, "allow-missing-deps", false, "Allow selected nodes to run even if their declared needs are not selected (missing needs are ignored)")
 	cmd.PersistentFlags().StringVar(&output, "output", "table", "Output format: table|json")
 	cmd.PersistentFlags().BoolVar(&planOnly, "plan-only", false, "Compile and print the plan, but do not execute")
-	cmd.PersistentFlags().BoolVar(&inferDeps, "infer-deps", true, "Infer additional dependencies between releases by rendering manifests (client-side)")
+	cmd.PersistentFlags().BoolVar(&inferDeps, "infer-deps", true, "Infer additional dependencies between Helm nodes by rendering manifests (client-side)")
 	cmd.PersistentFlags().BoolVar(&inferConfigRefs, "infer-config-refs", false, "When inferring deps, also add edges for ConfigMap/Secret references from workloads")
 	cmd.PersistentFlags().StringVar(&secretProvider, "secret-provider", "", "Secret provider name for secret:// references")
 	cmd.PersistentFlags().StringVar(&secretConfig, "secret-config", "", "Secrets provider config file (defaults to ~/.torque/config.yaml and repo .torque.yaml)")

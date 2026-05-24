@@ -31,6 +31,7 @@ type RunAudit struct {
 	Integrity       RunIntegrity     `json:"integrity"`
 	Summary         *RunSummary      `json:"summary,omitempty"`
 	FailureClusters []FailureCluster `json:"failureClusters,omitempty"`
+	Artifacts       []RunArtifact    `json:"artifacts,omitempty"`
 
 	Plan   *RunPlan   `json:"plan,omitempty"`
 	Events []RunEvent `json:"events,omitempty"`
@@ -57,12 +58,13 @@ type FailureCluster struct {
 }
 
 type RunAuditOptions struct {
-	RootDir       string
-	RunID         string
-	Verify        bool
-	EventsLimit   int
-	IncludePlan   bool
-	IncludeEvents bool
+	RootDir          string
+	RunID            string
+	Verify           bool
+	EventsLimit      int
+	IncludePlan      bool
+	IncludeEvents    bool
+	IncludeArtifacts bool
 }
 
 func GetRunAudit(ctx context.Context, opts RunAuditOptions) (*RunAudit, error) {
@@ -158,6 +160,11 @@ WHERE run_id = ?
 		}
 		if events, err := s.ListEvents(ctx, runID, limit); err == nil {
 			a.Events = events
+		}
+	}
+	if opts.IncludeArtifacts {
+		if artifacts, err := s.ListArtifacts(ctx, runID); err == nil {
+			a.Artifacts = artifacts
 		}
 	}
 

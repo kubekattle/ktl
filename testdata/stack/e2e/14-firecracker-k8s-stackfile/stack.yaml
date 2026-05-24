@@ -1,0 +1,495 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-k8s-stackfile
+cli:
+  inferDeps: false
+nodes:
+  - name: fc-k8s-bootstrap
+    kind: host.command.run
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 60m
+      command: |
+        set -euo pipefail
+        RUN_ROOT="/var/lib/torque-firecracker-k8s/stackfile"
+        NODE_COUNT="8"
+        SUBNET_OCTET="231"
+        BRIDGE_NAME="tqfcstack"
+        TAP_PREFIX="tqst"
+        RUN_ID="stackfile"
+        mkdir -p "${RUN_ROOT}"
+        cat >"${RUN_ROOT}/bootstrap-firecracker-k3s.sh" <<'REMOTE'
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        mode="${1:-apply}"
+        : "${RUN_ROOT:?missing RUN_ROOT}"
+        : "${NODE_COUNT:?missing NODE_COUNT}"
+        : "${SUBNET_OCTET:?missing SUBNET_OCTET}"
+        : "${BRIDGE_NAME:?missing BRIDGE_NAME}"
+        : "${TAP_PREFIX:?missing TAP_PREFIX}"
+        : "${RUN_ID:?missing RUN_ID}"
+
+        BASE_ROOTFS="${BASE_ROOTFS:-/opt/firecracker-sandbox-lab/rootfs.ext4}"
+        KERNEL="${KERNEL:-/opt/firecracker-sandbox-lab/vmlinux.bin}"
+        K3S_BIN="${K3S_BIN:-/usr/local/bin/k3s}"
+        FIRECRACKER="${FIRECRACKER:-/usr/local/bin/firecracker}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        CACHE_ROOT="${CACHE_ROOT:-/var/lib/torque-firecracker-k8s/cache}"
+        NET_PREFIX="172.31.${SUBNET_OCTET}"
+        GATEWAY="${NET_PREFIX}.1"
+        SERVER_IP="${NET_PREFIX}.10"
+        CIDR="${NET_PREFIX}.0/24"
+        TOKEN_FILE="${RUN_ROOT}/cluster-token"
+
+        cleanup_run() {
+          local remove_root="${1:-0}"
+          set +e
+          if [[ -d "${RUN_ROOT}/vms" ]]; then
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill "$(cat "${pid_file}")" 2>/dev/null
+            done
+            sleep 1
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -9 "$(cat "${pid_file}")" 2>/dev/null
+            done
+          fi
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip link del "${TAP_PREFIX}${i}" 2>/dev/null
+          done
+          ip link set "${BRIDGE_NAME}" down 2>/dev/null
+          ip link del "${BRIDGE_NAME}" type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null
+          if [[ "${remove_root}" == "1" ]]; then
+            rm -rf "${RUN_ROOT}"
+          else
+            rm -rf "${RUN_ROOT}/vms" "${TOKEN_FILE}" "${RUN_ROOT}/receipt.json" "${RUN_ROOT}/nodes.txt" "${RUN_ROOT}/pods.txt" "${RUN_ROOT}/kubeconfig.yaml" "${RUN_ROOT}/server-journal.txt"
+            mkdir -p "${RUN_ROOT}"
+          fi
+          set -e
+        }
+
+        if [[ "${mode}" == "delete" || "${mode}" == "cleanup" ]]; then
+          cleanup_run 1
+          exit 0
+        fi
+
+        require_cmd() {
+          command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 2; }
+        }
+        for cmd in cp e2fsck mount resize2fs sha256sum ssh sysctl truncate umount; do
+          require_cmd "${cmd}"
+        done
+        for path in "${BASE_ROOTFS}" "${KERNEL}" "${K3S_BIN}" "${FIRECRACKER}" "${LAB_KEY}"; do
+          [[ -e "${path}" ]] || { echo "missing ${path}" >&2; exit 2; }
+        done
+
+        mkdir -p "${RUN_ROOT}/vms" "${CACHE_ROOT}"
+        cache_key="$(
+          {
+            sha256sum "${BASE_ROOTFS}" "${K3S_BIN}" "${KERNEL}"
+            printf 'packages=iptables,conntrack,ipset,ethtool,socat,ca-certificates\n'
+          } | sha256sum | awk '{print substr($1,1,16)}'
+        )"
+        prepared="${CACHE_ROOT}/prepared-${cache_key}.ext4"
+
+        prepare_base_image() {
+          local tmp="${prepared}.tmp"
+          local mnt="${CACHE_ROOT}/mnt-${cache_key}"
+          rm -f "${tmp}"
+          cp --reflink=auto "${BASE_ROOTFS}" "${tmp}" 2>/dev/null || cp "${BASE_ROOTFS}" "${tmp}"
+          set +e
+          e2fsck -fy "${tmp}" >/tmp/torque-fc-e2fsck-${cache_key}.log 2>&1
+          local e=$?
+          set -e
+          [[ "${e}" -le 1 ]] || { cat /tmp/torque-fc-e2fsck-${cache_key}.log >&2; exit "${e}"; }
+          truncate -s 3G "${tmp}"
+          resize2fs "${tmp}" >/tmp/torque-fc-resize-${cache_key}.log 2>&1
+          mkdir -p "${mnt}"
+          mount -o loop "${tmp}" "${mnt}"
+          cleanup_mounts() {
+            set +e
+            mountpoint -q "${mnt}/proc" && umount "${mnt}/proc"
+            mountpoint -q "${mnt}/sys" && umount "${mnt}/sys"
+            mountpoint -q "${mnt}/dev" && umount "${mnt}/dev"
+            mountpoint -q "${mnt}/run" && umount "${mnt}/run"
+            mountpoint -q "${mnt}" && umount "${mnt}"
+          }
+          trap cleanup_mounts RETURN
+          rm -f "${mnt}/etc/resolv.conf"
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+          mount -t proc proc "${mnt}/proc"
+          mount -t sysfs sysfs "${mnt}/sys"
+          mount --bind /dev "${mnt}/dev"
+          mount --bind /run "${mnt}/run"
+          chroot "${mnt}" apt-get update >/tmp/torque-fc-apt-update-${cache_key}.log 2>&1
+          chroot "${mnt}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            iptables conntrack ipset ethtool socat ca-certificates >/tmp/torque-fc-apt-install-${cache_key}.log 2>&1
+          install -m 0755 "${K3S_BIN}" "${mnt}/usr/local/bin/k3s"
+          chroot "${mnt}" update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true
+          chroot "${mnt}" update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy >/dev/null 2>&1 || true
+          cleanup_mounts
+          trap - RETURN
+          mv "${tmp}" "${prepared}"
+        }
+
+        if [[ ! -s "${prepared}" ]]; then
+          echo "preparing-base-image"
+          prepare_base_image
+        else
+          echo "using-cached-base-image"
+        fi
+
+        SSH_OPTS=(-n -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2)
+        if [[ -s "${RUN_ROOT}/receipt.json" && -d "${RUN_ROOT}/vms" ]]; then
+          live_count=0
+          for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+            [[ -f "${pid_file}" ]] && kill -0 "$(cat "${pid_file}")" 2>/dev/null && live_count="$((live_count + 1))"
+          done
+          nodes_text="$(ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get nodes -o wide --no-headers 2>/dev/null' || true)"
+          printf '%s\n' "${nodes_text}" >"${RUN_ROOT}/nodes.txt"
+          ready_count="$(printf '%s\n' "${nodes_text}" | awk '$2=="Ready"{c++} END{print c+0}')"
+          if [[ "${live_count}" -ge "${NODE_COUNT}" && "${ready_count}" -ge "${NODE_COUNT}" ]]; then
+            ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" 'cat /etc/rancher/k3s/k3s.yaml' |
+              sed "s#https://0.0.0.0:6443#https://${SERVER_IP}:6443#g" >"${RUN_ROOT}/kubeconfig.yaml"
+            ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get pods -A -o wide || true' >"${RUN_ROOT}/pods.txt" 2>&1 || true
+            cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-k8s/v1","kind":"FirecrackerK3sReceipt","status":"succeeded","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"readyCount":${ready_count},"serverIP":"${SERVER_IP}","subnet":"${CIDR}","bridge":"${BRIDGE_NAME}","idempotentReuse":true}
+        EOF
+            echo "cluster-already-ready nodes=${ready_count} live=${live_count}"
+            cat "${RUN_ROOT}/nodes.txt"
+            exit 0
+          fi
+        fi
+
+        cleanup_run
+        mkdir -p "${RUN_ROOT}/vms"
+        openssl rand -hex 24 >"${TOKEN_FILE}"
+        chmod 0600 "${TOKEN_FILE}"
+        TOKEN="$(cat "${TOKEN_FILE}")"
+
+        ip link add name "${BRIDGE_NAME}" type bridge
+        ip addr add "${GATEWAY}/24" dev "${BRIDGE_NAME}"
+        ip link set "${BRIDGE_NAME}" up
+        sysctl -w net.ipv4.ip_forward=1 >/dev/null
+        iptables -t nat -C POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null ||
+          iptables -t nat -A POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE
+
+        write_service() {
+          local role="$1"
+          local ip="$2"
+          if [[ "${role}" == "server" ]]; then
+            cat <<EOF
+        [Unit]
+        Description=Lightweight Kubernetes
+        Wants=network-online.target
+        After=network-online.target
+        [Service]
+        Type=simple
+        Environment=K3S_TOKEN=${TOKEN}
+        ExecStart=/usr/local/bin/k3s server --cluster-init --node-ip ${ip} --advertise-address ${ip} --bind-address 0.0.0.0 --tls-san ${ip} --tls-san 127.0.0.1 --flannel-iface eth0 --flannel-backend=host-gw --disable-kube-proxy --disable-network-policy --write-kubeconfig-mode 0644 --disable traefik --disable servicelb --disable metrics-server --disable coredns --disable local-storage --kubelet-arg=fail-cgroupv1=false
+        KillMode=process
+        Delegate=yes
+        LimitNOFILE=1048576
+        LimitNPROC=infinity
+        LimitCORE=infinity
+        TasksMax=infinity
+        Restart=always
+        RestartSec=5s
+        TimeoutStartSec=0
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          else
+            cat <<EOF
+        [Unit]
+        Description=Lightweight Kubernetes Agent
+        Wants=network-online.target
+        After=network-online.target
+        [Service]
+        Type=simple
+        Environment=K3S_TOKEN=${TOKEN}
+        ExecStart=/usr/local/bin/k3s agent --server https://${SERVER_IP}:6443 --node-ip ${ip} --flannel-iface eth0 --kubelet-arg=fail-cgroupv1=false
+        KillMode=process
+        Delegate=yes
+        LimitNOFILE=1048576
+        LimitNPROC=infinity
+        LimitCORE=infinity
+        TasksMax=infinity
+        Restart=always
+        RestartSec=5s
+        TimeoutStartSec=0
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          fi
+        }
+
+        for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+          vm="${RUN_ROOT}/vms/node${i}"
+          mkdir -p "${vm}"
+          ip="${NET_PREFIX}.$((10 + i))"
+          name="$(printf 'fc-%02d' "${i}")"
+          tap="${TAP_PREFIX}${i}"
+          mac="$(printf '06:00:00:%02x:00:%02x' "${SUBNET_OCTET}" "$((10 + i))")"
+          cp --reflink=auto "${prepared}" "${vm}/rootfs.ext4" 2>/dev/null || cp "${prepared}" "${vm}/rootfs.ext4"
+          set +e
+          e2fsck -fy "${vm}/rootfs.ext4" >/dev/null 2>&1
+          e=$?
+          set -e
+          [[ "${e}" -le 1 ]] || exit "${e}"
+          mnt="${vm}/mnt"
+          mkdir -p "${mnt}"
+          mount -o loop "${vm}/rootfs.ext4" "${mnt}"
+          printf '%s\n' "${name}" >"${mnt}/etc/hostname"
+          cat >"${mnt}/etc/hosts" <<EOF
+        127.0.0.1 localhost
+        127.0.1.1 ${name}
+        ${ip} ${name}
+        EOF
+          cat >"${mnt}/etc/network/interfaces" <<EOF
+        auto lo
+        iface lo inet loopback
+
+        auto eth0
+        iface eth0 inet static
+            address ${ip}
+            netmask 255.255.255.0
+            gateway ${GATEWAY}
+        EOF
+          rm -f "${mnt}/etc/resolv.conf"
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+          rm -f "${mnt}/etc/machine-id"
+          touch "${mnt}/etc/machine-id"
+          rm -f "${mnt}/var/lib/dbus/machine-id" 2>/dev/null || true
+          rm -rf "${mnt}/var/lib/rancher/k3s" "${mnt}/var/lib/kubelet" "${mnt}/run/k3s" "${mnt}/run/flannel" 2>/dev/null || true
+          mkdir -p "${mnt}/etc/systemd/system/multi-user.target.wants"
+          role="agent"
+          [[ "${i}" -eq 0 ]] && role="server"
+          write_service "${role}" "${ip}" >"${mnt}/etc/systemd/system/k3s.service"
+          ln -sf /etc/systemd/system/k3s.service "${mnt}/etc/systemd/system/multi-user.target.wants/k3s.service"
+          ln -sf /lib/systemd/system/ssh.service "${mnt}/etc/systemd/system/multi-user.target.wants/ssh.service"
+          umount "${mnt}"
+          ip tuntap add dev "${tap}" mode tap
+          ip link set "${tap}" master "${BRIDGE_NAME}"
+          ip link set "${tap}" up
+          cat >"${vm}/vm.json" <<EOF
+        {"boot-source":{"kernel_image_path":"${KERNEL}","boot_args":"console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw random.trust_cpu=on systemd.unified_cgroup_hierarchy=0 systemd.legacy_systemd_cgroup_controller=1 systemd.mask=serial-getty@ttyS0.service systemd.mask=systemd-random-seed.service"},"drives":[{"drive_id":"rootfs","path_on_host":"${vm}/rootfs.ext4","is_root_device":true,"is_read_only":false}],"machine-config":{"vcpu_count":1,"mem_size_mib":1024},"network-interfaces":[{"iface_id":"eth0","host_dev_name":"${tap}","guest_mac":"${mac}"}],"logger":{"log_path":"${vm}/firecracker.log","level":"Info","show_level":true,"show_log_origin":true}}
+        EOF
+          "${FIRECRACKER}" --api-sock "${vm}/fc.sock" --config-file "${vm}/vm.json" >"${vm}/console.log" 2>&1 &
+          echo $! >"${vm}/pid"
+          echo "started ${name} ${ip}"
+        done
+
+        for _ in $(seq 1 120); do
+          if ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" true >/dev/null 2>&1; then
+            echo "server-ssh-ready"
+            break
+          fi
+          sleep 2
+        done
+
+        for attempt in $(seq 1 360); do
+          nodes_text="$(ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get nodes -o wide --no-headers 2>/dev/null' || true)"
+          printf '%s\n' "${nodes_text}" >"${RUN_ROOT}/nodes.txt"
+          ready_count="$(printf '%s\n' "${nodes_text}" | awk '$2=="Ready"{c++} END{print c+0}')"
+          if [[ "${ready_count}" -ge "${NODE_COUNT}" ]]; then
+            ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" 'cat /etc/rancher/k3s/k3s.yaml' |
+              sed "s#https://0.0.0.0:6443#https://${SERVER_IP}:6443#g" >"${RUN_ROOT}/kubeconfig.yaml"
+            ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get pods -A -o wide || true' >"${RUN_ROOT}/pods.txt" 2>&1 || true
+            cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-k8s/v1","kind":"FirecrackerK3sReceipt","status":"succeeded","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"readyCount":${ready_count},"serverIP":"${SERVER_IP}","subnet":"${CIDR}","bridge":"${BRIDGE_NAME}"}
+        EOF
+            echo "cluster-ready nodes=${ready_count}"
+            cat "${RUN_ROOT}/nodes.txt"
+            exit 0
+          fi
+          if (( attempt % 30 == 0 )); then
+            echo "waiting-cluster attempt=${attempt} ready=${ready_count}/${NODE_COUNT}"
+            cat "${RUN_ROOT}/nodes.txt"
+          fi
+          sleep 2
+        done
+
+        ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" 'journalctl -u k3s --no-pager -n 180 || true' >"${RUN_ROOT}/server-journal.txt" 2>&1 || true
+        cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-k8s/v1","kind":"FirecrackerK3sReceipt","status":"failed","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"serverIP":"${SERVER_IP}","subnet":"${CIDR}","bridge":"${BRIDGE_NAME}"}
+        EOF
+        echo "cluster failed; see ${RUN_ROOT}" >&2
+        exit 1
+        REMOTE
+        chmod +x "${RUN_ROOT}/bootstrap-firecracker-k3s.sh"
+        RUN_ROOT="${RUN_ROOT}" NODE_COUNT="${NODE_COUNT}" SUBNET_OCTET="${SUBNET_OCTET}" BRIDGE_NAME="${BRIDGE_NAME}" TAP_PREFIX="${TAP_PREFIX}" RUN_ID="${RUN_ID}" \
+          "${RUN_ROOT}/bootstrap-firecracker-k3s.sh" apply
+      deleteCommand: |
+        set +e
+        RUN_ROOT="/var/lib/torque-firecracker-k8s/stackfile"
+        NODE_COUNT="8"
+        SUBNET_OCTET="231"
+        BRIDGE_NAME="tqfcstack"
+        TAP_PREFIX="tqst"
+        RUN_ID="stackfile"
+        if [ -x "${RUN_ROOT}/bootstrap-firecracker-k3s.sh" ]; then
+          RUN_ROOT="${RUN_ROOT}" NODE_COUNT="${NODE_COUNT}" SUBNET_OCTET="${SUBNET_OCTET}" BRIDGE_NAME="${BRIDGE_NAME}" TAP_PREFIX="${TAP_PREFIX}" RUN_ID="${RUN_ID}" \
+            "${RUN_ROOT}/bootstrap-firecracker-k3s.sh" delete
+        else
+          for p in "${RUN_ROOT}"/vms/*/pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null; done
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do ip link del "${TAP_PREFIX}${i}" 2>/dev/null; done
+          ip link set "${BRIDGE_NAME}" down 2>/dev/null
+          ip link del "${BRIDGE_NAME}" type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "172.31.${SUBNET_OCTET}.0/24" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null
+          rm -rf "${RUN_ROOT}"
+        fi
+
+  - name: fc-k8s-tunnel
+    kind: host.command.run
+    needs: [fc-k8s-bootstrap]
+    host:
+      transport: local
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@141.105.65.227}"
+        LAB_TARGET="${LAB_TARGET#ssh://}"
+        RUN_ROOT="/var/lib/torque-firecracker-k8s/stackfile"
+        SERVER_IP="172.31.231.10"
+        API_PORT="${TORQUE_FC_API_PORT:-16443}"
+        KUBECONFIG_PATH="${TORQUE_FC_KUBECONFIG:-/tmp/torque-fc-k8s-stack.kubeconfig}"
+        CONTROL_PATH="${TORQUE_FC_SSH_CONTROL:-/tmp/torque-fc-k8s-stack.ctl}"
+        ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "${LAB_TARGET}" "cat '${RUN_ROOT}/kubeconfig.yaml'" |
+          sed "s#https://${SERVER_IP}:6443#https://127.0.0.1:${API_PORT}#g" >"${KUBECONFIG_PATH}"
+        ssh -S "${CONTROL_PATH}" -O exit "${LAB_TARGET}" >/dev/null 2>&1 || true
+        rm -f "${CONTROL_PATH}"
+        ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ExitOnForwardFailure=yes \
+          -M -S "${CONTROL_PATH}" -fN -L "127.0.0.1:${API_PORT}:${SERVER_IP}:6443" "${LAB_TARGET}"
+        for i in $(seq 1 60); do
+          if kubectl --kubeconfig "${KUBECONFIG_PATH}" get nodes >/dev/null 2>&1; then
+            kubectl --kubeconfig "${KUBECONFIG_PATH}" get nodes -o wide
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "tunnel did not expose Kubernetes API" >&2
+        exit 1
+      deleteCommand: |
+        set +e
+        LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@141.105.65.227}"
+        LAB_TARGET="${LAB_TARGET#ssh://}"
+        KUBECONFIG_PATH="${TORQUE_FC_KUBECONFIG:-/tmp/torque-fc-k8s-stack.kubeconfig}"
+        CONTROL_PATH="${TORQUE_FC_SSH_CONTROL:-/tmp/torque-fc-k8s-stack.ctl}"
+        ssh -S "${CONTROL_PATH}" -O exit "${LAB_TARGET}" >/dev/null 2>&1
+        rm -f "${CONTROL_PATH}" "${KUBECONFIG_PATH}"
+
+  - name: fc-app-apply
+    kind: host.command.run
+    needs: [fc-k8s-tunnel]
+    host:
+      transport: local
+      timeout: 10m
+      command: |
+        set -euo pipefail
+        KUBECONFIG_PATH="${TORQUE_FC_KUBECONFIG:-/tmp/torque-fc-k8s-stack.kubeconfig}"
+        kubectl --kubeconfig "${KUBECONFIG_PATH}" create namespace torque-fc-app --dry-run=client -o yaml |
+          kubectl --kubeconfig "${KUBECONFIG_PATH}" apply -f -
+        cat <<'APP' | kubectl --kubeconfig "${KUBECONFIG_PATH}" apply -f -
+        apiVersion: apps/v1
+        kind: DaemonSet
+        metadata:
+          name: torque-fc-app
+          namespace: torque-fc-app
+        spec:
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: torque-fc-app
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: torque-fc-app
+            spec:
+              hostNetwork: true
+              dnsPolicy: Default
+              tolerations:
+                - operator: Exists
+              containers:
+                - name: http
+                  image: hashicorp/http-echo:1.0.0
+                  imagePullPolicy: IfNotPresent
+                  args:
+                    - "-listen=:18080"
+                    - "-text=torque-firecracker-k8s stackfile"
+                  ports:
+                    - name: http
+                      containerPort: 18080
+                      protocol: TCP
+                  readinessProbe:
+                    httpGet:
+                      path: /
+                      port: http
+                    initialDelaySeconds: 1
+                    periodSeconds: 2
+        APP
+        kubectl --kubeconfig "${KUBECONFIG_PATH}" -n torque-fc-app rollout status ds/torque-fc-app --timeout=6m
+        kubectl --kubeconfig "${KUBECONFIG_PATH}" -n torque-fc-app get ds,pods -o wide
+      deleteCommand: |
+        set +e
+        KUBECONFIG_PATH="${TORQUE_FC_KUBECONFIG:-/tmp/torque-fc-k8s-stack.kubeconfig}"
+        kubectl --kubeconfig "${KUBECONFIG_PATH}" delete namespace torque-fc-app --ignore-not-found --timeout=90s
+
+  - name: fc-app-verify
+    kind: host.command.run
+    needs: [fc-app-apply]
+    host:
+      transport: local
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        LAB_TARGET="${TORQUE_LAB_SSH:-ssh://root@141.105.65.227}"
+        LAB_TARGET="${LAB_TARGET#ssh://}"
+        KUBECONFIG_PATH="${TORQUE_FC_KUBECONFIG:-/tmp/torque-fc-k8s-stack.kubeconfig}"
+        NODE_COUNT="8"
+        SUBNET_OCTET="231"
+        nodes="$(mktemp)"
+        app="$(mktemp)"
+        access="$(mktemp)"
+        trap 'rm -f "${nodes}" "${app}" "${access}"' EXIT
+        ready_nodes=0
+        ready_pods=0
+        desired=0
+        available=0
+        accessible=0
+        for attempt in $(seq 1 72); do
+          kubectl --kubeconfig "${KUBECONFIG_PATH}" get nodes -o wide >"${nodes}"
+          kubectl --kubeconfig "${KUBECONFIG_PATH}" -n torque-fc-app get ds,pods -o wide >"${app}"
+          ready_nodes="$(awk '$2=="Ready"{c++} END{print c+0}' "${nodes}")"
+          ready_pods="$(kubectl --kubeconfig "${KUBECONFIG_PATH}" -n torque-fc-app get pods --no-headers 2>/dev/null | awk '$3=="Running"{c++} END{print c+0}')"
+          desired="$(kubectl --kubeconfig "${KUBECONFIG_PATH}" -n torque-fc-app get ds torque-fc-app -o jsonpath='{.status.desiredNumberScheduled}')"
+          available="$(kubectl --kubeconfig "${KUBECONFIG_PATH}" -n torque-fc-app get ds torque-fc-app -o jsonpath='{.status.numberAvailable}')"
+          : >"${access}"
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip="172.31.${SUBNET_OCTET}.$((10 + i))"
+            if body="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "${LAB_TARGET}" "curl -fsS --max-time 10 http://${ip}:18080/" 2>&1)"; then
+              printf '%s\t%s\n' "${ip}" "${body}" >>"${access}"
+            else
+              printf '%s\tERROR: %s\n' "${ip}" "${body}" >>"${access}"
+            fi
+          done
+          accessible="$(grep -cF "torque-firecracker-k8s stackfile" "${access}" || true)"
+          if [[ "${ready_nodes}" == "${NODE_COUNT}" && "${ready_pods}" == "${NODE_COUNT}" && "${desired}" == "${NODE_COUNT}" && "${available}" == "${NODE_COUNT}" && "${accessible}" == "${NODE_COUNT}" ]]; then
+            break
+          fi
+          if (( attempt % 6 == 0 )); then
+            echo "waiting-app attempt=${attempt} nodes=${ready_nodes} pods=${ready_pods} desired=${desired} available=${available} http=${accessible}/${NODE_COUNT}" >&2
+            cat "${app}" >&2 || true
+            cat "${access}" >&2 || true
+          fi
+          sleep 5
+        done
+        cat "${nodes}"
+        cat "${app}"
+        cat "${access}"
+        if [[ "${ready_nodes}" != "${NODE_COUNT}" || "${ready_pods}" != "${NODE_COUNT}" || "${desired}" != "${NODE_COUNT}" || "${available}" != "${NODE_COUNT}" || "${accessible}" != "${NODE_COUNT}" ]]; then
+          echo "verification failed: nodes=${ready_nodes} pods=${ready_pods} desired=${desired} available=${available} http=${accessible}/${NODE_COUNT}" >&2
+          exit 1
+        fi
+      deleteCommand: "true"

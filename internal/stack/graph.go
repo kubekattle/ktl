@@ -18,20 +18,14 @@ func BuildGraph(p *Plan) (*Graph, error) {
 		deps:       map[string][]string{},
 		dependents: map[string][]string{},
 	}
-	for _, nodes := range p.ByCluster {
-		byName := map[string]*ResolvedRelease{}
-		for _, n := range nodes {
-			byName[n.Name] = n
-		}
-		for _, n := range nodes {
-			for _, depName := range n.Needs {
-				dep, ok := byName[depName]
-				if !ok {
-					return nil, fmt.Errorf("release %s needs missing dependency %q", n.ID, depName)
-				}
-				g.deps[n.ID] = append(g.deps[n.ID], dep.ID)
-				g.dependents[dep.ID] = append(g.dependents[dep.ID], n.ID)
+	for _, n := range p.Nodes {
+		for _, depName := range n.Needs {
+			dep, err := resolveDependencyNode(p.Nodes, n, depName)
+			if err != nil {
+				return nil, fmt.Errorf("node %s needs %q: %w", n.ID, depName, err)
 			}
+			g.deps[n.ID] = append(g.deps[n.ID], dep.ID)
+			g.dependents[dep.ID] = append(g.dependents[dep.ID], n.ID)
 		}
 	}
 	for k := range g.deps {

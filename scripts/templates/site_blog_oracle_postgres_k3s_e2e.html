@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Oracle/APEX To PostgreSQL On k3s | torque</title>
+    <meta
+      name="description"
+      content="A complete Torque end-to-end run for an Oracle/APEX to PostgreSQL modernization graph on a live k3s lab host."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050505;
+        --surface: #0a0a0c;
+        --text: #ffffff;
+        --muted: #a0a0aa;
+        --line: rgba(255, 255, 255, 0.12);
+        --accent: #edf1f5;
+        --ok: #7dd3a8;
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --mono: "SF Mono", Monaco, Inconsolata, "Fira Code", ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          linear-gradient(rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(237,241,245,0.09), rgba(5,5,5,0.86) 42%, rgba(5,5,5,0.98)),
+          var(--bg);
+        background-size: 80px 80px, 80px 80px, auto, auto;
+        font: 16px/1.65 var(--font);
+        letter-spacing: 0;
+      }
+      a { color: inherit; text-decoration: none; }
+      a:hover { color: var(--accent); }
+      .page { width: min(1040px, calc(100% - 48px)); margin: 0 auto; }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 28px;
+        padding: 28px 0 44px;
+      }
+      .brand { display: inline-flex; align-items: center; gap: 12px; font-weight: 740; font-size: 1.55rem; line-height: 1; }
+      .brand-mark { width: 52px; height: 52px; color: currentColor; flex: 0 0 auto; }
+      nav {
+        display: flex;
+        gap: 24px;
+        align-items: center;
+        color: var(--muted);
+        font: 0.78rem/1 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 13px 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(10, 10, 12, 0.78);
+      }
+      main { padding: 0 0 72px; }
+      .hero { max-width: 940px; display: grid; gap: 22px; margin-bottom: 48px; }
+      .eyebrow {
+        justify-self: start;
+        color: var(--accent);
+        font: 0.9rem/1 var(--mono);
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 12px 14px;
+        border: 1px solid rgba(237, 241, 245, 0.18);
+        border-radius: 8px;
+        background: rgba(10, 10, 12, 0.78);
+      }
+      h1 { margin: 0; font-size: clamp(3rem, 7vw, 6.6rem); line-height: 0.93; font-weight: 780; letter-spacing: 0; }
+      .dek { margin: 0; max-width: 780px; color: var(--muted); font-size: clamp(1.05rem, 1.6vw, 1.3rem); line-height: 1.55; }
+      article { max-width: 860px; display: grid; gap: 30px; }
+      section { display: grid; gap: 14px; }
+      h2 { margin: 0; color: var(--text); font-size: clamp(1.8rem, 3vw, 2.7rem); line-height: 1.05; letter-spacing: 0; }
+      p, li { color: #d7dbe0; font-size: 1.04rem; }
+      ul { margin: 0; padding-left: 22px; }
+      code, pre { font-family: var(--mono); }
+      pre {
+        margin: 0;
+        overflow-x: auto;
+        color: #f7f9fb;
+        background: rgba(10, 10, 12, 0.96);
+        border: 1px solid rgba(237, 241, 245, 0.13);
+        border-radius: 7px;
+        padding: 18px;
+        font-size: 0.88rem;
+        line-height: 1.55;
+      }
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .fact {
+        border: 1px solid rgba(237, 241, 245, 0.13);
+        border-radius: 7px;
+        background: rgba(10, 10, 12, 0.84);
+        padding: 16px;
+      }
+      .fact strong { display: block; color: var(--ok); font: 1.45rem/1 var(--mono); }
+      .fact span { display: block; margin-top: 8px; color: var(--muted); font: 0.78rem/1.35 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; }
+      @media (max-width: 760px) {
+        .page { width: min(100% - 28px, 1040px); }
+        header { flex-direction: column; align-items: flex-start; }
+        nav { flex-wrap: wrap; gap: 14px; }
+        .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <a class="brand" href="./" aria-label="torque home">
+          <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
+            <path d="M24 5.5 42.5 24 24 42.5 5.5 24Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round"></path>
+            <path d="M18 19h12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+            <path d="M24 19v12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+          </svg>
+          <span>torque</span>
+        </a>
+        <nav aria-label="Primary">
+          <a href="./docs.html">Docs</a>
+          <a href="./blog.html">Blog</a>
+          <a href="https://github.com/ingresslabs/torque">GitHub</a>
+          <a href="https://github.com/ingresslabs/torque/releases">Releases</a>
+        </nav>
+      </header>
+
+      <main>
+        <div class="hero">
+          <div class="eyebrow">Live k3s E2E</div>
+          <h1>Oracle/APEX To PostgreSQL On k3s</h1>
+          <p class="dek">A complete Torque run for a stateful modernization graph: Kubernetes readiness, source freeze, export receipt, PostgreSQL restore point, schema expansion, checkpointed backfill, cutover, route promotion, schema contract, audit, and portable evidence export.</p>
+        </div>
+
+        <article>
+          <section>
+            <h2>The Test</h2>
+            <p>On May 23, 2026, I ran the Oracle/APEX to PostgreSQL showcase against a real single-node k3s lab host. The host ran Ubuntu 22.04.5 LTS with k3s v1.35.4+k3s1 and a Ready control-plane node.</p>
+            <p>The run created a temporary <code>data-platform</code> namespace with PostgreSQL, PostgreSQL-facing services, a simulated CNPG operator service, and an <code>api-shadow</code> service. Torque then ran the stack against PostgreSQL through a k3s port-forward.</p>
+          </section>
+
+          <section>
+            <h2>The Graph</h2>
+            <pre>cnpg-ready
+  -> postgres-cluster-ready
+  -> pgbouncer-ready
+  -> app-shadow-ready
+  -> change-window-approved
+  -> apex-readonly-window
+  -> oracle-export
+  -> pg-restore
+  -> pg-expand
+  -> pg-backfill
+  -> pg-verify
+  -> pg-cutover
+  -> app-route-promote
+  -> pg-contract
+  -> post-cutover-check</pre>
+          </section>
+
+          <section>
+            <h2>The Commands</h2>
+            <pre>export TORQUE_K8S_READY_MODE=kubectl
+export TORQUE_KUBECTL_BIN='k3s kubectl'
+export TORQUE_ORACLE_PG_DSN='postgres://postgres:***@127.0.0.1:15432/oracle_cutover?sslmode=disable'
+
+./torque stack plan --config ./stack.yaml
+./torque stack apply --config ./stack.yaml --yes
+./torque stack audit --config ./stack.yaml --include-artifacts --output json &gt; runtime/audit.json
+./torque stack export --config ./stack.yaml --out runtime/oracle-postgres-run.tgz</pre>
+          </section>
+
+          <section>
+            <h2>The Result</h2>
+            <div class="facts">
+              <div class="fact"><strong>15</strong><span>graph nodes</span></div>
+              <div class="fact"><strong>108</strong><span>events</span></div>
+              <div class="fact"><strong>30</strong><span>artifacts</span></div>
+              <div class="fact"><strong>1</strong><span>export bundle</span></div>
+            </div>
+            <pre>run_id=2026-05-23T10-14-10.297189414Z
+status=succeeded
+bundle_kind=StackRunBundle
+bundle_state_sha256=a446e6847f0634cfc6058955b73f033e905424a4cd8f931edc685437c93c398f</pre>
+            <pre>stage_rows=3
+shadow_rows=3
+route_flags=true,true,true
+migration_audit=contracted</pre>
+          </section>
+
+          <section>
+            <h2>Why This Matters</h2>
+            <p>Ansible can run SQL, call kubectl, wait for services, and write JSON files. That is not the hard part. The hard part is safely representing the production change: durable source-freeze receipt, export consistency proof, checkpointed backfill, one-time cutover semantics, route promotion after verification, contract cleanup after cutover, and an exportable run ledger.</p>
+            <p>In Ansible, those behaviors usually become conventions spread across playbooks, variables, registered results, state files, and log parsing. In Torque, they are the product model: compile the graph, enforce dependencies, emit typed artifacts, preserve event integrity, and export portable proof.</p>
+          </section>
+
+          <section>
+            <h2>The Takeaway</h2>
+            <pre>Ansible executes the steps.
+Torque owns the change program.</pre>
+            <p>The namespace was deleted after the run. The evidence directory remained on the host for inspection under <code>/root/torque-k3s-oracle-postgres-e2e-20260523-101233</code>.</p>
+          </section>
+        </article>
+      </main>
+    </div>
+  </body>
+</html>

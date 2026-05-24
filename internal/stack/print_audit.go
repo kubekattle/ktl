@@ -52,6 +52,9 @@ func PrintRunAuditTable(w io.Writer, a *RunAudit) error {
 	if strings.TrimSpace(a.RunDigest) != "" {
 		fmt.Fprintf(tw, "RUN_DIGEST\t%s\n", a.RunDigest)
 	}
+	if len(a.Artifacts) > 0 {
+		fmt.Fprintf(tw, "ARTIFACTS\t%d\n", len(a.Artifacts))
+	}
 	fmt.Fprintf(tw, "EVENTS_OK\t%t\n", a.Integrity.EventsOK)
 	if a.Integrity.EventsError != "" {
 		fmt.Fprintf(tw, "EVENTS_ERROR\t%s\n", a.Integrity.EventsError)

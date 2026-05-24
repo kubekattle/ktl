@@ -85,6 +85,7 @@ fixtures_ok=(
   "08-tags-selection"
   "09-from-path-selection"
   "10-large-graph"
+  "13-mixed-nodes"
 )
 
 for ((iter=1; iter<=ITERATIONS; iter++)); do

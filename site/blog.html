@@ -127,16 +127,45 @@
       }
 
       .post {
+        position: relative;
         border-top: 1px solid rgba(237, 241, 245, 0.12);
+        animation: post-rise 0.78s cubic-bezier(0.16, 1, 0.3, 1) both;
       }
 
       .post:last-child {
         border-bottom: 1px solid rgba(237, 241, 245, 0.12);
       }
 
+      .post:nth-child(2) { animation-delay: 0.06s; }
+      .post:nth-child(3) { animation-delay: 0.12s; }
+      .post:nth-child(4) { animation-delay: 0.18s; }
+      .post:nth-child(5) { animation-delay: 0.24s; }
+
+      .post::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: -1px;
+        width: 0;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(237, 241, 245, 0.86), transparent);
+        transition: width 0.42s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      .post:hover::before,
+      .post:focus-within::before {
+        width: 100%;
+      }
+
       .post-link {
         display: block;
         padding: 20px 0;
+        transition: transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+
+      .post-link:hover,
+      .post-link:focus-visible {
+        transform: translateX(10px);
       }
 
       .post-link:hover h2 {
@@ -155,6 +184,29 @@
         color: #d7dbe0;
         font-size: clamp(1rem, 1.35vw, 1.12rem);
         line-height: 1.65;
+      }
+
+      @keyframes post-rise {
+        from {
+          opacity: 0;
+          transform: translateY(32px) scale(0.985);
+          filter: blur(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+          filter: blur(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .post,
+        .post-link {
+          animation: none;
+          transition: none;
+          transform: none;
+          filter: none;
+        }
       }
 
       @media (max-width: 720px) {
@@ -192,6 +244,27 @@
 
       <main>
         <section class="posts" aria-label="Blog posts">
+          <article class="post">
+            <a class="post-link" href="./blog-firecracker-fraud-platform.html">
+              <h2>A Firecracker Data Platform As A Torque Stack</h2>
+              <p>A real-world Torque stack for Firecracker VMs, k3s, Argo, Spark, Flink, Ray, Redpanda, SigNoz, ClickHouse, a public payments API, and S3-backed fraud data evidence.</p>
+            </a>
+          </article>
+
+          <article class="post">
+            <a class="post-link" href="./blog-agentic-proof-gated-change-control.html">
+              <h2>The Release Should Explain Itself</h2>
+              <p>A live k3s PostgreSQL migration run where Torque denied an agent twice, authorized it only after proof and policy passed, then captured a replayable stack ledger.</p>
+            </a>
+          </article>
+
+          <article class="post">
+            <a class="post-link" href="./blog-oracle-postgres-k3s-e2e.html">
+              <h2>Oracle/APEX To PostgreSQL On k3s</h2>
+              <p>A complete Torque end-to-end run for a stateful modernization graph: Kubernetes readiness, source freeze, export receipt, PostgreSQL restore point, checkpointed backfill, cutover, route promotion, schema contract, audit, and portable evidence export.</p>
+            </a>
+          </article>
+
           <article class="post">
             <a class="post-link" href="./blog-sandbox-cache-docker.html">
               <h2>Sandboxing Docker like a Pro</h2>

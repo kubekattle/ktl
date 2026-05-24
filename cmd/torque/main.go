@@ -247,6 +247,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	replayCmd := newReplayCommand()
 	proofCmd := newProofCommand()
 	agentCmd := newAgentCommand()
+	opsCmd := newOpsCommand()
 	releaseCmd := newReleaseCommand(&kubeconfigPath, &kubeContext)
 	flightCmd := newFlightCommand()
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
@@ -264,6 +265,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		replayCmd,
 		proofCmd,
 		agentCmd,
+		opsCmd,
 		releaseCmd,
 		flightCmd,
 		applyCmd,
@@ -343,7 +345,7 @@ Usage:
   {{.UseLine}}
 
 Subcommands:
-{{- range $i, $n := (list "init" "build" "ship" "apply" "delete" "stack" "revert" "repair" "replay" "proof" "agent" "release" "flight" "list" "lint" "logs" "env" "contract" "guardian" "incident" "secrets" "security" "version") }}
+{{- range $i, $n := (list "init" "build" "ship" "apply" "delete" "stack" "ops" "revert" "repair" "replay" "proof" "agent" "release" "flight" "list" "lint" "logs" "env" "contract" "guardian" "incident" "secrets" "security" "version") }}
 {{- with (indexCommand $.Commands $n) }}
   {{rpad .Name .NamePadding }} {{.Short}}
 {{- end }}

@@ -97,7 +97,7 @@ This is the “minimal-flags” stack workflow: keep defaults in `stack.yaml` un
 # stack.yaml
 name: prod
 
-# Defaults applied to all releases unless overridden.
+# Defaults applied to all stack nodes unless overridden.
 defaults:
   namespace: platform
 
@@ -110,7 +110,7 @@ defaults:
     timeout: 2m
     denyReasons: ["FailedMount", "FailedScheduling", "ImagePullBackOff", "ErrImagePull", "BackOff"]
 
-  # Runner behavior (how releases are scheduled/executed).
+  # Runner behavior (how nodes are scheduled/executed).
   runner:
     concurrency: 6
     progressiveConcurrency: true
@@ -136,23 +136,108 @@ cli:
     allowDrift: false
     rerunFailed: false
 
-releases:
+nodes:
   - name: api
+    kind: release.helm
     chart: ./charts/app
     values: ["./values/api.yaml"]
     tags: ["critical", "team-payments"]
 
   - name: worker
+    kind: release.helm
     chart: ./charts/app
     values: ["./values/worker.yaml"]
     tags: ["team-payments"]
-    # Override verify settings per release.
+    # Override verify settings per node.
     verify:
       enabled: false
+
+  - name: host-preflight
+    kind: host.command.run
+    input:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      command: "systemctl is-active nginx"
+
+  - name: cluster-inspect
+    kind: k8s.cluster.inspect
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_SSH
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        namespaces: [kube-system]
+
+  - name: cert-inspect
+    kind: k8s.cert.inspect
+    needs: [cluster-inspect]
+    kubernetes:
+      provider: auto
+      certificates:
+        renewBefore: 720h
+        order: control-plane-first
+        batchSize: 1
+        targetsFrom:
+          sourceNode: cluster-inspect
+          roles: [control-plane]
+          transport: ssh
+          targetTemplate: "ssh://root@{{ .InternalIP }}"
+
+  - name: cert-renew
+    kind: k8s.cert.renew
+    needs: [cert-inspect]
+    kubernetes:
+      provider: auto
+      certificates:
+        renewBefore: 720h
+        forceOnceId: 2026-q2-cert-renewal
+        statePath: /var/lib/torque/cluster-lifecycle/cert-renewal.json
+        order: control-plane-first
+        batchSize: 1
+        policy:
+          maxUnavailable: 1
+          requireFreshInspect: true
+          maxInspectAge: 15m
+          requireHealthyInspect: true
+          requireSupportedProvider: true
+          override:
+            reason: "Emergency renewal approved by CAB"
+            changeId: CHG-2026-1234
+            approver: sre-lead@example.com
+            expiresAt: "2026-12-31T04:00:00Z"
+            scope:
+              nodeId: k8s.cert.renew/cert-renew
+              intentDigest: sha256:<planned-node-intent>
+              targetIds: [cp-1, cp-2, cp-3]
+        targetsFrom:
+          sourceNode: cluster-inspect
+          roles: [control-plane]
+          transport: ssh
+          targetTemplate: "ssh://root@{{ .InternalIP }}"
+
+  - name: cluster-verify
+    kind: k8s.cluster.verify
+    needs: [cert-renew]
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_SSH
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        minReadyNodes: 3
+        namespaces: [kube-system]
+        appProbes:
+          - id: ingress-health
+            command: "curl -fsS http://127.0.0.1/healthz"
+            expect: ok
 ```
 
 Notes:
 - `torque stack` is read-only by default (prints a plan); use `torque stack apply` / `torque stack delete` to execute.
+- `releases:` remains accepted as a backward-compatible alias for Helm nodes; entries default to `kind: release.helm`.
+- `k8s.cluster.inspect` uses kubectl to emit normalized API, provider, node topology, namespace, core-pod, and certificate-renewal capability evidence.
+- `k8s.cert.inspect` and `k8s.cert.renew` support `provider: auto`, `kubeadm`, `k3s`, `rke2`, or `custom` with explicit inspect/renew commands, dynamic `targetsFrom` wiring from cluster inspect evidence, target checkpoints, rolling `order` / `batchSize` controls, and optional lifecycle policy gates (`maxUnavailable`, fresh/healthy inspect, supported provider, maintenance windows, app probes). The supported-provider policy records both the raw inspect hint and the effective renewal provider, so explicit custom commands can be approved without pretending the cluster distribution was auto-detected.
+- Policy overrides require both `torque stack apply --policy-override` and scoped stackfile approval evidence. Torque records `k8s-lifecycle-policy-override.json` and blocks expired approvals, wrong node scope, changed intent digests, or target-set drift.
+- `k8s.cluster.verify` runs a generic post-maintenance health gate: API stability checks, node readiness, namespace pod readiness, and optional app probes. It also emits `k8s-lifecycle-summary.json`, which links inspect, policy, override, derived target, certificate, checkpoint, verify, and app-probe evidence back to source artifact digests for stack audit/export review. When both pre-mutation policy probes and post-maintenance verify probes are configured, the summary includes an `applicationGate` section proving application availability before and after maintenance.
 - Profile overlays: use `profiles.<name>.cli` and `profiles.<name>.defaults` to override per environment (dev/stage/prod).
 - For CLI schema details, see `docs/stack-cli-defaults.md`.
 

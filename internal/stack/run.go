@@ -5,6 +5,7 @@ package stack
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,16 +20,17 @@ import (
 )
 
 type RunOptions struct {
-	Command     string
-	Plan        *Plan
-	Concurrency int
-	FailFast    bool
-	AutoApprove bool
-	DryRun      bool
-	Diff        bool
-	CacheApply  bool
-	Executor    NodeExecutor
-	Secrets     *deploy.SecretOptions
+	Command        string
+	Plan           *Plan
+	Concurrency    int
+	FailFast       bool
+	AutoApprove    bool
+	DryRun         bool
+	Diff           bool
+	CacheApply     bool
+	PolicyOverride bool
+	Executor       NodeExecutor
+	Secrets        *deploy.SecretOptions
 
 	HelmLogs bool
 
@@ -102,6 +104,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		run.FailMode = "continue"
 	}
 	run.Selector = opts.Selector
+	run.PolicyOverride = opts.PolicyOverride
 	if opts.InitialAttempts != nil {
 		for _, n := range run.Nodes {
 			if a, ok := opts.InitialAttempts[n.ID]; ok {
@@ -130,7 +133,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 
 	exec := opts.Executor
 	if exec == nil {
-		exec = &helmExecutor{
+		helmExec := &helmExecutor{
 			kubeconfig:  opts.Kubeconfig,
 			kubeContext: opts.KubeContext,
 			run:         run,
@@ -143,6 +146,16 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			kubeQPS:     opts.KubeQPS,
 			kubeBurst:   opts.KubeBurst,
 			secrets:     opts.Secrets,
+		}
+		exec = &dispatchExecutor{
+			helm: helmExec,
+			custom: &customNodeExecutor{
+				run:    run,
+				out:    out,
+				errOut: errOut,
+				dryRun: opts.DryRun,
+				diff:   opts.Diff,
+			},
 		}
 	}
 	exec = &hookedExecutor{base: exec, run: run, opts: opts, out: out, errOut: errOut}
@@ -545,14 +558,6 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 
 	// Seed the scheduler with already-completed nodes from a previous run.
 	// Emit NODE_SUCCEEDED events so the new run's sqlite summary matches the resumed state.
-	stepOK := func(status string) bool {
-		switch strings.ToLower(strings.TrimSpace(status)) {
-		case "succeeded", "success", "skipped":
-			return true
-		default:
-			return false
-		}
-	}
 	nodeSteps := func(nodeID string, attempt int) map[string]NodeStepCheckpoint {
 		if opts.ResumeStepsByID == nil {
 			return nil
@@ -567,10 +572,10 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		if steps == nil {
 			return false
 		}
-		if s, ok := steps["upgrade"]; ok && stepOK(s.Status) {
+		if s, ok := steps["upgrade"]; ok && nodeStepSucceeded(s.Status) {
 			return true
 		}
-		if s, ok := steps["install"]; ok && stepOK(s.Status) {
+		if s, ok := steps["install"]; ok && nodeStepSucceeded(s.Status) {
 			return true
 		}
 		return false
@@ -579,7 +584,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		if steps == nil {
 			return false
 		}
-		if s, ok := steps["wait"]; ok && stepOK(s.Status) {
+		if s, ok := steps["wait"]; ok && nodeStepSucceeded(s.Status) {
 			return true
 		}
 		return false
@@ -588,7 +593,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		if steps == nil {
 			return false
 		}
-		if s, ok := steps["post-hooks"]; ok && stepOK(s.Status) {
+		if s, ok := steps["post-hooks"]; ok && nodeStepSucceeded(s.Status) {
 			return true
 		}
 		return false
@@ -597,7 +602,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 		if steps == nil {
 			return false
 		}
-		if s, ok := steps["verify"]; ok && stepOK(s.Status) {
+		if s, ok := steps["verify"]; ok && nodeStepSucceeded(s.Status) {
 			return true
 		}
 		return false
@@ -642,7 +647,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				if wait {
 					n.resume = &runNodeResume{WaitOnly: true}
 					if steps != nil {
-						if s, ok := steps["diff"]; ok && stepOK(s.Status) {
+						if s, ok := steps["diff"]; ok && nodeStepSucceeded(s.Status) {
 							n.resume.SkipDiff = true
 						}
 					}
@@ -651,7 +656,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			}
 
 			if cmd == "apply" && n.resume == nil && steps != nil {
-				if s, ok := steps["diff"]; ok && stepOK(s.Status) {
+				if s, ok := steps["diff"]; ok && nodeStepSucceeded(s.Status) {
 					n.resume = &runNodeResume{SkipDiff: true}
 				}
 			}
@@ -725,14 +730,15 @@ type runState struct {
 	RunID string
 	store *stackStateStore
 
-	Plan        *Plan
-	Command     string
-	Nodes       []*runNode
-	Concurrency int
-	FailMode    string
-	Selector    RunSelector
-	Kubeconfig  string
-	KubeContext string
+	Plan           *Plan
+	Command        string
+	Nodes          []*runNode
+	Concurrency    int
+	FailMode       string
+	Selector       RunSelector
+	Kubeconfig     string
+	KubeContext    string
+	PolicyOverride bool
 
 	mu sync.Mutex
 
@@ -870,6 +876,30 @@ func (r *runState) WriteSummarySnapshot(s *RunSummary) {
 	_ = r.store.WriteSummary(context.Background(), r.RunID, s)
 }
 
+func (r *runState) RecordArtifact(nodeID string, name string, contentType string, body string) {
+	if r == nil || r.store == nil {
+		return
+	}
+	_ = r.store.UpsertArtifact(context.Background(), RunArtifact{
+		RunID:       r.RunID,
+		NodeID:      strings.TrimSpace(nodeID),
+		Name:        strings.TrimSpace(name),
+		ContentType: strings.TrimSpace(contentType),
+		Body:        body,
+	})
+}
+
+func (r *runState) RecordJSONArtifact(nodeID string, name string, payload any) {
+	if r == nil || r.store == nil {
+		return
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return
+	}
+	r.RecordArtifact(nodeID, name, "application/json", string(raw))
+}
+
 func (r *runState) BuildSummary(status string, startedAt time.Time, snap schedulerSnapshot) *RunSummary {
 	r.lastSnapshot = snap
 	s := &RunSummary{
@@ -944,35 +974,43 @@ func newScheduler(nodes []*runNode, command string) *scheduler {
 		blockedBy:  map[string]string{},
 	}
 
-	byKey := map[string]*runNode{}
 	for _, n := range nodes {
 		s.nodes[n.ID] = n
 		s.order = append(s.order, n.ID)
 		s.status[n.ID] = "planned"
-		byKey[schedulerKey(n.Cluster.Name, n.Name)] = n
+	}
+	resolvedNodes := make([]*ResolvedRelease, 0, len(nodes))
+	runNodesByID := map[string]*runNode{}
+	for _, n := range nodes {
+		resolvedNodes = append(resolvedNodes, n.ResolvedRelease)
+		runNodesByID[n.ID] = n
 	}
 
 	if command == "apply" {
 		for _, n := range nodes {
 			for _, depName := range n.Needs {
-				dep := byKey[schedulerKey(n.Cluster.Name, depName)]
-				if dep == nil {
+				dep, err := resolveDependencyNode(resolvedNodes, n.ResolvedRelease, depName)
+				if err != nil {
 					continue
 				}
-				s.deps[n.ID] = append(s.deps[n.ID], dep.ID)
-				s.dependents[dep.ID] = append(s.dependents[dep.ID], n.ID)
+				if depNode := runNodesByID[dep.ID]; depNode != nil {
+					s.deps[n.ID] = append(s.deps[n.ID], depNode.ID)
+					s.dependents[depNode.ID] = append(s.dependents[depNode.ID], n.ID)
+				}
 			}
 		}
 	} else {
 		// delete: reverse edges, so that dependents run before dependencies.
 		for _, n := range nodes {
 			for _, depName := range n.Needs {
-				dep := byKey[schedulerKey(n.Cluster.Name, depName)]
-				if dep == nil {
+				dep, err := resolveDependencyNode(resolvedNodes, n.ResolvedRelease, depName)
+				if err != nil {
 					continue
 				}
-				s.deps[dep.ID] = append(s.deps[dep.ID], n.ID)
-				s.dependents[n.ID] = append(s.dependents[n.ID], dep.ID)
+				if depNode := runNodesByID[dep.ID]; depNode != nil {
+					s.deps[depNode.ID] = append(s.deps[depNode.ID], n.ID)
+					s.dependents[n.ID] = append(s.dependents[n.ID], depNode.ID)
+				}
 			}
 		}
 	}

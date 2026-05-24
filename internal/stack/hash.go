@@ -26,6 +26,72 @@ type EffectiveInputHashOptions struct {
 	StackGitIdentity      *GitIdentity
 }
 
+type EffectiveActionInput struct {
+	Idempotent   bool   `json:"idempotent"`
+	ApplyDigest  string `json:"applyDigest,omitempty"`
+	DeleteDigest string `json:"deleteDigest,omitempty"`
+	PluginDigest string `json:"pluginDigest,omitempty"`
+	Digest       string `json:"digest,omitempty"`
+}
+
+type EffectiveDatabaseInput struct {
+	Driver              string                 `json:"driver,omitempty"`
+	DSNRef              string                 `json:"dsnRef,omitempty"`
+	MetadataTable       string                 `json:"metadataTable,omitempty"`
+	RestorePointDigest  string                 `json:"restorePointDigest,omitempty"`
+	ExpandDigest        string                 `json:"expandDigest,omitempty"`
+	ContractDigest      string                 `json:"contractDigest,omitempty"`
+	PrepareDigest       string                 `json:"prepareDigest,omitempty"`
+	ArmDigest           string                 `json:"armDigest,omitempty"`
+	CommitDigest        string                 `json:"commitDigest,omitempty"`
+	VerifyDigest        string                 `json:"verifyDigest,omitempty"`
+	FinalizeDigest      string                 `json:"finalizeDigest,omitempty"`
+	VerifyExpectMessage string                 `json:"verifyExpectMessage,omitempty"`
+	Backfill            EffectiveBackfillInput `json:"backfill,omitempty"`
+	StabilizationWindow string                 `json:"stabilizationWindow,omitempty"`
+	RequireFencing      bool                   `json:"requireFencing,omitempty"`
+	AmbiguityPolicy     string                 `json:"ambiguityPolicy,omitempty"`
+	Digest              string                 `json:"digest,omitempty"`
+}
+
+type EffectiveHostInput struct {
+	Transport     string `json:"transport,omitempty"`
+	TargetDigest  string `json:"targetDigest,omitempty"`
+	TargetEnv     string `json:"targetEnv,omitempty"`
+	CommandDigest string `json:"commandDigest,omitempty"`
+	DeleteDigest  string `json:"deleteDigest,omitempty"`
+	Timeout       string `json:"timeout,omitempty"`
+	Digest        string `json:"digest,omitempty"`
+}
+
+type EffectiveKubernetesInput struct {
+	Provider            string   `json:"provider,omitempty"`
+	ClusterDigest       string   `json:"clusterDigest,omitempty"`
+	TargetDigests       []string `json:"targetDigests,omitempty"`
+	RenewBefore         string   `json:"renewBefore,omitempty"`
+	Force               bool     `json:"force,omitempty"`
+	ForceOnceID         string   `json:"forceOnceId,omitempty"`
+	StatePathDigest     string   `json:"statePathDigest,omitempty"`
+	Services            []string `json:"services,omitempty"`
+	Order               string   `json:"order,omitempty"`
+	BatchSize           int      `json:"batchSize,omitempty"`
+	HealthDigest        string   `json:"healthDigest,omitempty"`
+	VerifyCommandDigest string   `json:"verifyCommandDigest,omitempty"`
+	PolicyDigest        string   `json:"policyDigest,omitempty"`
+	Digest              string   `json:"digest,omitempty"`
+}
+
+type EffectiveBackfillInput struct {
+	CheckpointTable string `json:"checkpointTable,omitempty"`
+	CheckpointKey   string `json:"checkpointKey,omitempty"`
+	StartDigest     string `json:"startDigest,omitempty"`
+	EndDigest       string `json:"endDigest,omitempty"`
+	BatchDigest     string `json:"batchDigest,omitempty"`
+	BatchSize       int64  `json:"batchSize,omitempty"`
+	BatchSleep      string `json:"batchSleep,omitempty"`
+	MaxBatches      int    `json:"maxBatches,omitempty"`
+}
+
 func ComputeEffectiveInputHash(stackRoot string, n *ResolvedRelease, includeValuesContents bool) (string, *EffectiveInput, error) {
 	return ComputeEffectiveInputHashWithOptions(n, EffectiveInputHashOptions{
 		StackRoot:             stackRoot,
@@ -59,16 +125,6 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 	}
 
 	settings := cli.New()
-	chartInput, err := digestChart(n.Chart, n.ChartVersion, settings)
-	if err != nil {
-		return "", nil, err
-	}
-	// If the config didn't pin a version and we resolved one, seal the version into the plan so
-	// future runs don't accidentally pick up "latest".
-	if strings.TrimSpace(n.ChartVersion) == "" && strings.TrimSpace(chartInput.ResolvedVersion) != "" && !isExistingPath(n.Chart) {
-		n.ChartVersion = chartInput.ResolvedVersion
-		chartInput.Version = n.ChartVersion
-	}
 
 	setDigest := digestSet(n.Set)
 	clusterDigest := digestCluster(n)
@@ -86,8 +142,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		TorqueGitCommit: version.GitCommit,
 
 		NodeID: n.ID,
-
-		Chart: chartInput,
+		Kind:   normalizeNodeKind(n.Kind),
 
 		Values: values,
 
@@ -97,6 +152,48 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		Apply:  apply,
 		Delete: deleteInput,
 		Verify: verify,
+	}
+	switch normalizeNodeKind(n.Kind) {
+	case NodeKindHelm:
+		chartInput, err := digestChart(n.Chart, n.ChartVersion, settings)
+		if err != nil {
+			return "", nil, err
+		}
+		if strings.TrimSpace(n.ChartVersion) == "" && strings.TrimSpace(chartInput.ResolvedVersion) != "" && !isExistingPath(n.Chart) {
+			n.ChartVersion = chartInput.ResolvedVersion
+			chartInput.Version = n.ChartVersion
+		}
+		input.Chart = chartInput
+	case NodeKindAction, NodeKindActionPlugin:
+		actionInput, err := digestActionSpec(n.Action)
+		if err != nil {
+			return "", nil, err
+		}
+		input.ActionDigest = actionInput.Digest
+	case NodeKindDBRestorePoint, NodeKindDBSchemaExpand, NodeKindDBBackfill, NodeKindDBVerify, NodeKindDBCutover, NodeKindDBSchemaContract:
+		dbInput, err := digestDatabaseSpec(n.Database)
+		if err != nil {
+			return "", nil, err
+		}
+		input.DatabaseDigest = dbInput.Digest
+	case NodeKindHostCommandRun:
+		hostInput, err := digestHostCommandSpec(n.Host)
+		if err != nil {
+			return "", nil, err
+		}
+		input.HostDigest = hostInput.Digest
+	case NodeKindK8sCertInspect, NodeKindK8sCertRenew:
+		kubernetesInput, err := digestKubernetesSpec(n.Kubernetes)
+		if err != nil {
+			return "", nil, err
+		}
+		input.KubernetesDigest = kubernetesInput.Digest
+	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify:
+		kubernetesInput, err := digestKubernetesSpec(n.Kubernetes)
+		if err != nil {
+			return "", nil, err
+		}
+		input.KubernetesDigest = kubernetesInput.Digest
 	}
 
 	type effectiveInputHashV1 struct {
@@ -109,6 +206,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		TorqueGitCommit string `json:"torqueGitCommit,omitempty"`
 
 		NodeID string `json:"nodeId"`
+		Kind   string `json:"kind,omitempty"`
 
 		ChartDigest          string `json:"chartDigest,omitempty"`
 		ChartVersion         string `json:"chartVersion,omitempty"`
@@ -116,8 +214,12 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 
 		ValuesDigests []string `json:"valuesDigests,omitempty"`
 
-		SetDigest     string `json:"setDigest,omitempty"`
-		ClusterDigest string `json:"clusterDigest,omitempty"`
+		SetDigest        string `json:"setDigest,omitempty"`
+		ClusterDigest    string `json:"clusterDigest,omitempty"`
+		ActionDigest     string `json:"actionDigest,omitempty"`
+		DatabaseDigest   string `json:"databaseDigest,omitempty"`
+		HostDigest       string `json:"hostDigest,omitempty"`
+		KubernetesDigest string `json:"kubernetesDigest,omitempty"`
 
 		Apply  EffectiveApplyInput  `json:"apply"`
 		Delete EffectiveDeleteInput `json:"delete"`
@@ -139,6 +241,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		TorqueGitCommit: input.TorqueGitCommit,
 
 		NodeID: input.NodeID,
+		Kind:   input.Kind,
 
 		ChartDigest:          input.Chart.Digest,
 		ChartVersion:         input.Chart.Version,
@@ -146,8 +249,12 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 
 		ValuesDigests: valuesDigests,
 
-		SetDigest:     input.SetDigest,
-		ClusterDigest: input.ClusterDigest,
+		SetDigest:        input.SetDigest,
+		ClusterDigest:    input.ClusterDigest,
+		ActionDigest:     input.ActionDigest,
+		DatabaseDigest:   input.DatabaseDigest,
+		HostDigest:       input.HostDigest,
+		KubernetesDigest: input.KubernetesDigest,
 
 		Apply:  input.Apply,
 		Delete: input.Delete,
@@ -231,6 +338,404 @@ func digestChart(chartRef string, chartVersion string, settings *cli.EnvSettings
 		ResolvedVersion: resolvedVersion,
 		Digest:          digestHelmChart(ch),
 	}, nil
+}
+
+func digestActionSpec(spec ActionSpec) (EffectiveActionInput, error) {
+	input := EffectiveActionInput{Idempotent: spec.Idempotent}
+	if spec.Apply != nil {
+		input.ApplyDigest = digestScriptHookConfig(*spec.Apply)
+	}
+	if spec.Delete != nil {
+		input.DeleteDigest = digestScriptHookConfig(*spec.Delete)
+	}
+	if spec.Plugin != nil {
+		input.PluginDigest = digestActionPluginSpec(*spec.Plugin)
+	}
+	sum, err := hashJSONStable(input)
+	if err != nil {
+		return EffectiveActionInput{}, err
+	}
+	input.Digest = sum
+	return input, nil
+}
+
+func digestDatabaseSpec(spec DatabaseSpec) (EffectiveDatabaseInput, error) {
+	input := EffectiveDatabaseInput{
+		Driver:              strings.TrimSpace(spec.Driver),
+		MetadataTable:       strings.TrimSpace(spec.MetadataTable),
+		RestorePointDigest:  digestString(spec.RestorePointSQL),
+		ExpandDigest:        digestString(spec.ExpandSQL),
+		ContractDigest:      digestString(spec.ContractSQL),
+		PrepareDigest:       digestString(spec.PrepareSQL),
+		ArmDigest:           digestString(spec.ArmSQL),
+		CommitDigest:        digestString(spec.CommitSQL),
+		VerifyDigest:        digestString(spec.VerifySQL),
+		FinalizeDigest:      digestString(spec.FinalizeSQL),
+		VerifyExpectMessage: strings.TrimSpace(spec.VerifyExpectMessage),
+		AmbiguityPolicy:     strings.TrimSpace(spec.AmbiguityPolicy),
+		Backfill: EffectiveBackfillInput{
+			CheckpointTable: strings.TrimSpace(spec.Backfill.CheckpointTable),
+			CheckpointKey:   strings.TrimSpace(spec.Backfill.CheckpointKey),
+			StartDigest:     digestString(spec.Backfill.StartSQL),
+			EndDigest:       digestString(spec.Backfill.EndSQL),
+			BatchDigest:     digestString(spec.Backfill.BatchSQL),
+			BatchSize:       spec.Backfill.BatchSize,
+			MaxBatches:      spec.Backfill.MaxBatches,
+		},
+	}
+	if spec.StabilizationWindow != nil {
+		input.StabilizationWindow = spec.StabilizationWindow.String()
+	}
+	if spec.Backfill.BatchSleep != nil {
+		input.Backfill.BatchSleep = spec.Backfill.BatchSleep.String()
+	}
+	if spec.RequireFencing != nil {
+		input.RequireFencing = *spec.RequireFencing
+	}
+	if strings.TrimSpace(spec.DSNEnv) != "" {
+		input.DSNRef = "env:" + strings.TrimSpace(spec.DSNEnv)
+	} else if strings.TrimSpace(spec.DSN) != "" {
+		input.DSNRef = "sha256:" + hashBytes([]byte(spec.DSN))
+	}
+	sum, err := hashJSONStable(input)
+	if err != nil {
+		return EffectiveDatabaseInput{}, err
+	}
+	input.Digest = sum
+	return input, nil
+}
+
+func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
+	input := EffectiveHostInput{
+		Transport:     strings.TrimSpace(spec.Transport),
+		TargetEnv:     strings.TrimSpace(spec.TargetEnv),
+		CommandDigest: digestString(spec.Command),
+		DeleteDigest:  digestString(spec.DeleteCommand),
+	}
+	if strings.TrimSpace(spec.Target) != "" {
+		input.TargetDigest = digestString(spec.Target)
+	}
+	if spec.Timeout != nil {
+		input.Timeout = spec.Timeout.String()
+	}
+	sum, err := hashJSONStable(input)
+	if err != nil {
+		return EffectiveHostInput{}, err
+	}
+	input.Digest = sum
+	return input, nil
+}
+
+func digestKubernetesSpec(spec KubernetesSpec) (EffectiveKubernetesInput, error) {
+	input := EffectiveKubernetesInput{
+		Provider:            strings.TrimSpace(spec.Provider),
+		Force:               spec.Certificates.Force,
+		ForceOnceID:         strings.TrimSpace(spec.Certificates.ForceOnceID),
+		Services:            append([]string(nil), spec.Certificates.Services...),
+		Order:               strings.TrimSpace(spec.Certificates.Order),
+		BatchSize:           spec.Certificates.BatchSize,
+		HealthDigest:        digestString(spec.Certificates.HealthCheckCommand),
+		VerifyCommandDigest: digestString(spec.Certificates.VerifyCommand),
+	}
+	if targetsFromDigest, err := digestKubernetesCertTargetsFromSpec(spec.Certificates.TargetsFrom); err != nil {
+		return EffectiveKubernetesInput{}, err
+	} else if targetsFromDigest != "" {
+		input.TargetDigests = append(input.TargetDigests, targetsFromDigest)
+	}
+	if policyDigest, err := digestKubernetesLifecyclePolicySpec(spec.Certificates.Policy); err != nil {
+		return EffectiveKubernetesInput{}, err
+	} else if policyDigest != "" {
+		input.PolicyDigest = policyDigest
+	}
+	clusterInput, err := digestKubernetesClusterSpec(spec.Cluster)
+	if err != nil {
+		return EffectiveKubernetesInput{}, err
+	}
+	input.ClusterDigest = clusterInput
+	if spec.Certificates.RenewBefore != nil {
+		input.RenewBefore = spec.Certificates.RenewBefore.String()
+	}
+	if strings.TrimSpace(spec.Certificates.StatePath) != "" {
+		input.StatePathDigest = digestString(spec.Certificates.StatePath)
+	}
+	for _, target := range spec.Certificates.Targets {
+		targetHash := struct {
+			ID                string `json:"id,omitempty"`
+			Role              string `json:"role,omitempty"`
+			Provider          string `json:"provider,omitempty"`
+			Transport         string `json:"transport,omitempty"`
+			TargetDigest      string `json:"targetDigest,omitempty"`
+			TargetEnv         string `json:"targetEnv,omitempty"`
+			Service           string `json:"service,omitempty"`
+			NodeAddressDigest string `json:"nodeAddressDigest,omitempty"`
+			NodeIdentityFile  string `json:"nodeIdentityFile,omitempty"`
+			NodeSSHOptions    string `json:"nodeSshOptions,omitempty"`
+			InspectDigest     string `json:"inspectDigest,omitempty"`
+			RenewDigest       string `json:"renewDigest,omitempty"`
+			RestartDigest     string `json:"restartDigest,omitempty"`
+			Timeout           string `json:"timeout,omitempty"`
+		}{
+			ID:               strings.TrimSpace(target.ID),
+			Role:             strings.TrimSpace(target.Role),
+			Provider:         strings.TrimSpace(target.Provider),
+			Transport:        strings.TrimSpace(target.Transport),
+			TargetEnv:        strings.TrimSpace(target.TargetEnv),
+			Service:          strings.TrimSpace(target.Service),
+			NodeIdentityFile: strings.TrimSpace(target.NodeIdentityFile),
+			NodeSSHOptions:   strings.TrimSpace(target.NodeSSHOptions),
+			InspectDigest:    digestString(target.InspectCommand),
+			RenewDigest:      digestString(target.RenewCommand),
+			RestartDigest:    digestString(target.RestartCommand),
+		}
+		if strings.TrimSpace(target.Target) != "" {
+			targetHash.TargetDigest = digestString(target.Target)
+		}
+		if strings.TrimSpace(target.NodeAddress) != "" {
+			targetHash.NodeAddressDigest = digestString(target.NodeAddress)
+		}
+		if target.Timeout != nil {
+			targetHash.Timeout = target.Timeout.String()
+		}
+		raw, err := json.Marshal(targetHash)
+		if err != nil {
+			return EffectiveKubernetesInput{}, err
+		}
+		input.TargetDigests = append(input.TargetDigests, "sha256:"+hashBytes(raw))
+	}
+	sum, err := hashJSONStable(input)
+	if err != nil {
+		return EffectiveKubernetesInput{}, err
+	}
+	input.Digest = sum
+	return input, nil
+}
+
+func digestKubernetesCertTargetsFromSpec(spec KubernetesCertTargetsFromSpec) (string, error) {
+	if strings.TrimSpace(spec.SourceNode) == "" && strings.TrimSpace(spec.SourceNodeID) == "" {
+		return "", nil
+	}
+	input := struct {
+		SourceNode                string   `json:"sourceNode,omitempty"`
+		SourceNodeID              string   `json:"sourceNodeId,omitempty"`
+		Artifact                  string   `json:"artifact,omitempty"`
+		Roles                     []string `json:"roles,omitempty"`
+		IncludeNotReady           bool     `json:"includeNotReady,omitempty"`
+		AddressType               string   `json:"addressType,omitempty"`
+		Transport                 string   `json:"transport,omitempty"`
+		TargetDigest              string   `json:"targetDigest,omitempty"`
+		TargetEnv                 string   `json:"targetEnv,omitempty"`
+		TargetTemplateDigest      string   `json:"targetTemplateDigest,omitempty"`
+		Timeout                   string   `json:"timeout,omitempty"`
+		Provider                  string   `json:"provider,omitempty"`
+		Service                   string   `json:"service,omitempty"`
+		NodeAddressTemplateDigest string   `json:"nodeAddressTemplateDigest,omitempty"`
+		NodeIdentityFile          string   `json:"nodeIdentityFile,omitempty"`
+		NodeSSHOptions            string   `json:"nodeSshOptions,omitempty"`
+		InspectDigest             string   `json:"inspectDigest,omitempty"`
+		RenewDigest               string   `json:"renewDigest,omitempty"`
+		RestartDigest             string   `json:"restartDigest,omitempty"`
+	}{
+		SourceNode:       strings.TrimSpace(spec.SourceNode),
+		SourceNodeID:     strings.TrimSpace(spec.SourceNodeID),
+		Artifact:         strings.TrimSpace(spec.Artifact),
+		Roles:            append([]string(nil), spec.Roles...),
+		IncludeNotReady:  spec.IncludeNotReady,
+		AddressType:      strings.TrimSpace(spec.AddressType),
+		Transport:        strings.TrimSpace(spec.Transport),
+		TargetEnv:        strings.TrimSpace(spec.TargetEnv),
+		Provider:         strings.TrimSpace(spec.Provider),
+		Service:          strings.TrimSpace(spec.Service),
+		NodeIdentityFile: strings.TrimSpace(spec.NodeIdentityFile),
+		NodeSSHOptions:   strings.TrimSpace(spec.NodeSSHOptions),
+		InspectDigest:    digestString(spec.InspectCommand),
+		RenewDigest:      digestString(spec.RenewCommand),
+		RestartDigest:    digestString(spec.RestartCommand),
+	}
+	if strings.TrimSpace(spec.Target) != "" {
+		input.TargetDigest = digestString(spec.Target)
+	}
+	if strings.TrimSpace(spec.TargetTemplate) != "" {
+		input.TargetTemplateDigest = digestString(spec.TargetTemplate)
+	}
+	if strings.TrimSpace(spec.NodeAddressTemplate) != "" {
+		input.NodeAddressTemplateDigest = digestString(spec.NodeAddressTemplate)
+	}
+	if spec.Timeout != nil {
+		input.Timeout = spec.Timeout.String()
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return "", err
+	}
+	return "sha256:" + hashBytes(raw), nil
+}
+
+func digestKubernetesLifecyclePolicySpec(spec KubernetesLifecyclePolicySpec) (string, error) {
+	if !kubernetesLifecyclePolicyConfigured(spec) {
+		return "", nil
+	}
+	type appProbeInput struct {
+		ID            string `json:"id,omitempty"`
+		CommandDigest string `json:"commandDigest,omitempty"`
+		ExpectDigest  string `json:"expectDigest,omitempty"`
+	}
+	input := struct {
+		MaxUnavailable           int    `json:"maxUnavailable,omitempty"`
+		RequireFreshInspect      bool   `json:"requireFreshInspect,omitempty"`
+		MaxInspectAge            string `json:"maxInspectAge,omitempty"`
+		RequireHealthyInspect    bool   `json:"requireHealthyInspect,omitempty"`
+		RequireSupportedProvider bool   `json:"requireSupportedProvider,omitempty"`
+		MaintenanceWindow        struct {
+			Start    string   `json:"start,omitempty"`
+			End      string   `json:"end,omitempty"`
+			TimeZone string   `json:"timeZone,omitempty"`
+			Days     []string `json:"days,omitempty"`
+		} `json:"maintenanceWindow,omitempty"`
+		AppProbes []appProbeInput `json:"appProbes,omitempty"`
+	}{
+		MaxUnavailable:           spec.MaxUnavailable,
+		RequireFreshInspect:      spec.RequireFreshInspect,
+		RequireHealthyInspect:    spec.RequireHealthyInspect,
+		RequireSupportedProvider: spec.RequireSupportedProvider,
+	}
+	if spec.MaxInspectAge != nil {
+		input.MaxInspectAge = spec.MaxInspectAge.String()
+	}
+	input.MaintenanceWindow.Start = strings.TrimSpace(spec.MaintenanceWindow.Start)
+	input.MaintenanceWindow.End = strings.TrimSpace(spec.MaintenanceWindow.End)
+	input.MaintenanceWindow.TimeZone = strings.TrimSpace(spec.MaintenanceWindow.TimeZone)
+	input.MaintenanceWindow.Days = append([]string(nil), spec.MaintenanceWindow.Days...)
+	for _, probe := range spec.AppProbes {
+		input.AppProbes = append(input.AppProbes, appProbeInput{
+			ID:            strings.TrimSpace(probe.ID),
+			CommandDigest: digestString(probe.Command),
+			ExpectDigest:  digestString(probe.Expect),
+		})
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return "", err
+	}
+	return "sha256:" + hashBytes(raw), nil
+}
+
+func digestKubernetesClusterSpec(spec KubernetesClusterSpec) (string, error) {
+	type appProbeInput struct {
+		ID            string `json:"id,omitempty"`
+		CommandDigest string `json:"commandDigest,omitempty"`
+		ExpectDigest  string `json:"expectDigest,omitempty"`
+	}
+	input := struct {
+		Transport         string          `json:"transport,omitempty"`
+		TargetDigest      string          `json:"targetDigest,omitempty"`
+		TargetEnv         string          `json:"targetEnv,omitempty"`
+		Timeout           string          `json:"timeout,omitempty"`
+		KubeconfigDigest  string          `json:"kubeconfigDigest,omitempty"`
+		KubeconfigEnv     string          `json:"kubeconfigEnv,omitempty"`
+		Context           string          `json:"context,omitempty"`
+		MinReadyNodes     int             `json:"minReadyNodes,omitempty"`
+		Namespaces        []string        `json:"namespaces,omitempty"`
+		StableIterations  int             `json:"stableIterations,omitempty"`
+		StableInterval    string          `json:"stableInterval,omitempty"`
+		ConfigCommand     string          `json:"configCommand,omitempty"`
+		APICommand        string          `json:"apiCommand,omitempty"`
+		NodesCommand      string          `json:"nodesCommand,omitempty"`
+		NamespacesCommand string          `json:"namespacesCommand,omitempty"`
+		PodsCommand       string          `json:"podsCommand,omitempty"`
+		AppProbes         []appProbeInput `json:"appProbes,omitempty"`
+	}{
+		Transport:         strings.TrimSpace(spec.Transport),
+		TargetEnv:         strings.TrimSpace(spec.TargetEnv),
+		KubeconfigEnv:     strings.TrimSpace(spec.KubeconfigEnv),
+		Context:           strings.TrimSpace(spec.Context),
+		MinReadyNodes:     spec.MinReadyNodes,
+		Namespaces:        append([]string(nil), spec.Namespaces...),
+		StableIterations:  spec.StableIterations,
+		ConfigCommand:     digestString(spec.ConfigCommand),
+		APICommand:        digestString(spec.APICommand),
+		NodesCommand:      digestString(spec.NodesCommand),
+		NamespacesCommand: digestString(spec.NamespacesCommand),
+		PodsCommand:       digestString(spec.PodsCommand),
+	}
+	if strings.TrimSpace(spec.Target) != "" {
+		input.TargetDigest = digestString(spec.Target)
+	}
+	if strings.TrimSpace(spec.Kubeconfig) != "" {
+		input.KubeconfigDigest = digestString(spec.Kubeconfig)
+	}
+	if spec.Timeout != nil {
+		input.Timeout = spec.Timeout.String()
+	}
+	if spec.StableInterval != nil {
+		input.StableInterval = spec.StableInterval.String()
+	}
+	for _, probe := range spec.AppProbes {
+		input.AppProbes = append(input.AppProbes, appProbeInput{
+			ID:            strings.TrimSpace(probe.ID),
+			CommandDigest: digestString(probe.Command),
+			ExpectDigest:  digestString(probe.Expect),
+		})
+	}
+	return hashJSONStable(input)
+}
+
+func digestScriptHookConfig(cfg ScriptHookConfig) string {
+	type scriptHash struct {
+		Command []string          `json:"command,omitempty"`
+		Env     map[string]string `json:"env,omitempty"`
+		WorkDir string            `json:"workDir,omitempty"`
+	}
+	raw, _ := json.Marshal(scriptHash{
+		Command: append([]string(nil), cfg.Command...),
+		Env:     cfg.Env,
+		WorkDir: strings.TrimSpace(cfg.WorkDir),
+	})
+	return "sha256:" + hashBytes(raw)
+}
+
+func digestActionPluginSpec(cfg ActionPluginSpec) string {
+	type pluginHash struct {
+		Command []string          `json:"command,omitempty"`
+		Env     map[string]string `json:"env,omitempty"`
+		WorkDir string            `json:"workDir,omitempty"`
+		Timeout string            `json:"timeout,omitempty"`
+		Phases  []string          `json:"phases,omitempty"`
+		Config  map[string]any    `json:"config,omitempty"`
+	}
+	timeout := ""
+	if cfg.Timeout != nil {
+		timeout = cfg.Timeout.String()
+	}
+	raw, _ := json.Marshal(pluginHash{
+		Command: append([]string(nil), cfg.Command...),
+		Env:     cfg.Env,
+		WorkDir: strings.TrimSpace(cfg.WorkDir),
+		Timeout: timeout,
+		Phases:  normalizedActionPluginPhasesForHash(cfg.Phases),
+		Config:  cfg.Config,
+	})
+	return "sha256:" + hashBytes(raw)
+}
+
+func digestString(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	return "sha256:" + hashBytes([]byte(v))
+}
+
+func hashJSONStable(v any) (string, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return "sha256:" + hashBytes(raw), nil
+}
+
+func hashBytes(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func digestHelmChart(ch *chart.Chart) string {

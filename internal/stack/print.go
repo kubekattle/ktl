@@ -40,7 +40,7 @@ func PrintPlanTable(w io.Writer, p *Plan) error {
 	}
 	fmt.Fprintln(tw)
 
-	fmt.Fprintln(tw, "GROUP\tWAVE\tROLE\tKEY\tID\tDIR\tCHART\tTAGS\tNEEDS\tSELECTED_BY")
+	fmt.Fprintln(tw, "GROUP\tWAVE\tROLE\tKEY\tID\tDIR\tKIND\tCHART\tTAGS\tNEEDS\tSELECTED_BY")
 	nodes := append([]*ResolvedRelease(nil), p.Nodes...)
 	sort.Slice(nodes, func(i, j int) bool {
 		if nodes[i].ExecutionGroup != nodes[j].ExecutionGroup {
@@ -57,8 +57,8 @@ func PrintPlanTable(w io.Writer, p *Plan) error {
 		if len(selectedBy) > 140 {
 			selectedBy = selectedBy[:140] + "…"
 		}
-		fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%v\t%v\t%s\n",
-			n.ExecutionGroup, n.Wave, n.InferredRole, releaseReadyKey(n), n.ID, dir, n.Chart, n.Tags, n.Needs, selectedBy)
+		fmt.Fprintf(tw, "%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%v\t%v\t%s\n",
+			n.ExecutionGroup, n.Wave, n.InferredRole, releaseReadyKey(n), n.ID, dir, normalizeNodeKind(n.Kind), n.Chart, n.Tags, n.Needs, selectedBy)
 	}
 	return nil
 }

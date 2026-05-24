@@ -155,6 +155,7 @@ fixtures_ok=(
   "08-tags-selection"
   "09-from-path-selection"
   "10-large-graph"
+  "13-mixed-nodes"
 )
 
 expected_fail_plan=(

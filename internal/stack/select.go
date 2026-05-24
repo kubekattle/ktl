@@ -199,37 +199,25 @@ func Select(u *Universe, p *Plan, clusters []string, sel Selector) (*Plan, error
 }
 
 func pruneMissingNeeds(p *Plan) {
-	for _, nodes := range p.ByCluster {
-		byName := map[string]struct{}{}
-		for _, n := range nodes {
-			byName[n.Name] = struct{}{}
+	for _, n := range p.Nodes {
+		if len(n.Needs) == 0 {
+			continue
 		}
-		for _, n := range nodes {
-			if len(n.Needs) == 0 {
-				continue
+		out := make([]string, 0, len(n.Needs))
+		for _, dep := range n.Needs {
+			if _, err := resolveDependencyNode(p.Nodes, n, dep); err == nil {
+				out = append(out, dep)
 			}
-			out := make([]string, 0, len(n.Needs))
-			for _, dep := range n.Needs {
-				if _, ok := byName[dep]; ok {
-					out = append(out, dep)
-				}
-			}
-			n.Needs = out
 		}
+		n.Needs = out
 	}
 }
 
 func validateSelectedNeeds(p *Plan) error {
-	for _, nodes := range p.ByCluster {
-		byName := map[string]*ResolvedRelease{}
-		for _, n := range nodes {
-			byName[n.Name] = n
-		}
-		for _, n := range nodes {
-			for _, dep := range n.Needs {
-				if _, ok := byName[dep]; !ok {
-					return fmt.Errorf("selected release %s needs %q which is not selected (rerun with --include-deps)", n.ID, dep)
-				}
+	for _, n := range p.Nodes {
+		for _, dep := range n.Needs {
+			if _, err := resolveDependencyNode(p.Nodes, n, dep); err != nil {
+				return fmt.Errorf("selected node %s needs %q which is not selected (rerun with --include-deps): %w", n.ID, dep, err)
 			}
 		}
 	}

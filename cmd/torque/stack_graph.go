@@ -40,7 +40,7 @@ func newStackExplainCommand(common stackCommandCommon) *cobra.Command {
 	var why bool
 	cmd := &cobra.Command{
 		Use:   "explain <id|name>",
-		Short: "Explain why a release was selected",
+		Short: "Explain why a stack node was selected",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, p, _, err := compileInferSelect(cmd, common)
@@ -62,7 +62,7 @@ func newStackExplainCommand(common stackCommandCommon) *cobra.Command {
 					}
 				}
 				if len(matches) == 0 {
-					return fmt.Errorf("unknown release name %q", target)
+					return fmt.Errorf("unknown node name %q", target)
 				}
 				if len(matches) > 1 {
 					return fmt.Errorf("ambiguous name %q (use full id)", target)
@@ -76,6 +76,7 @@ func newStackExplainCommand(common stackCommandCommon) *cobra.Command {
 				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "ID: %s\n", node.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "Kind: %s\n", firstNonEmpty(strings.TrimSpace(node.Kind), "release.helm"))
 			fmt.Fprintf(cmd.OutOrStdout(), "Chart: %s\n", node.Chart)
 			fmt.Fprintf(cmd.OutOrStdout(), "Values: %v\n", node.Values)
 			fmt.Fprintf(cmd.OutOrStdout(), "Tags: %v\n", node.Tags)

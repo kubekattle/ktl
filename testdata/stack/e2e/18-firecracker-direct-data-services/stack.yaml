@@ -1,0 +1,605 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-direct-data-services
+cli:
+  inferDeps: false
+runner:
+  concurrency: 1
+nodes:
+  - name: fc-vms-bootstrap
+    kind: host.command.run
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 90m
+      command: |
+        set -euo pipefail
+        RUN_ROOT="/var/lib/torque-firecracker-direct/data-services"
+        NODE_COUNT="6"
+        SUBNET_OCTET="240"
+        BRIDGE_NAME="tqfcds"
+        TAP_PREFIX="tqds"
+        RUN_ID="direct-data-services"
+        mkdir -p "${RUN_ROOT}"
+        cat >"${RUN_ROOT}/direct-vm-lab.sh" <<'REMOTE'
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        mode="${1:-apply-vms}"
+        RUN_ROOT="${RUN_ROOT:-/var/lib/torque-firecracker-direct/data-services}"
+        NODE_COUNT="${NODE_COUNT:-6}"
+        SUBNET_OCTET="${SUBNET_OCTET:-240}"
+        BRIDGE_NAME="${BRIDGE_NAME:-tqfcds}"
+        TAP_PREFIX="${TAP_PREFIX:-tqds}"
+        RUN_ID="${RUN_ID:-direct-data-services}"
+        BASE_ROOTFS="${BASE_ROOTFS:-/opt/firecracker-sandbox-lab/rootfs.ext4}"
+        KERNEL="${KERNEL:-/opt/firecracker-sandbox-lab/vmlinux.bin}"
+        FIRECRACKER="${FIRECRACKER:-/usr/local/bin/firecracker}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        CACHE_ROOT="${CACHE_ROOT:-/var/lib/torque-firecracker-direct/cache}"
+        NET_PREFIX="172.31.${SUBNET_OCTET}"
+        GATEWAY="${NET_PREFIX}.1"
+        SERVER_IP="${NET_PREFIX}.10"
+        CIDR="${NET_PREFIX}.0/24"
+        DIRECT_PACKAGES="openssh-server ca-certificates curl wget tar gzip postgresql-15 postgresql-client-15 openjdk-17-jre-headless rabbitmq-server python3"
+        SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
+
+        node_ip() { printf '%s.%d' "${NET_PREFIX}" "$((10 + $1))"; }
+        node_name() { printf 'fc-%02d' "$1"; }
+
+        cleanup_run() {
+          local remove_root="${1:-0}"
+          set +e
+          if [[ -d "${RUN_ROOT}/vms" ]]; then
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill "$(cat "${pid_file}")" 2>/dev/null
+            done
+            sleep 1
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -9 "$(cat "${pid_file}")" 2>/dev/null
+            done
+          fi
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip link del "${TAP_PREFIX}${i}" 2>/dev/null
+          done
+          ip link set "${BRIDGE_NAME}" down 2>/dev/null
+          ip link del "${BRIDGE_NAME}" type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null
+          if [[ "${remove_root}" == "1" ]]; then
+            rm -rf "${RUN_ROOT}"
+          else
+            rm -rf "${RUN_ROOT}/vms" "${RUN_ROOT}/receipt.json" "${RUN_ROOT}/nodes.txt" "${RUN_ROOT}/verify-"*.txt
+            mkdir -p "${RUN_ROOT}"
+          fi
+          set -e
+        }
+
+        require_cmd() {
+          command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 2; }
+        }
+
+        prepare_base_image() {
+          local cache_key prepared tmp mnt
+          mkdir -p "${CACHE_ROOT}"
+          cache_key="$(
+            {
+              sha256sum "${BASE_ROOTFS}" "${KERNEL}"
+              printf 'packages=%s\n' "${DIRECT_PACKAGES}"
+              printf 'rootfs-size=6G\n'
+            } | sha256sum | awk '{print substr($1,1,16)}'
+          )"
+          prepared="${CACHE_ROOT}/prepared-direct-${cache_key}.ext4"
+          if [[ -s "${prepared}" ]]; then
+            echo "${prepared}"
+            return
+          fi
+          tmp="${prepared}.tmp"
+          mnt="${CACHE_ROOT}/mnt-${cache_key}"
+          rm -f "${tmp}"
+          cp --reflink=auto "${BASE_ROOTFS}" "${tmp}" 2>/dev/null || cp "${BASE_ROOTFS}" "${tmp}"
+          set +e
+          e2fsck -fy "${tmp}" >/tmp/torque-fc-direct-e2fsck-${cache_key}.log 2>&1
+          local e=$?
+          set -e
+          [[ "${e}" -le 1 ]] || { cat /tmp/torque-fc-direct-e2fsck-${cache_key}.log >&2; exit "${e}"; }
+          truncate -s 6G "${tmp}"
+          resize2fs "${tmp}" >/tmp/torque-fc-direct-resize-${cache_key}.log 2>&1
+          mkdir -p "${mnt}"
+          mount -o loop "${tmp}" "${mnt}"
+          cleanup_mounts() {
+            set +e
+            mountpoint -q "${mnt}/proc" && umount "${mnt}/proc"
+            mountpoint -q "${mnt}/sys" && umount "${mnt}/sys"
+            mountpoint -q "${mnt}/dev" && umount "${mnt}/dev"
+            mountpoint -q "${mnt}/run" && umount "${mnt}/run"
+            mountpoint -q "${mnt}" && umount "${mnt}"
+          }
+          trap cleanup_mounts RETURN
+          rm -f "${mnt}/etc/resolv.conf"
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+          mount -t proc proc "${mnt}/proc"
+          mount -t sysfs sysfs "${mnt}/sys"
+          mount --bind /dev "${mnt}/dev"
+          mount --bind /run "${mnt}/run"
+          chroot "${mnt}" apt-get update >/tmp/torque-fc-direct-apt-update-${cache_key}.log 2>&1
+          chroot "${mnt}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${DIRECT_PACKAGES} >/tmp/torque-fc-direct-apt-install-${cache_key}.log 2>&1
+          chroot "${mnt}" update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true
+          chroot "${mnt}" update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy >/dev/null 2>&1 || true
+          cleanup_mounts
+          trap - RETURN
+          mv "${tmp}" "${prepared}"
+          echo "${prepared}"
+        }
+
+        write_hosts_file() {
+          cat <<EOF
+        127.0.0.1 localhost
+        127.0.1.1 $(node_name "$1")
+        ${NET_PREFIX}.10 fc-00 rabbitmq-0 kafka-0 pg-primary
+        ${NET_PREFIX}.11 fc-01 rabbitmq-1 kafka-1 pg-replica-0
+        ${NET_PREFIX}.12 fc-02 rabbitmq-2 kafka-2 pg-replica-1
+        ${NET_PREFIX}.13 fc-03 rabbitmq-3 kafka-3 pg-replica-2
+        ${NET_PREFIX}.14 fc-04 rabbitmq-4 kafka-4 pg-replica-3
+        ${NET_PREFIX}.15 fc-05 pg-replica-4
+        EOF
+        }
+
+        apply_vms() {
+          for cmd in cp e2fsck mount resize2fs sha256sum ssh sysctl truncate umount; do require_cmd "${cmd}"; done
+          for path in "${BASE_ROOTFS}" "${KERNEL}" "${FIRECRACKER}" "${LAB_KEY}"; do
+            [[ -e "${path}" ]] || { echo "missing ${path}" >&2; exit 2; }
+          done
+          mkdir -p "${RUN_ROOT}/vms"
+          local prepared
+          prepared="$(prepare_base_image)"
+
+          if [[ -s "${RUN_ROOT}/receipt.json" && -d "${RUN_ROOT}/vms" ]]; then
+            local live_count=0 ssh_count=0
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -0 "$(cat "${pid_file}")" 2>/dev/null && live_count="$((live_count + 1))"
+            done
+            for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+              ssh "${SSH_OPTS[@]}" "root@$(node_ip "${i}")" true >/dev/null 2>&1 && ssh_count="$((ssh_count + 1))" || true
+            done
+            if [[ "${live_count}" -ge "${NODE_COUNT}" && "${ssh_count}" -ge "${NODE_COUNT}" ]]; then
+              write_nodes >"${RUN_ROOT}/nodes.txt"
+              cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-direct/v1","kind":"FirecrackerDirectVMReceipt","status":"succeeded","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"sshReady":${ssh_count},"subnet":"${CIDR}","bridge":"${BRIDGE_NAME}","idempotentReuse":true}
+        EOF
+              echo "direct-vms-already-ready ssh=${ssh_count} live=${live_count}"
+              cat "${RUN_ROOT}/nodes.txt"
+              return
+            fi
+          fi
+
+          cleanup_run
+          mkdir -p "${RUN_ROOT}/vms"
+          ip link add name "${BRIDGE_NAME}" type bridge
+          ip addr add "${GATEWAY}/24" dev "${BRIDGE_NAME}"
+          ip link set "${BRIDGE_NAME}" up
+          sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          iptables -t nat -C POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null ||
+            iptables -t nat -A POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE
+
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            local vm ip name tap mac mnt
+            vm="${RUN_ROOT}/vms/node${i}"
+            ip="$(node_ip "${i}")"
+            name="$(node_name "${i}")"
+            tap="${TAP_PREFIX}${i}"
+            mac="$(printf '06:00:00:%02x:00:%02x' "${SUBNET_OCTET}" "$((10 + i))")"
+            mkdir -p "${vm}"
+            cp --reflink=auto "${prepared}" "${vm}/rootfs.ext4" 2>/dev/null || cp "${prepared}" "${vm}/rootfs.ext4"
+            e2fsck -fy "${vm}/rootfs.ext4" >/dev/null 2>&1 || true
+            mnt="${vm}/mnt"
+            mkdir -p "${mnt}"
+            mount -o loop "${vm}/rootfs.ext4" "${mnt}"
+            printf '%s\n' "${name}" >"${mnt}/etc/hostname"
+            write_hosts_file "${i}" >"${mnt}/etc/hosts"
+            cat >"${mnt}/etc/network/interfaces" <<EOF
+        auto lo
+        iface lo inet loopback
+
+        auto eth0
+        iface eth0 inet static
+            address ${ip}
+            netmask 255.255.255.0
+            gateway ${GATEWAY}
+        EOF
+            rm -f "${mnt}/etc/resolv.conf"
+            printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+            rm -f "${mnt}/etc/machine-id" "${mnt}/var/lib/dbus/machine-id" 2>/dev/null || true
+            touch "${mnt}/etc/machine-id"
+            mkdir -p "${mnt}/etc/systemd/system/multi-user.target.wants"
+            ln -sf /lib/systemd/system/ssh.service "${mnt}/etc/systemd/system/multi-user.target.wants/ssh.service"
+            umount "${mnt}"
+            ip tuntap add dev "${tap}" mode tap
+            ip link set "${tap}" master "${BRIDGE_NAME}"
+            ip link set "${tap}" up
+            cat >"${vm}/vm.json" <<EOF
+        {"boot-source":{"kernel_image_path":"${KERNEL}","boot_args":"console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw random.trust_cpu=on systemd.unified_cgroup_hierarchy=0 systemd.legacy_systemd_cgroup_controller=1 systemd.mask=serial-getty@ttyS0.service systemd.mask=systemd-random-seed.service"},"drives":[{"drive_id":"rootfs","path_on_host":"${vm}/rootfs.ext4","is_root_device":true,"is_read_only":false}],"machine-config":{"vcpu_count":1,"mem_size_mib":1536},"network-interfaces":[{"iface_id":"eth0","host_dev_name":"${tap}","guest_mac":"${mac}"}],"logger":{"log_path":"${vm}/firecracker.log","level":"Info","show_level":true,"show_log_origin":true}}
+        EOF
+            "${FIRECRACKER}" --api-sock "${vm}/fc.sock" --config-file "${vm}/vm.json" >"${vm}/console.log" 2>&1 &
+            echo $! >"${vm}/pid"
+            echo "started ${name} ${ip}"
+          done
+
+          local ssh_count=0
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            local ip
+            ip="$(node_ip "${i}")"
+            for _ in $(seq 1 180); do
+              if ssh "${SSH_OPTS[@]}" "root@${ip}" true >/dev/null 2>&1; then
+                ssh_count="$((ssh_count + 1))"
+                break
+              fi
+              sleep 2
+            done
+          done
+          write_nodes >"${RUN_ROOT}/nodes.txt"
+          cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-direct/v1","kind":"FirecrackerDirectVMReceipt","status":"succeeded","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"sshReady":${ssh_count},"subnet":"${CIDR}","bridge":"${BRIDGE_NAME}"}
+        EOF
+          [[ "${ssh_count}" -eq "${NODE_COUNT}" ]] || { echo "only ${ssh_count}/${NODE_COUNT} VMs reachable" >&2; exit 1; }
+          cat "${RUN_ROOT}/nodes.txt"
+        }
+
+        write_nodes() {
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            local ip name status
+            ip="$(node_ip "${i}")"
+            name="$(node_name "${i}")"
+            status="unreachable"
+            ssh "${SSH_OPTS[@]}" "root@${ip}" 'printf "%s %s %s\n" "$(hostname)" "$(hostname -I | awk '\''{print $1}'\'')" "$(uname -r)"' >/tmp/torque-node-${RUN_ID}-${i}.txt 2>/dev/null && status="$(cat /tmp/torque-node-${RUN_ID}-${i}.txt)"
+            printf '%s %s %s\n' "${name}" "${ip}" "${status}"
+          done
+        }
+
+        guest() {
+          local idx="$1"
+          shift
+          ssh "${SSH_OPTS[@]}" "root@$(node_ip "${idx}")" "$@"
+        }
+
+        apply_postgres() {
+          echo "configure-postgres-primary"
+          guest 0 'bash -se' <<'PG_PRIMARY'
+        set -euo pipefail
+        systemctl stop postgresql || true
+        pg_dropcluster --stop 15 main >/dev/null 2>&1 || true
+        pg_createcluster 15 main --start-conf=auto >/dev/null
+        cat >>/etc/postgresql/15/main/postgresql.conf <<'EOF'
+        listen_addresses = '*'
+        wal_level = replica
+        max_wal_senders = 20
+        max_replication_slots = 20
+        hot_standby = on
+        EOF
+        cat >/etc/postgresql/15/main/pg_hba.conf <<'EOF'
+        local all all trust
+        host all all 127.0.0.1/32 trust
+        host all all 172.31.240.0/24 trust
+        host replication all 172.31.240.0/24 trust
+        EOF
+        systemctl enable --now postgresql >/dev/null
+        until pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; do sleep 1; done
+        su - postgres -c "createdb torque" >/dev/null 2>&1 || true
+        PG_PRIMARY
+          for i in 1 2 3 4 5; do
+            echo "configure-postgres-replica-${i}"
+            guest "${i}" 'bash -se' <<'PG_REPLICA'
+        set -euo pipefail
+        systemctl stop postgresql || true
+        pg_dropcluster --stop 15 main >/dev/null 2>&1 || true
+        pg_createcluster 15 main --start-conf=auto >/dev/null
+        systemctl stop postgresql || true
+        rm -rf /var/lib/postgresql/15/main
+        install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/15/main
+        until pg_isready -h 172.31.240.10 -U postgres >/dev/null 2>&1; do sleep 2; done
+        su - postgres -c "pg_basebackup -h 172.31.240.10 -D /var/lib/postgresql/15/main -U postgres -Fp -Xs -R" >/dev/null
+        cat >>/etc/postgresql/15/main/postgresql.conf <<'EOF'
+        listen_addresses = '*'
+        hot_standby = on
+        EOF
+        systemctl enable --now postgresql >/dev/null
+        until pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; do sleep 1; done
+        PG_REPLICA
+          done
+        }
+
+        verify_postgres() {
+          guest 0 'bash -se' <<'PG_VERIFY' | tee "${RUN_ROOT}/verify-postgres.txt"
+        set -euo pipefail
+        psql -h 127.0.0.1 -U postgres -d torque -v ON_ERROR_STOP=1 <<'SQL'
+        CREATE TABLE IF NOT EXISTS torque_probe(id text PRIMARY KEY, payload text, updated_at timestamptz DEFAULT now());
+        INSERT INTO torque_probe(id, payload) VALUES ('stackfile-postgres-direct', 'proof data')
+        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now();
+        SQL
+        for ip in 172.31.240.11 172.31.240.12 172.31.240.13 172.31.240.14 172.31.240.15; do
+          for attempt in $(seq 1 60); do
+            count="$(psql -h "${ip}" -U postgres -d torque -Atc "SELECT count(*) FROM torque_probe WHERE id='stackfile-postgres-direct';" 2>/dev/null || true)"
+            if [[ "${count}" == "1" ]]; then
+              printf '%s %s\n' "${ip}" "${count}"
+              break
+            fi
+            sleep 2
+          done
+        done
+        PG_VERIFY
+          local ok
+          ok="$(grep -c ' 1$' "${RUN_ROOT}/verify-postgres.txt" || true)"
+          [[ "${ok}" == "5" ]] || { echo "postgres replica proof failed: ${ok}/5" >&2; exit 1; }
+        }
+
+        apply_kafka() {
+          local cluster_id="4L6g3nShT-eMCtK--X86sw"
+          for i in 0 1 2 3 4; do
+            local node_id ip
+            node_id="$((i + 1))"
+            ip="$(node_ip "${i}")"
+            echo "configure-kafka-${i}"
+            guest "${i}" "NODE_ID='${node_id}' NODE_IP='${ip}' CLUSTER_ID='${cluster_id}' bash -se" <<'KAFKA_NODE'
+        set -euo pipefail
+        if [[ ! -x /opt/kafka/bin/kafka-server-start.sh ]]; then
+          mkdir -p /opt
+          tmp="$(mktemp -d)"
+          wget -q -O "${tmp}/kafka.tgz" https://archive.apache.org/dist/kafka/3.7.0/kafka_2.13-3.7.0.tgz
+          tar -xzf "${tmp}/kafka.tgz" -C /opt
+          rm -rf /opt/kafka
+          mv /opt/kafka_2.13-3.7.0 /opt/kafka
+          rm -rf "${tmp}"
+        fi
+        mkdir -p /etc/kafka /var/lib/kafka/kraft-combined-logs
+        cat >/etc/kafka/server.properties <<EOF
+        process.roles=broker,controller
+        node.id=${NODE_ID}
+        controller.quorum.voters=1@172.31.240.10:9093,2@172.31.240.11:9093,3@172.31.240.12:9093,4@172.31.240.13:9093,5@172.31.240.14:9093
+        listeners=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+        advertised.listeners=PLAINTEXT://${NODE_IP}:9092
+        controller.listener.names=CONTROLLER
+        listener.security.protocol.map=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+        inter.broker.listener.name=PLAINTEXT
+        log.dirs=/var/lib/kafka/kraft-combined-logs
+        offsets.topic.replication.factor=3
+        transaction.state.log.replication.factor=3
+        transaction.state.log.min.isr=2
+        default.replication.factor=3
+        min.insync.replicas=2
+        group.initial.rebalance.delay.ms=0
+        auto.create.topics.enable=false
+        EOF
+        /opt/kafka/bin/kafka-storage.sh format -t "${CLUSTER_ID}" -c /etc/kafka/server.properties --ignore-formatted >/dev/null
+        cat >/etc/systemd/system/kafka.service <<'EOF'
+        [Unit]
+        Description=Apache Kafka Direct VM Broker
+        After=network-online.target
+        Wants=network-online.target
+        [Service]
+        Type=simple
+        Environment=KAFKA_HEAP_OPTS=-Xms128m -Xmx320m
+        ExecStart=/opt/kafka/bin/kafka-server-start.sh /etc/kafka/server.properties
+        ExecStop=/opt/kafka/bin/kafka-server-stop.sh
+        Restart=always
+        RestartSec=5s
+        LimitNOFILE=1048576
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+        systemctl daemon-reload
+        systemctl enable --now kafka >/dev/null
+        KAFKA_NODE
+          done
+          for _ in $(seq 1 120); do
+            if guest 0 '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server 172.31.240.10:9092 >/dev/null 2>&1'; then
+              return
+            fi
+            sleep 3
+          done
+          echo "kafka did not become reachable" >&2
+          exit 1
+        }
+
+        verify_kafka() {
+          guest 0 'bash -se' <<'KAFKA_VERIFY' | tee "${RUN_ROOT}/verify-kafka.txt"
+        set -euo pipefail
+        BOOTSTRAP=172.31.240.10:9092
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP}" --delete --if-exists --topic torque-proof-direct >/dev/null 2>&1 || true
+        sleep 5
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP}" --create --if-not-exists --topic torque-proof-direct --partitions 6 --replication-factor 3
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${BOOTSTRAP}" --describe --topic torque-proof-direct
+        printf 'stackfile-kafka-direct-alpha\nstackfile-kafka-direct-beta\nstackfile-kafka-direct-gamma\n' |
+          /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server "${BOOTSTRAP}" --topic torque-proof-direct
+        timeout 60 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server "${BOOTSTRAP}" --topic torque-proof-direct --from-beginning --max-messages 3
+        KAFKA_VERIFY
+          for message in stackfile-kafka-direct-alpha stackfile-kafka-direct-beta stackfile-kafka-direct-gamma; do
+            grep -qF "${message}" "${RUN_ROOT}/verify-kafka.txt" || { echo "missing kafka message ${message}" >&2; exit 1; }
+          done
+        }
+
+        apply_rabbitmq() {
+          for i in 0 1 2 3 4; do
+            local name
+            name="$(node_name "${i}")"
+            echo "configure-rabbitmq-${i}"
+            guest "${i}" "RABBIT_NAME='${name}' bash -se" <<'RABBIT_NODE'
+        set -euo pipefail
+        systemctl stop rabbitmq-server || true
+        cat >/etc/rabbitmq/rabbitmq-env.conf <<EOF
+        NODENAME=rabbit@${RABBIT_NAME}
+        EOF
+        install -d -o rabbitmq -g rabbitmq -m 0750 /var/lib/rabbitmq
+        printf '%s\n' torque-rabbitmq-direct-cookie >/var/lib/rabbitmq/.erlang.cookie
+        chown rabbitmq:rabbitmq /var/lib/rabbitmq/.erlang.cookie
+        chmod 0400 /var/lib/rabbitmq/.erlang.cookie
+        rabbitmq-plugins enable --offline rabbitmq_management >/dev/null
+        systemctl enable --now rabbitmq-server >/dev/null
+        rabbitmqctl await_startup >/dev/null
+        RABBIT_NODE
+          done
+          guest 0 'bash -se' <<'RABBIT_PRIMARY'
+        set -euo pipefail
+        rabbitmqctl add_user torque torque >/dev/null 2>&1 || true
+        rabbitmqctl set_user_tags torque administrator >/dev/null
+        rabbitmqctl set_permissions -p / torque ".*" ".*" ".*" >/dev/null
+        RABBIT_PRIMARY
+          for i in 1 2 3 4; do
+            guest "${i}" 'bash -se' <<'RABBIT_JOIN'
+        set -euo pipefail
+        rabbitmqctl stop_app >/dev/null
+        rabbitmqctl reset >/dev/null
+        rabbitmqctl join_cluster rabbit@fc-00 >/dev/null
+        rabbitmqctl start_app >/dev/null
+        rabbitmqctl await_startup >/dev/null
+        RABBIT_JOIN
+          done
+        }
+
+        verify_rabbitmq() {
+          guest 0 'bash -se' <<'RABBIT_VERIFY' | tee "${RUN_ROOT}/verify-rabbitmq.txt"
+        set -euo pipefail
+        for attempt in $(seq 1 60); do
+          rabbitmq-diagnostics -q cluster_status >/tmp/rabbitmq-cluster.txt 2>&1 || true
+          members="$(grep -o 'rabbit@fc-0[0-4]' /tmp/rabbitmq-cluster.txt | sort -u | wc -l | tr -d ' ')"
+          [[ "${members}" == "5" ]] && break
+          sleep 2
+        done
+        cat /tmp/rabbitmq-cluster.txt
+        python3 - <<'PY'
+        import base64, json, urllib.request
+        auth = "Basic " + base64.b64encode(b"torque:torque").decode()
+        def call(method, url, body=None):
+            data = None if body is None else json.dumps(body).encode()
+            req = urllib.request.Request(url, data=data, method=method)
+            req.add_header("Authorization", auth)
+            req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode()
+                return raw
+        base0 = "http://127.0.0.1:15672/api"
+        base1 = "http://172.31.240.11:15672/api"
+        try:
+            call("DELETE", base0 + "/queues/%2F/torque_proof_direct")
+        except Exception:
+            pass
+        print(call("PUT", base0 + "/queues/%2F/torque_proof_direct", {
+            "durable": True,
+            "arguments": {"x-queue-type": "quorum", "x-quorum-initial-group-size": 5},
+        }))
+        print(call("POST", base0 + "/exchanges/%2F/amq.default/publish", {
+            "properties": {},
+            "routing_key": "torque_proof_direct",
+            "payload": "stackfile-rabbitmq-direct-alpha",
+            "payload_encoding": "string",
+        }))
+        print(call("POST", base1 + "/queues/%2F/torque_proof_direct/get", {
+            "count": 1,
+            "ackmode": "ack_requeue_false",
+            "encoding": "auto",
+            "truncate": 50000,
+        }))
+        PY
+        RABBIT_VERIFY
+          grep -q 'rabbit@fc-04' "${RUN_ROOT}/verify-rabbitmq.txt" || { echo "rabbitmq cluster membership proof failed" >&2; exit 1; }
+          grep -q 'stackfile-rabbitmq-direct-alpha' "${RUN_ROOT}/verify-rabbitmq.txt" || { echo "rabbitmq message proof failed" >&2; exit 1; }
+        }
+
+        case "${mode}" in
+          apply-vms) apply_vms ;;
+          postgres-apply) apply_postgres ;;
+          postgres-verify) verify_postgres ;;
+          kafka-apply) apply_kafka ;;
+          kafka-verify) verify_kafka ;;
+          rabbitmq-apply) apply_rabbitmq ;;
+          rabbitmq-verify) verify_rabbitmq ;;
+          delete|cleanup) cleanup_run 1 ;;
+          *) echo "unknown mode: ${mode}" >&2; exit 2 ;;
+        esac
+        REMOTE
+        chmod +x "${RUN_ROOT}/direct-vm-lab.sh"
+        RUN_ROOT="${RUN_ROOT}" NODE_COUNT="${NODE_COUNT}" SUBNET_OCTET="${SUBNET_OCTET}" BRIDGE_NAME="${BRIDGE_NAME}" TAP_PREFIX="${TAP_PREFIX}" RUN_ID="${RUN_ID}" \
+          "${RUN_ROOT}/direct-vm-lab.sh" apply-vms
+      deleteCommand: |
+        set +e
+        RUN_ROOT="/var/lib/torque-firecracker-direct/data-services"
+        if [ -x "${RUN_ROOT}/direct-vm-lab.sh" ]; then
+          RUN_ROOT="${RUN_ROOT}" "${RUN_ROOT}/direct-vm-lab.sh" delete
+        else
+          for p in "${RUN_ROOT}"/vms/*/pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null; done
+          for i in $(seq 0 5); do ip link del "tqds${i}" 2>/dev/null; done
+          ip link set tqfcds down 2>/dev/null
+          ip link del tqfcds type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "172.31.240.0/24" ! -o tqfcds -j MASQUERADE 2>/dev/null
+          rm -rf "${RUN_ROOT}"
+        fi
+
+  - name: postgres-apply
+    kind: host.command.run
+    needs: [fc-vms-bootstrap]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 20m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/data-services/direct-vm-lab.sh postgres-apply
+      deleteCommand: "true"
+
+  - name: postgres-verify
+    kind: host.command.run
+    needs: [postgres-apply]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 10m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/data-services/direct-vm-lab.sh postgres-verify
+      deleteCommand: "true"
+
+  - name: kafka-apply
+    kind: host.command.run
+    needs: [postgres-verify]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 20m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/data-services/direct-vm-lab.sh kafka-apply
+      deleteCommand: "true"
+
+  - name: kafka-verify
+    kind: host.command.run
+    needs: [kafka-apply]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 10m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/data-services/direct-vm-lab.sh kafka-verify
+      deleteCommand: "true"
+
+  - name: rabbitmq-apply
+    kind: host.command.run
+    needs: [kafka-verify]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 20m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/data-services/direct-vm-lab.sh rabbitmq-apply
+      deleteCommand: "true"
+
+  - name: rabbitmq-verify
+    kind: host.command.run
+    needs: [rabbitmq-apply]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 10m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-direct/data-services/direct-vm-lab.sh rabbitmq-verify
+      deleteCommand: "true"

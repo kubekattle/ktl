@@ -1,0 +1,1084 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-gitlab-hybrid
+cli:
+  inferDeps: false
+runner:
+  concurrency: 1
+nodes:
+  - name: fc-gitlab-bootstrap
+    kind: host.command.run
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 90m
+      command: |
+        set -euo pipefail
+        RUN_ROOT="/var/lib/torque-firecracker-gitlab/hybrid"
+        NODE_COUNT="7"
+        K8S_COUNT="3"
+        SUBNET_OCTET="245"
+        BRIDGE_NAME="tqfcgl"
+        TAP_PREFIX="tqgl"
+        RUN_ID="gitlab-hybrid"
+        mkdir -p "${RUN_ROOT}"
+        cat >"${RUN_ROOT}/gitlab-hybrid-lab.sh" <<'REMOTE'
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        mode="${1:-apply-vms}"
+        RUN_ROOT="${RUN_ROOT:-/var/lib/torque-firecracker-gitlab/hybrid}"
+        NODE_COUNT="${NODE_COUNT:-7}"
+        K8S_COUNT="${K8S_COUNT:-3}"
+        SUBNET_OCTET="${SUBNET_OCTET:-245}"
+        BRIDGE_NAME="${BRIDGE_NAME:-tqfcgl}"
+        TAP_PREFIX="${TAP_PREFIX:-tqgl}"
+        RUN_ID="${RUN_ID:-gitlab-hybrid}"
+        LAB_GENERATION="${LAB_GENERATION:-gitlab-hybrid-v9}"
+        BASE_ROOTFS="${BASE_ROOTFS:-/opt/firecracker-sandbox-lab/rootfs.ext4}"
+        KERNEL="${KERNEL:-/opt/kata/share/kata-containers/vmlinux-6.18.28-194}"
+        K3S_BIN="${K3S_BIN:-/usr/local/bin/k3s}"
+        FIRECRACKER="${FIRECRACKER:-/usr/local/bin/firecracker}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        CACHE_ROOT="${CACHE_ROOT:-/var/lib/torque-firecracker-gitlab/cache}"
+        NET_PREFIX="172.31.${SUBNET_OCTET}"
+        GATEWAY="${NET_PREFIX}.1"
+        SERVER_IP="${NET_PREFIX}.10"
+        PG_PRIMARY="${NET_PREFIX}.13"
+        PG_REPLICA_1="${NET_PREFIX}.14"
+        PG_REPLICA_2="${NET_PREFIX}.15"
+        PG_REPLICA_3="${NET_PREFIX}.16"
+        CIDR="${NET_PREFIX}.0/24"
+        K8S_CLUSTER_CIDR="${K8S_CLUSTER_CIDR:-10.245.0.0/16}"
+        K8S_SERVICE_CIDR="${K8S_SERVICE_CIDR:-10.246.0.0/16}"
+        K8S_DNS_IP="${K8S_DNS_IP:-10.246.0.10}"
+        TOKEN_FILE="${RUN_ROOT}/cluster-token"
+        SECRETS_FILE="${RUN_ROOT}/secrets.env"
+        GITLAB_HOST="gitlab.141.105.65.227.nip.io"
+        CHART_VERSION="7.11.10"
+        SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=4)
+
+        node_ip() { printf '%s.%d' "${NET_PREFIX}" "$((10 + $1))"; }
+        node_name() { printf 'fc-%02d' "$1"; }
+        guest() {
+          local idx="$1"
+          shift
+          ssh "${SSH_OPTS[@]}" "root@$(node_ip "${idx}")" "$@"
+        }
+
+        cleanup_run() {
+          local remove_root="${1:-0}"
+          set +e
+          timeout 180 helm --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab uninstall gitlab >/dev/null 2>&1
+          timeout 90 kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" delete ns gitlab --ignore-not-found=true --wait=false >/dev/null 2>&1
+          if [[ -d "${RUN_ROOT}/vms" ]]; then
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill "$(cat "${pid_file}")" 2>/dev/null
+            done
+            sleep 1
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -9 "$(cat "${pid_file}")" 2>/dev/null
+            done
+          fi
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip link del "${TAP_PREFIX}${i}" 2>/dev/null
+          done
+          ip link set "${BRIDGE_NAME}" down 2>/dev/null
+          ip link del "${BRIDGE_NAME}" type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null
+          iptables -t nat -D PREROUTING -p tcp --dport 80 -j DNAT --to-destination "${SERVER_IP}:32080" 2>/dev/null
+          iptables -t nat -D PREROUTING -p tcp --dport 8022 -j DNAT --to-destination "${SERVER_IP}:32022" 2>/dev/null
+          iptables -t nat -D OUTPUT -p tcp -d 141.105.65.227 --dport 80 -j DNAT --to-destination "${SERVER_IP}:32080" 2>/dev/null
+          if [[ "${remove_root}" == "1" ]]; then
+            rm -rf "${RUN_ROOT}"
+          else
+            rm -rf "${RUN_ROOT}/vms" "${TOKEN_FILE}" "${RUN_ROOT}/receipt.json" "${RUN_ROOT}/nodes.txt" "${RUN_ROOT}/pods.txt" "${RUN_ROOT}/kubeconfig.yaml" "${RUN_ROOT}/verify-"*.txt
+            mkdir -p "${RUN_ROOT}"
+          fi
+          set -e
+        }
+
+        require_cmd() {
+          command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 2; }
+        }
+
+        ensure_secrets() {
+          if [[ ! -s "${SECRETS_FILE}" ]]; then
+            umask 077
+            cat >"${SECRETS_FILE}" <<EOF
+        GITLAB_DB_PASSWORD=$(openssl rand -hex 24)
+        PG_REPL_PASSWORD=$(openssl rand -hex 24)
+        GITLAB_ROOT_PASSWORD=$(openssl rand -base64 36 | tr -d '\n')
+        MINIO_ROOT_USER=torquegitlab$(openssl rand -hex 4)
+        MINIO_ROOT_PASSWORD=$(openssl rand -hex 24)
+        EOF
+          fi
+          # shellcheck disable=SC1090
+          source "${SECRETS_FILE}"
+        }
+
+        prepare_base_image() {
+          mkdir -p "${CACHE_ROOT}"
+          local cache_key prepared tmp mnt
+          cache_key="$(
+            {
+              sha256sum "${BASE_ROOTFS}" "${KERNEL}" "${K3S_BIN}"
+              printf 'packages=gitlab-hybrid-v3\n'
+              printf 'rootfs-size=18G\n'
+            } | sha256sum | awk '{print substr($1,1,16)}'
+          )"
+          prepared="${CACHE_ROOT}/prepared-gitlab-${cache_key}.ext4"
+          if [[ -s "${prepared}" ]]; then
+            echo "${prepared}"
+            return
+          fi
+          local reusable
+          reusable="$(find "${CACHE_ROOT}" -maxdepth 1 -type f -name 'prepared-gitlab-*.ext4' -size +2G -print 2>/dev/null | sort | head -1 || true)"
+          if [[ -n "${reusable}" && -s "${reusable}" ]]; then
+            echo "${reusable}"
+            return
+          fi
+          tmp="${prepared}.tmp"
+          mnt="${CACHE_ROOT}/mnt-${cache_key}"
+          cleanup_stale_mounts() {
+            set +e
+            mountpoint -q "${mnt}/proc" && umount "${mnt}/proc"
+            mountpoint -q "${mnt}/sys" && umount "${mnt}/sys"
+            mountpoint -q "${mnt}/dev" && umount "${mnt}/dev"
+            mountpoint -q "${mnt}/run" && umount "${mnt}/run"
+            mountpoint -q "${mnt}" && umount "${mnt}"
+            losetup -a | awk -F: -v f="${tmp}" '$0 ~ f {print $1}' | xargs -r losetup -d
+            set -e
+          }
+          cleanup_stale_mounts
+          rm -f "${tmp}"
+          cp --reflink=auto "${BASE_ROOTFS}" "${tmp}" 2>/dev/null || cp "${BASE_ROOTFS}" "${tmp}"
+          set +e
+          e2fsck -fy "${tmp}" >/tmp/torque-fc-gitlab-e2fsck-${cache_key}.log 2>&1
+          local e=$?
+          set -e
+          [[ "${e}" -le 1 ]] || { cat /tmp/torque-fc-gitlab-e2fsck-${cache_key}.log >&2; exit "${e}"; }
+          truncate -s 18G "${tmp}"
+          resize2fs "${tmp}" >/tmp/torque-fc-gitlab-resize-${cache_key}.log 2>&1
+          mkdir -p "${mnt}"
+          mount -o loop "${tmp}" "${mnt}"
+          cleanup_mounts() {
+            set +e
+            mountpoint -q "${mnt}/proc" && umount "${mnt}/proc"
+            mountpoint -q "${mnt}/sys" && umount "${mnt}/sys"
+            mountpoint -q "${mnt}/dev" && umount "${mnt}/dev"
+            mountpoint -q "${mnt}/run" && umount "${mnt}/run"
+            mountpoint -q "${mnt}" && umount "${mnt}"
+          }
+          fail_prepare() {
+            cleanup_mounts
+            rm -f "${tmp}"
+          }
+          trap cleanup_mounts RETURN
+          trap fail_prepare ERR
+          rm -f "${mnt}/etc/resolv.conf"
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 9.9.9.9\noptions timeout:2 attempts:3\n' >"${mnt}/etc/resolv.conf"
+          mount -t proc proc "${mnt}/proc"
+          mount -t sysfs sysfs "${mnt}/sys"
+          mount --bind /dev "${mnt}/dev"
+          mount --bind /run "${mnt}/run"
+          if ! chroot "${mnt}" apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update >/tmp/torque-fc-gitlab-apt-update-${cache_key}.log 2>&1; then
+            cat /tmp/torque-fc-gitlab-apt-update-${cache_key}.log >&2
+            exit 1
+          fi
+          if ! chroot "${mnt}" env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends \
+            openssh-server ca-certificates curl wget jq tar gzip xz-utils iptables conntrack ipset ethtool socat \
+            postgresql-15 postgresql-client-15 postgresql-contrib redis-server pgbouncer >/tmp/torque-fc-gitlab-apt-install-${cache_key}.log 2>&1; then
+            cat /tmp/torque-fc-gitlab-apt-install-${cache_key}.log >&2
+            exit 1
+          fi
+          if ! chroot "${mnt}" dpkg-query -W openssh-server postgresql-15 postgresql-client-15 postgresql-contrib redis-server pgbouncer jq curl wget socat >/tmp/torque-fc-gitlab-dpkg-${cache_key}.log 2>&1; then
+            cat /tmp/torque-fc-gitlab-dpkg-${cache_key}.log >&2
+            exit 1
+          fi
+          install -m 0755 "${K3S_BIN}" "${mnt}/usr/local/bin/k3s"
+          chroot "${mnt}" systemctl disable postgresql redis-server pgbouncer >/dev/null 2>&1 || true
+          chroot "${mnt}" update-alternatives --set iptables /usr/sbin/iptables-legacy >/dev/null 2>&1 || true
+          chroot "${mnt}" update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy >/dev/null 2>&1 || true
+          cleanup_mounts
+          trap - RETURN ERR
+          mv "${tmp}" "${prepared}"
+          echo "${prepared}"
+        }
+
+        write_hosts_file() {
+          cat <<EOF
+        127.0.0.1 localhost
+        127.0.1.1 $(node_name "$1")
+        ${NET_PREFIX}.10 fc-00 k3s-00 gitlab-k8s-00
+        ${NET_PREFIX}.11 fc-01 k3s-01 gitlab-k8s-01
+        ${NET_PREFIX}.12 fc-02 k3s-02 gitlab-k8s-02
+        ${NET_PREFIX}.13 fc-03 pg-primary redis-0 minio-0 pgbouncer-0
+        ${NET_PREFIX}.14 fc-04 pg-replica-1 redis-1 minio-1 pgbouncer-1
+        ${NET_PREFIX}.15 fc-05 pg-replica-2 redis-2 minio-2
+        ${NET_PREFIX}.16 fc-06 pg-replica-3 redis-3 minio-3
+        EOF
+        }
+
+        write_k3s_service() {
+          local role="$1"
+          local ip="$2"
+          if [[ "${role}" == "server" ]]; then
+            cat <<EOF
+        [Unit]
+        Description=Lightweight Kubernetes
+        Wants=network-online.target
+        After=network-online.target
+        [Service]
+        Type=simple
+        Environment=K3S_TOKEN=$(cat "${TOKEN_FILE}")
+        ExecStart=/usr/local/bin/k3s server --cluster-init --node-ip ${ip} --advertise-address ${ip} --bind-address 0.0.0.0 --tls-san ${ip} --tls-san 127.0.0.1 --cluster-cidr ${K8S_CLUSTER_CIDR} --service-cidr ${K8S_SERVICE_CIDR} --cluster-dns ${K8S_DNS_IP} --flannel-iface eth0 --flannel-backend host-gw --write-kubeconfig-mode 0644 --disable traefik --disable servicelb
+        KillMode=process
+        Delegate=yes
+        LimitNOFILE=1048576
+        LimitNPROC=infinity
+        LimitCORE=infinity
+        TasksMax=infinity
+        Restart=always
+        RestartSec=5s
+        TimeoutStartSec=0
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          else
+            cat <<EOF
+        [Unit]
+        Description=Lightweight Kubernetes Agent
+        Wants=network-online.target
+        After=network-online.target
+        [Service]
+        Type=simple
+        Environment=K3S_TOKEN=$(cat "${TOKEN_FILE}")
+        ExecStart=/usr/local/bin/k3s agent --server https://${SERVER_IP}:6443 --node-ip ${ip} --flannel-iface eth0
+        KillMode=process
+        Delegate=yes
+        LimitNOFILE=1048576
+        LimitNPROC=infinity
+        LimitCORE=infinity
+        TasksMax=infinity
+        Restart=always
+        RestartSec=5s
+        TimeoutStartSec=0
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+          fi
+        }
+
+        apply_vms() {
+          for cmd in cp e2fsck mount resize2fs sha256sum ssh sysctl truncate umount openssl; do require_cmd "${cmd}"; done
+          for path in "${BASE_ROOTFS}" "${KERNEL}" "${K3S_BIN}" "${FIRECRACKER}" "${LAB_KEY}"; do
+            [[ -e "${path}" ]] || { echo "missing ${path}" >&2; exit 2; }
+          done
+          ensure_secrets
+          mkdir -p "${RUN_ROOT}/vms"
+          local prepared
+          prepared="$(prepare_base_image)"
+
+          if [[ -s "${RUN_ROOT}/receipt.json" && -d "${RUN_ROOT}/vms" ]] && grep -q "\"generation\":\"${LAB_GENERATION}\"" "${RUN_ROOT}/receipt.json"; then
+            local live_count=0 ssh_count=0 ready_count=0
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -0 "$(cat "${pid_file}")" 2>/dev/null && live_count="$((live_count + 1))"
+            done
+            for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+              ssh "${SSH_OPTS[@]}" "root@$(node_ip "${i}")" true >/dev/null 2>&1 && ssh_count="$((ssh_count + 1))" || true
+            done
+            if [[ "${ssh_count}" -ge "${NODE_COUNT}" ]]; then
+              nodes_text="$(ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get nodes -o wide --no-headers 2>/dev/null' || true)"
+              ready_count="$(printf '%s\n' "${nodes_text}" | awk '$2=="Ready"{c++} END{print c+0}')"
+              if [[ "${live_count}" -ge "${NODE_COUNT}" && "${ready_count}" -ge "${K8S_COUNT}" ]]; then
+                ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" 'cat /etc/rancher/k3s/k3s.yaml' |
+                  sed "s#https://0.0.0.0:6443#https://${SERVER_IP}:6443#g" >"${RUN_ROOT}/kubeconfig.yaml"
+                printf '%s\n' "${nodes_text}" >"${RUN_ROOT}/nodes.txt"
+                sleep 20
+                nodes_text="$(ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get nodes -o wide --no-headers 2>/dev/null' || true)"
+                ready_count="$(printf '%s\n' "${nodes_text}" | awk '$2=="Ready"{c++} END{print c+0}')"
+                [[ "${ready_count}" -ge "${K8S_COUNT}" ]] || break
+                cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-gitlab/v1","kind":"GitLabHybridVMReceipt","status":"succeeded","generation":"${LAB_GENERATION}","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"k8sReady":${ready_count},"sshReady":${ssh_count},"subnet":"${CIDR}","bridge":"${BRIDGE_NAME}","idempotentReuse":true}
+        EOF
+                echo "gitlab-hybrid-vms-already-ready k8s=${ready_count} ssh=${ssh_count} live=${live_count}"
+                cat "${RUN_ROOT}/nodes.txt"
+                return
+              fi
+            fi
+          fi
+
+          cleanup_run
+          ensure_secrets
+          mkdir -p "${RUN_ROOT}/vms"
+          openssl rand -hex 24 >"${TOKEN_FILE}"
+          chmod 0600 "${TOKEN_FILE}"
+
+          ip link add name "${BRIDGE_NAME}" type bridge
+          ip addr add "${GATEWAY}/24" dev "${BRIDGE_NAME}"
+          ip link set "${BRIDGE_NAME}" up
+          sysctl -w net.ipv4.ip_forward=1 >/dev/null
+          iptables -t nat -C POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null ||
+            iptables -t nat -A POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE
+          iptables -t nat -C PREROUTING -p tcp --dport 80 -j DNAT --to-destination "${SERVER_IP}:32080" 2>/dev/null ||
+            iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination "${SERVER_IP}:32080"
+          iptables -t nat -C PREROUTING -p tcp --dport 8022 -j DNAT --to-destination "${SERVER_IP}:32022" 2>/dev/null ||
+            iptables -t nat -A PREROUTING -p tcp --dport 8022 -j DNAT --to-destination "${SERVER_IP}:32022"
+          iptables -t nat -C OUTPUT -p tcp -d 141.105.65.227 --dport 80 -j DNAT --to-destination "${SERVER_IP}:32080" 2>/dev/null ||
+            iptables -t nat -A OUTPUT -p tcp -d 141.105.65.227 --dport 80 -j DNAT --to-destination "${SERVER_IP}:32080"
+
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            local vm ip name tap mac role mem
+            vm="${RUN_ROOT}/vms/node${i}"
+            ip="$(node_ip "${i}")"
+            name="$(node_name "${i}")"
+            tap="${TAP_PREFIX}${i}"
+            mac="$(printf '06:00:00:%02x:00:%02x' "${SUBNET_OCTET}" "$((10 + i))")"
+            mem="2048"
+            [[ "${i}" -lt "${K8S_COUNT}" ]] && mem="4096"
+            mkdir -p "${vm}"
+            cp --reflink=auto "${prepared}" "${vm}/rootfs.ext4" 2>/dev/null || cp "${prepared}" "${vm}/rootfs.ext4"
+            e2fsck -fy "${vm}/rootfs.ext4" >/dev/null 2>&1 || true
+            mkdir -p "${vm}/mnt"
+            mount -o loop "${vm}/rootfs.ext4" "${vm}/mnt"
+            printf '%s\n' "${name}" >"${vm}/mnt/etc/hostname"
+            write_hosts_file "${i}" >"${vm}/mnt/etc/hosts"
+            cat >"${vm}/mnt/etc/network/interfaces" <<EOF
+        auto lo
+        iface lo inet loopback
+
+        auto eth0
+        iface eth0 inet static
+            address ${ip}
+            netmask 255.255.255.0
+            gateway ${GATEWAY}
+        EOF
+            rm -f "${vm}/mnt/etc/resolv.conf"
+            printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 9.9.9.9\noptions timeout:2 attempts:3\n' >"${vm}/mnt/etc/resolv.conf"
+            rm -f "${vm}/mnt/etc/machine-id" "${vm}/mnt/var/lib/dbus/machine-id" 2>/dev/null || true
+            touch "${vm}/mnt/etc/machine-id"
+            mkdir -p "${vm}/mnt/etc/systemd/system/multi-user.target.wants"
+            ln -sf /lib/systemd/system/ssh.service "${vm}/mnt/etc/systemd/system/multi-user.target.wants/ssh.service"
+            if [[ "${i}" -lt "${K8S_COUNT}" ]]; then
+              role="agent"
+              [[ "${i}" == "0" ]] && role="server"
+              write_k3s_service "${role}" "${ip}" >"${vm}/mnt/etc/systemd/system/k3s.service"
+              ln -sf /etc/systemd/system/k3s.service "${vm}/mnt/etc/systemd/system/multi-user.target.wants/k3s.service"
+            fi
+            umount "${vm}/mnt"
+            ip tuntap add dev "${tap}" mode tap
+            ip link set "${tap}" master "${BRIDGE_NAME}"
+            ip link set "${tap}" up
+            cat >"${vm}/vm.json" <<EOF
+        {"boot-source":{"kernel_image_path":"${KERNEL}","boot_args":"console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw random.trust_cpu=on systemd.unified_cgroup_hierarchy=1 systemd.mask=serial-getty@ttyS0.service systemd.mask=systemd-random-seed.service"},"drives":[{"drive_id":"rootfs","path_on_host":"${vm}/rootfs.ext4","is_root_device":true,"is_read_only":false}],"machine-config":{"vcpu_count":2,"mem_size_mib":${mem}},"network-interfaces":[{"iface_id":"eth0","host_dev_name":"${tap}","guest_mac":"${mac}"}],"logger":{"log_path":"${vm}/firecracker.log","level":"Info","show_level":true,"show_log_origin":true}}
+        EOF
+            "${FIRECRACKER}" --api-sock "${vm}/fc.sock" --config-file "${vm}/vm.json" >"${vm}/console.log" 2>&1 &
+            echo $! >"${vm}/pid"
+            echo "started ${name} ${ip} mem=${mem}"
+          done
+
+          local ssh_count=0
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            for _ in $(seq 1 210); do
+              if ssh "${SSH_OPTS[@]}" "root@$(node_ip "${i}")" true >/dev/null 2>&1; then
+                ssh_count="$((ssh_count + 1))"
+                echo "ssh-ready $(node_name "${i}") $(node_ip "${i}")"
+                break
+              fi
+              sleep 2
+            done
+          done
+          [[ "${ssh_count}" -eq "${NODE_COUNT}" ]] || { echo "only ${ssh_count}/${NODE_COUNT} VMs reachable" >&2; exit 1; }
+
+          local ready_count=0 nodes_text=""
+          for attempt in $(seq 1 240); do
+            nodes_text="$(ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get nodes -o wide --no-headers 2>/dev/null' || true)"
+            ready_count="$(printf '%s\n' "${nodes_text}" | awk '$2=="Ready"{c++} END{print c+0}')"
+            [[ "${ready_count}" -ge "${K8S_COUNT}" ]] && break
+            if [[ "$((attempt % 10))" == "0" ]]; then
+              echo "waiting-for-k3s ready=${ready_count}/${K8S_COUNT} attempt=${attempt}"
+            fi
+            sleep 3
+          done
+          [[ "${ready_count}" -ge "${K8S_COUNT}" ]] || { echo "only ${ready_count}/${K8S_COUNT} k8s nodes ready" >&2; exit 1; }
+          sleep 20
+          nodes_text="$(ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" '/usr/local/bin/k3s kubectl get nodes -o wide --no-headers 2>/dev/null' || true)"
+          ready_count="$(printf '%s\n' "${nodes_text}" | awk '$2=="Ready"{c++} END{print c+0}')"
+          [[ "${ready_count}" -ge "${K8S_COUNT}" ]] || { echo "k8s readiness was not stable: ${ready_count}/${K8S_COUNT}" >&2; exit 1; }
+          ssh "${SSH_OPTS[@]}" "root@${SERVER_IP}" 'cat /etc/rancher/k3s/k3s.yaml' |
+            sed "s#https://0.0.0.0:6443#https://${SERVER_IP}:6443#g" >"${RUN_ROOT}/kubeconfig.yaml"
+          printf '%s\n' "${nodes_text}" >"${RUN_ROOT}/nodes.txt"
+          cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-gitlab/v1","kind":"GitLabHybridVMReceipt","status":"succeeded","generation":"${LAB_GENERATION}","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"k8sReady":${ready_count},"sshReady":${ssh_count},"subnet":"${CIDR}","bridge":"${BRIDGE_NAME}"}
+        EOF
+          cat "${RUN_ROOT}/nodes.txt"
+        }
+
+        stateful_existing_ready() {
+          ensure_secrets
+          guest 3 "GITLAB_DB_PASSWORD='${GITLAB_DB_PASSWORD}' MINIO_ROOT_USER='${MINIO_ROOT_USER}' MINIO_ROOT_PASSWORD='${MINIO_ROOT_PASSWORD}' bash -se" <<'STATEFUL_PRIMARY_READY' >/dev/null 2>&1 || return 1
+        set -euo pipefail
+        systemctl is-active --quiet postgresql pgbouncer redis-server redis-sentinel minio
+        export PGPASSWORD="${GITLAB_DB_PASSWORD}"
+        psql -h 127.0.0.1 -U gitlab -d gitlabhq_production -Atc 'SELECT 1;' | grep -qx 1
+        psql -h 127.0.0.1 -p 6432 -U gitlab -d gitlabhq_production -Atc 'SELECT 1;' | grep -qx 1
+        redis-cli -h 127.0.0.1 ping | grep -qx PONG
+        /usr/local/bin/mc alias set gitlab http://127.0.0.1:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" >/dev/null
+        /usr/local/bin/mc ls gitlab/git-lfs >/dev/null
+        STATEFUL_PRIMARY_READY
+          for i in 4 5 6; do
+            guest "${i}" "GITLAB_DB_PASSWORD='${GITLAB_DB_PASSWORD}' MINIO_ROOT_USER='${MINIO_ROOT_USER}' MINIO_ROOT_PASSWORD='${MINIO_ROOT_PASSWORD}' bash -se" <<'STATEFUL_REPLICA_READY' >/dev/null 2>&1 || return 1
+        set -euo pipefail
+        systemctl is-active --quiet postgresql redis-server redis-sentinel minio
+        export PGPASSWORD="${GITLAB_DB_PASSWORD}"
+        psql -h 127.0.0.1 -U gitlab -d gitlabhq_production -Atc 'SELECT 1;' | grep -qx 1
+        redis-cli -h 127.0.0.1 info replication | grep -E 'role:slave|role:replica' >/dev/null
+        /usr/local/bin/mc alias set gitlab http://127.0.0.1:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" >/dev/null
+        /usr/local/bin/mc ls gitlab/git-lfs >/dev/null
+        STATEFUL_REPLICA_READY
+          done
+        }
+
+        apply_stateful() {
+          ensure_secrets
+          if stateful_existing_ready; then
+            echo "stateful-existing-ok"
+            return
+          fi
+          echo "stateful-postgres-primary"
+          guest 3 "GITLAB_DB_PASSWORD='${GITLAB_DB_PASSWORD}' PG_REPL_PASSWORD='${PG_REPL_PASSWORD}' bash -se" <<'PG_PRIMARY'
+        set -euo pipefail
+        systemctl stop postgresql pgbouncer redis-server redis-sentinel minio || true
+        pg_dropcluster --stop 15 main >/dev/null 2>&1 || true
+        rm -rf /etc/postgresql/15/main /var/lib/postgresql/15/main
+        pg_createcluster 15 main --start-conf=auto >/dev/null
+        cat >>/etc/postgresql/15/main/postgresql.conf <<'EOF'
+        listen_addresses = '*'
+        wal_level = replica
+        max_wal_senders = 20
+        max_replication_slots = 20
+        hot_standby = on
+        max_connections = 300
+        shared_buffers = 256MB
+        EOF
+        cat >/etc/postgresql/15/main/pg_hba.conf <<'EOF'
+        local all all trust
+        host all all 127.0.0.1/32 trust
+        host all all 172.31.245.13/32 trust
+        host all all 172.31.245.0/24 scram-sha-256
+        host all all 10.245.0.0/16 scram-sha-256
+        host replication replicator 172.31.245.0/24 scram-sha-256
+        EOF
+        systemctl enable --now postgresql >/dev/null
+        pg_ready=0
+        for _ in $(seq 1 90); do
+          if pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then pg_ready=1; break; fi
+          sleep 1
+        done
+        [[ "${pg_ready}" == "1" ]] || { journalctl -u postgresql -n 120 --no-pager >&2; exit 1; }
+        su - postgres -c "psql -v ON_ERROR_STOP=1" <<SQL
+        DO \$\$ BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'gitlab') THEN
+            CREATE ROLE gitlab LOGIN SUPERUSER PASSWORD '${GITLAB_DB_PASSWORD}';
+          ELSE
+            ALTER ROLE gitlab WITH LOGIN SUPERUSER PASSWORD '${GITLAB_DB_PASSWORD}';
+          END IF;
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
+            CREATE ROLE replicator REPLICATION LOGIN PASSWORD '${PG_REPL_PASSWORD}';
+          ELSE
+            ALTER ROLE replicator WITH REPLICATION LOGIN PASSWORD '${PG_REPL_PASSWORD}';
+          END IF;
+        END \$\$;
+        SELECT 'CREATE DATABASE gitlabhq_production OWNER gitlab'
+          WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'gitlabhq_production')\gexec
+        \c gitlabhq_production
+        CREATE EXTENSION IF NOT EXISTS pg_trgm;
+        CREATE EXTENSION IF NOT EXISTS btree_gist;
+        CREATE EXTENSION IF NOT EXISTS amcheck;
+        SQL
+        cat >/etc/pgbouncer/pgbouncer.ini <<EOF
+        [databases]
+        gitlabhq_production = host=172.31.245.13 port=5432 dbname=gitlabhq_production password=${GITLAB_DB_PASSWORD}
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        auth_type = trust
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_client_conn = 1000
+        default_pool_size = 80
+        ignore_startup_parameters = extra_float_digits
+        EOF
+        printf '"gitlab" ""\n' >/etc/pgbouncer/userlist.txt
+        systemctl enable --now pgbouncer >/dev/null
+        PG_PRIMARY
+
+          for i in 4 5 6; do
+            echo "stateful-postgres-replica node=${i}"
+            guest "${i}" "PG_REPL_PASSWORD='${PG_REPL_PASSWORD}' bash -se" <<'PG_REPLICA'
+        set -euo pipefail
+        systemctl stop postgresql pgbouncer redis-server redis-sentinel minio || true
+        pg_dropcluster --stop 15 main >/dev/null 2>&1 || true
+        rm -rf /etc/postgresql/15/main /var/lib/postgresql/15/main
+        pg_createcluster 15 main --start-conf=auto >/dev/null
+        systemctl stop postgresql || true
+        rm -rf /var/lib/postgresql/15/main
+        install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/15/main
+        until PGPASSWORD="${PG_REPL_PASSWORD}" pg_isready -h 172.31.245.13 -U replicator >/dev/null 2>&1; do sleep 2; done
+        su - postgres -c "PGPASSWORD='${PG_REPL_PASSWORD}' pg_basebackup -h 172.31.245.13 -D /var/lib/postgresql/15/main -U replicator -Fp --wal-method=fetch --checkpoint=fast -R" >/dev/null
+        cat >>/etc/postgresql/15/main/postgresql.conf <<'EOF'
+        listen_addresses = '*'
+        wal_level = replica
+        max_wal_senders = 20
+        max_replication_slots = 20
+        hot_standby = on
+        max_connections = 300
+        shared_buffers = 256MB
+        EOF
+        cat >/etc/postgresql/15/main/pg_hba.conf <<'EOF'
+        local all all trust
+        host all all 127.0.0.1/32 trust
+        host all all 172.31.245.13/32 trust
+        host all all 172.31.245.0/24 scram-sha-256
+        host all all 10.245.0.0/16 scram-sha-256
+        host replication replicator 172.31.245.0/24 scram-sha-256
+        EOF
+        systemctl enable --now postgresql >/dev/null
+        pg_ready=0
+        for _ in $(seq 1 90); do
+          if pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then pg_ready=1; break; fi
+          sleep 1
+        done
+        [[ "${pg_ready}" == "1" ]] || { journalctl -u postgresql -n 120 --no-pager >&2; exit 1; }
+        PG_REPLICA
+          done
+
+          for i in 3 4 5 6; do
+            local ip role_extra
+            ip="$(node_ip "${i}")"
+            role_extra=""
+            [[ "${i}" != "3" ]] && role_extra="replicaof 172.31.245.13 6379"
+            echo "stateful-redis node=${i}"
+            guest "${i}" "NODE_IP='${ip}' ROLE_EXTRA='${role_extra}' bash -se" <<'REDIS_NODE'
+        set -euo pipefail
+        systemctl stop redis-server redis-sentinel || true
+        cat >/etc/redis/redis.conf <<EOF
+        bind 0.0.0.0
+        protected-mode no
+        port 6379
+        dir /var/lib/redis
+        appendonly yes
+        ${ROLE_EXTRA}
+        EOF
+        install -d -o redis -g redis -m 0750 /var/lib/redis
+        cat >/etc/redis/sentinel.conf <<'EOF'
+        port 26379
+        bind 0.0.0.0
+        protected-mode no
+        sentinel monitor gitlab-redis 172.31.245.13 6379 2
+        sentinel down-after-milliseconds gitlab-redis 5000
+        sentinel failover-timeout gitlab-redis 30000
+        sentinel parallel-syncs gitlab-redis 1
+        EOF
+        cat >/etc/systemd/system/redis-sentinel.service <<'EOF'
+        [Unit]
+        Description=Redis Sentinel for GitLab hybrid lab
+        After=network-online.target redis-server.service
+        Wants=network-online.target
+        [Service]
+        Type=simple
+        ExecStart=/usr/bin/redis-server /etc/redis/sentinel.conf --sentinel
+        Restart=always
+        RestartSec=3
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+        systemctl daemon-reload
+            systemctl enable --now redis-server redis-sentinel >/dev/null
+        REDIS_NODE
+          done
+
+          command -v curl >/dev/null 2>&1 || { echo "missing curl on lab host" >&2; exit 2; }
+          command -v scp >/dev/null 2>&1 || { echo "missing scp on lab host" >&2; exit 2; }
+          install -d -m 0755 "${CACHE_ROOT}/bin"
+          download_cached_binary() {
+            local name="$1"
+            local url="$2"
+            local out="${CACHE_ROOT}/bin/${name}"
+            local tmp="${out}.tmp"
+            if [[ -x "${out}" && -s "${out}" ]]; then
+              return
+            fi
+            rm -f "${tmp}"
+            for attempt in $(seq 1 5); do
+              if curl -fL --connect-timeout 15 --max-time 180 -o "${tmp}" "${url}" && [[ -s "${tmp}" ]]; then
+                chmod 0755 "${tmp}"
+                mv "${tmp}" "${out}"
+                return
+              fi
+              echo "download-retry ${name} attempt=${attempt}"
+              sleep 5
+            done
+            rm -f "${tmp}"
+            echo "failed to download ${url}" >&2
+            exit 1
+          }
+          download_cached_binary minio https://dl.min.io/server/minio/release/linux-amd64/minio
+          download_cached_binary mc https://dl.min.io/client/mc/release/linux-amd64/mc
+
+          for i in 3 4 5 6; do
+            echo "stateful-minio node=${i}"
+            scp "${SSH_OPTS[@]}" "${CACHE_ROOT}/bin/minio" "${CACHE_ROOT}/bin/mc" "root@$(node_ip "${i}"):/usr/local/bin/" >/dev/null
+            guest "${i}" "MINIO_ROOT_USER='${MINIO_ROOT_USER}' MINIO_ROOT_PASSWORD='${MINIO_ROOT_PASSWORD}' bash -se" <<'MINIO_NODE'
+        set -euo pipefail
+        chmod 0755 /usr/local/bin/minio /usr/local/bin/mc
+        test -s /usr/local/bin/minio
+        test -s /usr/local/bin/mc
+        systemctl stop minio || true
+        install -d -m 0755 /var/lib/minio-disk /data/minio
+        if ! mountpoint -q /data/minio; then
+          if [[ ! -s /var/lib/minio-disk/disk.img ]]; then
+            truncate -s 2G /var/lib/minio-disk/disk.img
+            mkfs.ext4 -F /var/lib/minio-disk/disk.img >/dev/null
+          fi
+          grep -q '/var/lib/minio-disk/disk.img /data/minio' /etc/fstab ||
+            printf '/var/lib/minio-disk/disk.img /data/minio ext4 loop,noatime 0 0\n' >>/etc/fstab
+          mount /data/minio
+        fi
+        test -d /data/minio
+        cat >/etc/default/minio <<EOF
+        MINIO_ROOT_USER=${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+        MINIO_BROWSER=on
+        EOF
+        cat >/etc/systemd/system/minio.service <<'EOF'
+        [Unit]
+        Description=MinIO distributed object storage for GitLab hybrid lab
+        Wants=network-online.target
+        After=network-online.target
+        [Service]
+        EnvironmentFile=/etc/default/minio
+        ExecStart=/usr/local/bin/minio server http://172.31.245.13/data/minio http://172.31.245.14/data/minio http://172.31.245.15/data/minio http://172.31.245.16/data/minio --address :9000 --console-address :9001
+        Restart=always
+        RestartSec=5
+        LimitNOFILE=1048576
+        [Install]
+        WantedBy=multi-user.target
+        EOF
+        systemctl daemon-reload
+        systemctl enable minio >/dev/null
+        systemctl restart --no-block minio
+        sleep 1
+        systemctl is-active --quiet minio
+        MINIO_NODE
+          done
+
+          echo "stateful-minio-buckets"
+          guest 3 "MINIO_ROOT_USER='${MINIO_ROOT_USER}' MINIO_ROOT_PASSWORD='${MINIO_ROOT_PASSWORD}' bash -se" <<'MINIO_BUCKETS'
+        set -euo pipefail
+        for _ in $(seq 1 120); do
+          if /usr/local/bin/mc alias set gitlab http://127.0.0.1:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" >/dev/null 2>&1; then
+            break
+          fi
+          sleep 2
+        done
+        for bucket in git-lfs gitlab-artifacts gitlab-uploads gitlab-packages gitlab-backups tmp; do
+          /usr/local/bin/mc mb --ignore-existing "gitlab/${bucket}" >/dev/null
+        done
+        MINIO_BUCKETS
+        }
+
+        verify_stateful() {
+          ensure_secrets
+          guest 3 "GITLAB_DB_PASSWORD='${GITLAB_DB_PASSWORD}' MINIO_ROOT_USER='${MINIO_ROOT_USER}' MINIO_ROOT_PASSWORD='${MINIO_ROOT_PASSWORD}' bash -se" <<'STATEFUL_VERIFY' | tee "${RUN_ROOT}/verify-stateful.txt"
+        set -euo pipefail
+        export PGPASSWORD="${GITLAB_DB_PASSWORD}"
+        psql -h 172.31.245.13 -U gitlab -d gitlabhq_production -v ON_ERROR_STOP=1 <<'SQL'
+        CREATE TABLE IF NOT EXISTS torque_gitlab_probe(id text PRIMARY KEY, payload text, updated_at timestamptz DEFAULT now());
+        INSERT INTO torque_gitlab_probe(id, payload) VALUES ('gitlab-hybrid', 'proof data')
+        ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now();
+        SQL
+        for ip in 172.31.245.14 172.31.245.15 172.31.245.16; do
+          for _ in $(seq 1 90); do
+            count="$(psql -h "${ip}" -U gitlab -d gitlabhq_production -Atc "SELECT count(*) FROM torque_gitlab_probe WHERE id='gitlab-hybrid';" 2>/dev/null || true)"
+            if [[ "${count}" == "1" ]]; then
+              printf 'postgres-replica %s %s\n' "${ip}" "${count}"
+              break
+            fi
+            sleep 2
+          done
+        done
+        psql -h 172.31.245.13 -p 6432 -U gitlab -d gitlabhq_production -Atc "SELECT 'pgbouncer-ok';"
+        redis-cli -h 172.31.245.13 ping
+        redis-cli -h 172.31.245.14 info replication | grep -E 'role:slave|role:replica'
+        redis-cli -h 172.31.245.13 -p 26379 sentinel get-master-addr-by-name gitlab-redis
+        /usr/local/bin/mc alias set gitlab http://127.0.0.1:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}" >/dev/null
+        /usr/local/bin/mc ls gitlab | awk '{print "minio-bucket", $NF}'
+        STATEFUL_VERIFY
+          local replicas
+          replicas="$(grep -c '^postgres-replica .* 1$' "${RUN_ROOT}/verify-stateful.txt" || true)"
+          [[ "${replicas}" == "3" ]] || { echo "postgres replica proof failed: ${replicas}/3" >&2; exit 1; }
+          grep -q '^pgbouncer-ok$' "${RUN_ROOT}/verify-stateful.txt" || { echo "pgbouncer proof failed" >&2; exit 1; }
+          grep -q '^PONG$' "${RUN_ROOT}/verify-stateful.txt" || { echo "redis proof failed" >&2; exit 1; }
+          grep -q 'minio-bucket git-lfs/' "${RUN_ROOT}/verify-stateful.txt" || { echo "minio proof failed" >&2; exit 1; }
+        }
+
+        deploy_gitlab() {
+          ensure_secrets
+          [[ -s "${RUN_ROOT}/kubeconfig.yaml" ]] || { echo "missing kubeconfig; run apply-vms first" >&2; exit 1; }
+          helm repo add gitlab https://charts.gitlab.io >/dev/null 2>&1 || true
+          helm repo update gitlab >/dev/null
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" create namespace gitlab --dry-run=client -o yaml | kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" apply -f -
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab create secret generic gitlab-postgresql-password \
+            --from-literal=postgresql-password="${GITLAB_DB_PASSWORD}" --dry-run=client -o yaml | kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" apply -f -
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab create secret generic gitlab-initial-root-password \
+            --from-literal=password="${GITLAB_ROOT_PASSWORD}" --dry-run=client -o yaml | kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" apply -f -
+          cat >"${RUN_ROOT}/rails.s3.yaml" <<EOF
+        provider: AWS
+        region: us-east-1
+        aws_access_key_id: ${MINIO_ROOT_USER}
+        aws_secret_access_key: ${MINIO_ROOT_PASSWORD}
+        aws_signature_version: 4
+        host: 172.31.245.13:9000
+        endpoint: "http://172.31.245.13:9000"
+        path_style: true
+        EOF
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab create secret generic gitlab-rails-storage \
+            --from-file=connection="${RUN_ROOT}/rails.s3.yaml" --dry-run=client -o yaml | kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" apply -f -
+
+          cat >"${RUN_ROOT}/gitlab-values.yaml" <<EOF
+        global:
+          edition: ce
+          hosts:
+            domain: 141.105.65.227.nip.io
+            https: false
+            gitlab:
+              name: ${GITLAB_HOST}
+            ssh: ${GITLAB_HOST}
+          ingress:
+            configureCertmanager: false
+            tls:
+              enabled: false
+          initialRootPassword:
+            secret: gitlab-initial-root-password
+            key: password
+          psql:
+            host: 172.31.245.13
+            port: 5432
+            username: gitlab
+            database: gitlabhq_production
+            preparedStatements: false
+            password:
+              secret: gitlab-postgresql-password
+              key: postgresql-password
+            load_balancing:
+              hosts:
+                - 172.31.245.14
+                - 172.31.245.15
+                - 172.31.245.16
+          redis:
+            host: gitlab-redis
+            auth:
+              enabled: false
+            sentinels:
+              - host: 172.31.245.13
+                port: 26379
+              - host: 172.31.245.14
+                port: 26379
+              - host: 172.31.245.15
+                port: 26379
+              - host: 172.31.245.16
+                port: 26379
+          minio:
+            enabled: false
+          appConfig:
+            object_store:
+              enabled: true
+              proxy_download: true
+              connection:
+                secret: gitlab-rails-storage
+                key: connection
+            lfs:
+              bucket: git-lfs
+            artifacts:
+              bucket: gitlab-artifacts
+            uploads:
+              bucket: gitlab-uploads
+            packages:
+              bucket: gitlab-packages
+            backups:
+              bucket: gitlab-backups
+              tmpBucket: tmp
+        certmanager:
+          install: false
+        postgresql:
+          install: false
+        redis:
+          install: false
+        prometheus:
+          install: false
+        gitlab-runner:
+          install: false
+        registry:
+          enabled: false
+        nginx-ingress:
+          enabled: true
+          controller:
+            kind: DaemonSet
+            replicaCount: 2
+            service:
+              type: NodePort
+              externalTrafficPolicy: Local
+              nodePorts:
+                http: 32080
+                https: 32443
+                gitlab-shell: 32022
+        gitlab:
+          webservice:
+            minReplicas: 2
+            maxReplicas: 3
+            resources:
+              requests:
+                cpu: 300m
+                memory: 2.5G
+          sidekiq:
+            minReplicas: 1
+            maxReplicas: 2
+          gitaly:
+            persistence:
+              storageClass: local-path
+              size: 8Gi
+        EOF
+          helm --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" upgrade --install gitlab gitlab/gitlab \
+            --version "${CHART_VERSION}" --namespace gitlab --values "${RUN_ROOT}/gitlab-values.yaml" \
+            --timeout 75m --wait &
+          local helm_pid="$!"
+          while kill -0 "${helm_pid}" 2>/dev/null; do
+            echo "gitlab-helm-wait"
+            sleep 30
+          done
+          wait "${helm_pid}"
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pods -o wide >"${RUN_ROOT}/pods.txt"
+        }
+
+        verify_gitlab() {
+          ensure_secrets
+          [[ -s "${RUN_ROOT}/kubeconfig.yaml" ]] || { echo "missing kubeconfig" >&2; exit 1; }
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pods -o wide | tee "${RUN_ROOT}/verify-gitlab-pods.txt"
+          for _ in $(seq 1 180); do
+            if curl --connect-timeout 5 --max-time 30 -fsS -H "Host: ${GITLAB_HOST}" "http://${SERVER_IP}:32080/users/sign_in" >"${RUN_ROOT}/verify-gitlab-http.html"; then
+              break
+            fi
+            sleep 5
+          done
+          grep -qi 'GitLab' "${RUN_ROOT}/verify-gitlab-http.html" || { echo "GitLab sign-in page did not render" >&2; exit 1; }
+          toolbox="$(kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pod -l app=toolbox -o jsonpath='{.items[0].metadata.name}')"
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab exec "${toolbox}" -- gitlab-rake gitlab:env:info >"${RUN_ROOT}/verify-gitlab-env.txt"
+          {
+            echo "url=http://${GITLAB_HOST}/"
+            echo "ssh=ssh://git@${GITLAB_HOST}:8022/"
+            echo "root_password_secret=gitlab/gitlab-initial-root-password:password"
+            grep -E 'GitLab information|GitLab version|GitLab Shell|Gitaly' "${RUN_ROOT}/verify-gitlab-env.txt" || true
+          } | tee "${RUN_ROOT}/verify-gitlab.txt"
+        }
+
+        case "${mode}" in
+          apply-vms) apply_vms ;;
+          stateful-apply) apply_stateful ;;
+          stateful-verify) verify_stateful ;;
+          gitlab-deploy) deploy_gitlab ;;
+          gitlab-verify) verify_gitlab ;;
+          delete|cleanup) cleanup_run 1 ;;
+          *) echo "unknown mode: ${mode}" >&2; exit 2 ;;
+        esac
+        REMOTE
+        chmod +x "${RUN_ROOT}/gitlab-hybrid-lab.sh"
+        RUN_ROOT="${RUN_ROOT}" NODE_COUNT="${NODE_COUNT}" K8S_COUNT="${K8S_COUNT}" SUBNET_OCTET="${SUBNET_OCTET}" BRIDGE_NAME="${BRIDGE_NAME}" TAP_PREFIX="${TAP_PREFIX}" RUN_ID="${RUN_ID}" \
+          "${RUN_ROOT}/gitlab-hybrid-lab.sh" apply-vms
+      deleteCommand: |
+        set +e
+        RUN_ROOT="/var/lib/torque-firecracker-gitlab/hybrid"
+        if [ -x "${RUN_ROOT}/gitlab-hybrid-lab.sh" ]; then
+          RUN_ROOT="${RUN_ROOT}" "${RUN_ROOT}/gitlab-hybrid-lab.sh" delete
+        else
+          for p in "${RUN_ROOT}"/vms/*/pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null; done
+          for i in $(seq 0 6); do ip link del "tqgl${i}" 2>/dev/null; done
+          ip link set tqfcgl down 2>/dev/null
+          ip link del tqfcgl type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "172.31.245.0/24" ! -o tqfcgl -j MASQUERADE 2>/dev/null
+          iptables -t nat -D PREROUTING -p tcp --dport 80 -j DNAT --to-destination "172.31.245.10:32080" 2>/dev/null
+          iptables -t nat -D PREROUTING -p tcp --dport 8022 -j DNAT --to-destination "172.31.245.10:32022" 2>/dev/null
+          iptables -t nat -D OUTPUT -p tcp -d 141.105.65.227 --dport 80 -j DNAT --to-destination "172.31.245.10:32080" 2>/dev/null
+          rm -rf "${RUN_ROOT}"
+        fi
+
+  - name: stateful-apply
+    kind: host.command.run
+    needs: [fc-gitlab-bootstrap]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 35m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh stateful-apply
+      deleteCommand: "true"
+
+  - name: stateful-verify
+    kind: host.command.run
+    needs: [stateful-apply]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 15m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh stateful-verify
+      deleteCommand: "true"
+
+  - name: gitlab-deploy
+    kind: host.command.run
+    needs: [stateful-verify]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 100m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh gitlab-deploy
+      deleteCommand: "true"
+
+  - name: gitlab-verify
+    kind: host.command.run
+    needs: [gitlab-deploy]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 20m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh gitlab-verify
+      deleteCommand: "true"
+
+  - name: gitlab-k8s-cluster-inspect
+    kind: k8s.cluster.inspect
+    needs: [gitlab-verify]
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_SSH
+        timeout: 20m
+        kubeconfig: /var/lib/torque-firecracker-gitlab/hybrid/kubeconfig.yaml
+        namespaces: [kube-system, gitlab]
+
+  - name: gitlab-k8s-cert-inspect
+    kind: k8s.cert.inspect
+    needs: [gitlab-k8s-cluster-inspect]
+    kubernetes:
+      provider: auto
+      certificates:
+        renewBefore: 720h
+        order: control-plane-first
+        batchSize: 1
+        healthCheckCommand: |
+          set -euo pipefail
+          RUN_ROOT="/var/lib/torque-firecracker-gitlab/hybrid"
+          ready_count="$(kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" get nodes --no-headers | awk '$2=="Ready"{c++} END{print c+0}')"
+          gitlab_pods="$(kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pods --no-headers 2>/dev/null | awk 'END{print NR+0}')"
+          printf 'ready=%s gitlabPods=%s\n' "${ready_count}" "${gitlab_pods}"
+        verifyCommand: |
+          set -euo pipefail
+          RUN_ROOT="/var/lib/torque-firecracker-gitlab/hybrid"
+          install -d -m 0755 "${RUN_ROOT}/lifecycle"
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" get nodes -o wide | tee "${RUN_ROOT}/lifecycle/cert-inspect-nodes.txt"
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pods -o wide | tee "${RUN_ROOT}/lifecycle/cert-inspect-pods.txt"
+        targetsFrom:
+          sourceNode: gitlab-k8s-cluster-inspect
+          roles: [control-plane, worker]
+          transport: ssh
+          targetEnv: TORQUE_LAB_SSH
+          timeout: 10m
+          service: k3s
+          nodeAddressTemplate: "root@{{ .InternalIP }}"
+          nodeIdentityFile: /opt/firecracker-sandbox-lab/lab_ssh_key
+
+  - name: gitlab-k8s-cert-renew
+    kind: k8s.cert.renew
+    needs: [gitlab-k8s-cert-inspect]
+    kubernetes:
+      provider: auto
+      certificates:
+        renewBefore: 720h
+        force: true
+        forceOnceId: gitlab-hybrid-k8s-cert-renew-v2
+        statePath: /var/lib/torque-firecracker-gitlab/hybrid/lifecycle/cert-renewal-state.json
+        order: control-plane-first
+        batchSize: 1
+        healthCheckCommand: |
+          set -euo pipefail
+          RUN_ROOT="/var/lib/torque-firecracker-gitlab/hybrid"
+          ready_count="$(kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" get nodes --no-headers | awk '$2=="Ready"{c++} END{print c+0}')"
+          gitlab_pods="$(kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pods --no-headers 2>/dev/null | awk 'END{print NR+0}')"
+          printf 'ready=%s gitlabPods=%s\n' "${ready_count}" "${gitlab_pods}"
+        policy:
+          maxUnavailable: 1
+          requireFreshInspect: true
+          maxInspectAge: 15m
+          requireHealthyInspect: true
+          requireSupportedProvider: true
+          maintenanceWindow:
+            start: "00:00"
+            end: "23:59"
+            timeZone: UTC
+          appProbes:
+            - id: gitlab-before-cert-renew
+              command: |
+                set -euo pipefail
+                GITLAB_HOST="gitlab.141.105.65.227.nip.io"
+                curl --connect-timeout 5 --max-time 30 -fsS -H "Host: ${GITLAB_HOST}" "http://172.31.245.10:32080/users/sign_in" | grep -i GitLab
+              expect: GitLab
+        targetsFrom:
+          sourceNode: gitlab-k8s-cluster-inspect
+          roles: [control-plane, worker]
+          transport: ssh
+          targetEnv: TORQUE_LAB_SSH
+          timeout: 20m
+          service: k3s
+          nodeAddressTemplate: "root@{{ .InternalIP }}"
+          nodeIdentityFile: /opt/firecracker-sandbox-lab/lab_ssh_key
+
+  - name: gitlab-k8s-cluster-verify
+    kind: k8s.cluster.verify
+    needs: [gitlab-k8s-cert-renew]
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_SSH
+        timeout: 20m
+        kubeconfig: /var/lib/torque-firecracker-gitlab/hybrid/kubeconfig.yaml
+        minReadyNodes: 3
+        namespaces: [kube-system, gitlab]
+        stableIterations: 3
+        stableInterval: 5s
+        appProbes:
+          - id: gitlab-sign-in
+            command: |
+              set -euo pipefail
+              RUN_ROOT="/var/lib/torque-firecracker-gitlab/hybrid"
+              GITLAB_HOST="gitlab.141.105.65.227.nip.io"
+              install -d -m 0755 "${RUN_ROOT}/lifecycle"
+              curl --connect-timeout 5 --max-time 30 -fsS -H "Host: ${GITLAB_HOST}" "http://172.31.245.10:32080/users/sign_in" | tee "${RUN_ROOT}/lifecycle/gitlab-cluster-verify-sign-in.html"
+            expect: GitLab
+
+  - name: gitlab-lifecycle-verify
+    kind: host.command.run
+    needs: [gitlab-k8s-cluster-verify]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 20m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh gitlab-verify
+      deleteCommand: "true"
