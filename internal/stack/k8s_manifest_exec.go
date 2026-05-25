@@ -59,23 +59,26 @@ type kubernetesManifestCommandReceipt struct {
 }
 
 type kubernetesManifestOperationResult struct {
-	APIVersion     string                             `json:"apiVersion"`
-	Kind           string                             `json:"kind"`
-	Operation      string                             `json:"operation"`
-	Status         string                             `json:"status"`
-	Reason         string                             `json:"reason,omitempty"`
-	TargetDigest   string                             `json:"targetDigest,omitempty"`
-	Namespace      string                             `json:"namespace,omitempty"`
-	FieldManager   string                             `json:"fieldManager"`
-	DesiredState   string                             `json:"desiredState,omitempty"`
-	ManifestDigest string                             `json:"manifestDigest"`
-	Changed        bool                               `json:"changed"`
-	Changes        kubernetesManifestChangeSet        `json:"changes"`
-	Before         kubernetesManifestState            `json:"before"`
-	After          kubernetesManifestState            `json:"after"`
-	Commands       []kubernetesManifestCommandReceipt `json:"commands,omitempty"`
-	Error          string                             `json:"error,omitempty"`
-	CompletedAt    string                             `json:"completedAt"`
+	APIVersion        string                               `json:"apiVersion"`
+	Kind              string                               `json:"kind"`
+	Operation         string                               `json:"operation"`
+	Status            string                               `json:"status"`
+	Reason            string                               `json:"reason,omitempty"`
+	TargetDigest      string                               `json:"targetDigest,omitempty"`
+	Namespace         string                               `json:"namespace,omitempty"`
+	FieldManager      string                               `json:"fieldManager"`
+	PrunePolicy       string                               `json:"prunePolicy,omitempty"`
+	OwnershipRequired bool                                 `json:"ownershipRequired,omitempty"`
+	DesiredState      string                               `json:"desiredState,omitempty"`
+	ManifestDigest    string                               `json:"manifestDigest"`
+	Changed           bool                                 `json:"changed"`
+	Changes           kubernetesManifestChangeSet          `json:"changes"`
+	Before            kubernetesManifestState              `json:"before"`
+	After             kubernetesManifestState              `json:"after"`
+	BlockedResources  []kubernetesManifestObservedResource `json:"blockedResources,omitempty"`
+	Commands          []kubernetesManifestCommandReceipt   `json:"commands,omitempty"`
+	Error             string                               `json:"error,omitempty"`
+	CompletedAt       string                               `json:"completedAt"`
 }
 
 type kubernetesManifestObserveReceipt struct {
@@ -96,74 +99,101 @@ type kubernetesManifestObserveReceipt struct {
 }
 
 type kubernetesManifestPlanReceipt struct {
-	APIVersion     string                          `json:"apiVersion"`
-	Kind           string                          `json:"kind"`
-	NodeID         string                          `json:"nodeId"`
-	NodeKind       string                          `json:"nodeKind"`
-	TargetID       string                          `json:"targetId,omitempty"`
-	Phase          string                          `json:"phase"`
-	Status         string                          `json:"status"`
-	Reason         string                          `json:"reason,omitempty"`
-	Operation      string                          `json:"operation"`
-	Namespace      string                          `json:"namespace,omitempty"`
-	FieldManager   string                          `json:"fieldManager"`
-	DesiredState   string                          `json:"desiredState"`
-	ManifestDigest string                          `json:"manifestDigest,omitempty"`
-	RemoveOnDelete bool                            `json:"removeOnDelete,omitempty"`
-	ForceConflicts bool                            `json:"forceConflicts,omitempty"`
-	Resources      []kubernetesManifestResourceRef `json:"resources,omitempty"`
-	Changes        kubernetesManifestChangeSet     `json:"changes"`
-	PlannedAt      string                          `json:"plannedAt"`
+	APIVersion        string                          `json:"apiVersion"`
+	Kind              string                          `json:"kind"`
+	NodeID            string                          `json:"nodeId"`
+	NodeKind          string                          `json:"nodeKind"`
+	TargetID          string                          `json:"targetId,omitempty"`
+	Phase             string                          `json:"phase"`
+	Status            string                          `json:"status"`
+	Reason            string                          `json:"reason,omitempty"`
+	Operation         string                          `json:"operation"`
+	Namespace         string                          `json:"namespace,omitempty"`
+	FieldManager      string                          `json:"fieldManager"`
+	PrunePolicy       string                          `json:"prunePolicy,omitempty"`
+	OwnershipRequired bool                            `json:"ownershipRequired,omitempty"`
+	DesiredState      string                          `json:"desiredState"`
+	ManifestDigest    string                          `json:"manifestDigest,omitempty"`
+	RemoveOnDelete    bool                            `json:"removeOnDelete,omitempty"`
+	ForceConflicts    bool                            `json:"forceConflicts,omitempty"`
+	Resources         []kubernetesManifestResourceRef `json:"resources,omitempty"`
+	Changes           kubernetesManifestChangeSet     `json:"changes"`
+	PlannedAt         string                          `json:"plannedAt"`
 }
 
 type kubernetesManifestDiffReceipt struct {
-	APIVersion     string                             `json:"apiVersion"`
-	Kind           string                             `json:"kind"`
-	NodeID         string                             `json:"nodeId"`
-	TargetID       string                             `json:"targetId,omitempty"`
-	Phase          string                             `json:"phase"`
-	Status         string                             `json:"status"`
-	Namespace      string                             `json:"namespace,omitempty"`
-	FieldManager   string                             `json:"fieldManager"`
-	ManifestDigest string                             `json:"manifestDigest,omitempty"`
-	Resources      []kubernetesManifestResourceRef    `json:"resources,omitempty"`
-	Changed        bool                               `json:"changed"`
-	Changes        kubernetesManifestChangeSet        `json:"changes"`
-	DiffQuality    string                             `json:"diffQuality"`
-	Commands       []kubernetesManifestCommandReceipt `json:"commands,omitempty"`
-	GeneratedAt    string                             `json:"generatedAt"`
+	APIVersion        string                             `json:"apiVersion"`
+	Kind              string                             `json:"kind"`
+	NodeID            string                             `json:"nodeId"`
+	TargetID          string                             `json:"targetId,omitempty"`
+	Phase             string                             `json:"phase"`
+	Status            string                             `json:"status"`
+	Namespace         string                             `json:"namespace,omitempty"`
+	FieldManager      string                             `json:"fieldManager"`
+	PrunePolicy       string                             `json:"prunePolicy,omitempty"`
+	OwnershipRequired bool                               `json:"ownershipRequired,omitempty"`
+	ManifestDigest    string                             `json:"manifestDigest,omitempty"`
+	Resources         []kubernetesManifestResourceRef    `json:"resources,omitempty"`
+	Changed           bool                               `json:"changed"`
+	Changes           kubernetesManifestChangeSet        `json:"changes"`
+	DiffQuality       string                             `json:"diffQuality"`
+	Commands          []kubernetesManifestCommandReceipt `json:"commands,omitempty"`
+	GeneratedAt       string                             `json:"generatedAt"`
 }
 
 type kubernetesManifestVerifyReceipt struct {
-	APIVersion     string                               `json:"apiVersion"`
-	Kind           string                               `json:"kind"`
-	NodeID         string                               `json:"nodeId"`
-	TargetID       string                               `json:"targetId,omitempty"`
-	Phase          string                               `json:"phase"`
-	Status         string                               `json:"status"`
-	Reason         string                               `json:"reason,omitempty"`
-	Namespace      string                               `json:"namespace,omitempty"`
-	FieldManager   string                               `json:"fieldManager"`
-	DesiredState   string                               `json:"desiredState"`
-	ManifestDigest string                               `json:"manifestDigest,omitempty"`
-	Changed        bool                                 `json:"changed"`
-	Resources      []kubernetesManifestObservedResource `json:"resources,omitempty"`
-	VerifiedAt     string                               `json:"verifiedAt"`
+	APIVersion        string                               `json:"apiVersion"`
+	Kind              string                               `json:"kind"`
+	NodeID            string                               `json:"nodeId"`
+	TargetID          string                               `json:"targetId,omitempty"`
+	Phase             string                               `json:"phase"`
+	Status            string                               `json:"status"`
+	Reason            string                               `json:"reason,omitempty"`
+	Namespace         string                               `json:"namespace,omitempty"`
+	FieldManager      string                               `json:"fieldManager"`
+	PrunePolicy       string                               `json:"prunePolicy,omitempty"`
+	OwnershipRequired bool                                 `json:"ownershipRequired,omitempty"`
+	DesiredState      string                               `json:"desiredState"`
+	ManifestDigest    string                               `json:"manifestDigest,omitempty"`
+	Changed           bool                                 `json:"changed"`
+	Resources         []kubernetesManifestObservedResource `json:"resources,omitempty"`
+	VerifiedAt        string                               `json:"verifiedAt"`
 }
 
 func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context, node *runNode, command string) error {
+	return e.runKubernetesManifestNode(ctx, node, command)
+}
+
+func (e *customNodeExecutor) runKubernetesManifestDeleteNode(ctx context.Context, node *runNode, command string) error {
+	return e.runKubernetesManifestNode(ctx, node, command)
+}
+
+func (e *customNodeExecutor) runKubernetesManifestNode(ctx context.Context, node *runNode, command string) error {
 	spec := node.Kubernetes
 	manifestSpec := spec.Manifest
+	nodeKind := normalizeNodeKind(node.Kind)
 	phase := "k8s-manifest"
 	operation := "apply"
 	desiredState := "present"
-	if strings.EqualFold(command, "delete") {
+	requireOwnership := false
+	if nodeKind == NodeKindK8sManifestDelete {
+		phase = "k8s-manifest-delete"
+		operation = "delete"
+		desiredState = "absent"
+		requireOwnership = true
+		spec.Manifest.RemoveOnDelete = true
+		manifestSpec = spec.Manifest
+	} else if strings.EqualFold(command, "delete") {
 		phase = "delete-k8s-manifest"
 		operation = "delete"
 		desiredState = "absent"
 	}
+	if nodeKind == NodeKindK8sManifestDelete && strings.EqualFold(command, "delete") {
+		phase = "delete-k8s-manifest-delete"
+	}
+	artifactPrefix := kubernetesManifestArtifactPrefix(nodeKind)
 	cursor := map[string]any{
-		"kind":      normalizeNodeKind(node.Kind),
+		"kind":      nodeKind,
 		"phase":     phase,
 		"transport": strings.TrimSpace(spec.Cluster.Transport),
 	}
@@ -179,17 +209,17 @@ func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context,
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
 	if len(resources) == 0 {
-		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("%s node %s rendered no Kubernetes resources", NodeKindK8sManifestApply, node.Name))
+		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("%s node %s rendered no Kubernetes resources", nodeKind, node.Name))
 	}
 	targetID := kubernetesManifestTargetID(spec.Cluster)
 	if e.dryRun {
 		reason := "dry-run"
 		state := kubernetesManifestState{}
 		observe := e.kubernetesManifestObserveReceipt(node, phase, targetID, "", manifestSpec, manifestDigest, resources, state, "skipped")
-		plan := e.kubernetesManifestPlanReceipt(node, phase, operation, desiredState, targetID, manifestSpec, manifestDigest, resources, kubernetesManifestChangeSet{}, "skipped", reason)
-		diff := e.kubernetesManifestDiffReceipt(node, phase, targetID, manifestSpec, manifestDigest, resources, false, kubernetesManifestChangeSet{}, "skipped", nil)
-		verify := e.kubernetesManifestVerifyReceipt(node, phase, targetID, manifestSpec, desiredState, manifestDigest, kubernetesManifestOperationResult{Status: "skipped", Reason: reason})
-		e.recordKubernetesManifestReceipts(node, phase, "skipped", reason, observe, plan, diff, nil, verify)
+		plan := e.kubernetesManifestPlanReceipt(node, phase, operation, desiredState, targetID, manifestSpec, manifestDigest, resources, kubernetesManifestChangeSet{}, requireOwnership, "skipped", reason)
+		diff := e.kubernetesManifestDiffReceipt(node, phase, targetID, manifestSpec, manifestDigest, resources, false, kubernetesManifestChangeSet{}, requireOwnership, kubernetesManifestDiffQuality(operation, requireOwnership), "skipped", nil)
+		verify := e.kubernetesManifestVerifyReceipt(node, phase, targetID, manifestSpec, desiredState, manifestDigest, requireOwnership, kubernetesManifestOperationResult{Status: "skipped", Reason: reason})
+		e.recordKubernetesManifestReceipts(node, phase, artifactPrefix, "skipped", reason, observe, plan, diff, nil, verify)
 		e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "skipped: "+reason, map[string]any{
 			"phase":  phase,
 			"status": "skipped",
@@ -204,7 +234,7 @@ func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context,
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
 	targetDigest := runner.TargetDigest()
-	observeResult, err := e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "observe", desiredState, manifest, resources))
+	observeResult, err := e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "observe", desiredState, manifest, resources, requireOwnership))
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
@@ -216,23 +246,25 @@ func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context,
 	if operation == "delete" {
 		changes.Objects = kubernetesManifestStateAnyExists(observeResult.After)
 		diffResult = kubernetesManifestOperationResult{
-			APIVersion:     "torque.dev/k8s-manifest-node/v1",
-			Kind:           "KubernetesManifestOperationReceipt",
-			Operation:      "delete-plan",
-			Status:         "planned",
-			TargetDigest:   targetDigest,
-			Namespace:      strings.TrimSpace(manifestSpec.Namespace),
-			FieldManager:   strings.TrimSpace(manifestSpec.FieldManager),
-			DesiredState:   desiredState,
-			ManifestDigest: manifestDigest,
-			Changed:        changes.Objects,
-			Changes:        changes,
-			Before:         observeResult.After,
-			After:          observeResult.After,
-			CompletedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+			APIVersion:        "torque.dev/k8s-manifest-node/v1",
+			Kind:              "KubernetesManifestOperationReceipt",
+			Operation:         "delete-plan",
+			Status:            "planned",
+			TargetDigest:      targetDigest,
+			Namespace:         strings.TrimSpace(manifestSpec.Namespace),
+			FieldManager:      strings.TrimSpace(manifestSpec.FieldManager),
+			PrunePolicy:       strings.TrimSpace(manifestSpec.PrunePolicy),
+			OwnershipRequired: requireOwnership,
+			DesiredState:      desiredState,
+			ManifestDigest:    manifestDigest,
+			Changed:           changes.Objects,
+			Changes:           changes,
+			Before:            observeResult.After,
+			After:             observeResult.After,
+			CompletedAt:       time.Now().UTC().Format(time.RFC3339Nano),
 		}
 	} else {
-		diffResult, err = e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "diff", desiredState, manifest, resources))
+		diffResult, err = e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "diff", desiredState, manifest, resources, requireOwnership))
 		if err != nil {
 			return wrapNodeErr(node.ResolvedRelease, err)
 		}
@@ -242,13 +274,13 @@ func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context,
 			changes.Objects = diffResult.Changed
 		}
 	}
-	plan := e.kubernetesManifestPlanReceipt(node, phase, operation, desiredState, targetID, manifestSpec, manifestDigest, resources, changes, "planned", "eligible")
-	diff := e.kubernetesManifestDiffReceipt(node, phase, targetID, manifestSpec, manifestDigest, resources, diffResult.Changed, changes, diffResult.Status, diffResult.Commands)
+	plan := e.kubernetesManifestPlanReceipt(node, phase, operation, desiredState, targetID, manifestSpec, manifestDigest, resources, changes, requireOwnership, "planned", "eligible")
+	diff := e.kubernetesManifestDiffReceipt(node, phase, targetID, manifestSpec, manifestDigest, resources, diffResult.Changed, changes, requireOwnership, kubernetesManifestDiffQuality(operation, requireOwnership), diffResult.Status, diffResult.Commands)
 
 	if e.diff {
 		reason := "diff"
-		verify := e.kubernetesManifestVerifyReceipt(node, phase, targetID, manifestSpec, desiredState, manifestDigest, kubernetesManifestOperationResult{Status: "skipped", Reason: reason, Before: observeResult.After, After: observeResult.After})
-		e.recordKubernetesManifestReceipts(node, phase, "skipped", reason, observe, plan, diff, nil, verify)
+		verify := e.kubernetesManifestVerifyReceipt(node, phase, targetID, manifestSpec, desiredState, manifestDigest, requireOwnership, kubernetesManifestOperationResult{Status: "skipped", Reason: reason, Before: observeResult.After, After: observeResult.After})
+		e.recordKubernetesManifestReceipts(node, phase, artifactPrefix, "skipped", reason, observe, plan, diff, nil, verify)
 		e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "server-side diff complete", map[string]any{
 			"phase":   phase,
 			"status":  "skipped",
@@ -260,9 +292,9 @@ func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context,
 
 	var result kubernetesManifestOperationResult
 	if operation == "delete" {
-		result, err = e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "delete", desiredState, manifest, resources))
+		result, err = e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "delete", desiredState, manifest, resources, requireOwnership))
 	} else {
-		result, err = e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "apply", desiredState, manifest, resources))
+		result, err = e.runKubernetesManifestOperation(ctx, runner, kubernetesManifestPayload(spec, "apply", desiredState, manifest, resources, requireOwnership))
 	}
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
@@ -274,11 +306,12 @@ func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context,
 	if result.Changes == (kubernetesManifestChangeSet{}) {
 		result.Changes = changes
 	}
-	verify := e.kubernetesManifestVerifyReceipt(node, phase, targetID, manifestSpec, desiredState, manifestDigest, result)
-	e.recordKubernetesManifestReceipts(node, phase, result.Status, strings.TrimSpace(result.Error), observe, plan, diff, &result, verify)
+	verify := e.kubernetesManifestVerifyReceipt(node, phase, targetID, manifestSpec, desiredState, manifestDigest, requireOwnership, result)
+	e.recordKubernetesManifestReceipts(node, phase, artifactPrefix, result.Status, strings.TrimSpace(result.Error), observe, plan, diff, &result, verify)
 	if !nodeStepSucceeded(result.Status) || verify.Status == "failed" {
-		msg := firstNonEmptyString(result.Error, result.Reason, verify.Reason, "kubernetes manifest apply failed")
-		runErr := &RunError{Class: "K8S_MANIFEST_FAILED", Message: msg, Digest: computeRunErrorDigest("K8S_MANIFEST_FAILED", msg)}
+		msg := firstNonEmptyString(result.Error, result.Reason, verify.Reason, "kubernetes manifest operation failed")
+		errorClass := kubernetesManifestErrorClass(nodeKind)
+		runErr := &RunError{Class: errorClass, Message: msg, Digest: computeRunErrorDigest(errorClass, msg)}
 		e.run.emitEvent(node.ID, PhaseCompleted, node.Attempt, msg, map[string]any{
 			"phase":  phase,
 			"status": "failure",
@@ -299,7 +332,11 @@ func (e *customNodeExecutor) runKubernetesManifestApplyNode(ctx context.Context,
 
 func renderKubernetesManifestContent(node *runNode) ([]byte, error) {
 	if node == nil {
-		return nil, fmt.Errorf("nil k8s.manifest.apply node")
+		return nil, fmt.Errorf("nil kubernetes manifest node")
+	}
+	nodeKind := normalizeNodeKind(node.Kind)
+	if nodeKind == "" {
+		nodeKind = NodeKindK8sManifestApply
 	}
 	spec := node.Kubernetes.Manifest
 	if strings.TrimSpace(spec.Content) != "" {
@@ -312,7 +349,7 @@ func renderKubernetesManifestContent(node *runNode) ([]byte, error) {
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read k8s.manifest.apply manifest: %w", err)
+			return nil, fmt.Errorf("read %s manifest: %w", nodeKind, err)
 		}
 		return raw, nil
 	}
@@ -324,16 +361,16 @@ func renderKubernetesManifestContent(node *runNode) ([]byte, error) {
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read k8s.manifest.apply template: %w", err)
+			return nil, fmt.Errorf("read %s template: %w", nodeKind, err)
 		}
 		source = string(raw)
 	}
 	if strings.TrimSpace(source) == "" {
-		return nil, fmt.Errorf("k8s.manifest.apply requires content, path, template, or templatePath")
+		return nil, fmt.Errorf("%s requires content, path, template, or templatePath", nodeKind)
 	}
-	tpl, err := template.New("k8s-manifest-apply").Option("missingkey=error").Parse(source)
+	tpl, err := template.New("k8s-manifest").Option("missingkey=error").Parse(source)
 	if err != nil {
-		return nil, fmt.Errorf("parse k8s.manifest.apply template: %w", err)
+		return nil, fmt.Errorf("parse %s template: %w", nodeKind, err)
 	}
 	data := map[string]any{}
 	for k, v := range spec.Data {
@@ -344,7 +381,7 @@ func renderKubernetesManifestContent(node *runNode) ([]byte, error) {
 	data["Namespace"] = strings.TrimSpace(spec.Namespace)
 	var out bytes.Buffer
 	if err := tpl.Execute(&out, data); err != nil {
-		return nil, fmt.Errorf("render k8s.manifest.apply template: %w", err)
+		return nil, fmt.Errorf("render %s template: %w", nodeKind, err)
 	}
 	return out.Bytes(), nil
 }
@@ -427,18 +464,20 @@ func kubernetesManifestKubectlArgs(spec KubernetesClusterSpec) []string {
 	return args
 }
 
-func kubernetesManifestPayload(spec KubernetesSpec, operation string, desiredState string, manifest []byte, resources []kubernetesManifestResourceRef) map[string]any {
+func kubernetesManifestPayload(spec KubernetesSpec, operation string, desiredState string, manifest []byte, resources []kubernetesManifestResourceRef, requireOwnership bool) map[string]any {
 	return map[string]any{
-		"operation":      strings.TrimSpace(operation),
-		"desiredState":   strings.TrimSpace(desiredState),
-		"manifestB64":    base64.StdEncoding.EncodeToString(manifest),
-		"manifestDigest": digestBytes(manifest),
-		"namespace":      strings.TrimSpace(spec.Manifest.Namespace),
-		"fieldManager":   strings.TrimSpace(spec.Manifest.FieldManager),
-		"forceConflicts": spec.Manifest.ForceConflicts,
-		"removeOnDelete": spec.Manifest.RemoveOnDelete,
-		"kubectlArgs":    kubernetesManifestKubectlArgs(spec.Cluster),
-		"resources":      resources,
+		"operation":        strings.TrimSpace(operation),
+		"desiredState":     strings.TrimSpace(desiredState),
+		"manifestB64":      base64.StdEncoding.EncodeToString(manifest),
+		"manifestDigest":   digestBytes(manifest),
+		"namespace":        strings.TrimSpace(spec.Manifest.Namespace),
+		"fieldManager":     strings.TrimSpace(spec.Manifest.FieldManager),
+		"forceConflicts":   spec.Manifest.ForceConflicts,
+		"removeOnDelete":   spec.Manifest.RemoveOnDelete,
+		"prunePolicy":      strings.TrimSpace(spec.Manifest.PrunePolicy),
+		"requireOwnership": requireOwnership,
+		"kubectlArgs":      kubernetesManifestKubectlArgs(spec.Cluster),
+		"resources":        resources,
 	}
 }
 
@@ -511,50 +550,54 @@ func (e *customNodeExecutor) kubernetesManifestObserveReceipt(node *runNode, pha
 	}
 }
 
-func (e *customNodeExecutor) kubernetesManifestPlanReceipt(node *runNode, phase string, operation string, desiredState string, targetID string, spec KubernetesManifestSpec, manifestDigest string, resources []kubernetesManifestResourceRef, changes kubernetesManifestChangeSet, status string, reason string) kubernetesManifestPlanReceipt {
+func (e *customNodeExecutor) kubernetesManifestPlanReceipt(node *runNode, phase string, operation string, desiredState string, targetID string, spec KubernetesManifestSpec, manifestDigest string, resources []kubernetesManifestResourceRef, changes kubernetesManifestChangeSet, requireOwnership bool, status string, reason string) kubernetesManifestPlanReceipt {
 	return kubernetesManifestPlanReceipt{
-		APIVersion:     "torque.dev/k8s-manifest-node/v1",
-		Kind:           "KubernetesManifestPlanReceipt",
-		NodeID:         node.ID,
-		NodeKind:       normalizeNodeKind(node.Kind),
-		TargetID:       strings.TrimSpace(targetID),
-		Phase:          phase,
-		Status:         strings.TrimSpace(status),
-		Reason:         strings.TrimSpace(reason),
-		Operation:      strings.TrimSpace(operation),
-		Namespace:      strings.TrimSpace(spec.Namespace),
-		FieldManager:   strings.TrimSpace(spec.FieldManager),
-		DesiredState:   strings.TrimSpace(desiredState),
-		ManifestDigest: manifestDigest,
-		RemoveOnDelete: spec.RemoveOnDelete,
-		ForceConflicts: spec.ForceConflicts,
-		Resources:      append([]kubernetesManifestResourceRef(nil), resources...),
-		Changes:        changes,
-		PlannedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+		APIVersion:        "torque.dev/k8s-manifest-node/v1",
+		Kind:              "KubernetesManifestPlanReceipt",
+		NodeID:            node.ID,
+		NodeKind:          normalizeNodeKind(node.Kind),
+		TargetID:          strings.TrimSpace(targetID),
+		Phase:             phase,
+		Status:            strings.TrimSpace(status),
+		Reason:            strings.TrimSpace(reason),
+		Operation:         strings.TrimSpace(operation),
+		Namespace:         strings.TrimSpace(spec.Namespace),
+		FieldManager:      strings.TrimSpace(spec.FieldManager),
+		PrunePolicy:       strings.TrimSpace(spec.PrunePolicy),
+		OwnershipRequired: requireOwnership,
+		DesiredState:      strings.TrimSpace(desiredState),
+		ManifestDigest:    manifestDigest,
+		RemoveOnDelete:    spec.RemoveOnDelete,
+		ForceConflicts:    spec.ForceConflicts,
+		Resources:         append([]kubernetesManifestResourceRef(nil), resources...),
+		Changes:           changes,
+		PlannedAt:         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 }
 
-func (e *customNodeExecutor) kubernetesManifestDiffReceipt(node *runNode, phase string, targetID string, spec KubernetesManifestSpec, manifestDigest string, resources []kubernetesManifestResourceRef, changed bool, changes kubernetesManifestChangeSet, status string, commands []kubernetesManifestCommandReceipt) kubernetesManifestDiffReceipt {
+func (e *customNodeExecutor) kubernetesManifestDiffReceipt(node *runNode, phase string, targetID string, spec KubernetesManifestSpec, manifestDigest string, resources []kubernetesManifestResourceRef, changed bool, changes kubernetesManifestChangeSet, requireOwnership bool, diffQuality string, status string, commands []kubernetesManifestCommandReceipt) kubernetesManifestDiffReceipt {
 	return kubernetesManifestDiffReceipt{
-		APIVersion:     "torque.dev/k8s-manifest-node/v1",
-		Kind:           "KubernetesManifestDiffReceipt",
-		NodeID:         node.ID,
-		TargetID:       strings.TrimSpace(targetID),
-		Phase:          phase,
-		Status:         strings.TrimSpace(status),
-		Namespace:      strings.TrimSpace(spec.Namespace),
-		FieldManager:   strings.TrimSpace(spec.FieldManager),
-		ManifestDigest: manifestDigest,
-		Resources:      append([]kubernetesManifestResourceRef(nil), resources...),
-		Changed:        changed,
-		Changes:        changes,
-		DiffQuality:    "server-side",
-		Commands:       append([]kubernetesManifestCommandReceipt(nil), commands...),
-		GeneratedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		APIVersion:        "torque.dev/k8s-manifest-node/v1",
+		Kind:              "KubernetesManifestDiffReceipt",
+		NodeID:            node.ID,
+		TargetID:          strings.TrimSpace(targetID),
+		Phase:             phase,
+		Status:            strings.TrimSpace(status),
+		Namespace:         strings.TrimSpace(spec.Namespace),
+		FieldManager:      strings.TrimSpace(spec.FieldManager),
+		PrunePolicy:       strings.TrimSpace(spec.PrunePolicy),
+		OwnershipRequired: requireOwnership,
+		ManifestDigest:    manifestDigest,
+		Resources:         append([]kubernetesManifestResourceRef(nil), resources...),
+		Changed:           changed,
+		Changes:           changes,
+		DiffQuality:       strings.TrimSpace(diffQuality),
+		Commands:          append([]kubernetesManifestCommandReceipt(nil), commands...),
+		GeneratedAt:       time.Now().UTC().Format(time.RFC3339Nano),
 	}
 }
 
-func (e *customNodeExecutor) kubernetesManifestVerifyReceipt(node *runNode, phase string, targetID string, spec KubernetesManifestSpec, desiredState string, manifestDigest string, result kubernetesManifestOperationResult) kubernetesManifestVerifyReceipt {
+func (e *customNodeExecutor) kubernetesManifestVerifyReceipt(node *runNode, phase string, targetID string, spec KubernetesManifestSpec, desiredState string, manifestDigest string, requireOwnership bool, result kubernetesManifestOperationResult) kubernetesManifestVerifyReceipt {
 	status := strings.TrimSpace(result.Status)
 	reason := strings.TrimSpace(firstNonEmptyString(result.Error, result.Reason))
 	resources := append([]kubernetesManifestObservedResource(nil), result.After.Resources...)
@@ -586,24 +629,30 @@ func (e *customNodeExecutor) kubernetesManifestVerifyReceipt(node *runNode, phas
 		}
 	}
 	return kubernetesManifestVerifyReceipt{
-		APIVersion:     "torque.dev/k8s-manifest-node/v1",
-		Kind:           "KubernetesManifestVerifyReceipt",
-		NodeID:         node.ID,
-		TargetID:       strings.TrimSpace(targetID),
-		Phase:          phase,
-		Status:         status,
-		Reason:         reason,
-		Namespace:      strings.TrimSpace(spec.Namespace),
-		FieldManager:   strings.TrimSpace(spec.FieldManager),
-		DesiredState:   strings.TrimSpace(desiredState),
-		ManifestDigest: manifestDigest,
-		Changed:        result.Changed,
-		Resources:      resources,
-		VerifiedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		APIVersion:        "torque.dev/k8s-manifest-node/v1",
+		Kind:              "KubernetesManifestVerifyReceipt",
+		NodeID:            node.ID,
+		TargetID:          strings.TrimSpace(targetID),
+		Phase:             phase,
+		Status:            status,
+		Reason:            reason,
+		Namespace:         strings.TrimSpace(spec.Namespace),
+		FieldManager:      strings.TrimSpace(spec.FieldManager),
+		PrunePolicy:       strings.TrimSpace(spec.PrunePolicy),
+		OwnershipRequired: requireOwnership,
+		DesiredState:      strings.TrimSpace(desiredState),
+		ManifestDigest:    manifestDigest,
+		Changed:           result.Changed,
+		Resources:         resources,
+		VerifiedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 	}
 }
 
-func (e *customNodeExecutor) recordKubernetesManifestReceipts(node *runNode, phase string, status string, reason string, observe kubernetesManifestObserveReceipt, plan kubernetesManifestPlanReceipt, diff kubernetesManifestDiffReceipt, apply *kubernetesManifestOperationResult, verify kubernetesManifestVerifyReceipt) {
+func (e *customNodeExecutor) recordKubernetesManifestReceipts(node *runNode, phase string, artifactPrefix string, status string, reason string, observe kubernetesManifestObserveReceipt, plan kubernetesManifestPlanReceipt, diff kubernetesManifestDiffReceipt, apply *kubernetesManifestOperationResult, verify kubernetesManifestVerifyReceipt) {
+	artifactPrefix = strings.TrimSpace(artifactPrefix)
+	if artifactPrefix == "" {
+		artifactPrefix = "k8s-manifest"
+	}
 	payload := map[string]any{
 		"apiVersion": "torque.dev/k8s-manifest-node/v1",
 		"kind":       "KubernetesManifestNodeArtifact",
@@ -624,14 +673,17 @@ func (e *customNodeExecutor) recordKubernetesManifestReceipts(node *runNode, pha
 		payload["targetDigest"] = apply.TargetDigest
 		payload["apply"] = *apply
 	}
-	e.run.RecordJSONArtifact(node.ID, "k8s-manifest-observe.json", observe)
-	e.run.RecordJSONArtifact(node.ID, "k8s-manifest-plan.json", plan)
-	e.run.RecordJSONArtifact(node.ID, "k8s-manifest-diff.json", diff)
+	e.run.RecordJSONArtifact(node.ID, artifactPrefix+"-observe.json", observe)
+	e.run.RecordJSONArtifact(node.ID, artifactPrefix+"-plan.json", plan)
+	e.run.RecordJSONArtifact(node.ID, artifactPrefix+"-diff.json", diff)
 	if apply != nil {
-		e.run.RecordJSONArtifact(node.ID, "k8s-manifest-apply.json", *apply)
+		e.run.RecordJSONArtifact(node.ID, artifactPrefix+"-apply.json", *apply)
 	}
-	e.run.RecordJSONArtifact(node.ID, "k8s-manifest-verify.json", verify)
-	e.run.RecordJSONArtifact(node.ID, phase+".json", payload)
+	e.run.RecordJSONArtifact(node.ID, artifactPrefix+"-verify.json", verify)
+	e.run.RecordJSONArtifact(node.ID, artifactPrefix+".json", payload)
+	if strings.TrimSpace(phase) != artifactPrefix {
+		e.run.RecordJSONArtifact(node.ID, phase+".json", payload)
+	}
 	e.run.RecordJSONArtifact(node.ID, "decision.json", payload)
 }
 
@@ -642,6 +694,30 @@ func kubernetesManifestStateAnyExists(state kubernetesManifestState) bool {
 		}
 	}
 	return false
+}
+
+func kubernetesManifestArtifactPrefix(nodeKind string) string {
+	if normalizeNodeKind(nodeKind) == NodeKindK8sManifestDelete {
+		return "k8s-manifest-delete"
+	}
+	return "k8s-manifest"
+}
+
+func kubernetesManifestDiffQuality(operation string, requireOwnership bool) string {
+	if strings.EqualFold(strings.TrimSpace(operation), "delete") {
+		if requireOwnership {
+			return "ownership-gated-listed-only"
+		}
+		return "listed-only"
+	}
+	return "server-side"
+}
+
+func kubernetesManifestErrorClass(nodeKind string) string {
+	if normalizeNodeKind(nodeKind) == NodeKindK8sManifestDelete {
+		return "K8S_MANIFEST_DELETE_FAILED"
+	}
+	return "K8S_MANIFEST_FAILED"
 }
 
 const kubernetesManifestPythonScript = `
@@ -769,6 +845,10 @@ try:
     field_manager = str(payload.get("fieldManager") or "torque").strip() or "torque"
     force_conflicts = bool(payload.get("forceConflicts"))
     remove_on_delete = bool(payload.get("removeOnDelete"))
+    prune_policy = str(payload.get("prunePolicy") or "").strip()
+    if operation == "delete" and not prune_policy:
+        prune_policy = "listed-only"
+    require_ownership = bool(payload.get("requireOwnership"))
     kubectl = [str(x) for x in (payload.get("kubectlArgs") or ["kubectl"]) if str(x).strip()]
     resources = list(payload.get("resources") or [])
     manifest = base64.b64decode(str(payload.get("manifestB64") or ""))
@@ -782,6 +862,8 @@ try:
             "status": "succeeded",
             "namespace": namespace,
             "fieldManager": field_manager,
+            "prunePolicy": prune_policy,
+            "ownershipRequired": require_ownership,
             "desiredState": desired_state,
             "manifestDigest": manifest_digest,
             "changed": False,
@@ -804,6 +886,8 @@ try:
                 "status": status,
                 "namespace": namespace,
                 "fieldManager": field_manager,
+                "prunePolicy": prune_policy,
+                "ownershipRequired": require_ownership,
                 "desiredState": desired_state,
                 "manifestDigest": manifest_digest,
                 "changed": changed,
@@ -821,6 +905,8 @@ try:
                     "reason": "removeOnDelete is false",
                     "namespace": namespace,
                     "fieldManager": field_manager,
+                    "prunePolicy": prune_policy,
+                    "ownershipRequired": require_ownership,
                     "desiredState": desired_state,
                     "manifestDigest": manifest_digest,
                     "changed": False,
@@ -829,6 +915,48 @@ try:
                     "after": before,
                     "commands": before_commands,
                 })
+            if prune_policy != "listed-only":
+                finish({
+                    "operation": operation,
+                    "status": "failed",
+                    "namespace": namespace,
+                    "fieldManager": field_manager,
+                    "prunePolicy": prune_policy,
+                    "ownershipRequired": require_ownership,
+                    "desiredState": desired_state,
+                    "manifestDigest": manifest_digest,
+                    "changed": False,
+                    "changes": {"objects": False},
+                    "before": before,
+                    "after": before,
+                    "commands": before_commands,
+                    "error": "unsupported prune policy",
+                }, 1)
+            blocked = []
+            if require_ownership:
+                blocked = [
+                    item for item in (before.get("resources") or [])
+                    if item.get("exists") and not item.get("owned")
+                ]
+            if blocked:
+                finish({
+                    "operation": operation,
+                    "status": "failed",
+                    "reason": "ownership check failed",
+                    "namespace": namespace,
+                    "fieldManager": field_manager,
+                    "prunePolicy": prune_policy,
+                    "ownershipRequired": require_ownership,
+                    "desiredState": desired_state,
+                    "manifestDigest": manifest_digest,
+                    "changed": False,
+                    "changes": {"objects": False},
+                    "before": before,
+                    "after": before,
+                    "blockedResources": blocked,
+                    "commands": before_commands,
+                    "error": "one or more existing resources are not owned by the field manager",
+                }, 1)
             args = list(kubectl) + namespace_args(namespace) + ["delete", "-f", path, "--ignore-not-found=true"]
             proc, receipt = run_command("delete", args)
             after, after_commands = observe_all(kubectl, resources, field_manager)
@@ -839,6 +967,8 @@ try:
                 "status": status,
                 "namespace": namespace,
                 "fieldManager": field_manager,
+                "prunePolicy": prune_policy,
+                "ownershipRequired": require_ownership,
                 "desiredState": desired_state,
                 "manifestDigest": manifest_digest,
                 "changed": changed,
@@ -858,6 +988,8 @@ try:
                 "status": "failed",
                 "namespace": namespace,
                 "fieldManager": field_manager,
+                "prunePolicy": prune_policy,
+                "ownershipRequired": require_ownership,
                 "desiredState": desired_state,
                 "manifestDigest": manifest_digest,
                 "changed": False,
@@ -881,6 +1013,8 @@ try:
             "status": status,
             "namespace": namespace,
             "fieldManager": field_manager,
+            "prunePolicy": prune_policy,
+            "ownershipRequired": require_ownership,
             "desiredState": desired_state,
             "manifestDigest": manifest_digest,
             "changed": changed,

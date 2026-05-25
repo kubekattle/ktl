@@ -62,7 +62,7 @@ without hiding the important decisions in CI logs or a control-plane database.
 - Stack packaging for multi-tool deployments that span hosts, clusters, apps,
   data services, public checks, and verification.
 - Ops target inventory, adapter capability discovery, and evidence-backed host
-  command/file/package/service/user/cron/systemd plus Kubernetes manifest
+  command/file/package/service/user/cron/systemd plus Kubernetes manifest apply/delete
   automation.
 - Agent policy checks so mutating operations can require proof and release gates.
 - Release scoring, autopilot, canary, blue/green, and flight recorder workflows.

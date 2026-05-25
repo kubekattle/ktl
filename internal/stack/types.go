@@ -469,6 +469,7 @@ type KubernetesManifestSpec struct {
 	FieldManager   string         `yaml:"fieldManager,omitempty" json:"fieldManager,omitempty"`
 	ForceConflicts bool           `yaml:"forceConflicts,omitempty" json:"forceConflicts,omitempty"`
 	RemoveOnDelete bool           `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
+	PrunePolicy    string         `yaml:"prunePolicy,omitempty" json:"prunePolicy,omitempty"`
 }
 
 type KubernetesAppProbe struct {

@@ -86,6 +86,8 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runKubernetesClusterInspectNode(ctx, node, command)
 	case NodeKindK8sManifestApply:
 		return e.runKubernetesManifestApplyNode(ctx, node, command)
+	case NodeKindK8sManifestDelete:
+		return e.runKubernetesManifestDeleteNode(ctx, node, command)
 	case NodeKindK8sCertInspect:
 		return e.runKubernetesCertInspectNode(ctx, node, command)
 	case NodeKindK8sCertRenew:

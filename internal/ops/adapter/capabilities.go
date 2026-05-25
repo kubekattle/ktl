@@ -298,6 +298,25 @@ func Definitions() []Capability {
 			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
 			Description:         "Server-side diff, apply, ownership verify, no-op repeat, and cleanup for Kubernetes manifest objects through local or SSH kubectl execution.",
 		},
+		{
+			Adapter:             "k8s.manifest.delete",
+			Status:              "implemented",
+			Classification:      "guarded",
+			TargetTypes:         []string{"kubernetes", "local", "host"},
+			Transports:          []string{"local", "ssh"},
+			Mutating:            true,
+			RequiredPrivilege:   "Kubernetes RBAC to get and delete declared objects",
+			Idempotence:         "ownership-gated-listed-object-state",
+			CheckMode:           "ownership-gated-plan",
+			DiffQuality:         "ownership-gated-listed-only",
+			SupportedPhases:     []string{"observe", "plan", "diff", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts:   []string{"k8s-manifest-delete-observe.json", "k8s-manifest-delete-plan.json", "k8s-manifest-delete-diff.json", "k8s-manifest-delete-apply.json", "k8s-manifest-delete-verify.json", "k8s-manifest-delete.json", "decision.json"},
+			RequiredPolicy:      []string{"target graph selection", "Kubernetes RBAC scope", "allow policy decision"},
+			Touches:             []string{"Kubernetes API objects listed by manifest"},
+			SecretInputs:        []string{"manifest content, kubectl output, and live object bodies are emitted as digests only"},
+			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
+			Description:         "Delete only manifest-listed Kubernetes objects after field-manager ownership checks and prove unrelated objects survive.",
+		},
 	}
 	for i := range out {
 		out[i] = cloneCapability(out[i])
@@ -465,7 +484,7 @@ func probeCommandsFor(adapterName string) []probeCommand {
 			{Name: "journal", Command: "command -v journalctl >/dev/null 2>&1", Required: true},
 			{Name: "unit-path", Command: "test -d /etc/systemd/system", Required: true},
 		}
-	case "k8s.manifest.apply":
+	case "k8s.manifest.apply", "k8s.manifest.delete":
 		return []probeCommand{
 			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
 			{Name: "python3", Command: "command -v python3 >/dev/null 2>&1", Required: true},

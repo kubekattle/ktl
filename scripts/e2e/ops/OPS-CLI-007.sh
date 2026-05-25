@@ -283,6 +283,7 @@ user = catalog_adapters.get("host.user.manage")
 cron = catalog_adapters.get("host.cron.manage")
 systemd = catalog_adapters.get("host.systemd.unit")
 manifest = catalog_adapters.get("k8s.manifest.apply")
+manifest_delete = catalog_adapters.get("k8s.manifest.delete")
 if catalog.get("apiVersion") != "torque.dev/ops/adapter-capabilities/v1":
     errors.append("catalog apiVersion mismatch")
 if (catalog.get("summary") or {}).get("implemented", 0) < 1:
@@ -333,9 +334,13 @@ if not manifest or manifest.get("status") != "implemented" or manifest.get("diff
     errors.append("k8s.manifest.apply implemented contract missing")
 elif "k8s-manifest-diff.json" not in (manifest.get("evidenceArtifacts") or []) or "k8s-manifest-verify.json" not in (manifest.get("evidenceArtifacts") or []):
     errors.append("k8s.manifest.apply missing diff/verify artifact")
+if not manifest_delete or manifest_delete.get("status") != "implemented" or manifest_delete.get("diffQuality") != "ownership-gated-listed-only":
+    errors.append("k8s.manifest.delete implemented contract missing")
+elif "k8s-manifest-delete-diff.json" not in (manifest_delete.get("evidenceArtifacts") or []) or "k8s-manifest-delete-verify.json" not in (manifest_delete.get("evidenceArtifacts") or []):
+    errors.append("k8s.manifest.delete missing diff/verify artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

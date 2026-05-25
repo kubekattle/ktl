@@ -115,6 +115,17 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 		!adapterStringSliceContains(manifest.EvidenceArtifacts, "k8s-manifest-verify.json") {
 		t.Fatalf("k8s.manifest.apply missing diff/verify artifacts: %#v", manifest.EvidenceArtifacts)
 	}
+	manifestDelete := findAdapterCapability(result.Adapters, "k8s.manifest.delete")
+	if manifestDelete == nil {
+		t.Fatalf("missing k8s.manifest.delete in %#v", result.Adapters)
+	}
+	if manifestDelete.Status != "implemented" || manifestDelete.DiffQuality != "ownership-gated-listed-only" {
+		t.Fatalf("k8s.manifest.delete capability = %#v", manifestDelete)
+	}
+	if !adapterStringSliceContains(manifestDelete.EvidenceArtifacts, "k8s-manifest-delete-diff.json") ||
+		!adapterStringSliceContains(manifestDelete.EvidenceArtifacts, "k8s-manifest-delete-verify.json") {
+		t.Fatalf("k8s.manifest.delete missing diff/verify artifacts: %#v", manifestDelete.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}
@@ -125,7 +136,7 @@ func TestOpsAdapterCapabilitiesTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v\nstderr=%s\nstdout=%s", err, errOut, out)
 	}
-	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply"} {
+	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q:\n%s", want, out)
 		}

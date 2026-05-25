@@ -764,6 +764,46 @@ torque stack audit --config ./stacks/k8s-manifest \
 torque stack delete --config ./stacks/k8s-manifest --yes
 ```
 
+## Stack: delete Kubernetes manifests
+
+Use `k8s.manifest.delete` when deletion itself is the stack operation. The
+adapter deletes only objects listed in the manifest, requires each existing
+object to be owned by the configured field manager, and records the prune policy
+as `listed-only` in evidence. Objects not listed in the manifest are left alone.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: k8s-manifest-delete
+nodes:
+  - name: delete-owned-config
+    kind: k8s.manifest.delete
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_K3S_SSH
+        kubectlCommand: k3s kubectl
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      manifest:
+        namespace: torque-demo
+        fieldManager: torque
+        prunePolicy: listed-only
+        content: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: torque-demo-config
+            namespace: torque-demo
+```
+
+```bash
+TORQUE_LAB_K3S_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/k8s-manifest-delete --yes
+
+torque stack audit --config ./stacks/k8s-manifest-delete \
+  --output json --include-artifacts > k8s-manifest-delete-audit.json
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

@@ -239,7 +239,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.KubernetesDigest = kubernetesInput.Digest
-	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply:
+	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete:
 		kubernetesInput, err := digestKubernetesSpec(n.Kubernetes)
 		if err != nil {
 			return "", nil, err
@@ -822,6 +822,7 @@ func digestKubernetesManifestSpec(spec KubernetesManifestSpec) (string, error) {
 		FieldManager       string `json:"fieldManager,omitempty"`
 		ForceConflicts     bool   `json:"forceConflicts,omitempty"`
 		RemoveOnDelete     bool   `json:"removeOnDelete,omitempty"`
+		PrunePolicy        string `json:"prunePolicy,omitempty"`
 	}{
 		Namespace:          strings.TrimSpace(spec.Namespace),
 		ContentDigest:      digestString(spec.Content),
@@ -831,6 +832,7 @@ func digestKubernetesManifestSpec(spec KubernetesManifestSpec) (string, error) {
 		FieldManager:       strings.TrimSpace(spec.FieldManager),
 		ForceConflicts:     spec.ForceConflicts,
 		RemoveOnDelete:     spec.RemoveOnDelete,
+		PrunePolicy:        strings.TrimSpace(spec.PrunePolicy),
 	}
 	if len(spec.Data) > 0 {
 		raw, err := json.Marshal(spec.Data)

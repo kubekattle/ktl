@@ -369,8 +369,8 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if err := validateKubernetesClusterInspectSpec(leaf.Name, n.Kubernetes.Cluster); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
-	case NodeKindK8sManifestApply:
-		if err := validateKubernetesManifestApplySpec(leaf.Name, &n.Kubernetes); err != nil {
+	case NodeKindK8sManifestApply, NodeKindK8sManifestDelete:
+		if err := validateKubernetesManifestSpec(n.Kind, leaf.Name, &n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
 	case NodeKindK8sClusterVerify:
@@ -419,16 +419,17 @@ func validateKubernetesClusterVerifySpec(name string, spec KubernetesClusterSpec
 	return nil
 }
 
-func validateKubernetesManifestApplySpec(name string, spec *KubernetesSpec) error {
+func validateKubernetesManifestSpec(kind string, name string, spec *KubernetesSpec) error {
+	kind = normalizeNodeKind(kind)
 	if spec == nil {
-		return fmt.Errorf("%s node %s requires kubernetes manifest config", NodeKindK8sManifestApply, name)
+		return fmt.Errorf("%s node %s requires kubernetes manifest config", kind, name)
 	}
-	if err := validateKubernetesClusterAccessSpec(NodeKindK8sManifestApply, name, spec.Cluster); err != nil {
+	if err := validateKubernetesClusterAccessSpec(kind, name, spec.Cluster); err != nil {
 		return err
 	}
 	manifest := &spec.Manifest
 	if strings.TrimSpace(manifest.Content) == "" && strings.TrimSpace(manifest.Path) == "" && strings.TrimSpace(manifest.Template) == "" && strings.TrimSpace(manifest.TemplatePath) == "" {
-		return fmt.Errorf("%s node %s requires kubernetes.manifest.content, path, template, or templatePath", NodeKindK8sManifestApply, name)
+		return fmt.Errorf("%s node %s requires kubernetes.manifest.content, path, template, or templatePath", kind, name)
 	}
 	if strings.TrimSpace(manifest.Namespace) == "" {
 		manifest.Namespace = "default"
@@ -438,6 +439,17 @@ func validateKubernetesManifestApplySpec(name string, spec *KubernetesSpec) erro
 	}
 	if strings.TrimSpace(spec.Cluster.Transport) == "" {
 		spec.Cluster.Transport = "local"
+	}
+	prunePolicy := strings.ToLower(strings.TrimSpace(manifest.PrunePolicy))
+	if kind == NodeKindK8sManifestDelete && prunePolicy == "" {
+		prunePolicy = "listed-only"
+	}
+	if prunePolicy != "" && prunePolicy != "listed-only" {
+		return fmt.Errorf("%s node %s has unsupported kubernetes.manifest.prunePolicy %q", kind, name, manifest.PrunePolicy)
+	}
+	manifest.PrunePolicy = prunePolicy
+	if kind == NodeKindK8sManifestDelete {
+		manifest.RemoveOnDelete = true
 	}
 	return nil
 }

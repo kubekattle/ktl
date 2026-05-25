@@ -735,6 +735,9 @@ func mergeKubernetesManifestSpec(dst KubernetesManifestSpec, src KubernetesManif
 	if src.RemoveOnDelete {
 		dst.RemoveOnDelete = true
 	}
+	if src.PrunePolicy != "" {
+		dst.PrunePolicy = strings.TrimSpace(src.PrunePolicy)
+	}
 	return dst
 }
 

@@ -84,6 +84,18 @@ releases:
             name: torque-fake
           data:
             ok: "true"
+  - name: manifest-delete
+    kind: k8s.manifest.delete
+    kubernetes:
+      cluster:
+        kubectlCommand: kubectl
+      manifest:
+        namespace: torque-test
+        content: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: torque-delete
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -150,6 +162,24 @@ releases:
 	}
 	if got := p.ByID["dev/default/manifest"].Kubernetes.Manifest.FieldManager; got != "torque" {
 		t.Fatalf("manifest fieldManager=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/manifest-delete"].Kind); got != NodeKindK8sManifestDelete {
+		t.Fatalf("manifest-delete kind=%q", got)
+	}
+	if got := p.ByID["dev/default/manifest-delete"].Kubernetes.Cluster.Transport; got != "local" {
+		t.Fatalf("manifest-delete transport=%q", got)
+	}
+	if got := p.ByID["dev/default/manifest-delete"].Kubernetes.Manifest.Namespace; got != "torque-test" {
+		t.Fatalf("manifest-delete namespace=%q", got)
+	}
+	if got := p.ByID["dev/default/manifest-delete"].Kubernetes.Manifest.FieldManager; got != "torque" {
+		t.Fatalf("manifest-delete fieldManager=%q", got)
+	}
+	if got := p.ByID["dev/default/manifest-delete"].Kubernetes.Manifest.PrunePolicy; got != "listed-only" {
+		t.Fatalf("manifest-delete prunePolicy=%q", got)
+	}
+	if !p.ByID["dev/default/manifest-delete"].Kubernetes.Manifest.RemoveOnDelete {
+		t.Fatalf("manifest-delete removeOnDelete was not defaulted")
 	}
 }
 
@@ -524,6 +554,37 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if manifestHashA == manifestHashB {
 		t.Fatalf("expected manifest hash to change")
+	}
+
+	manifestDeleteA := &ResolvedRelease{
+		ID:        "k8s.manifest.delete/delete-manifest",
+		Kind:      NodeKindK8sManifestDelete,
+		Name:      "delete-manifest",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Manifest: KubernetesManifestSpec{
+				Namespace:    "torque-test",
+				FieldManager: "torque",
+				PrunePolicy:  "listed-only",
+				Content:      "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: torque-delete\ndata:\n  value: a\n",
+			},
+		},
+	}
+	manifestDeleteB := *manifestDeleteA
+	manifestDeleteB.Kubernetes.Manifest.Content = strings.Replace(manifestDeleteB.Kubernetes.Manifest.Content, "value: a", "value: b", 1)
+	manifestDeleteHashA, _, err := ComputeEffectiveInputHashWithOptions(manifestDeleteA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash manifestDeleteA: %v", err)
+	}
+	manifestDeleteHashB, _, err := ComputeEffectiveInputHashWithOptions(&manifestDeleteB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash manifestDeleteB: %v", err)
+	}
+	if manifestDeleteHashA == manifestDeleteHashB {
+		t.Fatalf("expected manifest delete hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -2189,6 +2250,293 @@ spec:
 		!strings.Contains(deleteApply, `"changed": true`) ||
 		!strings.Contains(deleteApply, `"exists": false`) {
 		t.Fatalf("delete did not record manifest cleanup:\n%s", deleteApply)
+	}
+}
+
+func TestRun_KubernetesManifestDeleteLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	stateDir := filepath.Join(root, "fake-kubectl-state")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake state: %v", err)
+	}
+	resourcePath := func(kind, name string) string {
+		return filepath.Join(stateDir, strings.ToLower(kind)+"__"+name+".txt")
+	}
+	writeResource := func(kind, name, manager string) {
+		if err := os.WriteFile(resourcePath(kind, name), []byte(manager), 0o644); err != nil {
+			t.Fatalf("write fake %s/%s: %v", kind, name, err)
+		}
+	}
+	configPath := resourcePath("ConfigMap", "torque-delete-config")
+	deployPath := resourcePath("Deployment", "torque-delete-deploy")
+	unrelatedPath := resourcePath("ConfigMap", "torque-unrelated-config")
+	writeResource("ConfigMap", "torque-delete-config", "torque")
+	writeResource("Deployment", "torque-delete-deploy", "torque")
+	writeResource("ConfigMap", "torque-unrelated-config", "other")
+	writeExecutableForTest(t, filepath.Join(binDir, "kubectl"), `#!/usr/bin/env python3
+import json
+import os
+import sys
+
+state_dir = os.environ["FAKE_KUBECTL_STATE_DIR"]
+args = sys.argv[1:]
+namespace = "default"
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg in ("--kubeconfig", "--context", "-n", "--namespace"):
+        if arg in ("-n", "--namespace"):
+            namespace = args[i + 1]
+        i += 2
+        continue
+    if arg.startswith("--kubeconfig=") or arg.startswith("--context="):
+        i += 1
+        continue
+    break
+if i >= len(args):
+    sys.exit(2)
+cmd = args[i]
+rest = args[i + 1:]
+
+def state_path(kind, name):
+    return os.path.join(state_dir, kind.lower() + "__" + name + ".txt")
+
+def manifest_path(values):
+    for idx, value in enumerate(values):
+        if value == "-f" and idx + 1 < len(values):
+            return values[idx + 1]
+    return ""
+
+def refs_from_manifest(path):
+    if not path:
+        return []
+    refs = []
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read()
+    for doc in raw.split("---"):
+        kind = ""
+        name = ""
+        in_metadata = False
+        for line in doc.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith("kind:"):
+                kind = stripped.split(":", 1)[1].strip().strip('"')
+                continue
+            if stripped == "metadata:":
+                in_metadata = True
+                continue
+            if in_metadata and stripped.startswith("name:"):
+                name = stripped.split(":", 1)[1].strip().strip('"')
+                continue
+            if in_metadata and not line.startswith((" ", "\t")):
+                in_metadata = False
+        if kind and name:
+            refs.append((kind, name))
+    return refs
+
+if cmd == "get":
+    if len(rest) < 2:
+        sys.exit(2)
+    kind = rest[0]
+    name = rest[1]
+    path = state_path(kind, name)
+    if not os.path.exists(path):
+        print("NotFound", file=sys.stderr)
+        sys.exit(1)
+    with open(path, "r", encoding="utf-8") as f:
+        manager = f.read().strip() or "unknown"
+    api = "apps/v1" if kind.lower() == "deployment" else "v1"
+    doc = {
+        "apiVersion": api,
+        "kind": kind,
+        "metadata": {
+            "name": name,
+            "namespace": namespace,
+            "uid": "uid-" + kind.lower() + "-" + name,
+            "resourceVersion": "42",
+            "generation": 1,
+            "managedFields": [{"manager": manager, "operation": "Apply"}],
+        },
+        "data": {"secret": "k8s-delete-object-secret"},
+    }
+    print(json.dumps(doc))
+    sys.exit(0)
+if cmd == "delete":
+    for kind, name in refs_from_manifest(manifest_path(rest)):
+        path = state_path(kind, name)
+        if os.path.exists(path):
+            os.unlink(path)
+    sys.exit(0)
+sys.exit(2)
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_KUBECTL_STATE_DIR", stateDir)
+	node := &ResolvedRelease{
+		ID:        "k8s.manifest.delete/delete-manifest",
+		Kind:      NodeKindK8sManifestDelete,
+		Name:      "delete-manifest",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Manifest: KubernetesManifestSpec{
+				Namespace:    "torque-test",
+				FieldManager: "torque",
+				PrunePolicy:  "listed-only",
+				Content: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: torque-delete-config
+data:
+  marker: OPS-K8S-002
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: torque-delete-deploy
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: torque-delete
+  template:
+    metadata:
+      labels:
+        app: torque-delete
+    spec:
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+`,
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply/delete: %v\nstderr=%s", err, errOut.String())
+	}
+	for _, path := range []string{configPath, deployPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be deleted, stat err=%v", path, err)
+		}
+	}
+	if _, err := os.Stat(unrelatedPath); err != nil {
+		t.Fatalf("unrelated object was not preserved: %v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"k8s-manifest-delete-observe.json", "k8s-manifest-delete-plan.json", "k8s-manifest-delete-diff.json", "k8s-manifest-delete-apply.json", "k8s-manifest-delete-verify.json", "k8s-manifest-delete.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-manifest-delete-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		!strings.Contains(applyArtifact, `"desiredState": "absent"`) ||
+		!strings.Contains(applyArtifact, `"ownershipRequired": true`) ||
+		!strings.Contains(applyArtifact, `"prunePolicy": "listed-only"`) ||
+		!strings.Contains(applyArtifact, `"exists": false`) ||
+		strings.Contains(applyArtifact, "k8s-delete-object-secret") {
+		t.Fatalf("k8s manifest delete artifact did not record redacted deletion proof:\n%s", applyArtifact)
+	}
+	diffArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-manifest-delete-diff.json")
+	if !strings.Contains(diffArtifact, `"diffQuality": "ownership-gated-listed-only"`) ||
+		!strings.Contains(diffArtifact, `"objects": true`) {
+		t.Fatalf("k8s manifest delete diff artifact missing listed-only evidence:\n%s", diffArtifact)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply/delete: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "k8s-manifest-delete-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat manifest delete was not a no-op:\n%s", repeatApply)
+	}
+	if _, err := os.Stat(unrelatedPath); err != nil {
+		t.Fatalf("unrelated object was not preserved after repeat: %v", err)
+	}
+
+	writeResource("ConfigMap", "torque-delete-config", "other")
+	writeResource("Deployment", "torque-delete-deploy", "other")
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err == nil {
+		t.Fatalf("Run unowned apply/delete succeeded unexpectedly\nstdout=%s\nstderr=%s", out.String(), errOut.String())
+	}
+	for _, path := range []string{configPath, deployPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("unowned target should not have been deleted: %v", err)
+		}
+	}
+	blockedRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun blocked: %v", err)
+	}
+	blockedAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            blockedRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit blocked: %v", err)
+	}
+	blockedApply := auditArtifactBody(t, blockedAudit.Artifacts, node.ID, "k8s-manifest-delete-apply.json")
+	if !strings.Contains(blockedApply, `"status": "failed"`) ||
+		!strings.Contains(blockedApply, `"reason": "ownership check failed"`) ||
+		!strings.Contains(blockedApply, `"blockedResources"`) ||
+		!strings.Contains(blockedApply, `"owned": false`) {
+		t.Fatalf("unowned manifest delete did not record ownership gate:\n%s", blockedApply)
 	}
 }
 

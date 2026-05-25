@@ -257,6 +257,7 @@ adapters = [
     "host.cron.manage",
     "host.systemd.unit",
     "k8s.manifest.apply",
+    "k8s.manifest.delete",
     "http.check",
 ]
 providers = [
