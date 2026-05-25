@@ -703,6 +703,25 @@ torque stack audit \
   --include-artifacts > oracle-postgres-bundle-audit.json
 ```
 
+## Ops: adapter capability discovery
+
+Use the capability catalog before wiring a stack node to an ops adapter. The
+JSON contract records implemented versus planned adapters, supported phases,
+evidence artifacts, privilege requirements, and probe results when a target is
+provided.
+
+```bash
+torque ops adapter capabilities --format json > adapter-capabilities.json
+
+torque ops adapter capabilities host.command.run \
+  --target local://localhost \
+  --format json > host-command-local-probe.json
+
+torque ops adapter capabilities host.command.run \
+  --target ssh://root@lab-host \
+  --format json > host-command-ssh-probe.json
+```
+
 ## Stack: inspect runs
 
 ```bash

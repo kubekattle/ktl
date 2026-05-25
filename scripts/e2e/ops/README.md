@@ -123,6 +123,22 @@ scripts/e2e/ops/OPS-CLI-006.sh \
   --cleanup
 ```
 
+## OPS-CLI-007
+
+`OPS-CLI-007.sh` proves `torque ops adapter capabilities`. It verifies the
+local adapter contract catalog in table and JSON formats, proves the
+implemented `host.command.run` adapter can run a local redaction probe, and
+runs the same read-only probe over the lab SSH target without leaking raw probe
+secret material.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-CLI-007.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## STACK-LIFE-008
 
 `STACK-LIFE-008.sh` proves the GitLab Firecracker hybrid Kubernetes lifecycle

@@ -61,6 +61,8 @@ without hiding the important decisions in CI logs or a control-plane database.
 - Proof-backed Kubernetes apply, rollback, repair, drift, and incident replay.
 - Stack packaging for multi-tool deployments that span hosts, clusters, apps,
   data services, public checks, and verification.
+- Ops target inventory and adapter capability discovery for evidence-backed
+  host automation.
 - Agent policy checks so mutating operations can require proof and release gates.
 - Release scoring, autopilot, canary, blue/green, and flight recorder workflows.
 

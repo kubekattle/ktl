@@ -146,6 +146,7 @@ var curatedExamples = map[string][]string{
 		"# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
 		"# Collect cached host facts for selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --cache-dir ./.torque/ops/facts",
 		"# Check guarded mutation policy before adding an adapter\ntorque ops policy check --mode guarded --operation host.command.run --mutating --format json",
+		"# Discover adapter capability contracts\ntorque ops adapter capabilities --format json",
 	},
 	"torque ops inventory": {
 		"# Show targets selected by a label\ntorque ops inventory show --targets ./targetgraph.yaml --selector role=db",
@@ -201,6 +202,15 @@ var curatedExamples = map[string][]string{
 	"torque ops policy check": {
 		"# Block an unsafe automatic operation\ntorque ops policy check --mode automatic --operation host.command.run --mutating --unsafe --format json",
 		"# Allow an explicit unsafe local experiment\ntorque ops policy check --mode unsafe --operation host.command.run --mutating --unsafe --allow-unsafe --local-experiment",
+	},
+	"torque ops adapter": {
+		"# List adapter capability contracts\ntorque ops adapter capabilities",
+		"# Probe the implemented host command adapter locally\ntorque ops adapter capabilities host.command.run --target local://localhost --format json",
+	},
+	"torque ops adapter capabilities": {
+		"# List implemented and planned adapter contracts\ntorque ops adapter capabilities --format json",
+		"# Show a single adapter contract\ntorque ops adapter capabilities host.command.run",
+		"# Probe an SSH target and emit redacted JSON evidence\ntorque ops adapter capabilities host.command.run --target ssh://root@lab-host --format json",
 	},
 	"torque release": {
 		"# Run the proof-backed release autopilot over existing evidence\ntorque release autopilot proof.graph.json --key .torque/stack/keys/ed25519.json --out-dir release-autopilot",
