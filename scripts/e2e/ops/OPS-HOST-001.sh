@@ -67,9 +67,8 @@ started_at="$(ops_utc_now)"
 host_ssh_identity="${TORQUE_LAB_SSH_IDENTITY:-}"
 host_ssh_opts="${TORQUE_LAB_SSH_OPTS:-}"
 scratch_root="$(mktemp -d "${TMPDIR:-/tmp}/torque-ops-host-001.XXXXXX")"
-safe_suffix="$(printf '%s' "${OPS_RUN_ID}" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-' | cut -c1-12)"
-short_suffix="$(printf '%s' "${safe_suffix}" | cut -c1-6)"
 cksum_value="$(printf '%s' "${OPS_RUN_ID}" | cksum | awk '{print $1}')"
+short_suffix="$(printf '%08x' "${cksum_value}")"
 subnet_octet="$((120 + (cksum_value % 40)))"
 remote_root="/var/lib/torque-ops-host-001/runs/${OPS_RUN_ID}"
 guest_ip="172.30.${subnet_octet}.10"
@@ -523,7 +522,7 @@ PY
 ops_log "collect Firecracker VM facts"
 (
   cd "${repo_root}"
-  ./bin/torque ops facts collect --targets "${targetgraph_path}" --selector task=OPS-HOST-001 --out-dir "${facts_dir}" --format json
+  ./bin/torque ops facts collect --targets "${targetgraph_path}" --selector task=OPS-HOST-001 --out-dir "${facts_dir}" --format json --timeout 90s
 ) >"${OPS_RUN_DIR}/vm/facts-collect.json" 2>"${OPS_RUN_DIR}/vm/facts-collect.stderr"
 
 ops_log "prepare locks and policy decisions"

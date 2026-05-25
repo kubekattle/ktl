@@ -45,6 +45,7 @@ torque stack seal --config ./stacks/fraud-platform --out dist/platform-release -
 torque stack apply --sealed-dir dist/platform-release --capture dist/platform.sqlite --yes
 torque stack audit --output html > dist/platform-audit.html
 torque stack export --out dist/platform-run.tgz
+torque stack audit --from-bundle dist/platform-run.tgz --output json > dist/platform-audit.json
 ```
 
 ## Core Premise

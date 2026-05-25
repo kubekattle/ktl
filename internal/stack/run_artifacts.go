@@ -13,19 +13,20 @@ import (
 )
 
 type RunPlan struct {
-	APIVersion  string             `json:"apiVersion"`
-	RunID       string             `json:"runId"`
-	PlanHash    string             `json:"planHash,omitempty"`
-	StackRoot   string             `json:"stackRoot"`
-	StackName   string             `json:"stackName"`
-	Command     string             `json:"command"`
-	Profile     string             `json:"profile"`
-	Concurrency int                `json:"concurrency"`
-	FailMode    string             `json:"failMode"`
-	Selector    RunSelector        `json:"selector,omitempty"`
-	Nodes       []*ResolvedRelease `json:"nodes"`
-	Runner      RunnerResolved     `json:"runner,omitempty"`
-	Ops         *OpsPlanInputs     `json:"ops,omitempty"`
+	APIVersion  string              `json:"apiVersion"`
+	RunID       string              `json:"runId"`
+	PlanHash    string              `json:"planHash,omitempty"`
+	StackRoot   string              `json:"stackRoot"`
+	StackName   string              `json:"stackName"`
+	Command     string              `json:"command"`
+	Profile     string              `json:"profile"`
+	Concurrency int                 `json:"concurrency"`
+	FailMode    string              `json:"failMode"`
+	Selector    RunSelector         `json:"selector,omitempty"`
+	Nodes       []*ResolvedRelease  `json:"nodes"`
+	Runner      RunnerResolved      `json:"runner,omitempty"`
+	Ops         *OpsPlanInputs      `json:"ops,omitempty"`
+	Sealed      *SealedPlanMetadata `json:"sealed,omitempty"`
 
 	StackGitCommit string `json:"stackGitCommit,omitempty"`
 	StackGitDirty  bool   `json:"stackGitDirty,omitempty"`
@@ -120,6 +121,7 @@ func buildRunPlanPayload(run *runState, p *Plan) *RunPlan {
 		Nodes:       nodes,
 		Runner:      p.Runner,
 		Ops:         p.Ops,
+		Sealed:      p.Sealed,
 	}
 }
 

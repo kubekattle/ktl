@@ -369,6 +369,7 @@ var curatedExamples = map[string][]string{
 	"torque stack audit": {
 		"# Show audit table for the most recent run\ntorque stack audit --config ./stacks/prod",
 		"# Export a shareable HTML report\ntorque stack audit --config ./stacks/prod --output html > stack-audit.html",
+		"# Verify a portable ops run bundle without mutating\ntorque stack audit --from-bundle ./host-command-run.tgz --output json --include-artifacts",
 		"# Inspect stored DB node artifacts from the run ledger\ntorque stack audit --config ./stacks/db-program --output json --include-artifacts > audit.json",
 		"# Inspect Oracle/APEX -> PostgreSQL receipts and cutover artifacts\ntorque stack audit --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --output json --include-artifacts > oracle-postgres-audit.json",
 	},

@@ -55,6 +55,30 @@ func PrintRunAuditTable(w io.Writer, a *RunAudit) error {
 	if len(a.Artifacts) > 0 {
 		fmt.Fprintf(tw, "ARTIFACTS\t%d\n", len(a.Artifacts))
 	}
+	if a.Ops != nil {
+		fmt.Fprintf(tw, "OPS\tstatus=%s verification=%s findings=%d targets=%d facts=%d locks=%d policy=%d hostCommands=%d\n",
+			a.Ops.Status,
+			a.Ops.Verification.Status,
+			len(a.Ops.Findings),
+			a.Ops.Summary.SelectedTargets,
+			a.Ops.Summary.FactEvidence,
+			a.Ops.Summary.Locks,
+			a.Ops.Summary.PolicyDecisions,
+			a.Ops.Summary.HostCommands,
+		)
+		if a.Ops.Replay != nil {
+			fmt.Fprintf(tw, "OPS_REPLAY\tstatus=%s checks=%d passed=%d blocked=%d event=%t\n",
+				a.Ops.Replay.Status, a.Ops.Replay.Checks, a.Ops.Replay.Passed, a.Ops.Replay.Blocked, a.Ops.Replay.EventSeen)
+		}
+		if a.Ops.Preflight != nil {
+			fmt.Fprintf(tw, "OPS_PREFLIGHT\tstatus=%s checks=%d passed=%d blocked=%d event=%t\n",
+				a.Ops.Preflight.Status, a.Ops.Preflight.Checks, a.Ops.Preflight.Passed, a.Ops.Preflight.Blocked, a.Ops.Preflight.EventSeen)
+		}
+		for i, finding := range a.Ops.Findings {
+			fmt.Fprintf(tw, "OPS_FINDING_%d\tcode=%s node=%s artifact=%s target=%s reason=%s\n",
+				i+1, finding.Code, finding.NodeID, finding.Artifact, finding.TargetID, finding.Reason)
+		}
+	}
 	fmt.Fprintf(tw, "EVENTS_OK\t%t\n", a.Integrity.EventsOK)
 	if a.Integrity.EventsError != "" {
 		fmt.Fprintf(tw, "EVENTS_ERROR\t%s\n", a.Integrity.EventsError)

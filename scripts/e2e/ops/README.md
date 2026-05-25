@@ -93,6 +93,21 @@ scripts/e2e/ops/OPS-CLI-004b.sh \
   --cleanup
 ```
 
+## OPS-CLI-005
+
+`OPS-CLI-005.sh` reuses the approved replay Firecracker evidence, audits the
+exported stack run bundle with `torque stack audit --from-bundle`, and proves a
+tampered bundle fails ops verification when host command receipts or redaction
+proof are inconsistent.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-CLI-005.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## STACK-LIFE-008
 
 `STACK-LIFE-008.sh` proves the GitLab Firecracker hybrid Kubernetes lifecycle

@@ -694,6 +694,11 @@ torque stack audit \
 torque stack export \
   --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml \
   --out ./oracle-postgres-run.tgz
+
+torque stack audit \
+  --from-bundle ./oracle-postgres-run.tgz \
+  --output json \
+  --include-artifacts > oracle-postgres-bundle-audit.json
 ```
 
 ## Stack: inspect runs
@@ -704,6 +709,7 @@ export TORQUE_STACK_ROOT=./stacks/prod
 torque stack runs --limit 50
 torque stack status --follow
 torque stack audit --output html > stack-audit.html
+torque stack audit --from-bundle ./stack-run.tgz --output json --include-artifacts
 ```
 
 ## Build: share the build stream over WebSocket

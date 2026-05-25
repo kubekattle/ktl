@@ -542,6 +542,94 @@ func TestRun_HostCommandOpsGuardReceipts(t *testing.T) {
 		!strings.Contains(verify, `"noSensitiveKeyValues": true`) {
 		t.Fatalf("host verify receipt did not prove redaction:\n%s", verify)
 	}
+	assertOpsAuditPassed(t, audit, 1)
+
+	bundlePath := filepath.Join(root, "ops-host-audit.tgz")
+	if _, err := ExportRunBundle(context.Background(), root, runID, bundlePath); err != nil {
+		t.Fatalf("ExportRunBundle: %v", err)
+	}
+	bundleAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		BundlePath:       bundlePath,
+		VerifyBundle:     true,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit from bundle: %v", err)
+	}
+	if bundleAudit.RunID != runID {
+		t.Fatalf("bundle audit run ID = %s, want %s", bundleAudit.RunID, runID)
+	}
+	assertOpsAuditPassed(t, bundleAudit, 1)
+}
+
+func TestGetRunAuditOpsRunFailsTamperedHostCommandReceipts(t *testing.T) {
+	root := t.TempDir()
+	node := &ResolvedRelease{
+		ID:        "host.command.run/tamper",
+		Kind:      NodeKindHostCommandRun,
+		Name:      "tamper",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport: "local",
+			TargetID:  "host/web-01",
+			Command:   "printf 'password=super-secret-value\\n'",
+		},
+	}
+	plan := planForTest(root, node)
+	plan.Ops = eligibleHostCommandOpsForTest(t, root, "host/web-01")
+
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(root, stackStateSQLiteRelPath))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(), `
+DELETE FROM torque_stack_run_artifacts
+WHERE run_id = ? AND node_id = ? AND artifact_name = 'host-command-verify.json'
+`, runID, node.ID); err != nil {
+		t.Fatalf("delete verify receipt: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+UPDATE torque_stack_run_artifacts
+SET body_text = ?, sha256 = '', size_bytes = ?
+WHERE run_id = ? AND node_id = ? AND artifact_name = 'host-command-execute.json'
+`, `{"status":"succeeded","stdout":"password=super-secret-value\n"}`, len(`{"status":"succeeded","stdout":"password=super-secret-value\n"}`), runID, node.ID); err != nil {
+		t.Fatalf("tamper execute receipt: %v", err)
+	}
+
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	if audit.Ops == nil || audit.Ops.Verification.Status != "failed" {
+		t.Fatalf("ops verification = %#v, want failed", audit.Ops)
+	}
+	if !opsAuditHasFinding(audit, "ops.host_command.verify_missing") {
+		t.Fatalf("missing verify_missing finding: %#v", audit.Ops.Findings)
+	}
+	if !opsAuditHasFinding(audit, "ops.host_command.redaction_leak") {
+		t.Fatalf("missing redaction_leak finding: %#v", audit.Ops.Findings)
+	}
 }
 
 func TestRun_HostCommandOpsGuardBlocksUnselectedTarget(t *testing.T) {
@@ -2386,4 +2474,43 @@ func auditArtifactBody(t *testing.T, artifacts []RunArtifact, nodeID string, nam
 	}
 	t.Fatalf("missing artifact %s for %s in %+v", name, nodeID, artifacts)
 	return ""
+}
+
+func assertOpsAuditPassed(t *testing.T, audit *RunAudit, hostCommands int) {
+	t.Helper()
+	if audit.Ops == nil {
+		t.Fatalf("missing ops audit")
+	}
+	if audit.Ops.Verification.Status != "passed" {
+		t.Fatalf("ops verification = %s findings=%#v", audit.Ops.Verification.Status, audit.Ops.Findings)
+	}
+	if audit.Ops.Preflight == nil || audit.Ops.Preflight.Status != "eligible" || !audit.Ops.Preflight.EventSeen {
+		t.Fatalf("ops preflight = %#v, want eligible with event", audit.Ops.Preflight)
+	}
+	if got := len(audit.Ops.HostCommands); got != hostCommands {
+		t.Fatalf("host command audit count = %d, want %d: %#v", got, hostCommands, audit.Ops.HostCommands)
+	}
+	for _, item := range audit.Ops.HostCommands {
+		if !item.ObservePresent || !item.PlanPresent || !item.ExecutePresent || !item.VerifyPresent {
+			t.Fatalf("host command receipts incomplete: %#v", item)
+		}
+		if item.GuardMode != "ops" {
+			t.Fatalf("host command guard mode = %q, want ops", item.GuardMode)
+		}
+		if !item.RedactionVerified {
+			t.Fatalf("host command redaction not verified: %#v", item)
+		}
+	}
+}
+
+func opsAuditHasFinding(audit *RunAudit, code string) bool {
+	if audit == nil || audit.Ops == nil {
+		return false
+	}
+	for _, finding := range audit.Ops.Findings {
+		if finding.Code == code {
+			return true
+		}
+	}
+	return false
 }

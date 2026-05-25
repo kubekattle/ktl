@@ -32,6 +32,7 @@ type RunAudit struct {
 	Summary         *RunSummary      `json:"summary,omitempty"`
 	FailureClusters []FailureCluster `json:"failureClusters,omitempty"`
 	Artifacts       []RunArtifact    `json:"artifacts,omitempty"`
+	Ops             *OpsRunAudit     `json:"ops,omitempty"`
 
 	Plan   *RunPlan   `json:"plan,omitempty"`
 	Events []RunEvent `json:"events,omitempty"`
@@ -60,6 +61,8 @@ type FailureCluster struct {
 type RunAuditOptions struct {
 	RootDir          string
 	RunID            string
+	BundlePath       string
+	VerifyBundle     bool
 	Verify           bool
 	EventsLimit      int
 	IncludePlan      bool
@@ -73,6 +76,19 @@ func GetRunAudit(ctx context.Context, opts RunAuditOptions) (*RunAudit, error) {
 		root = "."
 	}
 	runID := strings.TrimSpace(opts.RunID)
+
+	if strings.TrimSpace(opts.BundlePath) != "" {
+		bundleRoot, bundleRunID, cleanup, err := prepareAuditBundleRoot(opts.BundlePath, opts.VerifyBundle)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		root = bundleRoot
+		if runID == "" {
+			runID = strings.TrimSpace(bundleRunID)
+		}
+	}
+
 	if runID == "" {
 		var err error
 		runID, err = LoadMostRecentRun(root)
@@ -147,26 +163,48 @@ WHERE run_id = ?
 		a.FailureClusters = clusters
 	}
 
-	if opts.IncludePlan {
-		var rp RunPlan
-		if err := json.Unmarshal([]byte(planJSON), &rp); err == nil {
-			a.Plan = &rp
+	var rp *RunPlan
+	if strings.TrimSpace(planJSON) != "" {
+		var parsed RunPlan
+		if err := json.Unmarshal([]byte(planJSON), &parsed); err == nil {
+			rp = &parsed
 		}
 	}
+	if opts.IncludePlan {
+		if rp != nil {
+			a.Plan = rp
+		}
+	}
+	var events []RunEvent
 	if opts.IncludeEvents {
 		limit := opts.EventsLimit
 		if limit == 0 {
 			limit = 1000
 		}
-		if events, err := s.ListEvents(ctx, runID, limit); err == nil {
+		if loaded, err := s.ListEvents(ctx, runID, limit); err == nil {
+			events = loaded
 			a.Events = events
 		}
 	}
+	auditEvents := events
+	if runPlanHasOps(rp) {
+		if loaded, err := s.ListEvents(ctx, runID, -1); err == nil {
+			auditEvents = loaded
+		}
+	}
+	var artifacts []RunArtifact
 	if opts.IncludeArtifacts {
-		if artifacts, err := s.ListArtifacts(ctx, runID); err == nil {
+		if loaded, err := s.ListArtifacts(ctx, runID); err == nil {
+			artifacts = loaded
 			a.Artifacts = artifacts
 		}
 	}
+	if artifacts == nil && runPlanHasOps(rp) {
+		if loaded, err := s.ListArtifacts(ctx, runID); err == nil {
+			artifacts = loaded
+		}
+	}
+	a.Ops = BuildOpsRunAudit(rp, artifacts, auditEvents, strings.TrimSpace(status), opts.Verify)
 
 	if !opts.Verify {
 		return a, nil

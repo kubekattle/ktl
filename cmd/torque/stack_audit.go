@@ -16,6 +16,8 @@ func newStackAuditCommand(rootDir *string) *cobra.Command {
 	var runID string
 	var output string
 	var verify bool
+	var fromBundle string
+	var verifyBundle bool
 	var eventsLimit int
 	var includePlan bool
 	var includeEvents bool
@@ -28,6 +30,8 @@ func newStackAuditCommand(rootDir *string) *cobra.Command {
 			a, err := stack.GetRunAudit(cmd.Context(), stack.RunAuditOptions{
 				RootDir:          *rootDir,
 				RunID:            runID,
+				BundlePath:       fromBundle,
+				VerifyBundle:     verifyBundle,
 				Verify:           verify,
 				EventsLimit:      eventsLimit,
 				IncludePlan:      includePlan,
@@ -37,23 +41,33 @@ func newStackAuditCommand(rootDir *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var renderErr error
 			switch strings.ToLower(strings.TrimSpace(output)) {
 			case "", "table":
-				return stack.PrintRunAuditTable(cmd.OutOrStdout(), a)
+				renderErr = stack.PrintRunAuditTable(cmd.OutOrStdout(), a)
 			case "json":
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(a)
+				renderErr = enc.Encode(a)
 			case "html":
-				return stack.PrintRunAuditHTML(cmd.OutOrStdout(), a)
+				renderErr = stack.PrintRunAuditHTML(cmd.OutOrStdout(), a)
 			default:
 				return fmt.Errorf("unknown --output %q (expected table|json|html)", output)
 			}
+			if renderErr != nil {
+				return renderErr
+			}
+			if verify && stack.OpsAuditVerificationFailed(a) {
+				return fmt.Errorf("ops audit verification failed: %d finding(s)", len(a.Ops.Findings))
+			}
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&runID, "run-id", "", "Run ID (stored in .torque/stack/state.sqlite); defaults to most recent")
 	cmd.Flags().StringVar(&output, "output", "table", "Output format: table|json|html")
 	cmd.Flags().BoolVar(&verify, "verify", true, "Verify event chain and run digest")
+	cmd.Flags().StringVar(&fromBundle, "from-bundle", "", "Audit a portable stack run bundle (.tgz) instead of local state")
+	cmd.Flags().BoolVar(&verifyBundle, "verify-bundle", true, "Verify bundle manifest digests before auditing --from-bundle")
 	cmd.Flags().IntVar(&eventsLimit, "events", 1000, "How many events to include in json/html output (0 uses default, -1 means all)")
 	cmd.Flags().BoolVar(&includePlan, "include-plan", true, "Include the stored run plan in json/html output")
 	cmd.Flags().BoolVar(&includeEvents, "include-events", true, "Include stored events in json/html output")
