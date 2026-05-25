@@ -280,6 +280,7 @@ copy_adapter = catalog_adapters.get("host.file.copy")
 package = catalog_adapters.get("host.package.install")
 service = catalog_adapters.get("host.service.manage")
 user = catalog_adapters.get("host.user.manage")
+cron = catalog_adapters.get("host.cron.manage")
 if catalog.get("apiVersion") != "torque.dev/ops/adapter-capabilities/v1":
     errors.append("catalog apiVersion mismatch")
 if (catalog.get("summary") or {}).get("implemented", 0) < 1:
@@ -317,9 +318,13 @@ if not user or user.get("status") != "implemented" or user.get("diffQuality") !=
     errors.append("host.user.manage implemented contract missing")
 elif "host-user-diff.json" not in (user.get("evidenceArtifacts") or []):
     errors.append("host.user.manage missing diff artifact")
+if not cron or cron.get("status") != "implemented" or cron.get("diffQuality") != "exact":
+    errors.append("host.cron.manage implemented contract missing")
+elif "host-cron-diff.json" not in (cron.get("evidenceArtifacts") or []):
+    errors.append("host.cron.manage missing diff artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

@@ -311,6 +311,35 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if strings.TrimSpace(n.Host.Transport) == "" {
 			n.Host.Transport = "local"
 		}
+	case NodeKindHostCronManage:
+		if strings.TrimSpace(n.Host.Path) == "" {
+			return nil, fmt.Errorf("%s: host.cron.manage node %s requires host.path", dr.Dir, leaf.Name)
+		}
+		state := strings.ToLower(strings.TrimSpace(n.Host.State))
+		if state == "" {
+			n.Host.State = "present"
+		} else if state != "present" && state != "absent" {
+			return nil, fmt.Errorf("%s: host.cron.manage node %s has unsupported host.state %q", dr.Dir, leaf.Name, n.Host.State)
+		} else {
+			n.Host.State = state
+		}
+		if n.Host.State == "present" {
+			if strings.TrimSpace(n.Host.CronSchedule) == "" {
+				return nil, fmt.Errorf("%s: host.cron.manage node %s requires host.schedule", dr.Dir, leaf.Name)
+			}
+			if strings.TrimSpace(n.Host.CronCommand) == "" {
+				return nil, fmt.Errorf("%s: host.cron.manage node %s requires host.cronCommand", dr.Dir, leaf.Name)
+			}
+		}
+		if strings.TrimSpace(n.Host.CronUser) == "" {
+			n.Host.CronUser = "root"
+		}
+		if strings.TrimSpace(n.Host.Mode) == "" {
+			n.Host.Mode = "0644"
+		}
+		if strings.TrimSpace(n.Host.Transport) == "" {
+			n.Host.Transport = "local"
+		}
 	case NodeKindK8sCertInspect, NodeKindK8sCertRenew:
 		if err := validateKubernetesCertSpec(n.Kind, leaf.Name, n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)

@@ -155,6 +155,21 @@ scripts/e2e/ops/OPS-HOST-006.sh \
   --cleanup
 ```
 
+## OPS-HOST-007
+
+`OPS-HOST-007.sh` proves `host.cron.manage` on the real SSH lab host. It writes
+a temporary cron.d file through the stack, verifies exact digest diff evidence,
+repeats apply as a no-op, audits and exports the run, then deletes through the
+stack and proves the cron file was removed.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-007.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-CLI-004b
 
 `OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved

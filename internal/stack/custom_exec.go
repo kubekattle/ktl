@@ -78,6 +78,8 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runHostServiceManageNode(ctx, node, command)
 	case NodeKindHostUserManage:
 		return e.runHostUserManageNode(ctx, node, command)
+	case NodeKindHostCronManage:
+		return e.runHostCronManageNode(ctx, node, command)
 	case NodeKindK8sClusterInspect:
 		return e.runKubernetesClusterInspectNode(ctx, node, command)
 	case NodeKindK8sCertInspect:

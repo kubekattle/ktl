@@ -424,6 +424,10 @@ type HostCommandSpec struct {
 	CreateHome      bool           `yaml:"createHome,omitempty" json:"createHome,omitempty"`
 	RemoveHome      bool           `yaml:"removeHome,omitempty" json:"removeHome,omitempty"`
 	System          bool           `yaml:"system,omitempty" json:"system,omitempty"`
+	CronName        string         `yaml:"cronName,omitempty" json:"cronName,omitempty"`
+	CronSchedule    string         `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	CronUser        string         `yaml:"cronUser,omitempty" json:"cronUser,omitempty"`
+	CronCommand     string         `yaml:"cronCommand,omitempty" json:"cronCommand,omitempty"`
 }
 
 type KubernetesSpec struct {

@@ -243,7 +243,24 @@ func Definitions() []Capability {
 			SecretInputs:      []string{"user management command output digests only in evidence"},
 			Description:       "Create, update, or delete one Linux user and optional group with UID/GID before/after evidence.",
 		},
-		planned("host.cron.manage", "guarded", "conditional", "exact", []string{"crontab", "cron.d files"}, []string{"host-cron-observe.json", "host-cron-plan.json", "host-cron-diff.json", "host-cron-apply.json", "host-cron-verify.json"}),
+		{
+			Adapter:           "host.cron.manage",
+			Status:            "implemented",
+			Classification:    "guarded",
+			TargetTypes:       []string{"host", "local"},
+			Transports:        []string{"local", "ssh"},
+			Mutating:          true,
+			RequiredPrivilege: "target cron path ownership or delegated sudo",
+			Idempotence:       "cron-file-content-digest",
+			CheckMode:         "deterministic-plan",
+			DiffQuality:       "exact",
+			SupportedPhases:   []string{"observe", "plan", "diff", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts: []string{"host-cron-observe.json", "host-cron-plan.json", "host-cron-diff.json", "host-cron-apply.json", "host-cron-verify.json", "host-cron.json", "decision.json"},
+			RequiredPolicy:    []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
+			Touches:           []string{"cron.d file", "cron schedule", "cron command digest"},
+			SecretInputs:      []string{"cron command digest only in evidence"},
+			Description:       "Create, update, or delete one cron.d entry through local or SSH transport with exact digest diff evidence.",
+		},
 		planned("host.systemd.unit", "guarded", "conditional", "exact", []string{"systemd unit files", "systemd manager"}, []string{"host-systemd-observe.json", "host-systemd-plan.json", "host-systemd-diff.json", "host-systemd-apply.json", "host-systemd-verify.json", "journal-evidence.json"}),
 	}
 	for i := range out {
@@ -401,6 +418,10 @@ func probeCommandsFor(adapterName string) []probeCommand {
 	case "host.user.manage":
 		return []probeCommand{
 			{Name: "user-manager", Command: "command -v getent >/dev/null 2>&1 && command -v useradd >/dev/null 2>&1 && command -v usermod >/dev/null 2>&1 && command -v userdel >/dev/null 2>&1 && command -v groupadd >/dev/null 2>&1 && command -v groupmod >/dev/null 2>&1 && command -v groupdel >/dev/null 2>&1", Required: true},
+		}
+	case "host.cron.manage":
+		return []probeCommand{
+			{Name: "cron-path", Command: "test -d /etc/cron.d || test -d /var/spool/cron || test -d /var/spool/cron/crontabs", Required: true},
 		}
 	default:
 		return nil

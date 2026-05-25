@@ -636,6 +636,41 @@ torque stack audit --config ./stacks/host-user \
 torque stack delete --config ./stacks/host-user --yes
 ```
 
+## Stack: manage a host cron entry
+
+Use `host.cron.manage` for one cron.d entry that needs exact before/after
+content evidence, digest diff proof, repeat no-op proof, and cleanup through
+stack delete.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-cron
+nodes:
+  - name: write-heartbeat-cron
+    kind: host.cron.manage
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      path: /etc/cron.d/torque-heartbeat
+      cronName: torque-heartbeat
+      schedule: '*/5 * * * *'
+      cronUser: root
+      cronCommand: /usr/bin/touch /var/lib/torque-heartbeat
+      mode: '0644'
+      removeOnDelete: true
+```
+
+```bash
+TORQUE_LAB_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/host-cron --yes
+
+torque stack audit --config ./stacks/host-cron \
+  --output json --include-artifacts > host-cron-audit.json
+
+torque stack delete --config ./stacks/host-cron --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

@@ -254,6 +254,7 @@ adapters = [
     "host.package.install",
     "host.service.manage",
     "host.user.manage",
+    "host.cron.manage",
     "http.check",
 ]
 providers = [
@@ -261,6 +262,7 @@ providers = [
     "apt-mirror",
     "systemd",
     "shadow-utils",
+    "cron",
     "http-probe",
 ]
 

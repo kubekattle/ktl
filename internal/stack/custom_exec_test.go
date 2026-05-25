@@ -50,6 +50,13 @@ releases:
     host:
       user: torque-fake-user
       groupName: torque-fake-group
+  - name: cron
+    kind: host.cron.manage
+    host:
+      path: ` + filepath.ToSlash(filepath.Join(root, "cron.d", "torque-fake")) + `
+      state: Present
+      schedule: '* * * * *'
+      cronCommand: /bin/true
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -86,6 +93,15 @@ releases:
 	}
 	if got := p.ByID["dev/default/user"].Host.State; got != "present" {
 		t.Fatalf("user state=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/cron"].Kind); got != NodeKindHostCronManage {
+		t.Fatalf("cron kind=%q", got)
+	}
+	if got := p.ByID["dev/default/cron"].Host.State; got != "present" {
+		t.Fatalf("cron state=%q", got)
+	}
+	if got := p.ByID["dev/default/cron"].Host.CronUser; got != "root" {
+		t.Fatalf("cron user=%q", got)
 	}
 }
 
@@ -370,6 +386,36 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if userHashA == userHashB {
 		t.Fatalf("expected user hash to change")
+	}
+
+	cronA := &ResolvedRelease{
+		ID:        "host.cron.manage/cron",
+		Kind:      NodeKindHostCronManage,
+		Name:      "cron",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:    "local",
+			Path:         filepath.Join(stackRoot, "cron.d", "torque-cron"),
+			CronName:     "torque-cron",
+			CronSchedule: "* * * * *",
+			CronUser:     "root",
+			CronCommand:  "/bin/true",
+			State:        "present",
+		},
+	}
+	cronB := *cronA
+	cronB.Host.CronCommand = "/bin/false"
+	cronHashA, _, err := ComputeEffectiveInputHashWithOptions(cronA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash cronA: %v", err)
+	}
+	cronHashB, _, err := ComputeEffectiveInputHashWithOptions(&cronB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash cronB: %v", err)
+	}
+	if cronHashA == cronHashB {
+		t.Fatalf("expected cron hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -1441,6 +1487,136 @@ esac
 		!strings.Contains(deleteApply, `"changed": true`) ||
 		!strings.Contains(deleteApply, `"exists": false`) {
 		t.Fatalf("delete did not record user/group removal:\n%s", deleteApply)
+	}
+}
+
+func TestRun_HostCronManageLocalNode(t *testing.T) {
+	root := t.TempDir()
+	cronPath := filepath.Join(root, "cron.d", "torque-cron")
+	node := &ResolvedRelease{
+		ID:        "host.cron.manage/manage-cron",
+		Kind:      NodeKindHostCronManage,
+		Name:      "manage-cron",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:      "local",
+			Path:           cronPath,
+			CronName:       "torque-cron",
+			CronSchedule:   "* * * * *",
+			CronUser:       "root",
+			CronCommand:    "/bin/sh -c 'printf token=cron-secret >/tmp/torque-cron'",
+			State:          "present",
+			Mode:           "0644",
+			RemoveOnDelete: true,
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	content, err := os.ReadFile(cronPath)
+	if err != nil {
+		t.Fatalf("read cron file: %v", err)
+	}
+	if !strings.Contains(string(content), "torque managed: torque-cron") || !strings.Contains(string(content), "token=cron-secret") {
+		t.Fatalf("unexpected cron content: %q", string(content))
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-cron-observe.json", "host-cron-plan.json", "host-cron-diff.json", "host-cron-apply.json", "host-cron-verify.json", "host-cron.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-cron-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		!strings.Contains(applyArtifact, `"exists": true`) ||
+		strings.Contains(applyArtifact, "cron-secret") {
+		t.Fatalf("host cron apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+	diffArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-cron-diff.json")
+	if !strings.Contains(diffArtifact, `"diffQuality": "exact"`) || !strings.Contains(diffArtifact, `"desiredDigest": "sha256:`) {
+		t.Fatalf("host cron diff artifact missing exact digest diff:\n%s", diffArtifact)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "host-cron-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat cron apply was not a no-op:\n%s", repeatApply)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(cronPath); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to remove cron file, stat err=%v", err)
+	}
+	deleteRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun delete: %v", err)
+	}
+	deleteAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            deleteRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit delete: %v", err)
+	}
+	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "host-cron-apply.json")
+	if !strings.Contains(deleteApply, `"desiredState": "absent"`) ||
+		!strings.Contains(deleteApply, `"changed": true`) ||
+		!strings.Contains(deleteApply, `"exists": false`) {
+		t.Fatalf("delete did not record cron removal:\n%s", deleteApply)
 	}
 }
 

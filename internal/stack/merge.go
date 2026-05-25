@@ -402,6 +402,18 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.System {
 		dst.System = true
 	}
+	if src.CronName != "" {
+		dst.CronName = strings.TrimSpace(src.CronName)
+	}
+	if src.CronSchedule != "" {
+		dst.CronSchedule = strings.TrimSpace(src.CronSchedule)
+	}
+	if src.CronUser != "" {
+		dst.CronUser = strings.TrimSpace(src.CronUser)
+	}
+	if src.CronCommand != "" {
+		dst.CronCommand = src.CronCommand
+	}
 	if len(input) == 0 {
 		return dst
 	}
@@ -533,6 +545,18 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	}
 	if v, ok := inputBool(input, "system"); ok {
 		dst.System = v
+	}
+	if v := inputString(input, "cronName"); v != "" {
+		dst.CronName = v
+	}
+	if v := inputString(input, "schedule"); v != "" {
+		dst.CronSchedule = v
+	}
+	if v := inputString(input, "cronUser"); v != "" {
+		dst.CronUser = v
+	}
+	if v := inputString(input, "cronCommand"); v != "" {
+		dst.CronCommand = v
 	}
 	return dst
 }

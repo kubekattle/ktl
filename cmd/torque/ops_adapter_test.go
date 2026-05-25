@@ -83,6 +83,16 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 	if !adapterStringSliceContains(user.EvidenceArtifacts, "host-user-diff.json") {
 		t.Fatalf("host.user.manage missing diff artifact: %#v", user.EvidenceArtifacts)
 	}
+	cron := findAdapterCapability(result.Adapters, "host.cron.manage")
+	if cron == nil {
+		t.Fatalf("missing host.cron.manage in %#v", result.Adapters)
+	}
+	if cron.Status != "implemented" || cron.DiffQuality != "exact" {
+		t.Fatalf("host.cron.manage capability = %#v", cron)
+	}
+	if !adapterStringSliceContains(cron.EvidenceArtifacts, "host-cron-diff.json") {
+		t.Fatalf("host.cron.manage missing diff artifact: %#v", cron.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}
@@ -93,7 +103,7 @@ func TestOpsAdapterCapabilitiesTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v\nstderr=%s\nstdout=%s", err, errOut, out)
 	}
-	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage"} {
+	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q:\n%s", want, out)
 		}
