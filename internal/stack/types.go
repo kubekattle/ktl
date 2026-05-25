@@ -438,6 +438,7 @@ type KubernetesSpec struct {
 	Manifest     KubernetesManifestSpec `yaml:"manifest,omitempty" json:"manifest,omitempty"`
 	Resource     KubernetesResourceSpec `yaml:"resource,omitempty" json:"resource,omitempty"`
 	Logs         KubernetesLogsSpec     `yaml:"logs,omitempty" json:"logs,omitempty"`
+	Events       KubernetesEventsSpec   `yaml:"events,omitempty" json:"events,omitempty"`
 }
 
 type KubernetesClusterSpec struct {
@@ -501,6 +502,19 @@ type KubernetesLogsSpec struct {
 	TailLines      int64          `yaml:"tailLines,omitempty" json:"tailLines,omitempty"`
 	LimitBytes     int64          `yaml:"limitBytes,omitempty" json:"limitBytes,omitempty"`
 	MaxLogRequests int            `yaml:"maxLogRequests,omitempty" json:"maxLogRequests,omitempty"`
+}
+
+type KubernetesEventsSpec struct {
+	Namespace     string         `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Resource      string         `yaml:"resource,omitempty" json:"resource,omitempty"`
+	Kind          string         `yaml:"kind,omitempty" json:"kind,omitempty"`
+	Name          string         `yaml:"name,omitempty" json:"name,omitempty"`
+	FieldSelector string         `yaml:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+	Types         []string       `yaml:"types,omitempty" json:"types,omitempty"`
+	Reasons       []string       `yaml:"reasons,omitempty" json:"reasons,omitempty"`
+	Since         *time.Duration `yaml:"since,omitempty" json:"since,omitempty"`
+	SinceTime     string         `yaml:"sinceTime,omitempty" json:"sinceTime,omitempty"`
+	EventLimit    int            `yaml:"eventLimit,omitempty" json:"eventLimit,omitempty"`
 }
 
 type KubernetesAppProbe struct {

@@ -260,6 +260,7 @@ adapters = [
     "k8s.manifest.delete",
     "k8s.resource.wait",
     "k8s.logs.capture",
+    "k8s.events.capture",
     "http.check",
 ]
 providers = [

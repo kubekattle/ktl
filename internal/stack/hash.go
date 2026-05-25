@@ -115,6 +115,7 @@ type EffectiveKubernetesInput struct {
 	ManifestDigest      string   `json:"manifestDigest,omitempty"`
 	ResourceDigest      string   `json:"resourceDigest,omitempty"`
 	LogsDigest          string   `json:"logsDigest,omitempty"`
+	EventsDigest        string   `json:"eventsDigest,omitempty"`
 	TargetDigests       []string `json:"targetDigests,omitempty"`
 	RenewBefore         string   `json:"renewBefore,omitempty"`
 	Force               bool     `json:"force,omitempty"`
@@ -241,7 +242,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.KubernetesDigest = kubernetesInput.Digest
-	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait, NodeKindK8sLogsCapture:
+	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait, NodeKindK8sLogsCapture, NodeKindK8sEventsCapture:
 		kubernetesInput, err := digestKubernetesSpec(n.Kubernetes)
 		if err != nil {
 			return "", nil, err
@@ -594,6 +595,11 @@ func digestKubernetesSpec(spec KubernetesSpec) (EffectiveKubernetesInput, error)
 		return EffectiveKubernetesInput{}, err
 	}
 	input.LogsDigest = logsInput
+	eventsInput, err := digestKubernetesEventsSpec(spec.Events)
+	if err != nil {
+		return EffectiveKubernetesInput{}, err
+	}
+	input.EventsDigest = eventsInput
 	if spec.Certificates.RenewBefore != nil {
 		input.RenewBefore = spec.Certificates.RenewBefore.String()
 	}
@@ -913,6 +919,35 @@ func digestKubernetesLogsSpec(spec KubernetesLogsSpec) (string, error) {
 		TailLines:      spec.TailLines,
 		LimitBytes:     spec.LimitBytes,
 		MaxLogRequests: spec.MaxLogRequests,
+	}
+	if spec.Since != nil {
+		input.Since = spec.Since.String()
+	}
+	return hashJSONStable(input)
+}
+
+func digestKubernetesEventsSpec(spec KubernetesEventsSpec) (string, error) {
+	input := struct {
+		Namespace     string   `json:"namespace,omitempty"`
+		Resource      string   `json:"resource,omitempty"`
+		Kind          string   `json:"kind,omitempty"`
+		Name          string   `json:"name,omitempty"`
+		FieldSelector string   `json:"fieldSelector,omitempty"`
+		Types         []string `json:"types,omitempty"`
+		Reasons       []string `json:"reasons,omitempty"`
+		Since         string   `json:"since,omitempty"`
+		SinceTime     string   `json:"sinceTime,omitempty"`
+		EventLimit    int      `json:"eventLimit,omitempty"`
+	}{
+		Namespace:     strings.TrimSpace(spec.Namespace),
+		Resource:      strings.TrimSpace(spec.Resource),
+		Kind:          strings.TrimSpace(spec.Kind),
+		Name:          strings.TrimSpace(spec.Name),
+		FieldSelector: strings.TrimSpace(spec.FieldSelector),
+		Types:         append([]string(nil), spec.Types...),
+		Reasons:       append([]string(nil), spec.Reasons...),
+		SinceTime:     strings.TrimSpace(spec.SinceTime),
+		EventLimit:    spec.EventLimit,
 	}
 	if spec.Since != nil {
 		input.Since = spec.Since.String()

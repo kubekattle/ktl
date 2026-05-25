@@ -355,6 +355,25 @@ func Definitions() []Capability {
 			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
 			Description:         "Capture bounded Kubernetes pod/container logs with redaction proof, line/byte limits, and digest-backed evidence.",
 		},
+		{
+			Adapter:             "k8s.events.capture",
+			Status:              "implemented",
+			Classification:      "guarded",
+			TargetTypes:         []string{"kubernetes", "local", "host"},
+			Transports:          []string{"local", "ssh"},
+			Mutating:            false,
+			RequiredPrivilege:   "Kubernetes RBAC to get namespaces and list namespace events",
+			Idempotence:         "bounded-event-snapshot",
+			CheckMode:           "event-capture-plan",
+			DiffQuality:         "filtered-redacted-event-evidence",
+			SupportedPhases:     []string{"observe", "plan", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts:   []string{"k8s-events-capture-observe.json", "k8s-events-capture-plan.json", "k8s-events-capture-events.json", "k8s-events-capture-verify.json", "k8s-events-capture.json", "decision.json"},
+			RequiredPolicy:      []string{"target graph selection", "Kubernetes RBAC scope", "allow policy decision"},
+			Touches:             []string{"Kubernetes namespace events matching declared filters"},
+			SecretInputs:        []string{"event messages are emitted as digests and scanned for redaction; command output receipts store digests and byte counts"},
+			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
+			Description:         "Capture namespace Kubernetes events with type, reason, time, and involved-object filters plus digest-backed redaction proof.",
+		},
 	}
 	for i := range out {
 		out[i] = cloneCapability(out[i])
@@ -527,7 +546,7 @@ func probeCommandsFor(adapterName string) []probeCommand {
 			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
 			{Name: "python3", Command: "command -v python3 >/dev/null 2>&1", Required: true},
 		}
-	case "k8s.resource.wait", "k8s.logs.capture":
+	case "k8s.resource.wait", "k8s.logs.capture", "k8s.events.capture":
 		return []probeCommand{
 			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
 		}

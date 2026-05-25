@@ -881,6 +881,41 @@ torque stack audit --config ./stacks/k8s-logs-capture \
   --output json --include-artifacts > k8s-logs-capture-audit.json
 ```
 
+## Stack: capture Kubernetes events
+
+Use `k8s.events.capture` when a stack needs namespace events as portable
+evidence. The adapter records namespace observation, event filters, type/reason
+counts, involved object metadata, and event message digests without storing raw
+event messages in artifacts.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: k8s-events-capture
+nodes:
+  - name: capture-warning-events
+    kind: k8s.events.capture
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_K3S_SSH
+        kubectlCommand: k3s kubectl
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      events:
+        namespace: torque-demo
+        types: [Warning]
+        reasons: [Failed, BackOff, Unhealthy]
+        eventLimit: 100
+```
+
+```bash
+TORQUE_LAB_K3S_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/k8s-events-capture --yes
+
+torque stack audit --config ./stacks/k8s-events-capture \
+  --output json --include-artifacts > k8s-events-capture-audit.json
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

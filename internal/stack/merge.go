@@ -706,6 +706,7 @@ func mergeKubernetesSpec(dst KubernetesSpec, src KubernetesSpec) KubernetesSpec 
 	dst.Manifest = mergeKubernetesManifestSpec(dst.Manifest, src.Manifest)
 	dst.Resource = mergeKubernetesResourceSpec(dst.Resource, src.Resource)
 	dst.Logs = mergeKubernetesLogsSpec(dst.Logs, src.Logs)
+	dst.Events = mergeKubernetesEventsSpec(dst.Events, src.Events)
 	return dst
 }
 
@@ -816,6 +817,40 @@ func mergeKubernetesLogsSpec(dst KubernetesLogsSpec, src KubernetesLogsSpec) Kub
 	}
 	if src.MaxLogRequests != 0 {
 		dst.MaxLogRequests = src.MaxLogRequests
+	}
+	return dst
+}
+
+func mergeKubernetesEventsSpec(dst KubernetesEventsSpec, src KubernetesEventsSpec) KubernetesEventsSpec {
+	if src.Namespace != "" {
+		dst.Namespace = strings.TrimSpace(src.Namespace)
+	}
+	if src.Resource != "" {
+		dst.Resource = strings.TrimSpace(src.Resource)
+	}
+	if src.Kind != "" {
+		dst.Kind = strings.TrimSpace(src.Kind)
+	}
+	if src.Name != "" {
+		dst.Name = strings.TrimSpace(src.Name)
+	}
+	if src.FieldSelector != "" {
+		dst.FieldSelector = strings.TrimSpace(src.FieldSelector)
+	}
+	if len(src.Types) > 0 {
+		dst.Types = normalizeTrimmedStringSlice(src.Types)
+	}
+	if len(src.Reasons) > 0 {
+		dst.Reasons = normalizeTrimmedStringSlice(src.Reasons)
+	}
+	if src.Since != nil {
+		dst.Since = src.Since
+	}
+	if src.SinceTime != "" {
+		dst.SinceTime = strings.TrimSpace(src.SinceTime)
+	}
+	if src.EventLimit != 0 {
+		dst.EventLimit = src.EventLimit
 	}
 	return dst
 }

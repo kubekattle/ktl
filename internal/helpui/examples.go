@@ -210,6 +210,7 @@ var curatedExamples = map[string][]string{
 		"# Show the Kubernetes manifest delete adapter contract\ntorque ops adapter capabilities k8s.manifest.delete --format json",
 		"# Show the Kubernetes resource wait adapter contract\ntorque ops adapter capabilities k8s.resource.wait --format json",
 		"# Show the Kubernetes logs capture adapter contract\ntorque ops adapter capabilities k8s.logs.capture --format json",
+		"# Show the Kubernetes events capture adapter contract\ntorque ops adapter capabilities k8s.events.capture --format json",
 	},
 	"torque ops adapter capabilities": {
 		"# List implemented and planned adapter contracts\ntorque ops adapter capabilities --format json",
@@ -218,6 +219,7 @@ var curatedExamples = map[string][]string{
 		"# Show ownership-gated manifest delete evidence requirements\ntorque ops adapter capabilities k8s.manifest.delete",
 		"# Show Kubernetes readiness wait evidence requirements\ntorque ops adapter capabilities k8s.resource.wait",
 		"# Show Kubernetes logs capture evidence requirements\ntorque ops adapter capabilities k8s.logs.capture",
+		"# Show Kubernetes events capture evidence requirements\ntorque ops adapter capabilities k8s.events.capture",
 		"# Probe an SSH target and emit redacted JSON evidence\ntorque ops adapter capabilities host.command.run --target ssh://root@lab-host --format json",
 	},
 	"torque release": {
@@ -355,6 +357,7 @@ var curatedExamples = map[string][]string{
 		"# Plan a k8s.manifest.delete node with ownership-gated delete evidence\ntorque stack plan --config ./stacks/k8s-manifest-delete --output json",
 		"# Plan a k8s.resource.wait node with event evidence\ntorque stack plan --config ./stacks/k8s-resource-wait --output json",
 		"# Plan a k8s.logs.capture node with bounded redacted log evidence\ntorque stack plan --config ./stacks/k8s-logs-capture --output json",
+		"# Plan a k8s.events.capture node with filtered event evidence\ntorque stack plan --config ./stacks/k8s-events-capture --output json",
 		"# Plan a mixed graph with Helm, scripts, and DB cutover nodes\ntorque stack plan --config ./stacks/db-cutover --output json",
 		"# Plan typed adapter nodes that behave like evidence-backed automation modules\ntorque stack plan --config ./stacks/ops-program --output json",
 		"# Plan Kubernetes lifecycle inspect, policy-gated maintenance, verification, and summary evidence nodes\ntorque stack plan --config ./stacks/cluster-lifecycle --output json",
@@ -386,6 +389,7 @@ var curatedExamples = map[string][]string{
 		"# Delete listed Kubernetes manifest objects after ownership checks\ntorque stack apply --config ./stacks/k8s-manifest-delete --yes",
 		"# Wait for a Kubernetes Deployment and capture redacted events\ntorque stack apply --config ./stacks/k8s-resource-wait --yes",
 		"# Capture bounded Kubernetes logs with redaction proof\ntorque stack apply --config ./stacks/k8s-logs-capture --yes",
+		"# Capture filtered Kubernetes namespace events with message digests\ntorque stack apply --config ./stacks/k8s-events-capture --yes",
 		"# Resume the most recent run (uses stored frozen plan unless --replan is set)\ntorque stack apply --config ./stacks/prod --resume --yes",
 		"# Apply a mixed graph with PostgreSQL or MariaDB cutover nodes\ntorque stack apply --config ./stacks/db-cutover --yes",
 		"# Run evidence-backed action plugins inside the stack DAG\ntorque stack apply --config ./stacks/ops-program --yes",

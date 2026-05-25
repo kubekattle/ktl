@@ -117,6 +117,16 @@ releases:
         container: app
         tailLines: 7
         limitBytes: 2048
+  - name: events-capture
+    kind: k8s.events.capture
+    kubernetes:
+      cluster:
+        kubectlCommand: kubectl
+      events:
+        namespace: torque-test
+        types: [Warning]
+        reasons: [Failed]
+        eventLimit: 25
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -246,6 +256,24 @@ releases:
 	}
 	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Logs.MaxLogRequests; got != defaultKubernetesLogsCaptureMaxRequests {
 		t.Fatalf("logs-capture maxLogRequests=%d", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/events-capture"].Kind); got != NodeKindK8sEventsCapture {
+		t.Fatalf("events-capture kind=%q", got)
+	}
+	if got := p.ByID["dev/default/events-capture"].Kubernetes.Cluster.Transport; got != "local" {
+		t.Fatalf("events-capture transport=%q", got)
+	}
+	if got := p.ByID["dev/default/events-capture"].Kubernetes.Events.Namespace; got != "torque-test" {
+		t.Fatalf("events-capture namespace=%q", got)
+	}
+	if got := p.ByID["dev/default/events-capture"].Kubernetes.Events.EventLimit; got != 25 {
+		t.Fatalf("events-capture eventLimit=%d", got)
+	}
+	if got := p.ByID["dev/default/events-capture"].Kubernetes.Events.Types; len(got) != 1 || got[0] != "Warning" {
+		t.Fatalf("events-capture types=%v", got)
+	}
+	if got := p.ByID["dev/default/events-capture"].Kubernetes.Events.Reasons; len(got) != 1 || got[0] != "Failed" {
+		t.Fatalf("events-capture reasons=%v", got)
 	}
 }
 
@@ -724,6 +752,37 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if logsCaptureHashA == logsCaptureHashB {
 		t.Fatalf("expected logs capture hash to change")
+	}
+
+	eventsCaptureA := &ResolvedRelease{
+		ID:        "k8s.events.capture/capture-events",
+		Kind:      NodeKindK8sEventsCapture,
+		Name:      "capture-events",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Events: KubernetesEventsSpec{
+				Namespace:  "torque-test",
+				Types:      []string{"Warning"},
+				Reasons:    []string{"Failed"},
+				EventLimit: 50,
+			},
+		},
+	}
+	eventsCaptureB := *eventsCaptureA
+	eventsCaptureB.Kubernetes.Events.Reasons = []string{"Failed", "BackOff"}
+	eventsCaptureHashA, _, err := ComputeEffectiveInputHashWithOptions(eventsCaptureA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash eventsCaptureA: %v", err)
+	}
+	eventsCaptureHashB, _, err := ComputeEffectiveInputHashWithOptions(&eventsCaptureB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash eventsCaptureB: %v", err)
+	}
+	if eventsCaptureHashA == eventsCaptureHashB {
+		t.Fatalf("expected events capture hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -3055,6 +3114,195 @@ sys.exit(2)
 	if !strings.Contains(failedLogs, `"status": "failed"`) ||
 		!strings.Contains(failedLogs, "pod log capture failed") {
 		t.Fatalf("logs capture failure artifact missing failure proof:\n%s", failedLogs)
+	}
+}
+
+func TestRun_KubernetesEventsCaptureLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	modeFile := filepath.Join(root, "events-mode.txt")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	writeExecutableForTest(t, filepath.Join(binDir, "kubectl"), `#!/usr/bin/env python3
+import json
+import os
+import sys
+
+mode_file = os.environ["FAKE_KUBECTL_EVENTS_MODE"]
+args = sys.argv[1:]
+i = 0
+namespace = "default"
+while i < len(args):
+    arg = args[i]
+    if arg in ("--kubeconfig", "--context", "-n", "--namespace"):
+        if arg in ("-n", "--namespace"):
+            namespace = args[i + 1]
+        i += 2
+        continue
+    if arg.startswith("--kubeconfig=") or arg.startswith("--context="):
+        i += 1
+        continue
+    break
+if i >= len(args):
+    sys.exit(2)
+cmd = args[i]
+rest = args[i + 1:]
+
+def mode():
+    try:
+        return open(mode_file, "r", encoding="utf-8").read().strip()
+    except FileNotFoundError:
+        return "ok"
+
+if cmd == "get" and rest[:1] == ["namespace"]:
+    if mode() == "namespace-fail":
+        print("namespace missing", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({
+        "apiVersion": "v1",
+        "kind": "Namespace",
+        "metadata": {
+            "name": rest[1],
+            "uid": "uid-namespace-torque-events",
+            "resourceVersion": "101",
+            "annotations": {"note": "password=namespace-secret"},
+        },
+    }))
+    sys.exit(0)
+if cmd == "get" and rest[:1] == ["events"]:
+    if mode() == "events-fail":
+        print("events forbidden", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({
+        "items": [
+            {
+                "metadata": {"name": "normal.1", "namespace": namespace, "creationTimestamp": "2026-01-01T00:00:00Z"},
+                "type": "Normal",
+                "reason": "Scheduled",
+                "message": "scheduled password=events-normal-secret",
+                "count": 1,
+                "firstTimestamp": "2026-01-01T00:00:00Z",
+                "lastTimestamp": "2026-01-01T00:00:01Z",
+                "involvedObject": {"kind": "Pod", "name": "torque-ok", "namespace": namespace, "uid": "uid-pod-ok"},
+            },
+            {
+                "metadata": {"name": "warning.1", "namespace": namespace, "creationTimestamp": "2026-01-01T00:00:02Z"},
+                "type": "Warning",
+                "reason": "Failed",
+                "message": "failed token=events-warning-secret",
+                "count": 2,
+                "firstTimestamp": "2026-01-01T00:00:02Z",
+                "lastTimestamp": "2026-01-01T00:00:03Z",
+                "involvedObject": {"kind": "Pod", "name": "torque-bad", "namespace": namespace, "uid": "uid-pod-bad"},
+            },
+        ]
+    }))
+    sys.exit(0)
+sys.exit(2)
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_KUBECTL_EVENTS_MODE", modeFile)
+	node := &ResolvedRelease{
+		ID:        "k8s.events.capture/capture-events",
+		Kind:      NodeKindK8sEventsCapture,
+		Name:      "capture-events",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Events: KubernetesEventsSpec{
+				Namespace:  "torque-test",
+				Types:      []string{"Warning"},
+				Reasons:    []string{"Failed"},
+				EventLimit: 10,
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	if err := os.WriteFile(modeFile, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write events mode: %v", err)
+	}
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run events capture apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"k8s-events-capture-observe.json", "k8s-events-capture-plan.json", "k8s-events-capture-events.json", "k8s-events-capture-verify.json", "k8s-events-capture.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	eventsArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-events-capture-events.json")
+	if !strings.Contains(eventsArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(eventsArtifact, `"changed": false`) ||
+		!strings.Contains(eventsArtifact, `"capturedCount": 1`) ||
+		!strings.Contains(eventsArtifact, `"filteredOutCount": 1`) ||
+		!strings.Contains(eventsArtifact, `"type": "Warning"`) ||
+		!strings.Contains(eventsArtifact, `"reason": "Failed"`) ||
+		!strings.Contains(eventsArtifact, `"messageDigest"`) ||
+		!strings.Contains(eventsArtifact, `"noSensitiveKeyValues": true`) ||
+		strings.Contains(eventsArtifact, "events-warning-secret") ||
+		strings.Contains(eventsArtifact, "events-normal-secret") ||
+		strings.Contains(eventsArtifact, "namespace-secret") ||
+		strings.Contains(eventsArtifact, `"type": "Normal"`) {
+		t.Fatalf("events capture artifact missing filtered redacted proof:\n%s", eventsArtifact)
+	}
+	verifyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-events-capture-verify.json")
+	if !strings.Contains(verifyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(verifyArtifact, `"capturedCount": 1`) ||
+		!strings.Contains(verifyArtifact, `"Warning": 1`) {
+		t.Fatalf("events capture verify artifact missing count proof:\n%s", verifyArtifact)
+	}
+
+	if err := os.WriteFile(modeFile, []byte("events-fail"), 0o644); err != nil {
+		t.Fatalf("write failing events mode: %v", err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err == nil {
+		t.Fatalf("Run events capture failure succeeded unexpectedly\nstdout=%s\nstderr=%s", out.String(), errOut.String())
+	}
+	failedRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun failed: %v", err)
+	}
+	failedAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            failedRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit failed: %v", err)
+	}
+	failedEvents := auditArtifactBody(t, failedAudit.Artifacts, node.ID, "k8s-events-capture-events.json")
+	if !strings.Contains(failedEvents, `"status": "failed"`) ||
+		!strings.Contains(failedEvents, "events forbidden") {
+		t.Fatalf("events capture failure artifact missing failure proof:\n%s", failedEvents)
 	}
 }
 

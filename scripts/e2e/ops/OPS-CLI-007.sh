@@ -286,6 +286,7 @@ manifest = catalog_adapters.get("k8s.manifest.apply")
 manifest_delete = catalog_adapters.get("k8s.manifest.delete")
 resource_wait = catalog_adapters.get("k8s.resource.wait")
 logs_capture = catalog_adapters.get("k8s.logs.capture")
+events_capture = catalog_adapters.get("k8s.events.capture")
 if catalog.get("apiVersion") != "torque.dev/ops/adapter-capabilities/v1":
     errors.append("catalog apiVersion mismatch")
 if (catalog.get("summary") or {}).get("implemented", 0) < 1:
@@ -348,9 +349,13 @@ if not logs_capture or logs_capture.get("status") != "implemented" or logs_captu
     errors.append("k8s.logs.capture implemented contract missing")
 elif "k8s-logs-capture-logs.json" not in (logs_capture.get("evidenceArtifacts") or []) or "k8s-logs-capture-verify.json" not in (logs_capture.get("evidenceArtifacts") or []):
     errors.append("k8s.logs.capture missing logs/verify artifact")
+if not events_capture or events_capture.get("status") != "implemented" or events_capture.get("diffQuality") != "filtered-redacted-event-evidence" or events_capture.get("mutating"):
+    errors.append("k8s.events.capture implemented contract missing")
+elif "k8s-events-capture-events.json" not in (events_capture.get("evidenceArtifacts") or []) or "k8s-events-capture-verify.json" not in (events_capture.get("evidenceArtifacts") or []):
+    errors.append("k8s.events.capture missing events/verify artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait", "k8s.logs.capture"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait", "k8s.logs.capture", "k8s.events.capture"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

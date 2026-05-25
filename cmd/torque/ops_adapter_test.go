@@ -148,6 +148,17 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 		!adapterStringSliceContains(logsCapture.EvidenceArtifacts, "k8s-logs-capture-verify.json") {
 		t.Fatalf("k8s.logs.capture missing logs/verify artifact: %#v", logsCapture.EvidenceArtifacts)
 	}
+	eventsCapture := findAdapterCapability(result.Adapters, "k8s.events.capture")
+	if eventsCapture == nil {
+		t.Fatalf("missing k8s.events.capture in %#v", result.Adapters)
+	}
+	if eventsCapture.Status != "implemented" || eventsCapture.DiffQuality != "filtered-redacted-event-evidence" || eventsCapture.Mutating {
+		t.Fatalf("k8s.events.capture capability = %#v", eventsCapture)
+	}
+	if !adapterStringSliceContains(eventsCapture.EvidenceArtifacts, "k8s-events-capture-events.json") ||
+		!adapterStringSliceContains(eventsCapture.EvidenceArtifacts, "k8s-events-capture-verify.json") {
+		t.Fatalf("k8s.events.capture missing events/verify artifact: %#v", eventsCapture.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}
@@ -158,7 +169,7 @@ func TestOpsAdapterCapabilitiesTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v\nstderr=%s\nstdout=%s", err, errOut, out)
 	}
-	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait", "k8s.logs.capture"} {
+	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait", "k8s.logs.capture", "k8s.events.capture"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q:\n%s", want, out)
 		}

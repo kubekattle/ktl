@@ -25,6 +25,7 @@ const (
 	NodeKindK8sManifestDelete  = "k8s.manifest.delete"
 	NodeKindK8sResourceWait    = "k8s.resource.wait"
 	NodeKindK8sLogsCapture     = "k8s.logs.capture"
+	NodeKindK8sEventsCapture   = "k8s.events.capture"
 	NodeKindK8sCertInspect     = "k8s.cert.inspect"
 	NodeKindK8sCertRenew       = "k8s.cert.renew"
 	NodeKindK8sClusterVerify   = "k8s.cluster.verify"

@@ -382,6 +382,10 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if err := validateKubernetesLogsCaptureSpec(leaf.Name, &n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
+	case NodeKindK8sEventsCapture:
+		if err := validateKubernetesEventsCaptureSpec(leaf.Name, &n.Kubernetes); err != nil {
+			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
+		}
 	case NodeKindK8sClusterVerify:
 		if err := validateKubernetesClusterVerifySpec(leaf.Name, n.Kubernetes.Cluster); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
@@ -594,6 +598,54 @@ func validateKubernetesLogsCaptureSpec(name string, spec *KubernetesSpec) error 
 	return nil
 }
 
+func validateKubernetesEventsCaptureSpec(name string, spec *KubernetesSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s node %s requires kubernetes events config", NodeKindK8sEventsCapture, name)
+	}
+	if err := validateKubernetesClusterAccessSpec(NodeKindK8sEventsCapture, name, spec.Cluster); err != nil {
+		return err
+	}
+	events := &spec.Events
+	if strings.TrimSpace(events.Namespace) == "" {
+		events.Namespace = "default"
+	}
+	if strings.TrimSpace(spec.Cluster.Transport) == "" {
+		spec.Cluster.Transport = "local"
+	}
+	events.Resource = strings.TrimSpace(events.Resource)
+	events.Kind = strings.TrimSpace(events.Kind)
+	events.Name = strings.TrimSpace(events.Name)
+	events.FieldSelector = strings.TrimSpace(events.FieldSelector)
+	events.SinceTime = strings.TrimSpace(events.SinceTime)
+	events.Types = normalizeTrimmedStringSlice(events.Types)
+	events.Reasons = normalizeTrimmedStringSlice(events.Reasons)
+	if events.Resource != "" && (events.Kind == "" || events.Name == "") {
+		kind, resourceName := splitKubernetesResourceName(events.Resource)
+		if events.Kind == "" {
+			events.Kind = kind
+		}
+		if events.Name == "" {
+			events.Name = resourceName
+		}
+	}
+	if events.Resource == "" && events.Kind != "" && events.Name != "" {
+		events.Resource = events.Kind + "/" + events.Name
+	}
+	if events.Since != nil && *events.Since <= 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.events.since > 0", NodeKindK8sEventsCapture, name)
+	}
+	if events.Since != nil && events.SinceTime != "" {
+		return fmt.Errorf("%s node %s cannot set both kubernetes.events.since and sinceTime", NodeKindK8sEventsCapture, name)
+	}
+	if events.EventLimit < 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.events.eventLimit >= 0", NodeKindK8sEventsCapture, name)
+	}
+	if events.EventLimit == 0 {
+		events.EventLimit = defaultKubernetesEventsCaptureLimit
+	}
+	return nil
+}
+
 func validateKubernetesClusterAccessSpec(kind string, name string, spec KubernetesClusterSpec) error {
 	transport := strings.ToLower(strings.TrimSpace(spec.Transport))
 	if transport == "" {
@@ -715,6 +767,27 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeTrimmedStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func resolvedNodeID(n *ResolvedRelease) string {
