@@ -262,6 +262,16 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if strings.TrimSpace(n.Host.Transport) == "" {
 			n.Host.Transport = "local"
 		}
+	case NodeKindHostFileCopy:
+		if strings.TrimSpace(n.Host.Path) == "" {
+			return nil, fmt.Errorf("%s: host.file.copy node %s requires input.path or host.path", dr.Dir, leaf.Name)
+		}
+		if strings.TrimSpace(n.Host.SourcePath) == "" && strings.TrimSpace(n.Host.Content) == "" {
+			return nil, fmt.Errorf("%s: host.file.copy node %s requires host.sourcePath or host.content", dr.Dir, leaf.Name)
+		}
+		if strings.TrimSpace(n.Host.Transport) == "" {
+			n.Host.Transport = "local"
+		}
 	case NodeKindK8sCertInspect, NodeKindK8sCertRenew:
 		if err := validateKubernetesCertSpec(n.Kind, leaf.Name, n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)

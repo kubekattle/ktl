@@ -70,6 +70,8 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runHostCommandNode(ctx, node, command)
 	case NodeKindHostFileRender:
 		return e.runHostFileRenderNode(ctx, node, command)
+	case NodeKindHostFileCopy:
+		return e.runHostFileCopyNode(ctx, node, command)
 	case NodeKindK8sClusterInspect:
 		return e.runKubernetesClusterInspectNode(ctx, node, command)
 	case NodeKindK8sCertInspect:
@@ -681,21 +683,25 @@ type hostFileChangeSet struct {
 }
 
 type hostFileOperationResult struct {
-	APIVersion    string                   `json:"apiVersion"`
-	Kind          string                   `json:"kind"`
-	Operation     string                   `json:"operation"`
-	Status        string                   `json:"status"`
-	Reason        string                   `json:"reason,omitempty"`
-	TargetDigest  string                   `json:"targetDigest,omitempty"`
-	PathDigest    string                   `json:"pathDigest,omitempty"`
-	DesiredDigest string                   `json:"desiredDigest,omitempty"`
-	Changed       bool                     `json:"changed"`
-	Changes       hostFileChangeSet        `json:"changes"`
-	Before        hostFileState            `json:"before"`
-	After         hostFileState            `json:"after"`
-	Validation    hostFileValidationResult `json:"validation,omitempty"`
-	Error         string                   `json:"error,omitempty"`
-	CompletedAt   string                   `json:"completedAt"`
+	APIVersion       string                   `json:"apiVersion"`
+	Kind             string                   `json:"kind"`
+	Operation        string                   `json:"operation"`
+	Status           string                   `json:"status"`
+	Reason           string                   `json:"reason,omitempty"`
+	TargetDigest     string                   `json:"targetDigest,omitempty"`
+	PathDigest       string                   `json:"pathDigest,omitempty"`
+	DesiredDigest    string                   `json:"desiredDigest,omitempty"`
+	SourceDigest     string                   `json:"sourceDigest,omitempty"`
+	BackupPathDigest string                   `json:"backupPathDigest,omitempty"`
+	Changed          bool                     `json:"changed"`
+	Changes          hostFileChangeSet        `json:"changes"`
+	Before           hostFileState            `json:"before"`
+	After            hostFileState            `json:"after"`
+	Backup           *hostFileState           `json:"backup,omitempty"`
+	Restored         bool                     `json:"restored,omitempty"`
+	Validation       hostFileValidationResult `json:"validation,omitempty"`
+	Error            string                   `json:"error,omitempty"`
+	CompletedAt      string                   `json:"completedAt"`
 }
 
 type hostFileObserveReceipt struct {
@@ -716,26 +722,30 @@ type hostFileObserveReceipt struct {
 }
 
 type hostFilePlanReceipt struct {
-	APIVersion      string            `json:"apiVersion"`
-	Kind            string            `json:"kind"`
-	NodeID          string            `json:"nodeId"`
-	NodeKind        string            `json:"nodeKind"`
-	TargetID        string            `json:"targetId,omitempty"`
-	Phase           string            `json:"phase"`
-	Status          string            `json:"status"`
-	Reason          string            `json:"reason,omitempty"`
-	GuardMode       string            `json:"guardMode"`
-	Operation       string            `json:"operation"`
-	PathDigest      string            `json:"pathDigest,omitempty"`
-	DesiredDigest   string            `json:"desiredDigest,omitempty"`
-	Mode            string            `json:"mode,omitempty"`
-	Owner           string            `json:"owner,omitempty"`
-	Group           string            `json:"group,omitempty"`
-	SelectedTargets []string          `json:"selectedTargets,omitempty"`
-	LockScopes      []string          `json:"lockScopes,omitempty"`
-	PolicySources   []string          `json:"policySources,omitempty"`
-	Changes         hostFileChangeSet `json:"changes"`
-	PlannedAt       string            `json:"plannedAt"`
+	APIVersion       string            `json:"apiVersion"`
+	Kind             string            `json:"kind"`
+	NodeID           string            `json:"nodeId"`
+	NodeKind         string            `json:"nodeKind"`
+	TargetID         string            `json:"targetId,omitempty"`
+	Phase            string            `json:"phase"`
+	Status           string            `json:"status"`
+	Reason           string            `json:"reason,omitempty"`
+	GuardMode        string            `json:"guardMode"`
+	Operation        string            `json:"operation"`
+	PathDigest       string            `json:"pathDigest,omitempty"`
+	DesiredDigest    string            `json:"desiredDigest,omitempty"`
+	SourceDigest     string            `json:"sourceDigest,omitempty"`
+	Mode             string            `json:"mode,omitempty"`
+	Owner            string            `json:"owner,omitempty"`
+	Group            string            `json:"group,omitempty"`
+	Backup           bool              `json:"backup,omitempty"`
+	BackupPathDigest string            `json:"backupPathDigest,omitempty"`
+	RestoreOnDelete  bool              `json:"restoreOnDelete,omitempty"`
+	SelectedTargets  []string          `json:"selectedTargets,omitempty"`
+	LockScopes       []string          `json:"lockScopes,omitempty"`
+	PolicySources    []string          `json:"policySources,omitempty"`
+	Changes          hostFileChangeSet `json:"changes"`
+	PlannedAt        string            `json:"plannedAt"`
 }
 
 type hostFileDiffReceipt struct {
@@ -1219,12 +1229,22 @@ func digestBytes(data []byte) string {
 	return "sha256:" + fmt.Sprintf("%x", sum[:])
 }
 
+func hostFileReceiptMeta(node *runNode) (string, string, string) {
+	switch normalizeNodeKind(node.Kind) {
+	case NodeKindHostFileCopy:
+		return "torque.dev/host-file-copy-node/v1", "HostFileCopy", NodeKindHostFileCopy
+	default:
+		return "torque.dev/host-file-render-node/v1", "HostFileRender", NodeKindHostFileRender
+	}
+}
+
 func (e *customNodeExecutor) hostFileObserveReceipt(node *runNode, phase string, targetID string, guardMode string, selected []string, targetDigest string, pathDigest string, state hostFileState, status string) hostFileObserveReceipt {
+	apiVersion, kindPrefix, _ := hostFileReceiptMeta(node)
 	selected = append([]string(nil), selected...)
 	sort.Strings(selected)
 	return hostFileObserveReceipt{
-		APIVersion:       "torque.dev/host-file-render-node/v1",
-		Kind:             "HostFileRenderObserveReceipt",
+		APIVersion:       apiVersion,
+		Kind:             kindPrefix + "ObserveReceipt",
 		NodeID:           node.ID,
 		NodeKind:         normalizeNodeKind(node.Kind),
 		TargetID:         targetID,
@@ -1241,6 +1261,7 @@ func (e *customNodeExecutor) hostFileObserveReceipt(node *runNode, phase string,
 }
 
 func (e *customNodeExecutor) hostFilePlanReceipt(node *runNode, phase string, targetID string, guardMode string, selected []string, desiredDigest string, pathDigest string, changes hostFileChangeSet, status string, reason string) hostFilePlanReceipt {
+	apiVersion, kindPrefix, operation := hostFileReceiptMeta(node)
 	var lockScopes []string
 	var policySources []string
 	if e != nil && e.run != nil && e.run.Plan != nil && e.run.Plan.Ops != nil {
@@ -1259,34 +1280,47 @@ func (e *customNodeExecutor) hostFilePlanReceipt(node *runNode, phase string, ta
 	sort.Strings(policySources)
 	selected = append([]string(nil), selected...)
 	sort.Strings(selected)
+	sourceDigest := ""
+	if operation == NodeKindHostFileCopy {
+		sourceDigest = desiredDigest
+	}
+	backupPathDigest := ""
+	if node.Host.Backup || node.Host.RestoreOnDelete || strings.TrimSpace(node.Host.BackupPath) != "" {
+		backupPathDigest = digestString(firstNonEmptyString(strings.TrimSpace(node.Host.BackupPath), defaultHostFileBackupPath(node.Host.Path)))
+	}
 	return hostFilePlanReceipt{
-		APIVersion:      "torque.dev/host-file-render-node/v1",
-		Kind:            "HostFileRenderPlanReceipt",
-		NodeID:          node.ID,
-		NodeKind:        normalizeNodeKind(node.Kind),
-		TargetID:        targetID,
-		Phase:           phase,
-		Status:          status,
-		Reason:          reason,
-		GuardMode:       guardMode,
-		Operation:       NodeKindHostFileRender,
-		PathDigest:      pathDigest,
-		DesiredDigest:   desiredDigest,
-		Mode:            normalizeHostFileMode(node.Host.Mode),
-		Owner:           strings.TrimSpace(node.Host.Owner),
-		Group:           strings.TrimSpace(node.Host.Group),
-		SelectedTargets: selected,
-		LockScopes:      lockScopes,
-		PolicySources:   policySources,
-		Changes:         changes,
-		PlannedAt:       time.Now().UTC().Format(time.RFC3339Nano),
+		APIVersion:       apiVersion,
+		Kind:             kindPrefix + "PlanReceipt",
+		NodeID:           node.ID,
+		NodeKind:         normalizeNodeKind(node.Kind),
+		TargetID:         targetID,
+		Phase:            phase,
+		Status:           status,
+		Reason:           reason,
+		GuardMode:        guardMode,
+		Operation:        operation,
+		PathDigest:       pathDigest,
+		DesiredDigest:    desiredDigest,
+		SourceDigest:     sourceDigest,
+		Mode:             normalizeHostFileMode(node.Host.Mode),
+		Owner:            strings.TrimSpace(node.Host.Owner),
+		Group:            strings.TrimSpace(node.Host.Group),
+		Backup:           node.Host.Backup,
+		BackupPathDigest: backupPathDigest,
+		RestoreOnDelete:  node.Host.RestoreOnDelete,
+		SelectedTargets:  selected,
+		LockScopes:       lockScopes,
+		PolicySources:    policySources,
+		Changes:          changes,
+		PlannedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 	}
 }
 
 func (e *customNodeExecutor) hostFileDiffReceipt(node *runNode, phase string, targetID string, pathDigest string, desiredDigest string, before hostFileState, changes hostFileChangeSet, status string) hostFileDiffReceipt {
+	apiVersion, kindPrefix, _ := hostFileReceiptMeta(node)
 	return hostFileDiffReceipt{
-		APIVersion:  "torque.dev/host-file-render-node/v1",
-		Kind:        "HostFileRenderDiffReceipt",
+		APIVersion:  apiVersion,
+		Kind:        kindPrefix + "DiffReceipt",
 		NodeID:      node.ID,
 		TargetID:    targetID,
 		Phase:       phase,
@@ -1304,14 +1338,15 @@ func (e *customNodeExecutor) hostFileDiffReceipt(node *runNode, phase string, ta
 }
 
 func (e *customNodeExecutor) hostFileVerifyReceipt(node *runNode, phase string, targetID string, desiredDigest string, pathDigest string, result hostFileOperationResult) hostFileVerifyReceipt {
+	apiVersion, kindPrefix, _ := hostFileReceiptMeta(node)
 	status := "succeeded"
-	reason := "file render receipt succeeded"
+	reason := "file receipt succeeded"
 	if !nodeStepSucceeded(result.Status) {
 		status = "failed"
-		reason = firstNonEmptyString(result.Error, result.Validation.Error, result.Validation.Stderr, result.Reason, "file render receipt failed")
+		reason = firstNonEmptyString(result.Error, result.Validation.Error, result.Validation.Stderr, result.Reason, "file receipt failed")
 	} else if strings.TrimSpace(result.Status) == "skipped" {
 		status = "skipped"
-		reason = firstNonEmptyString(result.Reason, "file render skipped")
+		reason = firstNonEmptyString(result.Reason, "file operation skipped")
 	}
 	actualDigest := result.After.Sha256
 	if strings.TrimSpace(actualDigest) == "" {
@@ -1319,11 +1354,11 @@ func (e *customNodeExecutor) hostFileVerifyReceipt(node *runNode, phase string, 
 	}
 	if status == "succeeded" && strings.TrimSpace(result.Operation) == "apply" && strings.TrimSpace(desiredDigest) != "" && strings.TrimSpace(actualDigest) != strings.TrimSpace(desiredDigest) {
 		status = "failed"
-		reason = "rendered file digest did not match desired digest"
+		reason = "file digest did not match desired digest"
 	}
 	return hostFileVerifyReceipt{
-		APIVersion:    "torque.dev/host-file-render-node/v1",
-		Kind:          "HostFileRenderVerifyReceipt",
+		APIVersion:    apiVersion,
+		Kind:          kindPrefix + "VerifyReceipt",
 		NodeID:        node.ID,
 		TargetID:      strings.TrimSpace(targetID),
 		Phase:         phase,

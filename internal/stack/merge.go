@@ -291,6 +291,9 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.Path != "" {
 		dst.Path = strings.TrimSpace(src.Path)
 	}
+	if src.SourcePath != "" {
+		dst.SourcePath = strings.TrimSpace(src.SourcePath)
+	}
 	if src.Content != "" {
 		dst.Content = src.Content
 	}
@@ -315,8 +318,17 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.Validate != "" {
 		dst.Validate = src.Validate
 	}
+	if src.Backup {
+		dst.Backup = true
+	}
+	if src.BackupPath != "" {
+		dst.BackupPath = strings.TrimSpace(src.BackupPath)
+	}
 	if src.RemoveOnDelete {
 		dst.RemoveOnDelete = true
+	}
+	if src.RestoreOnDelete {
+		dst.RestoreOnDelete = true
 	}
 	if len(input) == 0 {
 		return dst
@@ -342,6 +354,9 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if v := inputString(input, "path"); v != "" {
 		dst.Path = v
 	}
+	if v := inputString(input, "sourcePath"); v != "" {
+		dst.SourcePath = v
+	}
 	if v := inputString(input, "content"); v != "" {
 		dst.Content = v
 	}
@@ -366,8 +381,17 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if v := inputString(input, "validate"); v != "" {
 		dst.Validate = v
 	}
+	if v, ok := inputBool(input, "backup"); ok {
+		dst.Backup = v
+	}
+	if v := inputString(input, "backupPath"); v != "" {
+		dst.BackupPath = v
+	}
 	if v, ok := inputBool(input, "removeOnDelete"); ok {
 		dst.RemoveOnDelete = v
+	}
+	if v, ok := inputBool(input, "restoreOnDelete"); ok {
+		dst.RestoreOnDelete = v
 	}
 	return dst
 }

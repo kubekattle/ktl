@@ -92,6 +92,21 @@ scripts/e2e/ops/OPS-HOST-002.sh \
   --cleanup
 ```
 
+## OPS-HOST-003
+
+`OPS-HOST-003.sh` proves `host.file.copy` on the real SSH lab host. It copies a
+local source file to a temporary remote path, verifies checksum, owner/mode, and
+backup evidence, repeats apply as a no-op, audits and exports the stack run,
+then deletes through the stack and proves the original file was restored.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-003.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-CLI-004b
 
 `OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved

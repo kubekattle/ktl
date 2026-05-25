@@ -380,23 +380,27 @@ type EffectiveInput struct {
 }
 
 type HostCommandSpec struct {
-	Transport      string         `yaml:"transport,omitempty" json:"transport,omitempty"`
-	TargetID       string         `yaml:"targetId,omitempty" json:"targetId,omitempty"`
-	Target         string         `yaml:"target,omitempty" json:"target,omitempty"`
-	TargetEnv      string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
-	Command        string         `yaml:"command,omitempty" json:"command,omitempty"`
-	DeleteCommand  string         `yaml:"deleteCommand,omitempty" json:"deleteCommand,omitempty"`
-	Timeout        *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Path           string         `yaml:"path,omitempty" json:"path,omitempty"`
-	Content        string         `yaml:"content,omitempty" json:"content,omitempty"`
-	Template       string         `yaml:"template,omitempty" json:"template,omitempty"`
-	TemplatePath   string         `yaml:"templatePath,omitempty" json:"templatePath,omitempty"`
-	Data           map[string]any `yaml:"data,omitempty" json:"data,omitempty"`
-	Mode           string         `yaml:"mode,omitempty" json:"mode,omitempty"`
-	Owner          string         `yaml:"owner,omitempty" json:"owner,omitempty"`
-	Group          string         `yaml:"group,omitempty" json:"group,omitempty"`
-	Validate       string         `yaml:"validate,omitempty" json:"validate,omitempty"`
-	RemoveOnDelete bool           `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
+	Transport       string         `yaml:"transport,omitempty" json:"transport,omitempty"`
+	TargetID        string         `yaml:"targetId,omitempty" json:"targetId,omitempty"`
+	Target          string         `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv       string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	Command         string         `yaml:"command,omitempty" json:"command,omitempty"`
+	DeleteCommand   string         `yaml:"deleteCommand,omitempty" json:"deleteCommand,omitempty"`
+	Timeout         *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Path            string         `yaml:"path,omitempty" json:"path,omitempty"`
+	SourcePath      string         `yaml:"sourcePath,omitempty" json:"sourcePath,omitempty"`
+	Content         string         `yaml:"content,omitempty" json:"content,omitempty"`
+	Template        string         `yaml:"template,omitempty" json:"template,omitempty"`
+	TemplatePath    string         `yaml:"templatePath,omitempty" json:"templatePath,omitempty"`
+	Data            map[string]any `yaml:"data,omitempty" json:"data,omitempty"`
+	Mode            string         `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Owner           string         `yaml:"owner,omitempty" json:"owner,omitempty"`
+	Group           string         `yaml:"group,omitempty" json:"group,omitempty"`
+	Validate        string         `yaml:"validate,omitempty" json:"validate,omitempty"`
+	Backup          bool           `yaml:"backup,omitempty" json:"backup,omitempty"`
+	BackupPath      string         `yaml:"backupPath,omitempty" json:"backupPath,omitempty"`
+	RemoveOnDelete  bool           `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
+	RestoreOnDelete bool           `yaml:"restoreOnDelete,omitempty" json:"restoreOnDelete,omitempty"`
 }
 
 type KubernetesSpec struct {

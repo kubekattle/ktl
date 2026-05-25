@@ -222,6 +222,37 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 		t.Fatalf("expected db hash to change")
 	}
 
+	copySource := filepath.Join(stackRoot, "copy-source.conf")
+	if err := os.WriteFile(copySource, []byte("copy=a\n"), 0o644); err != nil {
+		t.Fatalf("write copy source: %v", err)
+	}
+	copyA := &ResolvedRelease{
+		ID:        "host.file.copy/copy",
+		Kind:      NodeKindHostFileCopy,
+		Name:      "copy",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:  "local",
+			SourcePath: copySource,
+			Path:       filepath.Join(stackRoot, "copied.conf"),
+		},
+	}
+	copyHashA, _, err := ComputeEffectiveInputHashWithOptions(copyA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash copyA: %v", err)
+	}
+	if err := os.WriteFile(copySource, []byte("copy=b\n"), 0o644); err != nil {
+		t.Fatalf("update copy source: %v", err)
+	}
+	copyHashB, _, err := ComputeEffectiveInputHashWithOptions(copyA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash copyB: %v", err)
+	}
+	if copyHashA == copyHashB {
+		t.Fatalf("expected copy source hash to change")
+	}
+
 	renewBefore := 24 * time.Hour
 	k8sA := &ResolvedRelease{
 		ID:        "k8s.cert.renew/certs",
@@ -543,6 +574,161 @@ func TestRun_HostFileRenderLocalNode(t *testing.T) {
 	}
 	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
 		t.Fatalf("expected delete to remove rendered file, stat err=%v", err)
+	}
+}
+
+func TestRun_HostFileCopyLocalNode(t *testing.T) {
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "files")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	sourceFile := filepath.Join(sourceDir, "source.conf")
+	if err := os.WriteFile(sourceFile, []byte("copied-value=ops-host-003\n"), 0o644); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	outFile := filepath.Join(root, "copied.conf")
+	original := "original-value=restore-me\n"
+	if err := os.WriteFile(outFile, []byte(original), 0o644); err != nil {
+		t.Fatalf("write original file: %v", err)
+	}
+	node := &ResolvedRelease{
+		ID:        "host.file.copy/copy-config",
+		Kind:      NodeKindHostFileCopy,
+		Name:      "copy-config",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:       "local",
+			SourcePath:      sourceFile,
+			Path:            outFile,
+			Mode:            "0600",
+			Validate:        `grep -q copied-value "$TORQUE_FILE_COPY_TEMP_PATH"`,
+			Backup:          true,
+			RestoreOnDelete: true,
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read copied file: %v", err)
+	}
+	if got := string(raw); got != "copied-value=ops-host-003\n" {
+		t.Fatalf("copied content=%q", got)
+	}
+	if info, err := os.Stat(outFile); err != nil {
+		t.Fatalf("stat copied file: %v", err)
+	} else if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode=%#o want 0600", got)
+	}
+	backupPath := outFile + ".torque-backup"
+	backupRaw, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatalf("read backup file: %v", err)
+	}
+	if string(backupRaw) != original {
+		t.Fatalf("backup content=%q", string(backupRaw))
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-file-copy-observe.json", "host-file-copy-plan.json", "host-file-copy-diff.json", "host-file-copy-apply.json", "host-file-copy-verify.json", "host-file-copy.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-file-copy-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		strings.Contains(applyArtifact, "ops-host-003") ||
+		strings.Contains(applyArtifact, "original-value") {
+		t.Fatalf("host file copy apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+	diffArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-file-copy-diff.json")
+	if !strings.Contains(diffArtifact, `"diffQuality": "exact"`) ||
+		!strings.Contains(diffArtifact, `"content": true`) {
+		t.Fatalf("host file copy diff artifact missing exact content diff:\n%s", diffArtifact)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "host-file-copy-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat copy was not a no-op:\n%s", repeatApply)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	restored, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read restored file: %v", err)
+	}
+	if string(restored) != original {
+		t.Fatalf("restored content=%q", string(restored))
+	}
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Fatalf("expected backup to be removed after restore, stat err=%v", err)
+	}
+	deleteRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun delete: %v", err)
+	}
+	deleteAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            deleteRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit delete: %v", err)
+	}
+	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "host-file-copy-apply.json")
+	if !strings.Contains(deleteApply, `"restored": true`) {
+		t.Fatalf("delete did not record restore:\n%s", deleteApply)
 	}
 }
 

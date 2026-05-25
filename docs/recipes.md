@@ -496,6 +496,42 @@ torque stack audit --config ./stacks/host-file-render \
 torque stack delete --config ./stacks/host-file-render --yes
 ```
 
+## Stack: copy a host file
+
+Use `host.file.copy` when the source already exists on the Torque controller
+and the target host needs exact checksum evidence, backup/restore, permissions,
+validation, and no-op repeat proof.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-file-copy
+nodes:
+  - name: copy-nginx-snippet
+    kind: host.file.copy
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      sourcePath: files/nginx-snippet.conf
+      path: /tmp/torque-nginx-snippet.conf
+      mode: "0644"
+      owner: root
+      group: root
+      backup: true
+      restoreOnDelete: true
+      validate: 'test -s "$TORQUE_FILE_COPY_TEMP_PATH"'
+```
+
+```bash
+TORQUE_LAB_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/host-file-copy --yes
+
+torque stack audit --config ./stacks/host-file-copy \
+  --output json --include-artifacts > host-file-copy-audit.json
+
+torque stack delete --config ./stacks/host-file-copy --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

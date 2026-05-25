@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -62,6 +63,8 @@ type EffectiveHostInput struct {
 	CommandDigest      string `json:"commandDigest,omitempty"`
 	DeleteDigest       string `json:"deleteDigest,omitempty"`
 	PathDigest         string `json:"pathDigest,omitempty"`
+	SourcePathDigest   string `json:"sourcePathDigest,omitempty"`
+	SourceDigest       string `json:"sourceDigest,omitempty"`
 	ContentDigest      string `json:"contentDigest,omitempty"`
 	TemplateDigest     string `json:"templateDigest,omitempty"`
 	TemplatePathDigest string `json:"templatePathDigest,omitempty"`
@@ -70,7 +73,10 @@ type EffectiveHostInput struct {
 	Owner              string `json:"owner,omitempty"`
 	Group              string `json:"group,omitempty"`
 	ValidateDigest     string `json:"validateDigest,omitempty"`
+	Backup             bool   `json:"backup,omitempty"`
+	BackupPathDigest   string `json:"backupPathDigest,omitempty"`
 	RemoveOnDelete     bool   `json:"removeOnDelete,omitempty"`
+	RestoreOnDelete    bool   `json:"restoreOnDelete,omitempty"`
 	Timeout            string `json:"timeout,omitempty"`
 	Digest             string `json:"digest,omitempty"`
 }
@@ -187,10 +193,15 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.DatabaseDigest = dbInput.Digest
-	case NodeKindHostCommandRun, NodeKindHostFileRender:
+	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
 			return "", nil, err
+		}
+		if normalizeNodeKind(n.Kind) == NodeKindHostFileCopy {
+			if err := addHostFileCopySourceDigest(n, stackRoot, &hostInput); err != nil {
+				return "", nil, err
+			}
 		}
 		input.HostDigest = hostInput.Digest
 	case NodeKindK8sCertInspect, NodeKindK8sCertRenew:
@@ -424,6 +435,7 @@ func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 		CommandDigest:      digestString(spec.Command),
 		DeleteDigest:       digestString(spec.DeleteCommand),
 		PathDigest:         digestString(spec.Path),
+		SourcePathDigest:   digestString(spec.SourcePath),
 		ContentDigest:      digestString(spec.Content),
 		TemplateDigest:     digestString(spec.Template),
 		TemplatePathDigest: digestString(spec.TemplatePath),
@@ -431,7 +443,10 @@ func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 		Owner:              strings.TrimSpace(spec.Owner),
 		Group:              strings.TrimSpace(spec.Group),
 		ValidateDigest:     digestString(spec.Validate),
+		Backup:             spec.Backup,
+		BackupPathDigest:   digestString(spec.BackupPath),
 		RemoveOnDelete:     spec.RemoveOnDelete,
+		RestoreOnDelete:    spec.RestoreOnDelete,
 	}
 	if strings.TrimSpace(spec.Target) != "" {
 		input.TargetDigest = digestString(spec.Target)
@@ -452,6 +467,31 @@ func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 	}
 	input.Digest = sum
 	return input, nil
+}
+
+func addHostFileCopySourceDigest(n *ResolvedRelease, stackRoot string, input *EffectiveHostInput) error {
+	if n == nil || input == nil || strings.TrimSpace(n.Host.SourcePath) == "" {
+		return nil
+	}
+	sourcePath := strings.TrimSpace(n.Host.SourcePath)
+	if !filepath.IsAbs(sourcePath) {
+		base := strings.TrimSpace(n.Dir)
+		if base == "" {
+			base = stackRoot
+		}
+		sourcePath = filepath.Join(base, sourcePath)
+	}
+	raw, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("read host.file.copy source for digest: %w", err)
+	}
+	input.SourceDigest = "sha256:" + hashBytes(raw)
+	sum, err := hashJSONStable(input)
+	if err != nil {
+		return err
+	}
+	input.Digest = sum
+	return nil
 }
 
 func digestKubernetesSpec(spec KubernetesSpec) (EffectiveKubernetesInput, error) {

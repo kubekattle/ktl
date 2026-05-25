@@ -14,6 +14,7 @@ const (
 	NodeKindDBSchemaContract  = "db.schema-contract"
 	NodeKindHostCommandRun    = "host.command.run"
 	NodeKindHostFileRender    = "host.file.render"
+	NodeKindHostFileCopy      = "host.file.copy"
 	NodeKindK8sClusterInspect = "k8s.cluster.inspect"
 	NodeKindK8sCertInspect    = "k8s.cert.inspect"
 	NodeKindK8sCertRenew      = "k8s.cert.renew"
