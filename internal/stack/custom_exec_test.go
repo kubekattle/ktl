@@ -386,9 +386,24 @@ func TestRun_HostCommandRunLocalNode(t *testing.T) {
 	if !found {
 		t.Fatalf("missing host-command.json artifact in %+v", audit.Artifacts)
 	}
+	if audit.Ops != nil {
+		t.Fatalf("legacy host command run unexpectedly produced ops audit: %#v", audit.Ops)
+	}
 	bundlePath := filepath.Join(root, "host-export.tgz")
 	if _, err := ExportRunBundle(context.Background(), root, runID, bundlePath); err != nil {
 		t.Fatalf("ExportRunBundle: %v", err)
+	}
+	bundleAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		BundlePath:       bundlePath,
+		VerifyBundle:     true,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit from bundle: %v", err)
+	}
+	if bundleAudit.Ops != nil {
+		t.Fatalf("legacy host command bundle unexpectedly produced ops audit: %#v", bundleAudit.Ops)
 	}
 	extracted, err := ExtractBundleToTempDir(bundlePath)
 	if err != nil {
@@ -561,6 +576,30 @@ func TestRun_HostCommandOpsGuardReceipts(t *testing.T) {
 		t.Fatalf("bundle audit run ID = %s, want %s", bundleAudit.RunID, runID)
 	}
 	assertOpsAuditPassed(t, bundleAudit, 1)
+
+	extracted, err := ExtractBundleToTempDir(bundlePath)
+	if err != nil {
+		t.Fatalf("ExtractBundleToTempDir: %v", err)
+	}
+	defer os.RemoveAll(extracted)
+	exportDB, err := sql.Open("sqlite", filepath.Join(extracted, "state.sqlite"))
+	if err != nil {
+		t.Fatalf("open exported sqlite: %v", err)
+	}
+	defer exportDB.Close()
+	var planJSON, summaryJSON, lastDigest, exportedRunDigest string
+	if err := exportDB.QueryRow(`SELECT plan_json, summary_json, last_event_digest, run_digest FROM torque_stack_runs WHERE run_id = ?`, runID).Scan(&planJSON, &summaryJSON, &lastDigest, &exportedRunDigest); err != nil {
+		t.Fatalf("query exported run row: %v", err)
+	}
+	if strings.Contains(planJSON, "super-secret-value") || strings.Contains(summaryJSON, "super-secret-value") {
+		t.Fatalf("exported run row leaked raw sensitive value:\nplan=%s\nsummary=%s", planJSON, summaryJSON)
+	}
+	if !strings.Contains(planJSON, `password=[REDACTED]`) {
+		t.Fatalf("exported plan JSON did not preserve redacted command preview:\n%s", planJSON)
+	}
+	if want := computeRunDigest(planJSON, summaryJSON, lastDigest); exportedRunDigest != want {
+		t.Fatalf("exported run digest=%s want %s", exportedRunDigest, want)
+	}
 }
 
 func TestGetRunAuditOpsRunFailsTamperedHostCommandReceipts(t *testing.T) {

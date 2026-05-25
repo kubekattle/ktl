@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 )
 
 type RunBundleManifest struct {
@@ -18,6 +20,7 @@ type RunBundleManifest struct {
 	RunID       string `json:"runId"`
 	RunDigest   string `json:"runDigest,omitempty"`
 	StateSHA256 string `json:"stateSha256"`
+	Redacted    bool   `json:"redacted,omitempty"`
 }
 
 func ExportRunBundle(ctx context.Context, root string, runID string, outPath string) (string, error) {
@@ -74,7 +77,8 @@ func ExportRunBundle(ctx context.Context, root string, runID string, outPath str
 		return "", err
 	}
 
-	// Read run_digest for convenience.
+	// Read the exported run_digest for convenience. Export rewrites the run row
+	// through the evidence redactor, so this digest is for the portable bundle.
 	var runDigest string
 	_ = dst.db.QueryRowContext(ctx, `SELECT run_digest FROM torque_stack_runs WHERE run_id = ?`, runID).Scan(&runDigest)
 	runDigest = strings.TrimSpace(runDigest)
@@ -86,6 +90,7 @@ func ExportRunBundle(ctx context.Context, root string, runID string, outPath str
 		RunID:       runID,
 		RunDigest:   runDigest,
 		StateSHA256: stateSHA,
+		Redacted:    true,
 	}
 
 	manifestPath := filepath.Join(tmpRoot, "manifest.json")
@@ -124,6 +129,9 @@ FROM torque_stack_runs WHERE run_id = ?
 	if err != nil {
 		return err
 	}
+	planJSON = redactExportEvidenceText(planJSON)
+	summaryJSON = redactExportEvidenceText(summaryJSON)
+	runDigest = computeRunDigest(planJSON, summaryJSON, lastEventDigest)
 	_, err = dst.ExecContext(ctx, `
 INSERT INTO torque_stack_runs (
   run_id, stack_root, stack_name, profile, command, concurrency, fail_mode, status,
@@ -136,6 +144,13 @@ INSERT INTO torque_stack_runs (
 		createdBy, host, pid, ciURL, gitAuthor, kubeconfig, kubeContext,
 		selectorJSON, planJSON, summaryJSON, lastEventDigest, runDigest)
 	return err
+}
+
+func redactExportEvidenceText(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return value
+	}
+	return transport.NewRedactor(nil).RedactString(value)
 }
 
 func copyRunNodes(ctx context.Context, src *sql.DB, dst *sql.DB, runID string) error {

@@ -250,7 +250,7 @@ func finalizeOpsRunAudit(a *OpsRunAudit) {
 func hasOpsArtifacts(artifacts []RunArtifact) bool {
 	for _, artifact := range artifacts {
 		name := strings.TrimSpace(artifact.Name)
-		if strings.HasPrefix(name, "ops-") || strings.HasPrefix(name, "host-command") {
+		if strings.HasPrefix(name, "ops-") {
 			return true
 		}
 	}

@@ -376,6 +376,7 @@ var curatedExamples = map[string][]string{
 	"torque stack export": {
 		"# Export the most recent run as a portable bundle\ntorque stack export --config ./stacks/prod",
 		"# Export a specific run ID\ntorque stack export --config ./stacks/prod --run-id 2025-12-30T12-34-56.000000000Z --out ./exports/run.tgz",
+		"# Audit an exported bundle on another machine without local stack state\ntorque stack audit --from-bundle ./exports/run.tgz --output json --include-artifacts",
 		"# Export the DB program run ledger and artifacts as a portable bundle\ntorque stack export --config ./stacks/db-program --out ./db-program-export.tgz",
 		"# Export the Oracle/APEX -> PostgreSQL showcase run ledger\ntorque stack export --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --out ./oracle-postgres-run.tgz",
 	},

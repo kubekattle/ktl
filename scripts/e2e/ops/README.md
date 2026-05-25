@@ -108,6 +108,21 @@ scripts/e2e/ops/OPS-CLI-005.sh \
   --cleanup
 ```
 
+## OPS-CLI-006
+
+`OPS-CLI-006.sh` proves `torque stack export` as a portable redacted evidence
+archive. It exports an explicit run and the default latest run, verifies
+`manifest.json` hashes and run digests, audits the exported bundle
+read-only, proves raw secret-like command material is absent from exported
+SQLite state, rejects a tampered `state.sqlite`, and cleans up the local
+fixture.
+
+```bash
+scripts/e2e/ops/OPS-CLI-006.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## STACK-LIFE-008
 
 `STACK-LIFE-008.sh` proves the GitLab Firecracker hybrid Kubernetes lifecycle

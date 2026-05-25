@@ -695,6 +695,8 @@ torque stack export \
   --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml \
   --out ./oracle-postgres-run.tgz
 
+# The export is a redacted portable bundle with manifest hashes, so it can be
+# audited without the original .torque state directory.
 torque stack audit \
   --from-bundle ./oracle-postgres-run.tgz \
   --output json \
