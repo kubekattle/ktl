@@ -112,6 +112,7 @@ type EffectiveHostInput struct {
 type EffectiveKubernetesInput struct {
 	Provider            string   `json:"provider,omitempty"`
 	ClusterDigest       string   `json:"clusterDigest,omitempty"`
+	ManifestDigest      string   `json:"manifestDigest,omitempty"`
 	TargetDigests       []string `json:"targetDigests,omitempty"`
 	RenewBefore         string   `json:"renewBefore,omitempty"`
 	Force               bool     `json:"force,omitempty"`
@@ -238,7 +239,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.KubernetesDigest = kubernetesInput.Digest
-	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify:
+	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply:
 		kubernetesInput, err := digestKubernetesSpec(n.Kubernetes)
 		if err != nil {
 			return "", nil, err
@@ -576,6 +577,11 @@ func digestKubernetesSpec(spec KubernetesSpec) (EffectiveKubernetesInput, error)
 		return EffectiveKubernetesInput{}, err
 	}
 	input.ClusterDigest = clusterInput
+	manifestInput, err := digestKubernetesManifestSpec(spec.Manifest)
+	if err != nil {
+		return EffectiveKubernetesInput{}, err
+	}
+	input.ManifestDigest = manifestInput
 	if spec.Certificates.RenewBefore != nil {
 		input.RenewBefore = spec.Certificates.RenewBefore.String()
 	}
@@ -757,6 +763,7 @@ func digestKubernetesClusterSpec(spec KubernetesClusterSpec) (string, error) {
 		KubeconfigDigest  string          `json:"kubeconfigDigest,omitempty"`
 		KubeconfigEnv     string          `json:"kubeconfigEnv,omitempty"`
 		Context           string          `json:"context,omitempty"`
+		KubectlCommand    string          `json:"kubectlCommand,omitempty"`
 		MinReadyNodes     int             `json:"minReadyNodes,omitempty"`
 		Namespaces        []string        `json:"namespaces,omitempty"`
 		StableIterations  int             `json:"stableIterations,omitempty"`
@@ -772,6 +779,7 @@ func digestKubernetesClusterSpec(spec KubernetesClusterSpec) (string, error) {
 		TargetEnv:         strings.TrimSpace(spec.TargetEnv),
 		KubeconfigEnv:     strings.TrimSpace(spec.KubeconfigEnv),
 		Context:           strings.TrimSpace(spec.Context),
+		KubectlCommand:    strings.TrimSpace(spec.KubectlCommand),
 		MinReadyNodes:     spec.MinReadyNodes,
 		Namespaces:        append([]string(nil), spec.Namespaces...),
 		StableIterations:  spec.StableIterations,
@@ -799,6 +807,37 @@ func digestKubernetesClusterSpec(spec KubernetesClusterSpec) (string, error) {
 			CommandDigest: digestString(probe.Command),
 			ExpectDigest:  digestString(probe.Expect),
 		})
+	}
+	return hashJSONStable(input)
+}
+
+func digestKubernetesManifestSpec(spec KubernetesManifestSpec) (string, error) {
+	input := struct {
+		Namespace          string `json:"namespace,omitempty"`
+		ContentDigest      string `json:"contentDigest,omitempty"`
+		PathDigest         string `json:"pathDigest,omitempty"`
+		TemplateDigest     string `json:"templateDigest,omitempty"`
+		TemplatePathDigest string `json:"templatePathDigest,omitempty"`
+		DataDigest         string `json:"dataDigest,omitempty"`
+		FieldManager       string `json:"fieldManager,omitempty"`
+		ForceConflicts     bool   `json:"forceConflicts,omitempty"`
+		RemoveOnDelete     bool   `json:"removeOnDelete,omitempty"`
+	}{
+		Namespace:          strings.TrimSpace(spec.Namespace),
+		ContentDigest:      digestString(spec.Content),
+		PathDigest:         digestString(spec.Path),
+		TemplateDigest:     digestString(spec.Template),
+		TemplatePathDigest: digestString(spec.TemplatePath),
+		FieldManager:       strings.TrimSpace(spec.FieldManager),
+		ForceConflicts:     spec.ForceConflicts,
+		RemoveOnDelete:     spec.RemoveOnDelete,
+	}
+	if len(spec.Data) > 0 {
+		raw, err := json.Marshal(spec.Data)
+		if err != nil {
+			return "", err
+		}
+		input.DataDigest = "sha256:" + hashBytes(raw)
 	}
 	return hashJSONStable(input)
 }

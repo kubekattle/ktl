@@ -369,6 +369,10 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if err := validateKubernetesClusterInspectSpec(leaf.Name, n.Kubernetes.Cluster); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
+	case NodeKindK8sManifestApply:
+		if err := validateKubernetesManifestApplySpec(leaf.Name, &n.Kubernetes); err != nil {
+			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
+		}
 	case NodeKindK8sClusterVerify:
 		if err := validateKubernetesClusterVerifySpec(leaf.Name, n.Kubernetes.Cluster); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
@@ -411,6 +415,29 @@ func validateKubernetesClusterVerifySpec(name string, spec KubernetesClusterSpec
 		if strings.TrimSpace(probe.Command) == "" {
 			return fmt.Errorf("%s node %s app probe %s requires command", NodeKindK8sClusterVerify, name, probe.ID)
 		}
+	}
+	return nil
+}
+
+func validateKubernetesManifestApplySpec(name string, spec *KubernetesSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s node %s requires kubernetes manifest config", NodeKindK8sManifestApply, name)
+	}
+	if err := validateKubernetesClusterAccessSpec(NodeKindK8sManifestApply, name, spec.Cluster); err != nil {
+		return err
+	}
+	manifest := &spec.Manifest
+	if strings.TrimSpace(manifest.Content) == "" && strings.TrimSpace(manifest.Path) == "" && strings.TrimSpace(manifest.Template) == "" && strings.TrimSpace(manifest.TemplatePath) == "" {
+		return fmt.Errorf("%s node %s requires kubernetes.manifest.content, path, template, or templatePath", NodeKindK8sManifestApply, name)
+	}
+	if strings.TrimSpace(manifest.Namespace) == "" {
+		manifest.Namespace = "default"
+	}
+	if strings.TrimSpace(manifest.FieldManager) == "" {
+		manifest.FieldManager = "torque"
+	}
+	if strings.TrimSpace(spec.Cluster.Transport) == "" {
+		spec.Cluster.Transport = "local"
 	}
 	return nil
 }

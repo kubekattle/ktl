@@ -17,8 +17,8 @@ var commandTags = map[string][]string{
 	"torque agent policy check":       {"agent", "policy", "proof", "gate", "authorization"},
 	"torque agent run":                {"agent", "run", "proof", "authorization"},
 	"torque ops":                      {"ops", "inventory", "facts", "locks", "policy", "adapter", "capabilities"},
-	"torque ops adapter":              {"ops", "adapter", "capabilities", "host-command"},
-	"torque ops adapter capabilities": {"ops", "adapter", "capabilities", "host-command", "ssh", "local"},
+	"torque ops adapter":              {"ops", "adapter", "capabilities", "host-command", "k8s-manifest"},
+	"torque ops adapter capabilities": {"ops", "adapter", "capabilities", "host-command", "k8s-manifest", "ssh", "local"},
 	"torque ops facts":                {"ops", "facts", "evidence"},
 	"torque ops inventory":            {"ops", "inventory", "targetgraph"},
 	"torque ops lock":                 {"ops", "locks", "targets"},
@@ -38,8 +38,8 @@ var commandTags = map[string][]string{
 	"torque security":                 {"security", "benchmark", "evidence"},
 	"torque security benchmark":       {"security", "benchmark", "secrets", "redaction", "evidence"},
 	"torque stack":                    {"stack", "plan", "apply", "graph"},
-	"torque stack apply":              {"stack", "apply", "ops", "preflight", "replay", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron", "host-systemd", "evidence"},
-	"torque stack plan":               {"stack", "plan", "ops", "facts", "locks", "policy", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron", "host-systemd"},
+	"torque stack apply":              {"stack", "apply", "ops", "preflight", "replay", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron", "host-systemd", "k8s-manifest", "evidence"},
+	"torque stack plan":               {"stack", "plan", "ops", "facts", "locks", "policy", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron", "host-systemd", "k8s-manifest"},
 }
 
 func tagsForCommand(path string) []string {

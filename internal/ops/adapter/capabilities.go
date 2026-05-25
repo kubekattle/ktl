@@ -279,6 +279,25 @@ func Definitions() []Capability {
 			SecretInputs:      []string{"unit content and journal output digests only in evidence"},
 			Description:       "Render, reload, verify, and delete one systemd unit through local or SSH transport with exact unit and journal evidence.",
 		},
+		{
+			Adapter:             "k8s.manifest.apply",
+			Status:              "implemented",
+			Classification:      "guarded",
+			TargetTypes:         []string{"kubernetes", "local", "host"},
+			Transports:          []string{"local", "ssh"},
+			Mutating:            true,
+			RequiredPrivilege:   "Kubernetes RBAC to server-side diff, apply, get, and delete declared objects",
+			Idempotence:         "server-side-field-manager-object-state",
+			CheckMode:           "server-side-diff",
+			DiffQuality:         "server-side",
+			SupportedPhases:     []string{"observe", "plan", "diff", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts:   []string{"k8s-manifest-observe.json", "k8s-manifest-plan.json", "k8s-manifest-diff.json", "k8s-manifest-apply.json", "k8s-manifest-verify.json", "k8s-manifest.json", "decision.json"},
+			RequiredPolicy:      []string{"target graph selection", "Kubernetes RBAC scope", "allow policy decision"},
+			Touches:             []string{"Kubernetes API objects declared by manifest", "managedFields ownership for configured field manager"},
+			SecretInputs:        []string{"manifest content, kubectl output, and live object bodies are emitted as digests only"},
+			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
+			Description:         "Server-side diff, apply, ownership verify, no-op repeat, and cleanup for Kubernetes manifest objects through local or SSH kubectl execution.",
+		},
 	}
 	for i := range out {
 		out[i] = cloneCapability(out[i])
@@ -445,6 +464,11 @@ func probeCommandsFor(adapterName string) []probeCommand {
 			{Name: "systemd-manager", Command: "command -v systemctl >/dev/null 2>&1 && systemctl --version >/dev/null 2>&1", Required: true},
 			{Name: "journal", Command: "command -v journalctl >/dev/null 2>&1", Required: true},
 			{Name: "unit-path", Command: "test -d /etc/systemd/system", Required: true},
+		}
+	case "k8s.manifest.apply":
+		return []probeCommand{
+			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
+			{Name: "python3", Command: "command -v python3 >/dev/null 2>&1", Required: true},
 		}
 	default:
 		return nil

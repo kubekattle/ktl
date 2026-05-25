@@ -70,6 +70,20 @@ releases:
         Type=oneshot
         RemainAfterExit=yes
         ExecStart=/bin/true
+  - name: manifest
+    kind: k8s.manifest.apply
+    kubernetes:
+      cluster:
+        kubectlCommand: kubectl
+      manifest:
+        namespace: torque-test
+        content: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: torque-fake
+          data:
+            ok: "true"
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -124,6 +138,18 @@ releases:
 	}
 	if got := p.ByID["dev/default/systemd"].Host.Mode; got != "0644" {
 		t.Fatalf("systemd mode=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/manifest"].Kind); got != NodeKindK8sManifestApply {
+		t.Fatalf("manifest kind=%q", got)
+	}
+	if got := p.ByID["dev/default/manifest"].Kubernetes.Cluster.Transport; got != "local" {
+		t.Fatalf("manifest transport=%q", got)
+	}
+	if got := p.ByID["dev/default/manifest"].Kubernetes.Manifest.Namespace; got != "torque-test" {
+		t.Fatalf("manifest namespace=%q", got)
+	}
+	if got := p.ByID["dev/default/manifest"].Kubernetes.Manifest.FieldManager; got != "torque" {
+		t.Fatalf("manifest fieldManager=%q", got)
 	}
 }
 
@@ -468,6 +494,36 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if systemdHashA == systemdHashB {
 		t.Fatalf("expected systemd hash to change")
+	}
+
+	manifestA := &ResolvedRelease{
+		ID:        "k8s.manifest.apply/manifest",
+		Kind:      NodeKindK8sManifestApply,
+		Name:      "manifest",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Manifest: KubernetesManifestSpec{
+				Namespace:    "torque-test",
+				FieldManager: "torque",
+				Content:      "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: torque-fake\ndata:\n  value: a\n",
+			},
+		},
+	}
+	manifestB := *manifestA
+	manifestB.Kubernetes.Manifest.Content = strings.Replace(manifestB.Kubernetes.Manifest.Content, "value: a", "value: b", 1)
+	manifestHashA, _, err := ComputeEffectiveInputHashWithOptions(manifestA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash manifestA: %v", err)
+	}
+	manifestHashB, _, err := ComputeEffectiveInputHashWithOptions(&manifestB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash manifestB: %v", err)
+	}
+	if manifestHashA == manifestHashB {
+		t.Fatalf("expected manifest hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -1896,6 +1952,243 @@ func TestRun_HostCronManageLocalNode(t *testing.T) {
 		!strings.Contains(deleteApply, `"changed": true`) ||
 		!strings.Contains(deleteApply, `"exists": false`) {
 		t.Fatalf("delete did not record cron removal:\n%s", deleteApply)
+	}
+}
+
+func TestRun_KubernetesManifestApplyLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	stateFile := filepath.Join(root, "manifest-state.yaml")
+	writeExecutableForTest(t, filepath.Join(binDir, "kubectl"), `#!/usr/bin/env python3
+import json
+import os
+import shutil
+import sys
+
+state_file = os.environ["FAKE_KUBECTL_STATE"]
+args = sys.argv[1:]
+namespace = "default"
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg in ("--kubeconfig", "--context", "-n", "--namespace"):
+        if arg in ("-n", "--namespace"):
+            namespace = args[i + 1]
+        i += 2
+        continue
+    if arg.startswith("--kubeconfig=") or arg.startswith("--context="):
+        i += 1
+        continue
+    break
+if i >= len(args):
+    sys.exit(2)
+cmd = args[i]
+rest = args[i + 1:]
+
+def manifest_path(values):
+    for idx, value in enumerate(values):
+        if value == "-f" and idx + 1 < len(values):
+            return values[idx + 1]
+    return ""
+
+def same_manifest(path):
+    if not path or not os.path.exists(state_file):
+        return False
+    with open(path, "rb") as desired:
+        desired_raw = desired.read()
+    with open(state_file, "rb") as current:
+        current_raw = current.read()
+    return desired_raw == current_raw
+
+if cmd == "diff":
+    path = manifest_path(rest)
+    sys.exit(0 if same_manifest(path) else 1)
+if cmd == "apply":
+    path = manifest_path(rest)
+    if not path:
+        sys.exit(2)
+    print("password=k8s-apply-secret")
+    print("token=k8s-apply-stderr", file=sys.stderr)
+    shutil.copyfile(path, state_file)
+    sys.exit(0)
+if cmd == "delete":
+    if os.path.exists(state_file):
+        os.unlink(state_file)
+    sys.exit(0)
+if cmd == "get":
+    if len(rest) < 2 or not os.path.exists(state_file):
+        print("NotFound", file=sys.stderr)
+        sys.exit(1)
+    kind = rest[0]
+    name = rest[1]
+    api = "apps/v1" if kind.lower() == "deployment" else "v1"
+    doc = {
+        "apiVersion": api,
+        "kind": kind,
+        "metadata": {
+            "name": name,
+            "namespace": namespace,
+            "uid": "uid-" + kind.lower() + "-" + name,
+            "resourceVersion": "42",
+            "generation": 1,
+            "managedFields": [{"manager": "torque", "operation": "Apply"}],
+        },
+        "data": {"secret": "k8s-object-secret"},
+    }
+    print(json.dumps(doc))
+    sys.exit(0)
+sys.exit(2)
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_KUBECTL_STATE", stateFile)
+	node := &ResolvedRelease{
+		ID:        "k8s.manifest.apply/apply-manifest",
+		Kind:      NodeKindK8sManifestApply,
+		Name:      "apply-manifest",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Manifest: KubernetesManifestSpec{
+				Namespace:      "torque-test",
+				FieldManager:   "torque",
+				RemoveOnDelete: true,
+				Content: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: torque-fake-config
+data:
+  marker: OPS-K8S-001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: torque-fake-deploy
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: torque-fake
+  template:
+    metadata:
+      labels:
+        app: torque-fake
+    spec:
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+`,
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(stateFile); err != nil {
+		t.Fatalf("manifest was not applied: %v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"k8s-manifest-observe.json", "k8s-manifest-plan.json", "k8s-manifest-diff.json", "k8s-manifest-apply.json", "k8s-manifest-verify.json", "k8s-manifest.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-manifest-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		!strings.Contains(applyArtifact, `"owned": true`) ||
+		strings.Contains(applyArtifact, "k8s-apply-secret") ||
+		strings.Contains(applyArtifact, "k8s-object-secret") {
+		t.Fatalf("k8s manifest apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+	diffArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-manifest-diff.json")
+	if !strings.Contains(diffArtifact, `"diffQuality": "server-side"`) ||
+		!strings.Contains(diffArtifact, `"objects": true`) {
+		t.Fatalf("k8s manifest diff artifact missing server-side change evidence:\n%s", diffArtifact)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "k8s-manifest-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat manifest apply was not a no-op:\n%s", repeatApply)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(stateFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to remove manifest state, stat err=%v", err)
+	}
+	deleteRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun delete: %v", err)
+	}
+	deleteAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            deleteRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit delete: %v", err)
+	}
+	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "k8s-manifest-apply.json")
+	if !strings.Contains(deleteApply, `"desiredState": "absent"`) ||
+		!strings.Contains(deleteApply, `"changed": true`) ||
+		!strings.Contains(deleteApply, `"exists": false`) {
+		t.Fatalf("delete did not record manifest cleanup:\n%s", deleteApply)
 	}
 }
 

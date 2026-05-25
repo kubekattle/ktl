@@ -432,9 +432,10 @@ type HostCommandSpec struct {
 }
 
 type KubernetesSpec struct {
-	Provider     string                `yaml:"provider,omitempty" json:"provider,omitempty"`
-	Certificates KubernetesCertSpec    `yaml:"certificates,omitempty" json:"certificates,omitempty"`
-	Cluster      KubernetesClusterSpec `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Provider     string                 `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Certificates KubernetesCertSpec     `yaml:"certificates,omitempty" json:"certificates,omitempty"`
+	Cluster      KubernetesClusterSpec  `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Manifest     KubernetesManifestSpec `yaml:"manifest,omitempty" json:"manifest,omitempty"`
 }
 
 type KubernetesClusterSpec struct {
@@ -445,6 +446,7 @@ type KubernetesClusterSpec struct {
 	Kubeconfig        string               `yaml:"kubeconfig,omitempty" json:"kubeconfig,omitempty"`
 	KubeconfigEnv     string               `yaml:"kubeconfigEnv,omitempty" json:"kubeconfigEnv,omitempty"`
 	Context           string               `yaml:"context,omitempty" json:"context,omitempty"`
+	KubectlCommand    string               `yaml:"kubectlCommand,omitempty" json:"kubectlCommand,omitempty"`
 	MinReadyNodes     int                  `yaml:"minReadyNodes,omitempty" json:"minReadyNodes,omitempty"`
 	Namespaces        []string             `yaml:"namespaces,omitempty" json:"namespaces,omitempty"`
 	StableIterations  int                  `yaml:"stableIterations,omitempty" json:"stableIterations,omitempty"`
@@ -455,6 +457,18 @@ type KubernetesClusterSpec struct {
 	NamespacesCommand string               `yaml:"namespacesCommand,omitempty" json:"namespacesCommand,omitempty"`
 	PodsCommand       string               `yaml:"podsCommand,omitempty" json:"podsCommand,omitempty"`
 	AppProbes         []KubernetesAppProbe `yaml:"appProbes,omitempty" json:"appProbes,omitempty"`
+}
+
+type KubernetesManifestSpec struct {
+	Namespace      string         `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Content        string         `yaml:"content,omitempty" json:"content,omitempty"`
+	Path           string         `yaml:"path,omitempty" json:"path,omitempty"`
+	Template       string         `yaml:"template,omitempty" json:"template,omitempty"`
+	TemplatePath   string         `yaml:"templatePath,omitempty" json:"templatePath,omitempty"`
+	Data           map[string]any `yaml:"data,omitempty" json:"data,omitempty"`
+	FieldManager   string         `yaml:"fieldManager,omitempty" json:"fieldManager,omitempty"`
+	ForceConflicts bool           `yaml:"forceConflicts,omitempty" json:"forceConflicts,omitempty"`
+	RemoveOnDelete bool           `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
 }
 
 type KubernetesAppProbe struct {

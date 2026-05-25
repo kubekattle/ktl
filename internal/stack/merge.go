@@ -703,6 +703,38 @@ func mergeKubernetesSpec(dst KubernetesSpec, src KubernetesSpec) KubernetesSpec 
 		dst.Certificates.VerifyCommand = src.Certificates.VerifyCommand
 	}
 	dst.Certificates.Policy = mergeKubernetesLifecyclePolicySpec(dst.Certificates.Policy, src.Certificates.Policy)
+	dst.Manifest = mergeKubernetesManifestSpec(dst.Manifest, src.Manifest)
+	return dst
+}
+
+func mergeKubernetesManifestSpec(dst KubernetesManifestSpec, src KubernetesManifestSpec) KubernetesManifestSpec {
+	if src.Namespace != "" {
+		dst.Namespace = strings.TrimSpace(src.Namespace)
+	}
+	if src.Content != "" {
+		dst.Content = src.Content
+	}
+	if src.Path != "" {
+		dst.Path = strings.TrimSpace(src.Path)
+	}
+	if src.Template != "" {
+		dst.Template = src.Template
+	}
+	if src.TemplatePath != "" {
+		dst.TemplatePath = strings.TrimSpace(src.TemplatePath)
+	}
+	if len(src.Data) > 0 {
+		dst.Data = cloneAnyMap(src.Data)
+	}
+	if src.FieldManager != "" {
+		dst.FieldManager = strings.TrimSpace(src.FieldManager)
+	}
+	if src.ForceConflicts {
+		dst.ForceConflicts = true
+	}
+	if src.RemoveOnDelete {
+		dst.RemoveOnDelete = true
+	}
 	return dst
 }
 
@@ -857,6 +889,9 @@ func mergeKubernetesClusterSpec(dst KubernetesClusterSpec, src KubernetesCluster
 	}
 	if src.Context != "" {
 		dst.Context = strings.TrimSpace(src.Context)
+	}
+	if src.KubectlCommand != "" {
+		dst.KubectlCommand = strings.TrimSpace(src.KubectlCommand)
 	}
 	if src.MinReadyNodes != 0 {
 		dst.MinReadyNodes = src.MinReadyNodes

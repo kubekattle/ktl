@@ -256,6 +256,7 @@ adapters = [
     "host.user.manage",
     "host.cron.manage",
     "host.systemd.unit",
+    "k8s.manifest.apply",
     "http.check",
 ]
 providers = [
@@ -265,6 +266,7 @@ providers = [
     "shadow-utils",
     "cron",
     "journal",
+    "kubernetes-api",
     "http-probe",
 ]
 

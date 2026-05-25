@@ -241,7 +241,7 @@ func kubernetesClusterVerifyRunner(spec KubernetesClusterSpec) (hostCommandRunne
 }
 
 func kubernetesClusterKubectlBase(spec KubernetesClusterSpec) string {
-	args := []string{"kubectl"}
+	args := kubernetesClusterKubectlCommandParts(spec)
 	kubeconfig := strings.TrimSpace(spec.Kubeconfig)
 	if kubeconfig == "" && strings.TrimSpace(spec.KubeconfigEnv) != "" {
 		kubeconfig = strings.TrimSpace(os.Getenv(strings.TrimSpace(spec.KubeconfigEnv)))
@@ -253,6 +253,14 @@ func kubernetesClusterKubectlBase(spec KubernetesClusterSpec) string {
 		args = append(args, "--context", strings.TrimSpace(spec.Context))
 	}
 	return shellJoin(args)
+}
+
+func kubernetesClusterKubectlCommandParts(spec KubernetesClusterSpec) []string {
+	command := strings.TrimSpace(spec.KubectlCommand)
+	if command == "" {
+		return []string{"kubectl"}
+	}
+	return strings.Fields(command)
 }
 
 func kubernetesClusterAPICommand(spec KubernetesClusterSpec) string {

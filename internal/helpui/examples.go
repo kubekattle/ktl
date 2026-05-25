@@ -206,10 +206,12 @@ var curatedExamples = map[string][]string{
 	"torque ops adapter": {
 		"# List adapter capability contracts\ntorque ops adapter capabilities",
 		"# Probe the implemented host command adapter locally\ntorque ops adapter capabilities host.command.run --target local://localhost --format json",
+		"# Show the Kubernetes manifest adapter contract\ntorque ops adapter capabilities k8s.manifest.apply --format json",
 	},
 	"torque ops adapter capabilities": {
 		"# List implemented and planned adapter contracts\ntorque ops adapter capabilities --format json",
 		"# Show a single adapter contract\ntorque ops adapter capabilities host.command.run",
+		"# Show server-side Kubernetes manifest adapter evidence requirements\ntorque ops adapter capabilities k8s.manifest.apply",
 		"# Probe an SSH target and emit redacted JSON evidence\ntorque ops adapter capabilities host.command.run --target ssh://root@lab-host --format json",
 	},
 	"torque release": {
@@ -343,6 +345,7 @@ var curatedExamples = map[string][]string{
 		"# Plan a host.user.manage node with UID/GID evidence\ntorque stack plan --config ./stacks/host-user --output json",
 		"# Plan a host.cron.manage node with exact cron.d diff evidence\ntorque stack plan --config ./stacks/host-cron --output json",
 		"# Plan a host.systemd.unit node with daemon-reload and journal evidence\ntorque stack plan --config ./stacks/host-systemd --output json",
+		"# Plan a k8s.manifest.apply node with server-side diff evidence\ntorque stack plan --config ./stacks/k8s-manifest --output json",
 		"# Plan a mixed graph with Helm, scripts, and DB cutover nodes\ntorque stack plan --config ./stacks/db-cutover --output json",
 		"# Plan typed adapter nodes that behave like evidence-backed automation modules\ntorque stack plan --config ./stacks/ops-program --output json",
 		"# Plan Kubernetes lifecycle inspect, policy-gated maintenance, verification, and summary evidence nodes\ntorque stack plan --config ./stacks/cluster-lifecycle --output json",
@@ -370,6 +373,7 @@ var curatedExamples = map[string][]string{
 		"# Create a host user and group with UID/GID receipts\ntorque stack apply --config ./stacks/host-user --yes",
 		"# Create a cron.d entry with exact digest receipts\ntorque stack apply --config ./stacks/host-cron --yes",
 		"# Render and start a systemd unit with journal evidence\ntorque stack apply --config ./stacks/host-systemd --yes",
+		"# Server-side apply Kubernetes manifests with ownership receipts\ntorque stack apply --config ./stacks/k8s-manifest --yes",
 		"# Resume the most recent run (uses stored frozen plan unless --replan is set)\ntorque stack apply --config ./stacks/prod --resume --yes",
 		"# Apply a mixed graph with PostgreSQL or MariaDB cutover nodes\ntorque stack apply --config ./stacks/db-cutover --yes",
 		"# Run evidence-backed action plugins inside the stack DAG\ntorque stack apply --config ./stacks/ops-program --yes",

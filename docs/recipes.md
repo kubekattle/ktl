@@ -718,6 +718,52 @@ torque stack audit --config ./stacks/host-systemd \
 torque stack delete --config ./stacks/host-systemd --yes
 ```
 
+## Stack: apply Kubernetes manifests
+
+Use `k8s.manifest.apply` for namespace-scoped Kubernetes objects that need
+server-side diff, field-manager ownership verification, repeat no-op proof, and
+cleanup through stack delete. The adapter runs `kubectl` locally or over SSH and
+records manifest, command output, and live object bodies as digests in evidence.
+Create the target namespace before applying namespace-scoped objects.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: k8s-manifest
+nodes:
+  - name: apply-config
+    kind: k8s.manifest.apply
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_K3S_SSH
+        kubectlCommand: k3s kubectl
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      manifest:
+        namespace: torque-demo
+        fieldManager: torque
+        forceConflicts: true
+        removeOnDelete: true
+        content: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: torque-demo-config
+            namespace: torque-demo
+          data:
+            marker: torque
+```
+
+```bash
+TORQUE_LAB_K3S_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/k8s-manifest --yes
+
+torque stack audit --config ./stacks/k8s-manifest \
+  --output json --include-artifacts > k8s-manifest-audit.json
+
+torque stack delete --config ./stacks/k8s-manifest --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and
