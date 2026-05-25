@@ -330,6 +330,24 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.RestoreOnDelete {
 		dst.RestoreOnDelete = true
 	}
+	if src.PackageName != "" {
+		dst.PackageName = strings.TrimSpace(src.PackageName)
+	}
+	if src.PackageManager != "" {
+		dst.PackageManager = strings.TrimSpace(src.PackageManager)
+	}
+	if src.State != "" {
+		dst.State = strings.TrimSpace(src.State)
+	}
+	if src.Version != "" {
+		dst.Version = strings.TrimSpace(src.Version)
+	}
+	if src.UpdateCache {
+		dst.UpdateCache = true
+	}
+	if src.Purge {
+		dst.Purge = true
+	}
 	if len(input) == 0 {
 		return dst
 	}
@@ -392,6 +410,24 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	}
 	if v, ok := inputBool(input, "restoreOnDelete"); ok {
 		dst.RestoreOnDelete = v
+	}
+	if v := inputString(input, "package"); v != "" {
+		dst.PackageName = v
+	}
+	if v := inputString(input, "packageManager"); v != "" {
+		dst.PackageManager = v
+	}
+	if v := inputString(input, "state"); v != "" {
+		dst.State = v
+	}
+	if v := inputString(input, "version"); v != "" {
+		dst.Version = v
+	}
+	if v, ok := inputBool(input, "updateCache"); ok {
+		dst.UpdateCache = v
+	}
+	if v, ok := inputBool(input, "purge"); ok {
+		dst.Purge = v
 	}
 	return dst
 }

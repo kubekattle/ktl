@@ -301,11 +301,15 @@ if not copy_adapter or copy_adapter.get("status") != "implemented" or copy_adapt
     errors.append("host.file.copy implemented contract missing")
 elif "host-file-copy-diff.json" not in (copy_adapter.get("evidenceArtifacts") or []):
     errors.append("host.file.copy missing diff artifact")
-if not package or package.get("requiredPrivilege") != "root or delegated sudo":
+if not package or package.get("status") != "implemented" or package.get("diffQuality") != "exact":
+    errors.append("host.package.install implemented contract missing")
+elif package.get("requiredPrivilege") != "root or delegated sudo":
     errors.append("host.package.install privilege contract missing")
+elif "host-package-diff.json" not in (package.get("evidenceArtifacts") or []):
+    errors.append("host.package.install missing diff artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

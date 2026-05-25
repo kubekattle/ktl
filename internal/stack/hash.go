@@ -77,6 +77,12 @@ type EffectiveHostInput struct {
 	BackupPathDigest   string `json:"backupPathDigest,omitempty"`
 	RemoveOnDelete     bool   `json:"removeOnDelete,omitempty"`
 	RestoreOnDelete    bool   `json:"restoreOnDelete,omitempty"`
+	PackageDigest      string `json:"packageDigest,omitempty"`
+	PackageManager     string `json:"packageManager,omitempty"`
+	State              string `json:"state,omitempty"`
+	VersionDigest      string `json:"versionDigest,omitempty"`
+	UpdateCache        bool   `json:"updateCache,omitempty"`
+	Purge              bool   `json:"purge,omitempty"`
 	Timeout            string `json:"timeout,omitempty"`
 	Digest             string `json:"digest,omitempty"`
 }
@@ -193,7 +199,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.DatabaseDigest = dbInput.Digest
-	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy:
+	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
 			return "", nil, err
@@ -447,6 +453,12 @@ func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 		BackupPathDigest:   digestString(spec.BackupPath),
 		RemoveOnDelete:     spec.RemoveOnDelete,
 		RestoreOnDelete:    spec.RestoreOnDelete,
+		PackageDigest:      digestString(spec.PackageName),
+		PackageManager:     strings.TrimSpace(spec.PackageManager),
+		State:              strings.TrimSpace(spec.State),
+		VersionDigest:      digestString(spec.Version),
+		UpdateCache:        spec.UpdateCache,
+		Purge:              spec.Purge,
 	}
 	if strings.TrimSpace(spec.Target) != "" {
 		input.TargetDigest = digestString(spec.Target)

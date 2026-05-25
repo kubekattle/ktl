@@ -107,6 +107,22 @@ scripts/e2e/ops/OPS-HOST-003.sh \
   --cleanup
 ```
 
+## OPS-HOST-004
+
+`OPS-HOST-004.sh` proves `host.package.install` on the real SSH lab host. It
+selects an absent harmless package from the host package cache, installs it,
+verifies package-manager before/after evidence, repeats apply as a no-op,
+audits and exports the stack run, then deletes through the stack and proves the
+package was removed.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-004.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-CLI-004b
 
 `OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved

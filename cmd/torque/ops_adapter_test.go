@@ -53,6 +53,16 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 	if !adapterStringSliceContains(copyAdapter.EvidenceArtifacts, "host-file-copy-diff.json") {
 		t.Fatalf("host.file.copy missing diff artifact: %#v", copyAdapter.EvidenceArtifacts)
 	}
+	pkg := findAdapterCapability(result.Adapters, "host.package.install")
+	if pkg == nil {
+		t.Fatalf("missing host.package.install in %#v", result.Adapters)
+	}
+	if pkg.Status != "implemented" || pkg.DiffQuality != "exact" {
+		t.Fatalf("host.package.install capability = %#v", pkg)
+	}
+	if !adapterStringSliceContains(pkg.EvidenceArtifacts, "host-package-diff.json") {
+		t.Fatalf("host.package.install missing diff artifact: %#v", pkg.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}

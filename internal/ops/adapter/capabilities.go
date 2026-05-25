@@ -189,7 +189,24 @@ func Definitions() []Capability {
 			SecretInputs:      []string{"copied content digest only in evidence"},
 			Description:       "Copy one file through local or SSH transport with exact digest diff, validation, backup/restore, and verify receipts.",
 		},
-		planned("host.package.install", "guarded", "conditional", "bounded", []string{"package database", "package manager"}, []string{"host-package-observe.json", "host-package-plan.json", "host-package-apply.json", "host-package-verify.json"}),
+		{
+			Adapter:           "host.package.install",
+			Status:            "implemented",
+			Classification:    "guarded",
+			TargetTypes:       []string{"host", "local"},
+			Transports:        []string{"local", "ssh"},
+			Mutating:          true,
+			RequiredPrivilege: "root or delegated sudo",
+			Idempotence:       "package-version-state",
+			CheckMode:         "deterministic-plan",
+			DiffQuality:       "exact",
+			SupportedPhases:   []string{"observe", "plan", "diff", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts: []string{"host-package-observe.json", "host-package-plan.json", "host-package-diff.json", "host-package-apply.json", "host-package-verify.json", "host-package.json", "decision.json"},
+			RequiredPolicy:    []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
+			Touches:           []string{"package database", "package manager", "package files", "service hooks"},
+			SecretInputs:      []string{"package command output digests only in evidence"},
+			Description:       "Install, upgrade, or remove one package through local or SSH transport with exact before/after package evidence.",
+		},
 		planned("host.service.manage", "guarded", "conditional", "bounded", []string{"service manager", "unit state"}, []string{"host-service-observe.json", "host-service-plan.json", "host-service-apply.json", "host-service-verify.json"}),
 		planned("host.user.manage", "guarded", "conditional", "bounded", []string{"passwd/group database"}, []string{"host-user-observe.json", "host-user-plan.json", "host-user-apply.json", "host-user-verify.json"}),
 		planned("host.cron.manage", "guarded", "conditional", "exact", []string{"crontab", "cron.d files"}, []string{"host-cron-observe.json", "host-cron-plan.json", "host-cron-diff.json", "host-cron-apply.json", "host-cron-verify.json"}),
@@ -338,6 +355,10 @@ func probeCommandsFor(adapterName string) []probeCommand {
 		return []probeCommand{
 			{Name: "shell", Command: "printf torque-adapter-probe", Required: true},
 			{Name: "redaction", Command: "printf 'password=torque-adapter-probe-secret\\n'", Required: true},
+		}
+	case "host.package.install":
+		return []probeCommand{
+			{Name: "package-manager", Command: "command -v apt-get >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1 || command -v apk >/dev/null 2>&1", Required: true},
 		}
 	default:
 		return nil

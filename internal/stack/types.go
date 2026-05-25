@@ -401,6 +401,12 @@ type HostCommandSpec struct {
 	BackupPath      string         `yaml:"backupPath,omitempty" json:"backupPath,omitempty"`
 	RemoveOnDelete  bool           `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
 	RestoreOnDelete bool           `yaml:"restoreOnDelete,omitempty" json:"restoreOnDelete,omitempty"`
+	PackageName     string         `yaml:"package,omitempty" json:"package,omitempty"`
+	PackageManager  string         `yaml:"packageManager,omitempty" json:"packageManager,omitempty"`
+	State           string         `yaml:"state,omitempty" json:"state,omitempty"`
+	Version         string         `yaml:"version,omitempty" json:"version,omitempty"`
+	UpdateCache     bool           `yaml:"updateCache,omitempty" json:"updateCache,omitempty"`
+	Purge           bool           `yaml:"purge,omitempty" json:"purge,omitempty"`
 }
 
 type KubernetesSpec struct {

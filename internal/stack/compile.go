@@ -272,6 +272,19 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if strings.TrimSpace(n.Host.Transport) == "" {
 			n.Host.Transport = "local"
 		}
+	case NodeKindHostPackageInstall:
+		if strings.TrimSpace(n.Host.PackageName) == "" {
+			return nil, fmt.Errorf("%s: host.package.install node %s requires host.package", dr.Dir, leaf.Name)
+		}
+		state := strings.ToLower(strings.TrimSpace(n.Host.State))
+		if state == "" {
+			n.Host.State = "present"
+		} else if state != "present" && state != "latest" && state != "absent" {
+			return nil, fmt.Errorf("%s: host.package.install node %s has unsupported host.state %q", dr.Dir, leaf.Name, n.Host.State)
+		}
+		if strings.TrimSpace(n.Host.Transport) == "" {
+			n.Host.Transport = "local"
+		}
 	case NodeKindK8sCertInspect, NodeKindK8sCertRenew:
 		if err := validateKubernetesCertSpec(n.Kind, leaf.Name, n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)

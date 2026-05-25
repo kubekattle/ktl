@@ -532,6 +532,38 @@ torque stack audit --config ./stacks/host-file-copy \
 torque stack delete --config ./stacks/host-file-copy --yes
 ```
 
+## Stack: install a host package
+
+Use `host.package.install` for one-package lifecycle changes that need exact
+before/after package evidence, package-manager command receipts, repeat no-op
+proof, and cleanup through stack delete.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-package
+nodes:
+  - name: install-figlet
+    kind: host.package.install
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      package: figlet
+      packageManager: apt
+      state: present
+      removeOnDelete: true
+```
+
+```bash
+TORQUE_LAB_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/host-package --yes
+
+torque stack audit --config ./stacks/host-package \
+  --output json --include-artifacts > host-package-audit.json
+
+torque stack delete --config ./stacks/host-package --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

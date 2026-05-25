@@ -37,6 +37,10 @@ releases:
       driver: sqlite
       dsn: ` + dbPath + `
       commitSQL: CREATE TABLE IF NOT EXISTS switches(value TEXT PRIMARY KEY);
+  - name: package
+    kind: host.package.install
+    host:
+      package: torque-fake-pkg
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -55,6 +59,12 @@ releases:
 	}
 	if got := normalizeNodeKind(p.ByID["dev/default/cutover"].Kind); got != NodeKindDBCutover {
 		t.Fatalf("cutover kind=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/package"].Kind); got != NodeKindHostPackageInstall {
+		t.Fatalf("package kind=%q", got)
+	}
+	if got := p.ByID["dev/default/package"].Host.State; got != "present" {
+		t.Fatalf("package state=%q", got)
 	}
 }
 
@@ -251,6 +261,33 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if copyHashA == copyHashB {
 		t.Fatalf("expected copy source hash to change")
+	}
+
+	pkgA := &ResolvedRelease{
+		ID:        "host.package.install/pkg",
+		Kind:      NodeKindHostPackageInstall,
+		Name:      "pkg",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:   "local",
+			PackageName: "torque-fake-pkg",
+			State:       "present",
+			Version:     "1.0",
+		},
+	}
+	pkgB := *pkgA
+	pkgB.Host.Version = "2.0"
+	pkgHashA, _, err := ComputeEffectiveInputHashWithOptions(pkgA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash pkgA: %v", err)
+	}
+	pkgHashB, _, err := ComputeEffectiveInputHashWithOptions(&pkgB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash pkgB: %v", err)
+	}
+	if pkgHashA == pkgHashB {
+		t.Fatalf("expected package hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -729,6 +766,157 @@ func TestRun_HostFileCopyLocalNode(t *testing.T) {
 	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "host-file-copy-apply.json")
 	if !strings.Contains(deleteApply, `"restored": true`) {
 		t.Fatalf("delete did not record restore:\n%s", deleteApply)
+	}
+}
+
+func TestRun_HostPackageInstallLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	stateFile := filepath.Join(root, "package-installed")
+	logFile := filepath.Join(root, "package-manager.log")
+	writeExecutableForTest(t, filepath.Join(binDir, "dpkg-query"), `#!/bin/sh
+if [ -f `+shellQuoteForTest(stateFile)+` ]; then
+  printf 'install ok installed\t1.0'
+  exit 0
+fi
+exit 1
+`)
+	writeExecutableForTest(t, filepath.Join(binDir, "apt-cache"), `#!/bin/sh
+printf '%s\n' 'torque-fake-pkg:' '  Installed: (none)' '  Candidate: 1.0'
+`)
+	writeExecutableForTest(t, filepath.Join(binDir, "apt-get"), `#!/bin/sh
+printf 'password=package-secret\n'
+printf 'token=package-stderr\n' >&2
+case "$1" in
+  install)
+    printf 'install\n' >> `+shellQuoteForTest(logFile)+`
+    printf installed > `+shellQuoteForTest(stateFile)+`
+    ;;
+  remove|purge)
+    printf 'remove\n' >> `+shellQuoteForTest(logFile)+`
+    rm -f `+shellQuoteForTest(stateFile)+`
+    ;;
+  update)
+    printf 'update\n' >> `+shellQuoteForTest(logFile)+`
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	node := &ResolvedRelease{
+		ID:        "host.package.install/install-pkg",
+		Kind:      NodeKindHostPackageInstall,
+		Name:      "install-pkg",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:      "local",
+			PackageName:    "torque-fake-pkg",
+			PackageManager: "apt",
+			State:          "present",
+			RemoveOnDelete: true,
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(stateFile); err != nil {
+		t.Fatalf("package was not installed: %v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-package-observe.json", "host-package-plan.json", "host-package-diff.json", "host-package-apply.json", "host-package-verify.json", "host-package.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-package-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		!strings.Contains(applyArtifact, `"packageManager": "apt"`) ||
+		strings.Contains(applyArtifact, "package-secret") ||
+		strings.Contains(applyArtifact, "package-stderr") {
+		t.Fatalf("host package apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "host-package-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat package apply was not a no-op:\n%s", repeatApply)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(stateFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to remove fake package state, stat err=%v", err)
+	}
+	deleteRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun delete: %v", err)
+	}
+	deleteAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            deleteRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit delete: %v", err)
+	}
+	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "host-package-apply.json")
+	if !strings.Contains(deleteApply, `"desiredState": "absent"`) ||
+		!strings.Contains(deleteApply, `"changed": true`) ||
+		!strings.Contains(deleteApply, `"installed": false`) {
+		t.Fatalf("delete did not record package removal:\n%s", deleteApply)
 	}
 }
 
@@ -2496,6 +2684,13 @@ func shellQuoteForTest(path string) string {
 
 func shellQuoteStringForTest(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func writeExecutableForTest(t *testing.T, path string, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("write executable %s: %v", path, err)
+	}
 }
 
 func providerMatrixJSONCommand(raw string) string {
