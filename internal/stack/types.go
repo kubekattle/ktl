@@ -428,6 +428,7 @@ type HostCommandSpec struct {
 	CronSchedule    string         `yaml:"schedule,omitempty" json:"schedule,omitempty"`
 	CronUser        string         `yaml:"cronUser,omitempty" json:"cronUser,omitempty"`
 	CronCommand     string         `yaml:"cronCommand,omitempty" json:"cronCommand,omitempty"`
+	UnitName        string         `yaml:"unit,omitempty" json:"unit,omitempty"`
 }
 
 type KubernetesSpec struct {

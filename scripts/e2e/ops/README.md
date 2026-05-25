@@ -170,6 +170,22 @@ scripts/e2e/ops/OPS-HOST-007.sh \
   --cleanup
 ```
 
+## OPS-HOST-008
+
+`OPS-HOST-008.sh` proves `host.systemd.unit` on the real SSH lab host. It writes
+a temporary systemd unit, runs daemon-reload, starts and enables it, verifies
+journal evidence, repeats apply as a no-op, audits and exports the run, then
+deletes through the stack and proves the unit file, active state, and enablement
+were cleaned up.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-008.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-CLI-004b
 
 `OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved

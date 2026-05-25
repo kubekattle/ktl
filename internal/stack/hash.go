@@ -104,6 +104,7 @@ type EffectiveHostInput struct {
 	CronScheduleDigest string   `json:"cronScheduleDigest,omitempty"`
 	CronUserDigest     string   `json:"cronUserDigest,omitempty"`
 	CronCommandDigest  string   `json:"cronCommandDigest,omitempty"`
+	UnitNameDigest     string   `json:"unitNameDigest,omitempty"`
 	Timeout            string   `json:"timeout,omitempty"`
 	Digest             string   `json:"digest,omitempty"`
 }
@@ -220,7 +221,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.DatabaseDigest = dbInput.Digest
-	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage, NodeKindHostUserManage, NodeKindHostCronManage:
+	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage, NodeKindHostUserManage, NodeKindHostCronManage, NodeKindHostSystemdUnit:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
 			return "", nil, err
@@ -501,6 +502,7 @@ func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 		CronScheduleDigest: digestString(spec.CronSchedule),
 		CronUserDigest:     digestString(spec.CronUser),
 		CronCommandDigest:  digestString(spec.CronCommand),
+		UnitNameDigest:     digestString(spec.UnitName),
 	}
 	if strings.TrimSpace(spec.Target) != "" {
 		input.TargetDigest = digestString(spec.Target)

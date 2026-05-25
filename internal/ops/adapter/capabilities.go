@@ -261,7 +261,24 @@ func Definitions() []Capability {
 			SecretInputs:      []string{"cron command digest only in evidence"},
 			Description:       "Create, update, or delete one cron.d entry through local or SSH transport with exact digest diff evidence.",
 		},
-		planned("host.systemd.unit", "guarded", "conditional", "exact", []string{"systemd unit files", "systemd manager"}, []string{"host-systemd-observe.json", "host-systemd-plan.json", "host-systemd-diff.json", "host-systemd-apply.json", "host-systemd-verify.json", "journal-evidence.json"}),
+		{
+			Adapter:           "host.systemd.unit",
+			Status:            "implemented",
+			Classification:    "guarded",
+			TargetTypes:       []string{"host", "local"},
+			Transports:        []string{"local", "ssh"},
+			Mutating:          true,
+			RequiredPrivilege: "root or delegated sudo for systemd unit files and manager",
+			Idempotence:       "unit-file-content-digest-runtime-state",
+			CheckMode:         "deterministic-plan",
+			DiffQuality:       "exact",
+			SupportedPhases:   []string{"observe", "plan", "diff", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts: []string{"host-systemd-observe.json", "host-systemd-plan.json", "host-systemd-diff.json", "host-systemd-apply.json", "host-systemd-verify.json", "host-systemd-journal.json", "journal-evidence.json", "host-systemd.json", "decision.json"},
+			RequiredPolicy:    []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
+			Touches:           []string{"systemd unit file", "systemd daemon-reload", "unit runtime state", "unit enablement", "journal digest"},
+			SecretInputs:      []string{"unit content and journal output digests only in evidence"},
+			Description:       "Render, reload, verify, and delete one systemd unit through local or SSH transport with exact unit and journal evidence.",
+		},
 	}
 	for i := range out {
 		out[i] = cloneCapability(out[i])
@@ -422,6 +439,12 @@ func probeCommandsFor(adapterName string) []probeCommand {
 	case "host.cron.manage":
 		return []probeCommand{
 			{Name: "cron-path", Command: "test -d /etc/cron.d || test -d /var/spool/cron || test -d /var/spool/cron/crontabs", Required: true},
+		}
+	case "host.systemd.unit":
+		return []probeCommand{
+			{Name: "systemd-manager", Command: "command -v systemctl >/dev/null 2>&1 && systemctl --version >/dev/null 2>&1", Required: true},
+			{Name: "journal", Command: "command -v journalctl >/dev/null 2>&1", Required: true},
+			{Name: "unit-path", Command: "test -d /etc/systemd/system", Required: true},
 		}
 	default:
 		return nil

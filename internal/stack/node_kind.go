@@ -19,6 +19,7 @@ const (
 	NodeKindHostServiceManage  = "host.service.manage"
 	NodeKindHostUserManage     = "host.user.manage"
 	NodeKindHostCronManage     = "host.cron.manage"
+	NodeKindHostSystemdUnit    = "host.systemd.unit"
 	NodeKindK8sClusterInspect  = "k8s.cluster.inspect"
 	NodeKindK8sCertInspect     = "k8s.cert.inspect"
 	NodeKindK8sCertRenew       = "k8s.cert.renew"

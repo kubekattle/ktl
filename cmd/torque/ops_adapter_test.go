@@ -20,7 +20,7 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 	if result.APIVersion != opsadapter.CapabilityAPIVersion || result.Kind != opsadapter.CapabilityListKind {
 		t.Fatalf("identity = %#v", result)
 	}
-	if result.Summary.Implemented < 1 || result.Summary.Planned < 1 {
+	if result.Summary.Implemented < 1 || result.Summary.Total != result.Summary.Implemented+result.Summary.Planned {
 		t.Fatalf("summary = %#v", result.Summary)
 	}
 	host := findAdapterCapability(result.Adapters, "host.command.run")
@@ -93,6 +93,17 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 	if !adapterStringSliceContains(cron.EvidenceArtifacts, "host-cron-diff.json") {
 		t.Fatalf("host.cron.manage missing diff artifact: %#v", cron.EvidenceArtifacts)
 	}
+	systemd := findAdapterCapability(result.Adapters, "host.systemd.unit")
+	if systemd == nil {
+		t.Fatalf("missing host.systemd.unit in %#v", result.Adapters)
+	}
+	if systemd.Status != "implemented" || systemd.DiffQuality != "exact" {
+		t.Fatalf("host.systemd.unit capability = %#v", systemd)
+	}
+	if !adapterStringSliceContains(systemd.EvidenceArtifacts, "host-systemd-diff.json") ||
+		!adapterStringSliceContains(systemd.EvidenceArtifacts, "journal-evidence.json") {
+		t.Fatalf("host.systemd.unit missing diff/journal artifacts: %#v", systemd.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}
@@ -103,7 +114,7 @@ func TestOpsAdapterCapabilitiesTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v\nstderr=%s\nstdout=%s", err, errOut, out)
 	}
-	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage"} {
+	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q:\n%s", want, out)
 		}

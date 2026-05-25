@@ -57,6 +57,19 @@ releases:
       state: Present
       schedule: '* * * * *'
       cronCommand: /bin/true
+  - name: systemd
+    kind: host.systemd.unit
+    host:
+      unit: torque-fake.service
+      path: ` + filepath.ToSlash(filepath.Join(root, "systemd", "torque-fake.service")) + `
+      state: Started
+      content: |
+        [Unit]
+        Description=Torque fake unit
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/bin/true
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -102,6 +115,15 @@ releases:
 	}
 	if got := p.ByID["dev/default/cron"].Host.CronUser; got != "root" {
 		t.Fatalf("cron user=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/systemd"].Kind); got != NodeKindHostSystemdUnit {
+		t.Fatalf("systemd kind=%q", got)
+	}
+	if got := p.ByID["dev/default/systemd"].Host.State; got != "started" {
+		t.Fatalf("systemd state=%q", got)
+	}
+	if got := p.ByID["dev/default/systemd"].Host.Mode; got != "0644" {
+		t.Fatalf("systemd mode=%q", got)
 	}
 }
 
@@ -416,6 +438,36 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if cronHashA == cronHashB {
 		t.Fatalf("expected cron hash to change")
+	}
+
+	systemdEnabled := true
+	systemdA := &ResolvedRelease{
+		ID:        "host.systemd.unit/unit",
+		Kind:      NodeKindHostSystemdUnit,
+		Name:      "unit",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport: "local",
+			UnitName:  "torque-fake.service",
+			Path:      filepath.Join(stackRoot, "systemd", "torque-fake.service"),
+			Content:   "[Unit]\nDescription=Torque fake\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/bin/true\n",
+			State:     "started",
+			Enabled:   &systemdEnabled,
+		},
+	}
+	systemdB := *systemdA
+	systemdB.Host.Content = strings.Replace(systemdB.Host.Content, "Torque fake", "Torque fake changed", 1)
+	systemdHashA, _, err := ComputeEffectiveInputHashWithOptions(systemdA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash systemdA: %v", err)
+	}
+	systemdHashB, _, err := ComputeEffectiveInputHashWithOptions(&systemdB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash systemdB: %v", err)
+	}
+	if systemdHashA == systemdHashB {
+		t.Fatalf("expected systemd hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -1277,6 +1329,233 @@ esac
 		!strings.Contains(deleteApply, `"active": false`) ||
 		!strings.Contains(deleteApply, `"enabled": false`) {
 		t.Fatalf("delete did not record service stop/disable:\n%s", deleteApply)
+	}
+}
+
+func TestRun_HostSystemdUnitLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	unitPath := filepath.Join(root, "systemd", "torque-fake.service")
+	activeFile := filepath.Join(root, "systemd-active")
+	enabledFile := filepath.Join(root, "systemd-enabled")
+	logFile := filepath.Join(root, "systemd-manager.log")
+	writeExecutableForTest(t, filepath.Join(binDir, "systemctl"), `#!/bin/sh
+unit_path=`+shellQuoteForTest(unitPath)+`
+active_file=`+shellQuoteForTest(activeFile)+`
+enabled_file=`+shellQuoteForTest(enabledFile)+`
+log_file=`+shellQuoteForTest(logFile)+`
+emit_sensitive() {
+  printf 'password=systemd-secret\n'
+  printf 'token=systemd-stderr\n' >&2
+}
+cmd="$1"
+shift || true
+case "$cmd" in
+  --version)
+    printf 'systemd 255\n'
+    ;;
+  show)
+    active=inactive
+    sub=dead
+    if [ -f "$active_file" ]; then
+      active=active
+      sub=running
+    fi
+    unit=disabled
+    if [ -f "$enabled_file" ]; then
+      unit=enabled
+    fi
+    load=not-found
+    if [ -f "$unit_path" ]; then
+      load=loaded
+    fi
+    printf 'LoadState=%s\n' "$load"
+    printf 'ActiveState=%s\n' "$active"
+    printf 'SubState=%s\n' "$sub"
+    printf 'UnitFileState=%s\n' "$unit"
+    ;;
+  daemon-reload)
+    emit_sensitive
+    printf 'daemon-reload\n' >> "$log_file"
+    ;;
+  start)
+    emit_sensitive
+    printf 'start\n' >> "$log_file"
+    printf active > "$active_file"
+    ;;
+  stop)
+    emit_sensitive
+    printf 'stop\n' >> "$log_file"
+    rm -f "$active_file"
+    ;;
+  restart)
+    emit_sensitive
+    printf 'restart\n' >> "$log_file"
+    printf active > "$active_file"
+    ;;
+  enable)
+    emit_sensitive
+    printf 'enable\n' >> "$log_file"
+    printf enabled > "$enabled_file"
+    ;;
+  disable)
+    emit_sensitive
+    printf 'disable\n' >> "$log_file"
+    rm -f "$enabled_file"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`)
+	writeExecutableForTest(t, filepath.Join(binDir, "journalctl"), `#!/bin/sh
+printf '2026-05-25T00:00:00Z torque-fake systemd-secret journal line\n'
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	enabled := true
+	node := &ResolvedRelease{
+		ID:        "host.systemd.unit/manage-unit",
+		Kind:      NodeKindHostSystemdUnit,
+		Name:      "manage-unit",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:       "local",
+			UnitName:        "torque-fake.service",
+			Path:            unitPath,
+			Content:         "[Unit]\nDescription=Torque fake unit\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/bin/true\n",
+			Mode:            "0644",
+			State:           "started",
+			Enabled:         &enabled,
+			StopOnDelete:    true,
+			DisableOnDelete: true,
+			RemoveOnDelete:  true,
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(unitPath); err != nil {
+		t.Fatalf("systemd unit file was not written: %v", err)
+	}
+	if _, err := os.Stat(activeFile); err != nil {
+		t.Fatalf("systemd unit was not started: %v", err)
+	}
+	if _, err := os.Stat(enabledFile); err != nil {
+		t.Fatalf("systemd unit was not enabled: %v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-systemd-observe.json", "host-systemd-plan.json", "host-systemd-diff.json", "host-systemd-apply.json", "host-systemd-verify.json", "host-systemd-journal.json", "journal-evidence.json", "host-systemd.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-systemd-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		!strings.Contains(applyArtifact, `"daemonReload": true`) ||
+		!strings.Contains(applyArtifact, `"active": true`) ||
+		!strings.Contains(applyArtifact, `"enabled": true`) ||
+		!strings.Contains(applyArtifact, `"journal"`) ||
+		strings.Contains(applyArtifact, "systemd-secret") ||
+		strings.Contains(applyArtifact, "systemd-stderr") {
+		t.Fatalf("host systemd apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+	diffArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-systemd-diff.json")
+	if !strings.Contains(diffArtifact, `"diffQuality": "exact"`) ||
+		!strings.Contains(diffArtifact, `"desiredDigest": "sha256:`) {
+		t.Fatalf("host systemd diff artifact missing exact digest diff:\n%s", diffArtifact)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "host-systemd-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat systemd unit apply was not a no-op:\n%s", repeatApply)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(unitPath); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to remove fake unit, stat err=%v", err)
+	}
+	if _, err := os.Stat(activeFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to stop fake unit, stat err=%v", err)
+	}
+	if _, err := os.Stat(enabledFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to disable fake unit, stat err=%v", err)
+	}
+	deleteRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun delete: %v", err)
+	}
+	deleteAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            deleteRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit delete: %v", err)
+	}
+	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "host-systemd-apply.json")
+	if !strings.Contains(deleteApply, `"desiredState": "absent"`) ||
+		!strings.Contains(deleteApply, `"changed": true`) ||
+		!strings.Contains(deleteApply, `"active": false`) ||
+		!strings.Contains(deleteApply, `"enabled": false`) ||
+		!strings.Contains(deleteApply, `"exists": false`) {
+		t.Fatalf("delete did not record systemd unit cleanup:\n%s", deleteApply)
 	}
 }
 

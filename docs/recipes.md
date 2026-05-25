@@ -671,6 +671,53 @@ torque stack audit --config ./stacks/host-cron \
 torque stack delete --config ./stacks/host-cron --yes
 ```
 
+## Stack: manage a systemd unit
+
+Use `host.systemd.unit` for one systemd unit file that needs exact content
+evidence, daemon-reload proof, runtime verification, journal evidence, repeat
+no-op proof, and cleanup through stack delete.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-systemd
+nodes:
+  - name: write-heartbeat-unit
+    kind: host.systemd.unit
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      unit: torque-heartbeat.service
+      path: /etc/systemd/system/torque-heartbeat.service
+      state: started
+      enabled: true
+      content: |
+        [Unit]
+        Description=Torque heartbeat proof
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/bin/sh -c "echo torque-heartbeat"
+
+        [Install]
+        WantedBy=multi-user.target
+      mode: '0644'
+      stopOnDelete: true
+      disableOnDelete: true
+      removeOnDelete: true
+```
+
+```bash
+TORQUE_LAB_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/host-systemd --yes
+
+torque stack audit --config ./stacks/host-systemd \
+  --output json --include-artifacts > host-systemd-audit.json
+
+torque stack delete --config ./stacks/host-systemd --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

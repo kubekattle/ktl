@@ -414,6 +414,9 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.CronCommand != "" {
 		dst.CronCommand = src.CronCommand
 	}
+	if src.UnitName != "" {
+		dst.UnitName = strings.TrimSpace(src.UnitName)
+	}
 	if len(input) == 0 {
 		return dst
 	}
@@ -557,6 +560,9 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	}
 	if v := inputString(input, "cronCommand"); v != "" {
 		dst.CronCommand = v
+	}
+	if v := inputString(input, "unit"); v != "" {
+		dst.UnitName = v
 	}
 	return dst
 }

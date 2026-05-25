@@ -38,8 +38,8 @@ var commandTags = map[string][]string{
 	"torque security":                 {"security", "benchmark", "evidence"},
 	"torque security benchmark":       {"security", "benchmark", "secrets", "redaction", "evidence"},
 	"torque stack":                    {"stack", "plan", "apply", "graph"},
-	"torque stack apply":              {"stack", "apply", "ops", "preflight", "replay", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron", "evidence"},
-	"torque stack plan":               {"stack", "plan", "ops", "facts", "locks", "policy", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron"},
+	"torque stack apply":              {"stack", "apply", "ops", "preflight", "replay", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron", "host-systemd", "evidence"},
+	"torque stack plan":               {"stack", "plan", "ops", "facts", "locks", "policy", "host-command", "host-file", "host-package", "host-service", "host-user", "host-cron", "host-systemd"},
 }
 
 func tagsForCommand(path string) []string {

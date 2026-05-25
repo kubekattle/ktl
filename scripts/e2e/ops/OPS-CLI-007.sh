@@ -281,12 +281,14 @@ package = catalog_adapters.get("host.package.install")
 service = catalog_adapters.get("host.service.manage")
 user = catalog_adapters.get("host.user.manage")
 cron = catalog_adapters.get("host.cron.manage")
+systemd = catalog_adapters.get("host.systemd.unit")
 if catalog.get("apiVersion") != "torque.dev/ops/adapter-capabilities/v1":
     errors.append("catalog apiVersion mismatch")
 if (catalog.get("summary") or {}).get("implemented", 0) < 1:
     errors.append("catalog missing implemented adapter")
-if (catalog.get("summary") or {}).get("planned", 0) < 1:
-    errors.append("catalog missing planned adapters")
+summary = catalog.get("summary") or {}
+if summary.get("total", 0) != summary.get("implemented", 0) + summary.get("planned", 0):
+    errors.append("catalog summary total does not match implemented plus planned")
 if not host or host.get("status") != "implemented":
     errors.append("host.command.run not implemented in catalog")
 else:
@@ -322,9 +324,13 @@ if not cron or cron.get("status") != "implemented" or cron.get("diffQuality") !=
     errors.append("host.cron.manage implemented contract missing")
 elif "host-cron-diff.json" not in (cron.get("evidenceArtifacts") or []):
     errors.append("host.cron.manage missing diff artifact")
+if not systemd or systemd.get("status") != "implemented" or systemd.get("diffQuality") != "exact":
+    errors.append("host.systemd.unit implemented contract missing")
+elif "host-systemd-diff.json" not in (systemd.get("evidenceArtifacts") or []) or "journal-evidence.json" not in (systemd.get("evidenceArtifacts") or []):
+    errors.append("host.systemd.unit missing diff/journal artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

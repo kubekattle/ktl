@@ -340,6 +340,27 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if strings.TrimSpace(n.Host.Transport) == "" {
 			n.Host.Transport = "local"
 		}
+	case NodeKindHostSystemdUnit:
+		if strings.TrimSpace(n.Host.UnitName) == "" {
+			return nil, fmt.Errorf("%s: host.systemd.unit node %s requires host.unit", dr.Dir, leaf.Name)
+		}
+		state := strings.ToLower(strings.TrimSpace(n.Host.State))
+		if state == "" {
+			n.Host.State = "present"
+		} else if state != "present" && state != "started" && state != "stopped" && state != "restarted" && state != "absent" {
+			return nil, fmt.Errorf("%s: host.systemd.unit node %s has unsupported host.state %q", dr.Dir, leaf.Name, n.Host.State)
+		} else {
+			n.Host.State = state
+		}
+		if n.Host.State != "absent" && strings.TrimSpace(n.Host.Content) == "" && strings.TrimSpace(n.Host.Template) == "" && strings.TrimSpace(n.Host.TemplatePath) == "" {
+			return nil, fmt.Errorf("%s: host.systemd.unit node %s requires host.content, host.template, or host.templatePath", dr.Dir, leaf.Name)
+		}
+		if strings.TrimSpace(n.Host.Mode) == "" {
+			n.Host.Mode = "0644"
+		}
+		if strings.TrimSpace(n.Host.Transport) == "" {
+			n.Host.Transport = "local"
+		}
 	case NodeKindK8sCertInspect, NodeKindK8sCertRenew:
 		if err := validateKubernetesCertSpec(n.Kind, leaf.Name, n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)

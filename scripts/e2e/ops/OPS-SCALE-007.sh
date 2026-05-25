@@ -255,6 +255,7 @@ adapters = [
     "host.service.manage",
     "host.user.manage",
     "host.cron.manage",
+    "host.systemd.unit",
     "http.check",
 ]
 providers = [
@@ -263,6 +264,7 @@ providers = [
     "systemd",
     "shadow-utils",
     "cron",
+    "journal",
     "http-probe",
 ]
 
