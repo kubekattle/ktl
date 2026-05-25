@@ -1,17 +1,22 @@
 package stack
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
@@ -63,6 +68,8 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runDBSchemaContractNode(ctx, node, command)
 	case NodeKindHostCommandRun:
 		return e.runHostCommandNode(ctx, node, command)
+	case NodeKindHostFileRender:
+		return e.runHostFileRenderNode(ctx, node, command)
 	case NodeKindK8sClusterInspect:
 		return e.runKubernetesClusterInspectNode(ctx, node, command)
 	case NodeKindK8sCertInspect:
@@ -501,27 +508,8 @@ func (e *customNodeExecutor) validateHostCommandOpsGuard(node *runNode, plan *ho
 		}
 		return nil
 	}
-	ops := e.run.Plan.Ops
 	targetID := strings.TrimSpace(plan.TargetID)
-	if targetID == "" {
-		return fmt.Errorf("ops-backed host.command.run requires host.targetId or exactly one selected TargetGraph target")
-	}
-	if ops.TargetGraph == nil {
-		return fmt.Errorf("ops-backed host.command.run requires TargetGraph plan inputs")
-	}
-	if !stringInSlice(targetID, ops.TargetGraph.Selection.MatchedTargetIDs) {
-		return fmt.Errorf("host target %s was not selected by TargetGraph", targetID)
-	}
-	if !opsFactsContainTarget(ops, targetID) {
-		return fmt.Errorf("host target %s has no fresh fact evidence", targetID)
-	}
-	if !opsLockAllowsTarget(ops, targetID) {
-		return fmt.Errorf("host target %s has no held target lock", targetID)
-	}
-	if !opsPolicyAllowsTarget(ops, targetID) {
-		return fmt.Errorf("host target %s has no allow policy decision", targetID)
-	}
-	return nil
+	return e.validateHostAdapterOpsGuard(node, targetID, NodeKindHostCommandRun)
 }
 
 func (e *customNodeExecutor) hostCommandTargetContext(node *runNode) (string, string, []string) {
@@ -580,15 +568,23 @@ func opsLockAllowsTarget(ops *OpsPlanInputs, targetID string) bool {
 }
 
 func opsPolicyAllowsTarget(ops *OpsPlanInputs, targetID string) bool {
+	return opsPolicyAllowsOperationTarget(ops, targetID, NodeKindHostCommandRun)
+}
+
+func opsPolicyAllowsOperationTarget(ops *OpsPlanInputs, targetID string, operation string) bool {
 	if ops == nil {
 		return false
 	}
+	operation = strings.TrimSpace(operation)
 	for _, decision := range ops.PolicyDecisions {
 		decisionTarget := strings.TrimSpace(decision.TargetID)
 		if decisionTarget != "" && decisionTarget != targetID {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(decision.Operation), NodeKindHostCommandRun) && strings.TrimSpace(decision.Decision) == "allow" {
+		if strings.EqualFold(strings.TrimSpace(decision.Operation), operation) && strings.TrimSpace(decision.Decision) == "allow" {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSpace(decision.Adapter), operation) && strings.TrimSpace(decision.Decision) == "allow" {
 			return true
 		}
 		if strings.TrimSpace(decision.Operation) == "" && strings.TrimSpace(decision.Decision) == "allow" {
@@ -653,6 +649,756 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 	default:
 		return nil, fmt.Errorf("unsupported host.command.run transport %q", transportKind)
 	}
+}
+
+type hostFileState struct {
+	Exists bool   `json:"exists"`
+	Type   string `json:"type,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Sha256 string `json:"sha256,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+	Owner  string `json:"owner,omitempty"`
+	Group  string `json:"group,omitempty"`
+	UID    int    `json:"uid,omitempty"`
+	GID    int    `json:"gid,omitempty"`
+}
+
+type hostFileValidationResult struct {
+	Status   string `json:"status"`
+	Command  string `json:"command,omitempty"`
+	ExitCode int    `json:"exitCode,omitempty"`
+	Stdout   string `json:"stdout,omitempty"`
+	Stderr   string `json:"stderr,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+type hostFileChangeSet struct {
+	Content bool `json:"content"`
+	Mode    bool `json:"mode"`
+	Owner   bool `json:"owner"`
+	Group   bool `json:"group"`
+}
+
+type hostFileOperationResult struct {
+	APIVersion    string                   `json:"apiVersion"`
+	Kind          string                   `json:"kind"`
+	Operation     string                   `json:"operation"`
+	Status        string                   `json:"status"`
+	Reason        string                   `json:"reason,omitempty"`
+	TargetDigest  string                   `json:"targetDigest,omitempty"`
+	PathDigest    string                   `json:"pathDigest,omitempty"`
+	DesiredDigest string                   `json:"desiredDigest,omitempty"`
+	Changed       bool                     `json:"changed"`
+	Changes       hostFileChangeSet        `json:"changes"`
+	Before        hostFileState            `json:"before"`
+	After         hostFileState            `json:"after"`
+	Validation    hostFileValidationResult `json:"validation,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+	CompletedAt   string                   `json:"completedAt"`
+}
+
+type hostFileObserveReceipt struct {
+	APIVersion       string        `json:"apiVersion"`
+	Kind             string        `json:"kind"`
+	NodeID           string        `json:"nodeId"`
+	NodeKind         string        `json:"nodeKind"`
+	TargetID         string        `json:"targetId,omitempty"`
+	Phase            string        `json:"phase"`
+	Status           string        `json:"status"`
+	GuardMode        string        `json:"guardMode"`
+	SelectedTargetID string        `json:"selectedTargetId,omitempty"`
+	SelectedTargets  []string      `json:"selectedTargets,omitempty"`
+	TargetDigest     string        `json:"targetDigest,omitempty"`
+	PathDigest       string        `json:"pathDigest,omitempty"`
+	State            hostFileState `json:"state"`
+	ObservedAt       string        `json:"observedAt"`
+}
+
+type hostFilePlanReceipt struct {
+	APIVersion      string            `json:"apiVersion"`
+	Kind            string            `json:"kind"`
+	NodeID          string            `json:"nodeId"`
+	NodeKind        string            `json:"nodeKind"`
+	TargetID        string            `json:"targetId,omitempty"`
+	Phase           string            `json:"phase"`
+	Status          string            `json:"status"`
+	Reason          string            `json:"reason,omitempty"`
+	GuardMode       string            `json:"guardMode"`
+	Operation       string            `json:"operation"`
+	PathDigest      string            `json:"pathDigest,omitempty"`
+	DesiredDigest   string            `json:"desiredDigest,omitempty"`
+	Mode            string            `json:"mode,omitempty"`
+	Owner           string            `json:"owner,omitempty"`
+	Group           string            `json:"group,omitempty"`
+	SelectedTargets []string          `json:"selectedTargets,omitempty"`
+	LockScopes      []string          `json:"lockScopes,omitempty"`
+	PolicySources   []string          `json:"policySources,omitempty"`
+	Changes         hostFileChangeSet `json:"changes"`
+	PlannedAt       string            `json:"plannedAt"`
+}
+
+type hostFileDiffReceipt struct {
+	APIVersion  string            `json:"apiVersion"`
+	Kind        string            `json:"kind"`
+	NodeID      string            `json:"nodeId"`
+	TargetID    string            `json:"targetId,omitempty"`
+	Phase       string            `json:"phase"`
+	Status      string            `json:"status"`
+	PathDigest  string            `json:"pathDigest,omitempty"`
+	Before      hostFileState     `json:"before"`
+	AfterDigest string            `json:"afterDigest,omitempty"`
+	AfterMode   string            `json:"afterMode,omitempty"`
+	AfterOwner  string            `json:"afterOwner,omitempty"`
+	AfterGroup  string            `json:"afterGroup,omitempty"`
+	Changes     hostFileChangeSet `json:"changes"`
+	DiffQuality string            `json:"diffQuality"`
+	GeneratedAt string            `json:"generatedAt"`
+}
+
+type hostFileVerifyReceipt struct {
+	APIVersion    string                   `json:"apiVersion"`
+	Kind          string                   `json:"kind"`
+	NodeID        string                   `json:"nodeId"`
+	TargetID      string                   `json:"targetId,omitempty"`
+	Phase         string                   `json:"phase"`
+	Status        string                   `json:"status"`
+	Reason        string                   `json:"reason,omitempty"`
+	PathDigest    string                   `json:"pathDigest,omitempty"`
+	DesiredDigest string                   `json:"desiredDigest,omitempty"`
+	ActualDigest  string                   `json:"actualDigest,omitempty"`
+	Mode          string                   `json:"mode,omitempty"`
+	Owner         string                   `json:"owner,omitempty"`
+	Group         string                   `json:"group,omitempty"`
+	Changed       bool                     `json:"changed"`
+	Validation    hostFileValidationResult `json:"validation,omitempty"`
+	VerifiedAt    string                   `json:"verifiedAt"`
+}
+
+func (e *customNodeExecutor) runHostFileRenderNode(ctx context.Context, node *runNode, command string) error {
+	spec := node.Host
+	phase := "host-file-render"
+	operation := "apply"
+	if strings.EqualFold(command, "delete") {
+		phase = "delete-host-file-render"
+		operation = "delete"
+	}
+	cursor := map[string]any{
+		"kind":      normalizeNodeKind(node.Kind),
+		"phase":     phase,
+		"transport": strings.TrimSpace(spec.Transport),
+	}
+	e.run.AppendEvent(node.ID, PhaseStarted, node.Attempt, phase, map[string]any{"phase": phase, "cursor": cursor}, nil)
+
+	desired, err := renderHostFileDesiredContent(node)
+	if err != nil && operation != "delete" {
+		return wrapNodeErr(node.ResolvedRelease, err)
+	}
+	pathDigest := digestString(spec.Path)
+	desiredDigest := digestBytes(desired)
+	targetID, guardMode, selected := e.hostCommandTargetContext(node)
+	if e.dryRun || e.diff {
+		reason := "preview"
+		if e.dryRun {
+			reason = "dry-run"
+		} else if e.diff {
+			reason = "diff"
+		}
+		observe := e.hostFileObserveReceipt(node, phase, targetID, guardMode, selected, "", pathDigest, hostFileState{}, "skipped")
+		plan := e.hostFilePlanReceipt(node, phase, targetID, guardMode, selected, desiredDigest, pathDigest, hostFileChangeSet{}, "skipped", reason)
+		diff := e.hostFileDiffReceipt(node, phase, targetID, pathDigest, desiredDigest, hostFileState{}, hostFileChangeSet{}, "skipped")
+		verify := e.hostFileVerifyReceipt(node, phase, targetID, desiredDigest, pathDigest, hostFileOperationResult{Status: "skipped", Reason: reason})
+		e.recordHostFileRenderReceipts(node, phase, "skipped", reason, observe, plan, diff, nil, verify)
+		e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "skipped: "+reason, map[string]any{
+			"phase":  phase,
+			"status": "skipped",
+			"reason": reason,
+			"cursor": cursor,
+		}, nil)
+		return nil
+	}
+
+	transportClient, err := hostCommandTransport(spec)
+	if err != nil {
+		return wrapNodeErr(node.ResolvedRelease, err)
+	}
+	targetDigest := transportClient.TargetDigest()
+	observeResult, err := e.runHostFileOperation(ctx, transportClient, hostFilePayload(spec, "observe", nil))
+	if err != nil {
+		return wrapNodeErr(node.ResolvedRelease, err)
+	}
+	observe := e.hostFileObserveReceipt(node, phase, targetID, guardMode, selected, targetDigest, pathDigest, observeResult.After, observeResult.Status)
+	changes := hostFileChanges(observeResult.After, spec, desiredDigest)
+	plan := e.hostFilePlanReceipt(node, phase, targetID, guardMode, selected, desiredDigest, pathDigest, changes, "planned", "eligible")
+	diff := e.hostFileDiffReceipt(node, phase, targetID, pathDigest, desiredDigest, observeResult.After, changes, "planned")
+	if guardErr := e.validateHostAdapterOpsGuard(node, targetID, NodeKindHostFileRender); guardErr != nil {
+		plan.Status = "blocked"
+		plan.Reason = guardErr.Error()
+		verify := e.hostFileVerifyReceipt(node, phase, targetID, desiredDigest, pathDigest, hostFileOperationResult{Status: "blocked", Reason: guardErr.Error(), Before: observeResult.After, After: observeResult.After})
+		e.recordHostFileRenderReceipts(node, phase, "blocked", guardErr.Error(), observe, plan, diff, nil, verify)
+		runErr := &RunError{Class: "HOST_FILE_RENDER_BLOCKED", Message: guardErr.Error(), Digest: computeRunErrorDigest("HOST_FILE_RENDER_BLOCKED", guardErr.Error())}
+		e.run.emitEvent(node.ID, PhaseCompleted, node.Attempt, guardErr.Error(), map[string]any{
+			"phase":    phase,
+			"status":   "blocked",
+			"targetId": targetID,
+			"cursor":   cursor,
+		}, runErr, true)
+		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("host file render phase %s: %w", phase, guardErr))
+	}
+
+	var result hostFileOperationResult
+	if operation == "delete" {
+		result, err = e.runHostFileOperation(ctx, transportClient, hostFilePayload(spec, "delete", nil))
+	} else {
+		result, err = e.runHostFileOperation(ctx, transportClient, hostFilePayload(spec, "apply", desired))
+	}
+	if err != nil {
+		return wrapNodeErr(node.ResolvedRelease, err)
+	}
+	result.TargetDigest = targetDigest
+	result.PathDigest = pathDigest
+	if result.DesiredDigest == "" {
+		result.DesiredDigest = desiredDigest
+	}
+	if result.Changes == (hostFileChangeSet{}) {
+		result.Changes = changes
+	}
+	verify := e.hostFileVerifyReceipt(node, phase, targetID, desiredDigest, pathDigest, result)
+	e.recordHostFileRenderReceipts(node, phase, result.Status, strings.TrimSpace(result.Error), observe, plan, diff, &result, verify)
+	if !nodeStepSucceeded(result.Status) || verify.Status == "failed" {
+		msg := firstNonEmptyString(result.Error, result.Validation.Error, result.Validation.Stderr, result.Reason, verify.Reason, "host file render failed")
+		runErr := &RunError{Class: "HOST_FILE_RENDER_FAILED", Message: msg, Digest: computeRunErrorDigest("HOST_FILE_RENDER_FAILED", msg)}
+		e.run.emitEvent(node.ID, PhaseCompleted, node.Attempt, msg, map[string]any{
+			"phase":  phase,
+			"status": "failure",
+			"cursor": cursor,
+			"result": result,
+		}, runErr, true)
+		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("host file render phase %s: %s", phase, msg))
+	}
+	e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, "success", map[string]any{
+		"phase":  phase,
+		"status": "success",
+		"cursor": cursor,
+		"result": result,
+	}, nil)
+	return nil
+}
+
+func renderHostFileDesiredContent(node *runNode) ([]byte, error) {
+	if node == nil {
+		return nil, fmt.Errorf("nil host.file.render node")
+	}
+	spec := node.Host
+	if strings.TrimSpace(spec.Content) != "" {
+		return []byte(spec.Content), nil
+	}
+	source := spec.Template
+	if strings.TrimSpace(source) == "" && strings.TrimSpace(spec.TemplatePath) != "" {
+		path := spec.TemplatePath
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(node.Dir, path)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read host.file.render template: %w", err)
+		}
+		source = string(raw)
+	}
+	if strings.TrimSpace(source) == "" {
+		return nil, fmt.Errorf("host.file.render requires content, template, or templatePath")
+	}
+	tpl, err := template.New("host-file-render").Option("missingkey=error").Parse(source)
+	if err != nil {
+		return nil, fmt.Errorf("parse host.file.render template: %w", err)
+	}
+	data := map[string]any{}
+	for k, v := range spec.Data {
+		data[k] = v
+	}
+	data["NodeID"] = node.ID
+	data["NodeName"] = node.Name
+	var out bytes.Buffer
+	if err := tpl.Execute(&out, data); err != nil {
+		return nil, fmt.Errorf("render host.file.render template: %w", err)
+	}
+	return out.Bytes(), nil
+}
+
+func (e *customNodeExecutor) runHostFileOperation(ctx context.Context, runner hostCommandRunner, payload map[string]any) (hostFileOperationResult, error) {
+	command, err := hostFilePythonCommand(payload)
+	if err != nil {
+		return hostFileOperationResult{}, err
+	}
+	receipt := runner.Run(ctx, command)
+	var result hostFileOperationResult
+	if strings.TrimSpace(receipt.Stdout) != "" {
+		if err := json.Unmarshal([]byte(receipt.Stdout), &result); err != nil {
+			return hostFileOperationResult{}, fmt.Errorf("decode host.file.render receipt: %w: %s", err, strings.TrimSpace(receipt.Stdout))
+		}
+	}
+	if result.APIVersion == "" {
+		result.APIVersion = "torque.dev/host-file-render-node/v1"
+	}
+	if result.Kind == "" {
+		result.Kind = "HostFileRenderOperationReceipt"
+	}
+	if result.Operation == "" {
+		if op, ok := payload["operation"].(string); ok {
+			result.Operation = op
+		}
+	}
+	if result.Status == "" {
+		result.Status = receipt.Status
+	}
+	if result.Status == "" {
+		result.Status = "failed"
+	}
+	if !nodeStepSucceeded(receipt.Status) && nodeStepSucceeded(result.Status) {
+		result.Status = "failed"
+	}
+	if result.Error == "" && strings.TrimSpace(receipt.Stderr) != "" {
+		result.Error = strings.TrimSpace(receipt.Stderr)
+	}
+	if result.CompletedAt == "" {
+		result.CompletedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	return result, nil
+}
+
+func hostFilePayload(spec HostCommandSpec, operation string, desired []byte) map[string]any {
+	return map[string]any{
+		"operation":      strings.TrimSpace(operation),
+		"path":           strings.TrimSpace(spec.Path),
+		"contentB64":     base64.StdEncoding.EncodeToString(desired),
+		"mode":           strings.TrimSpace(spec.Mode),
+		"owner":          strings.TrimSpace(spec.Owner),
+		"group":          strings.TrimSpace(spec.Group),
+		"validate":       strings.TrimSpace(spec.Validate),
+		"removeOnDelete": spec.RemoveOnDelete,
+	}
+}
+
+func hostFilePythonCommand(payload map[string]any) (string, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	encoded := base64.StdEncoding.EncodeToString(raw)
+	return "TORQUE_FILE_RENDER_PAYLOAD_B64=" + transport.ShellQuote(encoded) + " python3 - <<'PY'\n" + hostFilePythonScript + "\nPY", nil
+}
+
+const hostFilePythonScript = `
+import base64
+import grp
+import hashlib
+import json
+import os
+import pwd
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+def now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+def digest_bytes(data):
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+def normalize_mode(value):
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    if value.startswith("0o"):
+        value = value[2:]
+    value = value[-4:]
+    return format(int(value, 8), "04o")
+
+def observe(path):
+    path = str(path or "").strip()
+    doc = {"exists": False, "path": path}
+    if not os.path.lexists(path):
+        return doc
+    st = os.lstat(path)
+    doc.update({
+        "exists": True,
+        "mode": format(stat.S_IMODE(st.st_mode), "04o"),
+        "uid": int(st.st_uid),
+        "gid": int(st.st_gid),
+    })
+    try:
+        doc["owner"] = pwd.getpwuid(st.st_uid).pw_name
+    except KeyError:
+        doc["owner"] = str(st.st_uid)
+    try:
+        doc["group"] = grp.getgrgid(st.st_gid).gr_name
+    except KeyError:
+        doc["group"] = str(st.st_gid)
+    if stat.S_ISREG(st.st_mode):
+        doc["type"] = "file"
+        with open(path, "rb") as fh:
+            data = fh.read()
+        doc["sha256"] = digest_bytes(data)
+        doc["size"] = len(data)
+    elif stat.S_ISLNK(st.st_mode):
+        doc["type"] = "symlink"
+    elif stat.S_ISDIR(st.st_mode):
+        doc["type"] = "directory"
+    else:
+        doc["type"] = "other"
+    return doc
+
+def run_validation(command, temp_path, path, mode):
+    command = str(command or "").strip()
+    if not command:
+        return {"status": "skipped"}
+    env = os.environ.copy()
+    env["TORQUE_FILE_RENDER_PATH"] = path
+    env["TORQUE_FILE_RENDER_TEMP_PATH"] = temp_path
+    env["TORQUE_FILE_RENDER_MODE"] = mode
+    proc = subprocess.run(command, shell=True, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return {
+        "status": "succeeded" if proc.returncode == 0 else "failed",
+        "command": command,
+        "exitCode": int(proc.returncode),
+        "stdout": proc.stdout.strip(),
+        "stderr": proc.stderr.strip(),
+    }
+
+def finish(doc, code=0):
+    doc.setdefault("apiVersion", "torque.dev/host-file-render-node/v1")
+    doc.setdefault("kind", "HostFileRenderOperationReceipt")
+    doc.setdefault("completedAt", now())
+    print(json.dumps(doc, sort_keys=True))
+    raise SystemExit(code)
+
+try:
+    payload = json.loads(base64.b64decode(os.environ["TORQUE_FILE_RENDER_PAYLOAD_B64"]).decode("utf-8"))
+    operation = str(payload.get("operation") or "").strip()
+    path = str(payload.get("path") or "").strip()
+    desired = base64.b64decode(str(payload.get("contentB64") or ""))
+    desired_digest = digest_bytes(desired)
+    mode = normalize_mode(payload.get("mode"))
+    owner = str(payload.get("owner") or "").strip()
+    group = str(payload.get("group") or "").strip()
+    validate = str(payload.get("validate") or "").strip()
+    remove_on_delete = bool(payload.get("removeOnDelete"))
+    if not path:
+        finish({"operation": operation, "status": "failed", "error": "path is required"}, 1)
+    before = observe(path)
+    if operation == "observe":
+        finish({
+            "operation": operation,
+            "status": "succeeded",
+            "pathDigest": digest_bytes(path.encode("utf-8")),
+            "desiredDigest": desired_digest if desired else "",
+            "changed": False,
+            "changes": {"content": False, "mode": False, "owner": False, "group": False},
+            "before": before,
+            "after": before,
+            "validation": {"status": "skipped"},
+        })
+    if operation == "delete":
+        if not remove_on_delete:
+            finish({
+                "operation": operation,
+                "status": "skipped",
+                "reason": "removeOnDelete is false",
+                "before": before,
+                "after": before,
+                "changed": False,
+                "changes": {"content": False, "mode": False, "owner": False, "group": False},
+                "validation": {"status": "skipped"},
+            })
+        if before.get("exists"):
+            if before.get("type") != "file":
+                finish({"operation": operation, "status": "failed", "before": before, "after": before, "error": "target path is not a regular file"}, 1)
+            os.unlink(path)
+        after = observe(path)
+        finish({
+            "operation": operation,
+            "status": "succeeded",
+            "before": before,
+            "after": after,
+            "changed": bool(before.get("exists")),
+            "changes": {"content": bool(before.get("exists")), "mode": False, "owner": False, "group": False},
+            "validation": {"status": "skipped"},
+        })
+    if operation != "apply":
+        finish({"operation": operation, "status": "failed", "error": "unsupported operation"}, 1)
+    if before.get("exists") and before.get("type") != "file":
+        finish({"operation": operation, "status": "failed", "before": before, "after": before, "error": "target path is not a regular file"}, 1)
+    changes = {
+        "content": (not before.get("exists")) or before.get("sha256") != desired_digest,
+        "mode": bool(mode) and before.get("mode") != mode,
+        "owner": bool(owner) and before.get("owner") != owner and str(before.get("uid", "")) != owner,
+        "group": bool(group) and before.get("group") != group and str(before.get("gid", "")) != group,
+    }
+    changed = bool(changes["content"] or changes["mode"] or changes["owner"] or changes["group"])
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=".torque-file-render-", dir=parent)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(desired)
+        if mode:
+            os.chmod(temp_path, int(mode, 8))
+        validation = run_validation(validate, temp_path, path, mode)
+        if validation.get("status") == "failed":
+            finish({
+                "operation": operation,
+                "status": "failed",
+                "before": before,
+                "after": before,
+                "desiredDigest": desired_digest,
+                "changed": False,
+                "changes": changes,
+                "validation": validation,
+                "error": "validation command failed",
+            }, 1)
+        if changed:
+            os.replace(temp_path, path)
+        else:
+            os.unlink(temp_path)
+            temp_path = ""
+        if mode:
+            os.chmod(path, int(mode, 8))
+        if owner or group:
+            shutil.chown(path, user=owner or None, group=group or None)
+        after = observe(path)
+        finish({
+            "operation": operation,
+            "status": "succeeded",
+            "before": before,
+            "after": after,
+            "desiredDigest": desired_digest,
+            "changed": changed,
+            "changes": changes,
+            "validation": validation,
+        })
+    finally:
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except FileNotFoundError:
+                pass
+except Exception as exc:
+    finish({"operation": locals().get("operation", ""), "status": "failed", "error": str(exc)}, 1)
+`
+
+func hostFileChanges(current hostFileState, spec HostCommandSpec, desiredDigest string) hostFileChangeSet {
+	mode := normalizeHostFileMode(spec.Mode)
+	return hostFileChangeSet{
+		Content: !current.Exists || strings.TrimSpace(current.Sha256) != strings.TrimSpace(desiredDigest),
+		Mode:    mode != "" && strings.TrimSpace(current.Mode) != mode,
+		Owner:   strings.TrimSpace(spec.Owner) != "" && strings.TrimSpace(current.Owner) != strings.TrimSpace(spec.Owner) && strconv.Itoa(current.UID) != strings.TrimSpace(spec.Owner),
+		Group:   strings.TrimSpace(spec.Group) != "" && strings.TrimSpace(current.Group) != strings.TrimSpace(spec.Group) && strconv.Itoa(current.GID) != strings.TrimSpace(spec.Group),
+	}
+}
+
+func normalizeHostFileMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return ""
+	}
+	mode = strings.TrimPrefix(mode, "0o")
+	if len(mode) > 4 {
+		mode = mode[len(mode)-4:]
+	}
+	if parsed, err := strconv.ParseInt(mode, 8, 64); err == nil {
+		return fmt.Sprintf("%04o", parsed)
+	}
+	return mode
+}
+
+func digestBytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + fmt.Sprintf("%x", sum[:])
+}
+
+func (e *customNodeExecutor) hostFileObserveReceipt(node *runNode, phase string, targetID string, guardMode string, selected []string, targetDigest string, pathDigest string, state hostFileState, status string) hostFileObserveReceipt {
+	selected = append([]string(nil), selected...)
+	sort.Strings(selected)
+	return hostFileObserveReceipt{
+		APIVersion:       "torque.dev/host-file-render-node/v1",
+		Kind:             "HostFileRenderObserveReceipt",
+		NodeID:           node.ID,
+		NodeKind:         normalizeNodeKind(node.Kind),
+		TargetID:         targetID,
+		Phase:            phase,
+		Status:           firstNonEmptyString(strings.TrimSpace(status), "observed"),
+		GuardMode:        guardMode,
+		SelectedTargetID: targetID,
+		SelectedTargets:  selected,
+		TargetDigest:     strings.TrimSpace(targetDigest),
+		PathDigest:       strings.TrimSpace(pathDigest),
+		State:            state,
+		ObservedAt:       time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (e *customNodeExecutor) hostFilePlanReceipt(node *runNode, phase string, targetID string, guardMode string, selected []string, desiredDigest string, pathDigest string, changes hostFileChangeSet, status string, reason string) hostFilePlanReceipt {
+	var lockScopes []string
+	var policySources []string
+	if e != nil && e.run != nil && e.run.Plan != nil && e.run.Plan.Ops != nil {
+		for _, lockInput := range e.run.Plan.Ops.Locks {
+			if strings.TrimSpace(lockInput.Scope) != "" {
+				lockScopes = append(lockScopes, strings.TrimSpace(lockInput.Scope))
+			}
+		}
+		for _, decision := range e.run.Plan.Ops.PolicyDecisions {
+			if strings.TrimSpace(decision.Source) != "" {
+				policySources = append(policySources, strings.TrimSpace(decision.Source))
+			}
+		}
+	}
+	sort.Strings(lockScopes)
+	sort.Strings(policySources)
+	selected = append([]string(nil), selected...)
+	sort.Strings(selected)
+	return hostFilePlanReceipt{
+		APIVersion:      "torque.dev/host-file-render-node/v1",
+		Kind:            "HostFileRenderPlanReceipt",
+		NodeID:          node.ID,
+		NodeKind:        normalizeNodeKind(node.Kind),
+		TargetID:        targetID,
+		Phase:           phase,
+		Status:          status,
+		Reason:          reason,
+		GuardMode:       guardMode,
+		Operation:       NodeKindHostFileRender,
+		PathDigest:      pathDigest,
+		DesiredDigest:   desiredDigest,
+		Mode:            normalizeHostFileMode(node.Host.Mode),
+		Owner:           strings.TrimSpace(node.Host.Owner),
+		Group:           strings.TrimSpace(node.Host.Group),
+		SelectedTargets: selected,
+		LockScopes:      lockScopes,
+		PolicySources:   policySources,
+		Changes:         changes,
+		PlannedAt:       time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (e *customNodeExecutor) hostFileDiffReceipt(node *runNode, phase string, targetID string, pathDigest string, desiredDigest string, before hostFileState, changes hostFileChangeSet, status string) hostFileDiffReceipt {
+	return hostFileDiffReceipt{
+		APIVersion:  "torque.dev/host-file-render-node/v1",
+		Kind:        "HostFileRenderDiffReceipt",
+		NodeID:      node.ID,
+		TargetID:    targetID,
+		Phase:       phase,
+		Status:      status,
+		PathDigest:  pathDigest,
+		Before:      before,
+		AfterDigest: desiredDigest,
+		AfterMode:   normalizeHostFileMode(node.Host.Mode),
+		AfterOwner:  strings.TrimSpace(node.Host.Owner),
+		AfterGroup:  strings.TrimSpace(node.Host.Group),
+		Changes:     changes,
+		DiffQuality: "exact",
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (e *customNodeExecutor) hostFileVerifyReceipt(node *runNode, phase string, targetID string, desiredDigest string, pathDigest string, result hostFileOperationResult) hostFileVerifyReceipt {
+	status := "succeeded"
+	reason := "file render receipt succeeded"
+	if !nodeStepSucceeded(result.Status) {
+		status = "failed"
+		reason = firstNonEmptyString(result.Error, result.Validation.Error, result.Validation.Stderr, result.Reason, "file render receipt failed")
+	} else if strings.TrimSpace(result.Status) == "skipped" {
+		status = "skipped"
+		reason = firstNonEmptyString(result.Reason, "file render skipped")
+	}
+	actualDigest := result.After.Sha256
+	if strings.TrimSpace(actualDigest) == "" {
+		actualDigest = result.Before.Sha256
+	}
+	if status == "succeeded" && strings.TrimSpace(result.Operation) == "apply" && strings.TrimSpace(desiredDigest) != "" && strings.TrimSpace(actualDigest) != strings.TrimSpace(desiredDigest) {
+		status = "failed"
+		reason = "rendered file digest did not match desired digest"
+	}
+	return hostFileVerifyReceipt{
+		APIVersion:    "torque.dev/host-file-render-node/v1",
+		Kind:          "HostFileRenderVerifyReceipt",
+		NodeID:        node.ID,
+		TargetID:      strings.TrimSpace(targetID),
+		Phase:         phase,
+		Status:        status,
+		Reason:        reason,
+		PathDigest:    pathDigest,
+		DesiredDigest: desiredDigest,
+		ActualDigest:  actualDigest,
+		Mode:          result.After.Mode,
+		Owner:         result.After.Owner,
+		Group:         result.After.Group,
+		Changed:       result.Changed,
+		Validation:    result.Validation,
+		VerifiedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (e *customNodeExecutor) recordHostFileRenderReceipts(node *runNode, phase string, status string, reason string, observe hostFileObserveReceipt, plan hostFilePlanReceipt, diff hostFileDiffReceipt, apply *hostFileOperationResult, verify hostFileVerifyReceipt) {
+	payload := map[string]any{
+		"apiVersion": "torque.dev/host-file-render-node/v1",
+		"kind":       "HostFileRenderNodeArtifact",
+		"nodeId":     node.ID,
+		"nodeKind":   normalizeNodeKind(node.Kind),
+		"phase":      phase,
+		"status":     strings.TrimSpace(status),
+		"targetId":   strings.TrimSpace(plan.TargetID),
+		"guardMode":  strings.TrimSpace(plan.GuardMode),
+		"observe":    observe,
+		"plan":       plan,
+		"diff":       diff,
+		"verify":     verify,
+	}
+	if strings.TrimSpace(reason) != "" {
+		payload["reason"] = strings.TrimSpace(reason)
+	}
+	if apply != nil {
+		payload["targetDigest"] = apply.TargetDigest
+		payload["apply"] = *apply
+	}
+	e.run.RecordJSONArtifact(node.ID, "host-file-observe.json", observe)
+	e.run.RecordJSONArtifact(node.ID, "host-file-plan.json", plan)
+	e.run.RecordJSONArtifact(node.ID, "host-file-diff.json", diff)
+	if apply != nil {
+		e.run.RecordJSONArtifact(node.ID, "host-file-apply.json", *apply)
+	}
+	e.run.RecordJSONArtifact(node.ID, "host-file-verify.json", verify)
+	e.run.RecordJSONArtifact(node.ID, phase+".json", payload)
+	e.run.RecordJSONArtifact(node.ID, "decision.json", payload)
+}
+
+func (e *customNodeExecutor) validateHostAdapterOpsGuard(node *runNode, targetID string, operation string) error {
+	if e == nil || e.run == nil || e.run.Plan == nil || e.run.Plan.Ops == nil {
+		return nil
+	}
+	ops := e.run.Plan.Ops
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return fmt.Errorf("ops-backed %s requires host.targetId or exactly one selected TargetGraph target", operation)
+	}
+	if ops.TargetGraph == nil {
+		return fmt.Errorf("ops-backed %s requires TargetGraph plan inputs", operation)
+	}
+	if !stringInSlice(targetID, ops.TargetGraph.Selection.MatchedTargetIDs) {
+		return fmt.Errorf("host target %s was not selected by TargetGraph", targetID)
+	}
+	if !opsFactsContainTarget(ops, targetID) {
+		return fmt.Errorf("host target %s has no fresh fact evidence", targetID)
+	}
+	if !opsLockAllowsTarget(ops, targetID) {
+		return fmt.Errorf("host target %s has no held target lock", targetID)
+	}
+	if !opsPolicyAllowsOperationTarget(ops, targetID, operation) {
+		return fmt.Errorf("host target %s has no allow policy decision", targetID)
+	}
+	return nil
 }
 
 type cutoverState struct {

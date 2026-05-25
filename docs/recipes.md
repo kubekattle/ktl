@@ -456,6 +456,46 @@ Result contract:
 records `plugin-<phase>.json`, `decision.json`, and any plugin-provided
 artifacts in the normal stack audit/export bundle.
 
+## Stack: render a host file
+
+Use `host.file.render` for small host-side configuration files that need a
+reviewable content digest, mode/owner intent, validation command, and no-op
+repeat evidence.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-file-render
+nodes:
+  - name: render-nginx-snippet
+    kind: host.file.render
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      path: /tmp/torque-nginx-snippet.conf
+      mode: "0644"
+      owner: root
+      group: root
+      template: |
+        server_name {{ .ServerName }};
+        proxy_read_timeout {{ .Timeout }};
+      data:
+        ServerName: app.example.com
+        Timeout: 30s
+      validate: 'test -s "$TORQUE_FILE_RENDER_TEMP_PATH"'
+      removeOnDelete: true
+```
+
+```bash
+TORQUE_LAB_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/host-file-render --yes
+
+torque stack audit --config ./stacks/host-file-render \
+  --output json --include-artifacts > host-file-render-audit.json
+
+torque stack delete --config ./stacks/host-file-render --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

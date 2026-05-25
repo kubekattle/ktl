@@ -33,6 +33,16 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 	if !adapterStringSliceContains(host.EvidenceArtifacts, "host-command-verify.json") {
 		t.Fatalf("host.command.run missing verify artifact: %#v", host.EvidenceArtifacts)
 	}
+	render := findAdapterCapability(result.Adapters, "host.file.render")
+	if render == nil {
+		t.Fatalf("missing host.file.render in %#v", result.Adapters)
+	}
+	if render.Status != "implemented" || render.DiffQuality != "exact" {
+		t.Fatalf("host.file.render capability = %#v", render)
+	}
+	if !adapterStringSliceContains(render.EvidenceArtifacts, "host-file-diff.json") {
+		t.Fatalf("host.file.render missing diff artifact: %#v", render.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}

@@ -77,6 +77,21 @@ scripts/e2e/ops/OPS-HOST-001.sh \
   --cleanup
 ```
 
+## OPS-HOST-002
+
+`OPS-HOST-002.sh` proves `host.file.render` on the real SSH lab host. It
+renders a templated file to a temporary path, verifies owner/mode and content
+digest evidence, repeats apply as a no-op, audits and exports the stack run,
+then deletes the rendered file.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-002.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-CLI-004b
 
 `OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved

@@ -436,6 +436,116 @@ func TestRun_HostCommandRunLocalNode(t *testing.T) {
 	}
 }
 
+func TestRun_HostFileRenderLocalNode(t *testing.T) {
+	root := t.TempDir()
+	outFile := filepath.Join(root, "rendered.conf")
+	node := &ResolvedRelease{
+		ID:        "host.file.render/render-config",
+		Kind:      NodeKindHostFileRender,
+		Name:      "render-config",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:      "local",
+			Path:           outFile,
+			Template:       "name={{ .Name }}\nrun={{ .RunID }}\n",
+			Data:           map[string]any{"Name": "api", "RunID": "ops-host-002"},
+			Mode:           "0600",
+			Validate:       `test -s "$TORQUE_FILE_RENDER_TEMP_PATH"`,
+			RemoveOnDelete: true,
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	raw, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatalf("read rendered file: %v", err)
+	}
+	if got := string(raw); got != "name=api\nrun=ops-host-002\n" {
+		t.Fatalf("rendered content=%q", got)
+	}
+	if info, err := os.Stat(outFile); err != nil {
+		t.Fatalf("stat rendered file: %v", err)
+	} else if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode=%#o want 0600", got)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-file-observe.json", "host-file-plan.json", "host-file-diff.json", "host-file-apply.json", "host-file-verify.json", "host-file-render.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-file-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		strings.Contains(applyArtifact, "name=api") {
+		t.Fatalf("host file apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+	diffArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-file-diff.json")
+	if !strings.Contains(diffArtifact, `"diffQuality": "exact"`) ||
+		!strings.Contains(diffArtifact, `"content": true`) {
+		t.Fatalf("host file diff artifact missing exact content diff:\n%s", diffArtifact)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "host-file-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat render was not a no-op:\n%s", repeatApply)
+	}
+
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to remove rendered file, stat err=%v", err)
+	}
+}
+
 func TestRun_HostCommandDryRunDoesNotExecute(t *testing.T) {
 	root := t.TempDir()
 	outFile := filepath.Join(root, "dry-run-marker.txt")

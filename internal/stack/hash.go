@@ -55,14 +55,24 @@ type EffectiveDatabaseInput struct {
 }
 
 type EffectiveHostInput struct {
-	Transport     string `json:"transport,omitempty"`
-	TargetID      string `json:"targetId,omitempty"`
-	TargetDigest  string `json:"targetDigest,omitempty"`
-	TargetEnv     string `json:"targetEnv,omitempty"`
-	CommandDigest string `json:"commandDigest,omitempty"`
-	DeleteDigest  string `json:"deleteDigest,omitempty"`
-	Timeout       string `json:"timeout,omitempty"`
-	Digest        string `json:"digest,omitempty"`
+	Transport          string `json:"transport,omitempty"`
+	TargetID           string `json:"targetId,omitempty"`
+	TargetDigest       string `json:"targetDigest,omitempty"`
+	TargetEnv          string `json:"targetEnv,omitempty"`
+	CommandDigest      string `json:"commandDigest,omitempty"`
+	DeleteDigest       string `json:"deleteDigest,omitempty"`
+	PathDigest         string `json:"pathDigest,omitempty"`
+	ContentDigest      string `json:"contentDigest,omitempty"`
+	TemplateDigest     string `json:"templateDigest,omitempty"`
+	TemplatePathDigest string `json:"templatePathDigest,omitempty"`
+	DataDigest         string `json:"dataDigest,omitempty"`
+	Mode               string `json:"mode,omitempty"`
+	Owner              string `json:"owner,omitempty"`
+	Group              string `json:"group,omitempty"`
+	ValidateDigest     string `json:"validateDigest,omitempty"`
+	RemoveOnDelete     bool   `json:"removeOnDelete,omitempty"`
+	Timeout            string `json:"timeout,omitempty"`
+	Digest             string `json:"digest,omitempty"`
 }
 
 type EffectiveKubernetesInput struct {
@@ -177,7 +187,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.DatabaseDigest = dbInput.Digest
-	case NodeKindHostCommandRun:
+	case NodeKindHostCommandRun, NodeKindHostFileRender:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
 			return "", nil, err
@@ -408,14 +418,30 @@ func digestDatabaseSpec(spec DatabaseSpec) (EffectiveDatabaseInput, error) {
 
 func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 	input := EffectiveHostInput{
-		Transport:     strings.TrimSpace(spec.Transport),
-		TargetID:      strings.TrimSpace(spec.TargetID),
-		TargetEnv:     strings.TrimSpace(spec.TargetEnv),
-		CommandDigest: digestString(spec.Command),
-		DeleteDigest:  digestString(spec.DeleteCommand),
+		Transport:          strings.TrimSpace(spec.Transport),
+		TargetID:           strings.TrimSpace(spec.TargetID),
+		TargetEnv:          strings.TrimSpace(spec.TargetEnv),
+		CommandDigest:      digestString(spec.Command),
+		DeleteDigest:       digestString(spec.DeleteCommand),
+		PathDigest:         digestString(spec.Path),
+		ContentDigest:      digestString(spec.Content),
+		TemplateDigest:     digestString(spec.Template),
+		TemplatePathDigest: digestString(spec.TemplatePath),
+		Mode:               strings.TrimSpace(spec.Mode),
+		Owner:              strings.TrimSpace(spec.Owner),
+		Group:              strings.TrimSpace(spec.Group),
+		ValidateDigest:     digestString(spec.Validate),
+		RemoveOnDelete:     spec.RemoveOnDelete,
 	}
 	if strings.TrimSpace(spec.Target) != "" {
 		input.TargetDigest = digestString(spec.Target)
+	}
+	if spec.Data != nil {
+		sum, err := hashJSONStable(spec.Data)
+		if err != nil {
+			return EffectiveHostInput{}, err
+		}
+		input.DataDigest = sum
 	}
 	if spec.Timeout != nil {
 		input.Timeout = spec.Timeout.String()

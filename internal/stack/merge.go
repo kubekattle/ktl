@@ -288,6 +288,36 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.Timeout != nil {
 		dst.Timeout = src.Timeout
 	}
+	if src.Path != "" {
+		dst.Path = strings.TrimSpace(src.Path)
+	}
+	if src.Content != "" {
+		dst.Content = src.Content
+	}
+	if src.Template != "" {
+		dst.Template = src.Template
+	}
+	if src.TemplatePath != "" {
+		dst.TemplatePath = strings.TrimSpace(src.TemplatePath)
+	}
+	if src.Data != nil {
+		dst.Data = maps.Clone(src.Data)
+	}
+	if src.Mode != "" {
+		dst.Mode = strings.TrimSpace(src.Mode)
+	}
+	if src.Owner != "" {
+		dst.Owner = strings.TrimSpace(src.Owner)
+	}
+	if src.Group != "" {
+		dst.Group = strings.TrimSpace(src.Group)
+	}
+	if src.Validate != "" {
+		dst.Validate = src.Validate
+	}
+	if src.RemoveOnDelete {
+		dst.RemoveOnDelete = true
+	}
 	if len(input) == 0 {
 		return dst
 	}
@@ -309,6 +339,36 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if v := inputString(input, "deleteCommand"); v != "" {
 		dst.DeleteCommand = v
 	}
+	if v := inputString(input, "path"); v != "" {
+		dst.Path = v
+	}
+	if v := inputString(input, "content"); v != "" {
+		dst.Content = v
+	}
+	if v := inputString(input, "template"); v != "" {
+		dst.Template = v
+	}
+	if v := inputString(input, "templatePath"); v != "" {
+		dst.TemplatePath = v
+	}
+	if v := inputMap(input, "data"); v != nil {
+		dst.Data = v
+	}
+	if v := inputString(input, "mode"); v != "" {
+		dst.Mode = v
+	}
+	if v := inputString(input, "owner"); v != "" {
+		dst.Owner = v
+	}
+	if v := inputString(input, "group"); v != "" {
+		dst.Group = v
+	}
+	if v := inputString(input, "validate"); v != "" {
+		dst.Validate = v
+	}
+	if v, ok := inputBool(input, "removeOnDelete"); ok {
+		dst.RemoveOnDelete = v
+	}
 	return dst
 }
 
@@ -325,6 +385,38 @@ func inputString(input map[string]any, key string) string {
 		return strings.TrimSpace(typed)
 	default:
 		return ""
+	}
+}
+
+func inputMap(input map[string]any, key string) map[string]any {
+	if input == nil {
+		return nil
+	}
+	value, ok := input[key]
+	if !ok {
+		return nil
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		return maps.Clone(typed)
+	default:
+		return nil
+	}
+}
+
+func inputBool(input map[string]any, key string) (bool, bool) {
+	if input == nil {
+		return false, false
+	}
+	value, ok := input[key]
+	if !ok {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	default:
+		return false, false
 	}
 }
 

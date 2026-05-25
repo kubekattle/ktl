@@ -292,8 +292,10 @@ else:
     for phase in ("observe", "plan", "apply", "verify", "export"):
         if phase not in (host.get("supportedPhases") or []):
             errors.append(f"host.command.run missing phase {phase}")
-if not render or render.get("status") != "planned" or render.get("diffQuality") != "exact":
-    errors.append("host.file.render planned contract missing")
+if not render or render.get("status") != "implemented" or render.get("diffQuality") != "exact":
+    errors.append("host.file.render implemented contract missing")
+elif "host-file-diff.json" not in (render.get("evidenceArtifacts") or []):
+    errors.append("host.file.render missing diff artifact")
 if not package or package.get("requiredPrivilege") != "root or delegated sudo":
     errors.append("host.package.install privilege contract missing")
 
