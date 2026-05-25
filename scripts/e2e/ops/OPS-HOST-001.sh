@@ -580,10 +580,17 @@ run_stack_case() {
   )"
   [[ -n "${run_id}" ]] || ops_fail "failed to discover ${label} run ID"
   printf '%s\n' "${run_id}" >"${OPS_RUN_DIR}/stack/${label}-run-id.txt"
+  set +e
   (
     cd "${repo_root}"
     ./bin/torque stack audit --config "${stack_root}" --run-id "${run_id}" --output json --include-artifacts
   ) >"${OPS_RUN_DIR}/stack/${label}-audit.json" 2>"${OPS_RUN_DIR}/stack/${label}-audit.stderr"
+  local audit_code=$?
+  set -e
+  printf '%s\n' "${audit_code}" >"${OPS_RUN_DIR}/stack/${label}-audit.exit"
+  if [[ "${expect}" == "success" && "${audit_code}" -ne 0 ]]; then
+    ops_fail "${label} audit failed; see ${OPS_RUN_DIR}/stack/${label}-audit.stderr"
+  fi
   (
     cd "${repo_root}"
     ./bin/torque stack export --config "${stack_root}" --run-id "${run_id}" --out "${OPS_RUN_DIR}/stack/${label}-export.tgz"
@@ -642,10 +649,17 @@ apply_replay_case() {
   )"
   [[ -n "${run_id}" ]] || ops_fail "failed to discover ${label} run ID"
   printf '%s\n' "${run_id}" >"${OPS_RUN_DIR}/stack/${label}-run-id.txt"
+  set +e
   (
     cd "${repo_root}"
     ./bin/torque stack audit --config "${stack_root}" --run-id "${run_id}" --output json --include-artifacts
   ) >"${OPS_RUN_DIR}/stack/${label}-audit.json" 2>"${OPS_RUN_DIR}/stack/${label}-audit.stderr"
+  local audit_code=$?
+  set -e
+  printf '%s\n' "${audit_code}" >"${OPS_RUN_DIR}/stack/${label}-audit.exit"
+  if [[ "${expect}" == "success" && "${audit_code}" -ne 0 ]]; then
+    ops_fail "${label} audit failed; see ${OPS_RUN_DIR}/stack/${label}-audit.stderr"
+  fi
   (
     cd "${repo_root}"
     ./bin/torque stack export --config "${stack_root}" --run-id "${run_id}" --out "${OPS_RUN_DIR}/stack/${label}-export.tgz"
