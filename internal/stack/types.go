@@ -412,6 +412,18 @@ type HostCommandSpec struct {
 	Enabled         *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	StopOnDelete    bool           `yaml:"stopOnDelete,omitempty" json:"stopOnDelete,omitempty"`
 	DisableOnDelete bool           `yaml:"disableOnDelete,omitempty" json:"disableOnDelete,omitempty"`
+	UserName        string         `yaml:"user,omitempty" json:"user,omitempty"`
+	GroupName       string         `yaml:"groupName,omitempty" json:"groupName,omitempty"`
+	UserGroup       string         `yaml:"userGroup,omitempty" json:"userGroup,omitempty"`
+	UID             *int           `yaml:"uid,omitempty" json:"uid,omitempty"`
+	GID             *int           `yaml:"gid,omitempty" json:"gid,omitempty"`
+	Home            string         `yaml:"home,omitempty" json:"home,omitempty"`
+	Shell           string         `yaml:"shell,omitempty" json:"shell,omitempty"`
+	Comment         string         `yaml:"comment,omitempty" json:"comment,omitempty"`
+	Groups          []string       `yaml:"groups,omitempty" json:"groups,omitempty"`
+	CreateHome      bool           `yaml:"createHome,omitempty" json:"createHome,omitempty"`
+	RemoveHome      bool           `yaml:"removeHome,omitempty" json:"removeHome,omitempty"`
+	System          bool           `yaml:"system,omitempty" json:"system,omitempty"`
 }
 
 type KubernetesSpec struct {

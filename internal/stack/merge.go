@@ -364,6 +364,44 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.DisableOnDelete {
 		dst.DisableOnDelete = true
 	}
+	if src.UserName != "" {
+		dst.UserName = strings.TrimSpace(src.UserName)
+	}
+	if src.GroupName != "" {
+		dst.GroupName = strings.TrimSpace(src.GroupName)
+	}
+	if src.UserGroup != "" {
+		dst.UserGroup = strings.TrimSpace(src.UserGroup)
+	}
+	if src.UID != nil {
+		uid := *src.UID
+		dst.UID = &uid
+	}
+	if src.GID != nil {
+		gid := *src.GID
+		dst.GID = &gid
+	}
+	if src.Home != "" {
+		dst.Home = strings.TrimSpace(src.Home)
+	}
+	if src.Shell != "" {
+		dst.Shell = strings.TrimSpace(src.Shell)
+	}
+	if src.Comment != "" {
+		dst.Comment = strings.TrimSpace(src.Comment)
+	}
+	if len(src.Groups) > 0 {
+		dst.Groups = append([]string(nil), src.Groups...)
+	}
+	if src.CreateHome {
+		dst.CreateHome = true
+	}
+	if src.RemoveHome {
+		dst.RemoveHome = true
+	}
+	if src.System {
+		dst.System = true
+	}
 	if len(input) == 0 {
 		return dst
 	}
@@ -460,6 +498,42 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if v, ok := inputBool(input, "disableOnDelete"); ok {
 		dst.DisableOnDelete = v
 	}
+	if v := inputString(input, "user"); v != "" {
+		dst.UserName = v
+	}
+	if v := inputString(input, "groupName"); v != "" {
+		dst.GroupName = v
+	}
+	if v := inputString(input, "userGroup"); v != "" {
+		dst.UserGroup = v
+	}
+	if v, ok := inputInt(input, "uid"); ok {
+		dst.UID = &v
+	}
+	if v, ok := inputInt(input, "gid"); ok {
+		dst.GID = &v
+	}
+	if v := inputString(input, "home"); v != "" {
+		dst.Home = v
+	}
+	if v := inputString(input, "shell"); v != "" {
+		dst.Shell = v
+	}
+	if v := inputString(input, "comment"); v != "" {
+		dst.Comment = v
+	}
+	if v := inputStringSlice(input, "groups"); len(v) > 0 {
+		dst.Groups = v
+	}
+	if v, ok := inputBool(input, "createHome"); ok {
+		dst.CreateHome = v
+	}
+	if v, ok := inputBool(input, "removeHome"); ok {
+		dst.RemoveHome = v
+	}
+	if v, ok := inputBool(input, "system"); ok {
+		dst.System = v
+	}
 	return dst
 }
 
@@ -508,6 +582,57 @@ func inputBool(input map[string]any, key string) (bool, bool) {
 		return typed, true
 	default:
 		return false, false
+	}
+}
+
+func inputInt(input map[string]any, key string) (int, bool) {
+	if input == nil {
+		return 0, false
+	}
+	value, ok := input[key]
+	if !ok {
+		return 0, false
+	}
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), true
+	case float64:
+		if typed == float64(int(typed)) {
+			return int(typed), true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+func inputStringSlice(input map[string]any, key string) []string {
+	if input == nil {
+		return nil
+	}
+	value, ok := input[key]
+	if !ok {
+		return nil
+	}
+	switch typed := value.(type) {
+	case []string:
+		out := append([]string(nil), typed...)
+		for i := range out {
+			out[i] = strings.TrimSpace(out[i])
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 

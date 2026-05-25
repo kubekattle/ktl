@@ -73,6 +73,16 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 	if !adapterStringSliceContains(service.EvidenceArtifacts, "host-service-diff.json") {
 		t.Fatalf("host.service.manage missing diff artifact: %#v", service.EvidenceArtifacts)
 	}
+	user := findAdapterCapability(result.Adapters, "host.user.manage")
+	if user == nil {
+		t.Fatalf("missing host.user.manage in %#v", result.Adapters)
+	}
+	if user.Status != "implemented" || user.DiffQuality != "exact" {
+		t.Fatalf("host.user.manage capability = %#v", user)
+	}
+	if !adapterStringSliceContains(user.EvidenceArtifacts, "host-user-diff.json") {
+		t.Fatalf("host.user.manage missing diff artifact: %#v", user.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}
@@ -83,7 +93,7 @@ func TestOpsAdapterCapabilitiesTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v\nstderr=%s\nstdout=%s", err, errOut, out)
 	}
-	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage"} {
+	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q:\n%s", want, out)
 		}

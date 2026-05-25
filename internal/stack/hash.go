@@ -56,40 +56,52 @@ type EffectiveDatabaseInput struct {
 }
 
 type EffectiveHostInput struct {
-	Transport          string `json:"transport,omitempty"`
-	TargetID           string `json:"targetId,omitempty"`
-	TargetDigest       string `json:"targetDigest,omitempty"`
-	TargetEnv          string `json:"targetEnv,omitempty"`
-	CommandDigest      string `json:"commandDigest,omitempty"`
-	DeleteDigest       string `json:"deleteDigest,omitempty"`
-	PathDigest         string `json:"pathDigest,omitempty"`
-	SourcePathDigest   string `json:"sourcePathDigest,omitempty"`
-	SourceDigest       string `json:"sourceDigest,omitempty"`
-	ContentDigest      string `json:"contentDigest,omitempty"`
-	TemplateDigest     string `json:"templateDigest,omitempty"`
-	TemplatePathDigest string `json:"templatePathDigest,omitempty"`
-	DataDigest         string `json:"dataDigest,omitempty"`
-	Mode               string `json:"mode,omitempty"`
-	Owner              string `json:"owner,omitempty"`
-	Group              string `json:"group,omitempty"`
-	ValidateDigest     string `json:"validateDigest,omitempty"`
-	Backup             bool   `json:"backup,omitempty"`
-	BackupPathDigest   string `json:"backupPathDigest,omitempty"`
-	RemoveOnDelete     bool   `json:"removeOnDelete,omitempty"`
-	RestoreOnDelete    bool   `json:"restoreOnDelete,omitempty"`
-	PackageDigest      string `json:"packageDigest,omitempty"`
-	PackageManager     string `json:"packageManager,omitempty"`
-	State              string `json:"state,omitempty"`
-	VersionDigest      string `json:"versionDigest,omitempty"`
-	UpdateCache        bool   `json:"updateCache,omitempty"`
-	Purge              bool   `json:"purge,omitempty"`
-	ServiceDigest      string `json:"serviceDigest,omitempty"`
-	ServiceManager     string `json:"serviceManager,omitempty"`
-	Enabled            *bool  `json:"enabled,omitempty"`
-	StopOnDelete       bool   `json:"stopOnDelete,omitempty"`
-	DisableOnDelete    bool   `json:"disableOnDelete,omitempty"`
-	Timeout            string `json:"timeout,omitempty"`
-	Digest             string `json:"digest,omitempty"`
+	Transport          string   `json:"transport,omitempty"`
+	TargetID           string   `json:"targetId,omitempty"`
+	TargetDigest       string   `json:"targetDigest,omitempty"`
+	TargetEnv          string   `json:"targetEnv,omitempty"`
+	CommandDigest      string   `json:"commandDigest,omitempty"`
+	DeleteDigest       string   `json:"deleteDigest,omitempty"`
+	PathDigest         string   `json:"pathDigest,omitempty"`
+	SourcePathDigest   string   `json:"sourcePathDigest,omitempty"`
+	SourceDigest       string   `json:"sourceDigest,omitempty"`
+	ContentDigest      string   `json:"contentDigest,omitempty"`
+	TemplateDigest     string   `json:"templateDigest,omitempty"`
+	TemplatePathDigest string   `json:"templatePathDigest,omitempty"`
+	DataDigest         string   `json:"dataDigest,omitempty"`
+	Mode               string   `json:"mode,omitempty"`
+	Owner              string   `json:"owner,omitempty"`
+	Group              string   `json:"group,omitempty"`
+	ValidateDigest     string   `json:"validateDigest,omitempty"`
+	Backup             bool     `json:"backup,omitempty"`
+	BackupPathDigest   string   `json:"backupPathDigest,omitempty"`
+	RemoveOnDelete     bool     `json:"removeOnDelete,omitempty"`
+	RestoreOnDelete    bool     `json:"restoreOnDelete,omitempty"`
+	PackageDigest      string   `json:"packageDigest,omitempty"`
+	PackageManager     string   `json:"packageManager,omitempty"`
+	State              string   `json:"state,omitempty"`
+	VersionDigest      string   `json:"versionDigest,omitempty"`
+	UpdateCache        bool     `json:"updateCache,omitempty"`
+	Purge              bool     `json:"purge,omitempty"`
+	ServiceDigest      string   `json:"serviceDigest,omitempty"`
+	ServiceManager     string   `json:"serviceManager,omitempty"`
+	Enabled            *bool    `json:"enabled,omitempty"`
+	StopOnDelete       bool     `json:"stopOnDelete,omitempty"`
+	DisableOnDelete    bool     `json:"disableOnDelete,omitempty"`
+	UserDigest         string   `json:"userDigest,omitempty"`
+	GroupNameDigest    string   `json:"groupNameDigest,omitempty"`
+	UserGroupDigest    string   `json:"userGroupDigest,omitempty"`
+	UID                *int     `json:"uid,omitempty"`
+	GID                *int     `json:"gid,omitempty"`
+	HomeDigest         string   `json:"homeDigest,omitempty"`
+	ShellDigest        string   `json:"shellDigest,omitempty"`
+	CommentDigest      string   `json:"commentDigest,omitempty"`
+	Groups             []string `json:"groups,omitempty"`
+	CreateHome         bool     `json:"createHome,omitempty"`
+	RemoveHome         bool     `json:"removeHome,omitempty"`
+	System             bool     `json:"system,omitempty"`
+	Timeout            string   `json:"timeout,omitempty"`
+	Digest             string   `json:"digest,omitempty"`
 }
 
 type EffectiveKubernetesInput struct {
@@ -204,7 +216,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.DatabaseDigest = dbInput.Digest
-	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage:
+	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage, NodeKindHostUserManage:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
 			return "", nil, err
@@ -469,6 +481,18 @@ func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 		Enabled:            spec.Enabled,
 		StopOnDelete:       spec.StopOnDelete,
 		DisableOnDelete:    spec.DisableOnDelete,
+		UserDigest:         digestString(spec.UserName),
+		GroupNameDigest:    digestString(spec.GroupName),
+		UserGroupDigest:    digestString(spec.UserGroup),
+		UID:                spec.UID,
+		GID:                spec.GID,
+		HomeDigest:         digestString(spec.Home),
+		ShellDigest:        digestString(spec.Shell),
+		CommentDigest:      digestString(spec.Comment),
+		Groups:             append([]string(nil), spec.Groups...),
+		CreateHome:         spec.CreateHome,
+		RemoveHome:         spec.RemoveHome,
+		System:             spec.System,
 	}
 	if strings.TrimSpace(spec.Target) != "" {
 		input.TargetDigest = digestString(spec.Target)

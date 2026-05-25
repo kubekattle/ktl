@@ -253,12 +253,14 @@ adapters = [
     "host.command.run",
     "host.package.install",
     "host.service.manage",
+    "host.user.manage",
     "http.check",
 ]
 providers = [
     "ssh",
     "apt-mirror",
     "systemd",
+    "shadow-utils",
     "http-probe",
 ]
 

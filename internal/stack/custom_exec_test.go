@@ -45,6 +45,11 @@ releases:
     kind: host.service.manage
     host:
       service: torque-fake.service
+  - name: user
+    kind: host.user.manage
+    host:
+      user: torque-fake-user
+      groupName: torque-fake-group
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -75,6 +80,12 @@ releases:
 	}
 	if got := p.ByID["dev/default/service"].Host.State; got != "started" {
 		t.Fatalf("service state=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/user"].Kind); got != NodeKindHostUserManage {
+		t.Fatalf("user kind=%q", got)
+	}
+	if got := p.ByID["dev/default/user"].Host.State; got != "present" {
+		t.Fatalf("user state=%q", got)
 	}
 }
 
@@ -326,6 +337,39 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if serviceHashA == serviceHashB {
 		t.Fatalf("expected service hash to change")
+	}
+
+	userUID := 24001
+	userGID := 24001
+	userA := &ResolvedRelease{
+		ID:        "host.user.manage/user",
+		Kind:      NodeKindHostUserManage,
+		Name:      "user",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport: "local",
+			UserName:  "torque-fake-user",
+			GroupName: "torque-fake-group",
+			UserGroup: "torque-fake-group",
+			State:     "present",
+			UID:       &userUID,
+			GID:       &userGID,
+		},
+	}
+	userB := *userA
+	changedUID := 24002
+	userB.Host.UID = &changedUID
+	userHashA, _, err := ComputeEffectiveInputHashWithOptions(userA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash userA: %v", err)
+	}
+	userHashB, _, err := ComputeEffectiveInputHashWithOptions(&userB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash userB: %v", err)
+	}
+	if userHashA == userHashB {
+		t.Fatalf("expected user hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -1187,6 +1231,216 @@ esac
 		!strings.Contains(deleteApply, `"active": false`) ||
 		!strings.Contains(deleteApply, `"enabled": false`) {
 		t.Fatalf("delete did not record service stop/disable:\n%s", deleteApply)
+	}
+}
+
+func TestRun_HostUserManageLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	userFile := filepath.Join(root, "user-present")
+	groupFile := filepath.Join(root, "group-present")
+	homeDir := filepath.Join(root, "home")
+	logFile := filepath.Join(root, "user-manager.log")
+	fakeCommand := `#!/bin/sh
+cmd="$(basename "$0")"
+user_file=` + shellQuoteForTest(userFile) + `
+group_file=` + shellQuoteForTest(groupFile) + `
+home_dir=` + shellQuoteForTest(homeDir) + `
+log_file=` + shellQuoteForTest(logFile) + `
+user="torque-fake-user"
+group="torque-fake-group"
+uid="24001"
+gid="24001"
+emit_sensitive() {
+  printf 'password=user-secret\n'
+  printf 'token=user-stderr\n' >&2
+}
+case "$cmd" in
+  getent)
+    db="$1"
+    key="$2"
+    if [ "$db" = passwd ] && [ "$key" = "$user" ] && [ -f "$user_file" ]; then
+      printf '%s:x:%s:%s:Torque Fake:%s:/usr/sbin/nologin\n' "$user" "$uid" "$gid" "$home_dir"
+      exit 0
+    fi
+    if [ "$db" = group ] && { [ "$key" = "$group" ] || [ "$key" = "$gid" ]; } && [ -f "$group_file" ]; then
+      printf '%s:x:%s:\n' "$group" "$gid"
+      exit 0
+    fi
+    exit 2
+    ;;
+  id)
+    if [ "$1" = "-nG" ] && [ "$2" = "$user" ] && [ -f "$user_file" ]; then
+      printf '%s\n' "$group"
+      exit 0
+    fi
+    exit 1
+    ;;
+  groupadd|groupmod)
+    emit_sensitive
+    printf '%s\n' "$cmd" >> "$log_file"
+    printf group > "$group_file"
+    ;;
+  useradd|usermod)
+    emit_sensitive
+    printf '%s\n' "$cmd" >> "$log_file"
+    printf user > "$user_file"
+    mkdir -p "$home_dir"
+    ;;
+  userdel)
+    emit_sensitive
+    printf 'userdel\n' >> "$log_file"
+    rm -f "$user_file"
+    rm -rf "$home_dir"
+    ;;
+  groupdel)
+    emit_sensitive
+    printf 'groupdel\n' >> "$log_file"
+    rm -f "$group_file"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`
+	for _, name := range []string{"getent", "id", "groupadd", "groupmod", "groupdel", "useradd", "usermod", "userdel"} {
+		writeExecutableForTest(t, filepath.Join(binDir, name), fakeCommand)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	uid := 24001
+	gid := 24001
+	node := &ResolvedRelease{
+		ID:        "host.user.manage/manage-user",
+		Kind:      NodeKindHostUserManage,
+		Name:      "manage-user",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:      "local",
+			UserName:       "torque-fake-user",
+			GroupName:      "torque-fake-group",
+			UserGroup:      "torque-fake-group",
+			State:          "present",
+			UID:            &uid,
+			GID:            &gid,
+			Home:           homeDir,
+			Shell:          "/usr/sbin/nologin",
+			Comment:        "Torque Fake",
+			CreateHome:     true,
+			RemoveHome:     true,
+			RemoveOnDelete: true,
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(userFile); err != nil {
+		t.Fatalf("user was not created: %v", err)
+	}
+	if _, err := os.Stat(groupFile); err != nil {
+		t.Fatalf("group was not created: %v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-user-observe.json", "host-user-plan.json", "host-user-diff.json", "host-user-apply.json", "host-user-verify.json", "host-user.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-user-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		!strings.Contains(applyArtifact, `"uid": 24001`) ||
+		!strings.Contains(applyArtifact, `"gid": 24001`) ||
+		!strings.Contains(applyArtifact, `"group": "torque-fake-group"`) ||
+		strings.Contains(applyArtifact, "user-secret") ||
+		strings.Contains(applyArtifact, "user-stderr") {
+		t.Fatalf("host user apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "host-user-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat user apply was not a no-op:\n%s", repeatApply)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(userFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to remove fake user, stat err=%v", err)
+	}
+	if _, err := os.Stat(groupFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to remove fake group, stat err=%v", err)
+	}
+	deleteRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun delete: %v", err)
+	}
+	deleteAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            deleteRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit delete: %v", err)
+	}
+	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "host-user-apply.json")
+	if !strings.Contains(deleteApply, `"desiredState": "absent"`) ||
+		!strings.Contains(deleteApply, `"changed": true`) ||
+		!strings.Contains(deleteApply, `"exists": false`) {
+		t.Fatalf("delete did not record user/group removal:\n%s", deleteApply)
 	}
 }
 

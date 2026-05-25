@@ -598,6 +598,44 @@ torque stack audit --config ./stacks/host-service \
 torque stack delete --config ./stacks/host-service --yes
 ```
 
+## Stack: manage a host user and group
+
+Use `host.user.manage` for one-user and optional group lifecycle changes that
+need exact before/after UID/GID evidence, command receipts, repeat no-op proof,
+and cleanup through stack delete.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-user
+nodes:
+  - name: create-worker-user
+    kind: host.user.manage
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      user: torque-worker
+      groupName: torque-worker
+      userGroup: torque-worker
+      uid: 24010
+      gid: 24010
+      home: /var/lib/torque-worker
+      shell: /usr/sbin/nologin
+      createHome: true
+      removeHome: true
+      removeOnDelete: true
+```
+
+```bash
+TORQUE_LAB_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/host-user --yes
+
+torque stack audit --config ./stacks/host-user \
+  --output json --include-artifacts > host-user-audit.json
+
+torque stack delete --config ./stacks/host-user --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

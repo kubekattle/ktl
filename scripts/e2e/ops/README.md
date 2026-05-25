@@ -139,6 +139,22 @@ scripts/e2e/ops/OPS-HOST-005.sh \
   --cleanup
 ```
 
+## OPS-HOST-006
+
+`OPS-HOST-006.sh` proves `host.user.manage` on the real SSH lab host. It
+selects an unused UID/GID, creates a temporary group and user through the stack,
+verifies UID/GID before/after evidence, repeats apply as a no-op, audits and
+exports the run, then deletes through the stack and proves the user, group, and
+home directory were removed.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-006.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-CLI-004b
 
 `OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved
