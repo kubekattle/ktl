@@ -258,6 +258,7 @@ adapters = [
     "host.systemd.unit",
     "k8s.manifest.apply",
     "k8s.manifest.delete",
+    "k8s.resource.wait",
     "http.check",
 ]
 providers = [

@@ -284,6 +284,7 @@ cron = catalog_adapters.get("host.cron.manage")
 systemd = catalog_adapters.get("host.systemd.unit")
 manifest = catalog_adapters.get("k8s.manifest.apply")
 manifest_delete = catalog_adapters.get("k8s.manifest.delete")
+resource_wait = catalog_adapters.get("k8s.resource.wait")
 if catalog.get("apiVersion") != "torque.dev/ops/adapter-capabilities/v1":
     errors.append("catalog apiVersion mismatch")
 if (catalog.get("summary") or {}).get("implemented", 0) < 1:
@@ -338,9 +339,13 @@ if not manifest_delete or manifest_delete.get("status") != "implemented" or mani
     errors.append("k8s.manifest.delete implemented contract missing")
 elif "k8s-manifest-delete-diff.json" not in (manifest_delete.get("evidenceArtifacts") or []) or "k8s-manifest-delete-verify.json" not in (manifest_delete.get("evidenceArtifacts") or []):
     errors.append("k8s.manifest.delete missing diff/verify artifact")
+if not resource_wait or resource_wait.get("status") != "implemented" or resource_wait.get("diffQuality") != "readiness-state-with-events" or resource_wait.get("mutating"):
+    errors.append("k8s.resource.wait implemented contract missing")
+elif "k8s-resource-wait-events.json" not in (resource_wait.get("evidenceArtifacts") or []) or "k8s-resource-wait-verify.json" not in (resource_wait.get("evidenceArtifacts") or []):
+    errors.append("k8s.resource.wait missing events/verify artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

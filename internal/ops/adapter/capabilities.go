@@ -317,6 +317,25 @@ func Definitions() []Capability {
 			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
 			Description:         "Delete only manifest-listed Kubernetes objects after field-manager ownership checks and prove unrelated objects survive.",
 		},
+		{
+			Adapter:             "k8s.resource.wait",
+			Status:              "implemented",
+			Classification:      "guarded",
+			TargetTypes:         []string{"kubernetes", "local", "host"},
+			Transports:          []string{"local", "ssh"},
+			Mutating:            false,
+			RequiredPrivilege:   "Kubernetes RBAC to get watched resources and list related events",
+			Idempotence:         "readiness-state",
+			CheckMode:           "readiness-plan",
+			DiffQuality:         "readiness-state-with-events",
+			SupportedPhases:     []string{"observe", "plan", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts:   []string{"k8s-resource-wait-observe.json", "k8s-resource-wait-plan.json", "k8s-resource-wait-apply.json", "k8s-resource-wait-events.json", "k8s-resource-wait-verify.json", "k8s-resource-wait.json", "decision.json"},
+			RequiredPolicy:      []string{"target graph selection", "Kubernetes RBAC scope", "allow policy decision"},
+			Touches:             []string{"Kubernetes API readiness state for one declared resource", "Kubernetes events for the declared resource"},
+			SecretInputs:        []string{"kubectl output, live object bodies, and event messages are emitted as digests only"},
+			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
+			Description:         "Wait for a declared Kubernetes resource readiness condition and record redacted event evidence for success or timeout.",
+		},
 	}
 	for i := range out {
 		out[i] = cloneCapability(out[i])
@@ -488,6 +507,10 @@ func probeCommandsFor(adapterName string) []probeCommand {
 		return []probeCommand{
 			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
 			{Name: "python3", Command: "command -v python3 >/dev/null 2>&1", Required: true},
+		}
+	case "k8s.resource.wait":
+		return []probeCommand{
+			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
 		}
 	default:
 		return nil

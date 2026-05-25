@@ -436,6 +436,7 @@ type KubernetesSpec struct {
 	Certificates KubernetesCertSpec     `yaml:"certificates,omitempty" json:"certificates,omitempty"`
 	Cluster      KubernetesClusterSpec  `yaml:"cluster,omitempty" json:"cluster,omitempty"`
 	Manifest     KubernetesManifestSpec `yaml:"manifest,omitempty" json:"manifest,omitempty"`
+	Resource     KubernetesResourceSpec `yaml:"resource,omitempty" json:"resource,omitempty"`
 }
 
 type KubernetesClusterSpec struct {
@@ -470,6 +471,17 @@ type KubernetesManifestSpec struct {
 	ForceConflicts bool           `yaml:"forceConflicts,omitempty" json:"forceConflicts,omitempty"`
 	RemoveOnDelete bool           `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
 	PrunePolicy    string         `yaml:"prunePolicy,omitempty" json:"prunePolicy,omitempty"`
+}
+
+type KubernetesResourceSpec struct {
+	Namespace  string         `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Resource   string         `yaml:"resource,omitempty" json:"resource,omitempty"`
+	Kind       string         `yaml:"kind,omitempty" json:"kind,omitempty"`
+	Name       string         `yaml:"name,omitempty" json:"name,omitempty"`
+	Selector   string         `yaml:"selector,omitempty" json:"selector,omitempty"`
+	For        string         `yaml:"for,omitempty" json:"for,omitempty"`
+	Timeout    *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	EventLimit int            `yaml:"eventLimit,omitempty" json:"eventLimit,omitempty"`
 }
 
 type KubernetesAppProbe struct {

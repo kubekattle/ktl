@@ -704,6 +704,7 @@ func mergeKubernetesSpec(dst KubernetesSpec, src KubernetesSpec) KubernetesSpec 
 	}
 	dst.Certificates.Policy = mergeKubernetesLifecyclePolicySpec(dst.Certificates.Policy, src.Certificates.Policy)
 	dst.Manifest = mergeKubernetesManifestSpec(dst.Manifest, src.Manifest)
+	dst.Resource = mergeKubernetesResourceSpec(dst.Resource, src.Resource)
 	return dst
 }
 
@@ -737,6 +738,34 @@ func mergeKubernetesManifestSpec(dst KubernetesManifestSpec, src KubernetesManif
 	}
 	if src.PrunePolicy != "" {
 		dst.PrunePolicy = strings.TrimSpace(src.PrunePolicy)
+	}
+	return dst
+}
+
+func mergeKubernetesResourceSpec(dst KubernetesResourceSpec, src KubernetesResourceSpec) KubernetesResourceSpec {
+	if src.Namespace != "" {
+		dst.Namespace = strings.TrimSpace(src.Namespace)
+	}
+	if src.Resource != "" {
+		dst.Resource = strings.TrimSpace(src.Resource)
+	}
+	if src.Kind != "" {
+		dst.Kind = strings.TrimSpace(src.Kind)
+	}
+	if src.Name != "" {
+		dst.Name = strings.TrimSpace(src.Name)
+	}
+	if src.Selector != "" {
+		dst.Selector = strings.TrimSpace(src.Selector)
+	}
+	if src.For != "" {
+		dst.For = strings.TrimSpace(src.For)
+	}
+	if src.Timeout != nil {
+		dst.Timeout = src.Timeout
+	}
+	if src.EventLimit != 0 {
+		dst.EventLimit = src.EventLimit
 	}
 	return dst
 }

@@ -113,6 +113,7 @@ type EffectiveKubernetesInput struct {
 	Provider            string   `json:"provider,omitempty"`
 	ClusterDigest       string   `json:"clusterDigest,omitempty"`
 	ManifestDigest      string   `json:"manifestDigest,omitempty"`
+	ResourceDigest      string   `json:"resourceDigest,omitempty"`
 	TargetDigests       []string `json:"targetDigests,omitempty"`
 	RenewBefore         string   `json:"renewBefore,omitempty"`
 	Force               bool     `json:"force,omitempty"`
@@ -239,7 +240,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.KubernetesDigest = kubernetesInput.Digest
-	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete:
+	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait:
 		kubernetesInput, err := digestKubernetesSpec(n.Kubernetes)
 		if err != nil {
 			return "", nil, err
@@ -582,6 +583,11 @@ func digestKubernetesSpec(spec KubernetesSpec) (EffectiveKubernetesInput, error)
 		return EffectiveKubernetesInput{}, err
 	}
 	input.ManifestDigest = manifestInput
+	resourceInput, err := digestKubernetesResourceSpec(spec.Resource)
+	if err != nil {
+		return EffectiveKubernetesInput{}, err
+	}
+	input.ResourceDigest = resourceInput
 	if spec.Certificates.RenewBefore != nil {
 		input.RenewBefore = spec.Certificates.RenewBefore.String()
 	}
@@ -840,6 +846,31 @@ func digestKubernetesManifestSpec(spec KubernetesManifestSpec) (string, error) {
 			return "", err
 		}
 		input.DataDigest = "sha256:" + hashBytes(raw)
+	}
+	return hashJSONStable(input)
+}
+
+func digestKubernetesResourceSpec(spec KubernetesResourceSpec) (string, error) {
+	input := struct {
+		Namespace  string `json:"namespace,omitempty"`
+		Resource   string `json:"resource,omitempty"`
+		Kind       string `json:"kind,omitempty"`
+		Name       string `json:"name,omitempty"`
+		Selector   string `json:"selector,omitempty"`
+		For        string `json:"for,omitempty"`
+		Timeout    string `json:"timeout,omitempty"`
+		EventLimit int    `json:"eventLimit,omitempty"`
+	}{
+		Namespace:  strings.TrimSpace(spec.Namespace),
+		Resource:   strings.TrimSpace(spec.Resource),
+		Kind:       strings.TrimSpace(spec.Kind),
+		Name:       strings.TrimSpace(spec.Name),
+		Selector:   strings.TrimSpace(spec.Selector),
+		For:        strings.TrimSpace(spec.For),
+		EventLimit: spec.EventLimit,
+	}
+	if spec.Timeout != nil {
+		input.Timeout = spec.Timeout.String()
 	}
 	return hashJSONStable(input)
 }

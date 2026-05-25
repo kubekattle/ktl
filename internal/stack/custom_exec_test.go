@@ -96,6 +96,15 @@ releases:
           kind: ConfigMap
           metadata:
             name: torque-delete
+  - name: resource-wait
+    kind: k8s.resource.wait
+    kubernetes:
+      cluster:
+        kubectlCommand: kubectl
+      resource:
+        namespace: torque-test
+        kind: deployment
+        name: torque-wait
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -180,6 +189,27 @@ releases:
 	}
 	if !p.ByID["dev/default/manifest-delete"].Kubernetes.Manifest.RemoveOnDelete {
 		t.Fatalf("manifest-delete removeOnDelete was not defaulted")
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/resource-wait"].Kind); got != NodeKindK8sResourceWait {
+		t.Fatalf("resource-wait kind=%q", got)
+	}
+	if got := p.ByID["dev/default/resource-wait"].Kubernetes.Cluster.Transport; got != "local" {
+		t.Fatalf("resource-wait transport=%q", got)
+	}
+	if got := p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Namespace; got != "torque-test" {
+		t.Fatalf("resource-wait namespace=%q", got)
+	}
+	if got := p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Resource; got != "deployment/torque-wait" {
+		t.Fatalf("resource-wait resource=%q", got)
+	}
+	if got := p.ByID["dev/default/resource-wait"].Kubernetes.Resource.For; got != "condition=Available" {
+		t.Fatalf("resource-wait for=%q", got)
+	}
+	if got := p.ByID["dev/default/resource-wait"].Kubernetes.Resource.EventLimit; got != defaultKubernetesResourceWaitEventLimit {
+		t.Fatalf("resource-wait eventLimit=%d", got)
+	}
+	if p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Timeout == nil || *p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Timeout != defaultKubernetesResourceWaitTimeout {
+		t.Fatalf("resource-wait timeout=%v", p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Timeout)
 	}
 }
 
@@ -585,6 +615,42 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if manifestDeleteHashA == manifestDeleteHashB {
 		t.Fatalf("expected manifest delete hash to change")
+	}
+
+	waitTimeoutA := 30 * time.Second
+	waitTimeoutB := 45 * time.Second
+	resourceWaitA := &ResolvedRelease{
+		ID:        "k8s.resource.wait/wait-ready",
+		Kind:      NodeKindK8sResourceWait,
+		Name:      "wait-ready",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Resource: KubernetesResourceSpec{
+				Namespace:  "torque-test",
+				Kind:       "deployment",
+				Name:       "torque-ready",
+				Resource:   "deployment/torque-ready",
+				For:        "condition=Available",
+				Timeout:    &waitTimeoutA,
+				EventLimit: 10,
+			},
+		},
+	}
+	resourceWaitB := *resourceWaitA
+	resourceWaitB.Kubernetes.Resource.Timeout = &waitTimeoutB
+	resourceWaitHashA, _, err := ComputeEffectiveInputHashWithOptions(resourceWaitA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash resourceWaitA: %v", err)
+	}
+	resourceWaitHashB, _, err := ComputeEffectiveInputHashWithOptions(&resourceWaitB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash resourceWaitB: %v", err)
+	}
+	if resourceWaitHashA == resourceWaitHashB {
+		t.Fatalf("expected resource wait hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -2537,6 +2603,212 @@ spec:
 		!strings.Contains(blockedApply, `"blockedResources"`) ||
 		!strings.Contains(blockedApply, `"owned": false`) {
 		t.Fatalf("unowned manifest delete did not record ownership gate:\n%s", blockedApply)
+	}
+}
+
+func TestRun_KubernetesResourceWaitLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	stateFile := filepath.Join(root, "resource-ready.txt")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	writeExecutableForTest(t, filepath.Join(binDir, "kubectl"), `#!/usr/bin/env python3
+import json
+import os
+import sys
+
+state_file = os.environ["FAKE_KUBECTL_READY"]
+args = sys.argv[1:]
+namespace = "default"
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg in ("--kubeconfig", "--context", "-n", "--namespace"):
+        if arg in ("-n", "--namespace"):
+            namespace = args[i + 1]
+        i += 2
+        continue
+    if arg.startswith("--kubeconfig=") or arg.startswith("--context="):
+        i += 1
+        continue
+    break
+if i >= len(args):
+    sys.exit(2)
+cmd = args[i]
+rest = args[i + 1:]
+
+def ready():
+    try:
+        return open(state_file, "r", encoding="utf-8").read().strip() == "true"
+    except FileNotFoundError:
+        return False
+
+def deployment_doc():
+    is_ready = ready()
+    return {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {
+            "name": "torque-ready",
+            "namespace": namespace,
+            "uid": "uid-deployment-torque-ready",
+            "resourceVersion": "42" if is_ready else "41",
+            "generation": 1,
+        },
+        "status": {
+            "observedGeneration": 1,
+            "replicas": 1,
+            "readyReplicas": 1 if is_ready else 0,
+            "availableReplicas": 1 if is_ready else 0,
+            "updatedReplicas": 1,
+            "conditions": [
+                {
+                    "type": "Available",
+                    "status": "True" if is_ready else "False",
+                    "reason": "MinimumReplicasAvailable" if is_ready else "MinimumReplicasUnavailable",
+                    "message": "token=resource-wait-object-secret",
+                }
+            ],
+        },
+    }
+
+if cmd == "get" and rest and rest[0] == "events":
+    doc = {
+        "items": [
+            {
+                "metadata": {"name": "torque-ready.1", "namespace": namespace},
+                "type": "Normal" if ready() else "Warning",
+                "reason": "Available" if ready() else "Failed",
+                "message": "password=resource-wait-event-secret",
+                "count": 1,
+                "firstTimestamp": "2026-01-01T00:00:00Z",
+                "lastTimestamp": "2026-01-01T00:00:01Z",
+                "involvedObject": {"kind": "Deployment", "name": "torque-ready", "namespace": namespace},
+            }
+        ]
+    }
+    print(json.dumps(doc))
+    sys.exit(0)
+if cmd == "get":
+    if not rest or rest[0] not in ("deployment/torque-ready", "deploy/torque-ready"):
+        print("NotFound", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(deployment_doc()))
+    sys.exit(0)
+if cmd == "wait":
+    if ready():
+        print("deployment.apps/torque-ready condition met")
+        sys.exit(0)
+    print("timed out waiting for the condition on deployments/torque-ready", file=sys.stderr)
+    sys.exit(1)
+sys.exit(2)
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_KUBECTL_READY", stateFile)
+	timeout := 2 * time.Second
+	node := &ResolvedRelease{
+		ID:        "k8s.resource.wait/wait-ready",
+		Kind:      NodeKindK8sResourceWait,
+		Name:      "wait-ready",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Resource: KubernetesResourceSpec{
+				Namespace:  "torque-test",
+				Kind:       "deployment",
+				Name:       "torque-ready",
+				Resource:   "deployment/torque-ready",
+				For:        "condition=Available",
+				Timeout:    &timeout,
+				EventLimit: 5,
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	if err := os.WriteFile(stateFile, []byte("true"), 0o644); err != nil {
+		t.Fatalf("write ready state: %v", err)
+	}
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run resource wait apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"k8s-resource-wait-observe.json", "k8s-resource-wait-plan.json", "k8s-resource-wait-apply.json", "k8s-resource-wait-events.json", "k8s-resource-wait-verify.json", "k8s-resource-wait.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-resource-wait-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"ready": true`) ||
+		!strings.Contains(applyArtifact, `"condition": "Available"`) ||
+		!strings.Contains(applyArtifact, `"changed": false`) ||
+		strings.Contains(applyArtifact, "resource-wait-object-secret") {
+		t.Fatalf("resource wait apply artifact missing readiness proof or leaked object message:\n%s", applyArtifact)
+	}
+	eventsArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-resource-wait-events.json")
+	if !strings.Contains(eventsArtifact, `"messageDigest"`) ||
+		strings.Contains(eventsArtifact, "resource-wait-event-secret") {
+		t.Fatalf("resource wait events artifact missing redacted event proof:\n%s", eventsArtifact)
+	}
+
+	if err := os.WriteFile(stateFile, []byte("false"), 0o644); err != nil {
+		t.Fatalf("write not-ready state: %v", err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err == nil {
+		t.Fatalf("Run resource wait timeout succeeded unexpectedly\nstdout=%s\nstderr=%s", out.String(), errOut.String())
+	}
+	failedRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun failed: %v", err)
+	}
+	failedAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            failedRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit failed: %v", err)
+	}
+	failedApply := auditArtifactBody(t, failedAudit.Artifacts, node.ID, "k8s-resource-wait-apply.json")
+	if !strings.Contains(failedApply, `"status": "failed"`) ||
+		!strings.Contains(failedApply, "timed out waiting for the condition") ||
+		!strings.Contains(failedApply, `"ready": false`) {
+		t.Fatalf("resource wait timeout artifact missing failure proof:\n%s", failedApply)
+	}
+	failedEvents := auditArtifactBody(t, failedAudit.Artifacts, node.ID, "k8s-resource-wait-events.json")
+	if !strings.Contains(failedEvents, `"type": "Warning"`) ||
+		!strings.Contains(failedEvents, `"messageDigest"`) ||
+		strings.Contains(failedEvents, "resource-wait-event-secret") {
+		t.Fatalf("resource wait timeout events missing warning proof:\n%s", failedEvents)
 	}
 }
 

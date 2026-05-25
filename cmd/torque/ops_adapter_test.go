@@ -126,6 +126,17 @@ func TestOpsAdapterCapabilitiesJSON(t *testing.T) {
 		!adapterStringSliceContains(manifestDelete.EvidenceArtifacts, "k8s-manifest-delete-verify.json") {
 		t.Fatalf("k8s.manifest.delete missing diff/verify artifacts: %#v", manifestDelete.EvidenceArtifacts)
 	}
+	resourceWait := findAdapterCapability(result.Adapters, "k8s.resource.wait")
+	if resourceWait == nil {
+		t.Fatalf("missing k8s.resource.wait in %#v", result.Adapters)
+	}
+	if resourceWait.Status != "implemented" || resourceWait.DiffQuality != "readiness-state-with-events" || resourceWait.Mutating {
+		t.Fatalf("k8s.resource.wait capability = %#v", resourceWait)
+	}
+	if !adapterStringSliceContains(resourceWait.EvidenceArtifacts, "k8s-resource-wait-events.json") ||
+		!adapterStringSliceContains(resourceWait.EvidenceArtifacts, "k8s-resource-wait-verify.json") {
+		t.Fatalf("k8s.resource.wait missing events/verify artifacts: %#v", resourceWait.EvidenceArtifacts)
+	}
 	if strings.Contains(out, "secret://") {
 		t.Fatalf("capability output leaked secret ref: %s", out)
 	}
@@ -136,7 +147,7 @@ func TestOpsAdapterCapabilitiesTable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute failed: %v\nstderr=%s\nstdout=%s", err, errOut, out)
 	}
-	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete"} {
+	for _, want := range []string{"ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("table missing %q:\n%s", want, out)
 		}

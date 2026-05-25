@@ -804,6 +804,45 @@ torque stack audit --config ./stacks/k8s-manifest-delete \
   --output json --include-artifacts > k8s-manifest-delete-audit.json
 ```
 
+## Stack: wait for Kubernetes resources
+
+Use `k8s.resource.wait` when a stack must prove a Kubernetes object became
+ready before later nodes run. The adapter records the initial object state, the
+`kubectl wait` command receipt, the final readiness state, and related
+Kubernetes events with event messages stored as digests only. A timeout is a
+failed stack node, but the run still contains event evidence for debugging and
+audit.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: k8s-resource-wait
+nodes:
+  - name: wait-api
+    kind: k8s.resource.wait
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_K3S_SSH
+        kubectlCommand: k3s kubectl
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      resource:
+        namespace: torque-demo
+        kind: deployment
+        name: torque-demo-api
+        for: condition=Available
+        timeout: 2m
+        eventLimit: 25
+```
+
+```bash
+TORQUE_LAB_K3S_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/k8s-resource-wait --yes
+
+torque stack audit --config ./stacks/k8s-resource-wait \
+  --output json --include-artifacts > k8s-resource-wait-audit.json
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

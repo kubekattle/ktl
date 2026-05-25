@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 type CompileOptions struct {
@@ -373,6 +374,10 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if err := validateKubernetesManifestSpec(n.Kind, leaf.Name, &n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
+	case NodeKindK8sResourceWait:
+		if err := validateKubernetesResourceWaitSpec(leaf.Name, &n.Kubernetes); err != nil {
+			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
+		}
 	case NodeKindK8sClusterVerify:
 		if err := validateKubernetesClusterVerifySpec(leaf.Name, n.Kubernetes.Cluster); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
@@ -450,6 +455,66 @@ func validateKubernetesManifestSpec(kind string, name string, spec *KubernetesSp
 	manifest.PrunePolicy = prunePolicy
 	if kind == NodeKindK8sManifestDelete {
 		manifest.RemoveOnDelete = true
+	}
+	return nil
+}
+
+func validateKubernetesResourceWaitSpec(name string, spec *KubernetesSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s node %s requires kubernetes resource config", NodeKindK8sResourceWait, name)
+	}
+	if err := validateKubernetesClusterAccessSpec(NodeKindK8sResourceWait, name, spec.Cluster); err != nil {
+		return err
+	}
+	resource := &spec.Resource
+	if strings.TrimSpace(resource.Namespace) == "" {
+		resource.Namespace = "default"
+	}
+	if strings.TrimSpace(spec.Cluster.Transport) == "" {
+		spec.Cluster.Transport = "local"
+	}
+	resource.Resource = strings.TrimSpace(resource.Resource)
+	resource.Kind = strings.TrimSpace(resource.Kind)
+	resource.Name = strings.TrimSpace(resource.Name)
+	resource.Selector = strings.TrimSpace(resource.Selector)
+	if resource.Resource != "" && (resource.Kind == "" || resource.Name == "") {
+		kind, name := splitKubernetesResourceName(resource.Resource)
+		if resource.Kind == "" {
+			resource.Kind = kind
+		}
+		if resource.Name == "" {
+			resource.Name = name
+		}
+	}
+	if resource.Resource == "" {
+		if resource.Kind == "" {
+			return fmt.Errorf("%s node %s requires kubernetes.resource.kind or resource", NodeKindK8sResourceWait, name)
+		}
+		if resource.Selector == "" && resource.Name == "" {
+			return fmt.Errorf("%s node %s requires kubernetes.resource.name or selector", NodeKindK8sResourceWait, name)
+		}
+		if resource.Name != "" {
+			resource.Resource = resource.Kind + "/" + resource.Name
+		}
+	}
+	if strings.TrimSpace(resource.For) == "" {
+		resource.For = defaultKubernetesResourceWaitFor(resource.Kind)
+	}
+	if resource.Timeout == nil {
+		timeout := defaultKubernetesResourceWaitTimeout
+		resource.Timeout = &timeout
+	} else if *resource.Timeout <= 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.resource.timeout > 0", NodeKindK8sResourceWait, name)
+	}
+	if resource.EventLimit < 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.resource.eventLimit >= 0", NodeKindK8sResourceWait, name)
+	}
+	if resource.EventLimit == 0 {
+		resource.EventLimit = defaultKubernetesResourceWaitEventLimit
+	}
+	if spec.Cluster.Timeout == nil && resource.Timeout != nil {
+		transportTimeout := *resource.Timeout + 30*time.Second
+		spec.Cluster.Timeout = &transportTimeout
 	}
 	return nil
 }
