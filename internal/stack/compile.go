@@ -378,6 +378,10 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if err := validateKubernetesResourceWaitSpec(leaf.Name, &n.Kubernetes); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
+	case NodeKindK8sLogsCapture:
+		if err := validateKubernetesLogsCaptureSpec(leaf.Name, &n.Kubernetes); err != nil {
+			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
+		}
 	case NodeKindK8sClusterVerify:
 		if err := validateKubernetesClusterVerifySpec(leaf.Name, n.Kubernetes.Cluster); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
@@ -515,6 +519,77 @@ func validateKubernetesResourceWaitSpec(name string, spec *KubernetesSpec) error
 	if spec.Cluster.Timeout == nil && resource.Timeout != nil {
 		transportTimeout := *resource.Timeout + 30*time.Second
 		spec.Cluster.Timeout = &transportTimeout
+	}
+	return nil
+}
+
+func validateKubernetesLogsCaptureSpec(name string, spec *KubernetesSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s node %s requires kubernetes logs config", NodeKindK8sLogsCapture, name)
+	}
+	if err := validateKubernetesClusterAccessSpec(NodeKindK8sLogsCapture, name, spec.Cluster); err != nil {
+		return err
+	}
+	logs := &spec.Logs
+	if strings.TrimSpace(logs.Namespace) == "" {
+		logs.Namespace = "default"
+	}
+	if strings.TrimSpace(spec.Cluster.Transport) == "" {
+		spec.Cluster.Transport = "local"
+	}
+	logs.Resource = strings.TrimSpace(logs.Resource)
+	logs.Kind = strings.TrimSpace(logs.Kind)
+	logs.Name = strings.TrimSpace(logs.Name)
+	logs.Selector = strings.TrimSpace(logs.Selector)
+	logs.Container = strings.TrimSpace(logs.Container)
+	logs.SinceTime = strings.TrimSpace(logs.SinceTime)
+	if logs.Resource != "" && (logs.Kind == "" || logs.Name == "") {
+		kind, resourceName := splitKubernetesResourceName(logs.Resource)
+		if logs.Kind == "" {
+			logs.Kind = kind
+		}
+		if logs.Name == "" {
+			logs.Name = resourceName
+		}
+	}
+	if logs.Resource == "" && logs.Selector == "" {
+		if logs.Kind == "" {
+			return fmt.Errorf("%s node %s requires kubernetes.logs.kind, resource, or selector", NodeKindK8sLogsCapture, name)
+		}
+		if logs.Name == "" {
+			return fmt.Errorf("%s node %s requires kubernetes.logs.name or selector", NodeKindK8sLogsCapture, name)
+		}
+		logs.Resource = logs.Kind + "/" + logs.Name
+	}
+	if logs.Resource != "" && logs.Selector != "" {
+		return fmt.Errorf("%s node %s cannot set both kubernetes.logs.resource/name and selector", NodeKindK8sLogsCapture, name)
+	}
+	if logs.Container != "" && logs.AllContainers {
+		return fmt.Errorf("%s node %s cannot set both kubernetes.logs.container and allContainers", NodeKindK8sLogsCapture, name)
+	}
+	if logs.Since != nil && *logs.Since <= 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.logs.since > 0", NodeKindK8sLogsCapture, name)
+	}
+	if logs.Since != nil && logs.SinceTime != "" {
+		return fmt.Errorf("%s node %s cannot set both kubernetes.logs.since and sinceTime", NodeKindK8sLogsCapture, name)
+	}
+	if logs.TailLines < 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.logs.tailLines >= 0", NodeKindK8sLogsCapture, name)
+	}
+	if logs.TailLines == 0 {
+		logs.TailLines = defaultKubernetesLogsCaptureTailLines
+	}
+	if logs.LimitBytes < 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.logs.limitBytes >= 0", NodeKindK8sLogsCapture, name)
+	}
+	if logs.LimitBytes == 0 {
+		logs.LimitBytes = defaultKubernetesLogsCaptureLimitBytes
+	}
+	if logs.MaxLogRequests < 0 {
+		return fmt.Errorf("%s node %s requires kubernetes.logs.maxLogRequests >= 0", NodeKindK8sLogsCapture, name)
+	}
+	if logs.MaxLogRequests == 0 {
+		logs.MaxLogRequests = defaultKubernetesLogsCaptureMaxRequests
 	}
 	return nil
 }

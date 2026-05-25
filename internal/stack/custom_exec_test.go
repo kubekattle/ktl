@@ -105,6 +105,18 @@ releases:
         namespace: torque-test
         kind: deployment
         name: torque-wait
+  - name: logs-capture
+    kind: k8s.logs.capture
+    kubernetes:
+      cluster:
+        kubectlCommand: kubectl
+      logs:
+        namespace: torque-test
+        kind: deployment
+        name: torque-logs
+        container: app
+        tailLines: 7
+        limitBytes: 2048
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -210,6 +222,30 @@ releases:
 	}
 	if p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Timeout == nil || *p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Timeout != defaultKubernetesResourceWaitTimeout {
 		t.Fatalf("resource-wait timeout=%v", p.ByID["dev/default/resource-wait"].Kubernetes.Resource.Timeout)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/logs-capture"].Kind); got != NodeKindK8sLogsCapture {
+		t.Fatalf("logs-capture kind=%q", got)
+	}
+	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Cluster.Transport; got != "local" {
+		t.Fatalf("logs-capture transport=%q", got)
+	}
+	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Logs.Namespace; got != "torque-test" {
+		t.Fatalf("logs-capture namespace=%q", got)
+	}
+	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Logs.Resource; got != "deployment/torque-logs" {
+		t.Fatalf("logs-capture resource=%q", got)
+	}
+	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Logs.Container; got != "app" {
+		t.Fatalf("logs-capture container=%q", got)
+	}
+	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Logs.TailLines; got != 7 {
+		t.Fatalf("logs-capture tailLines=%d", got)
+	}
+	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Logs.LimitBytes; got != 2048 {
+		t.Fatalf("logs-capture limitBytes=%d", got)
+	}
+	if got := p.ByID["dev/default/logs-capture"].Kubernetes.Logs.MaxLogRequests; got != defaultKubernetesLogsCaptureMaxRequests {
+		t.Fatalf("logs-capture maxLogRequests=%d", got)
 	}
 }
 
@@ -651,6 +687,43 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if resourceWaitHashA == resourceWaitHashB {
 		t.Fatalf("expected resource wait hash to change")
+	}
+
+	logSince := 30 * time.Second
+	logsCaptureA := &ResolvedRelease{
+		ID:        "k8s.logs.capture/capture-logs",
+		Kind:      NodeKindK8sLogsCapture,
+		Name:      "capture-logs",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Logs: KubernetesLogsSpec{
+				Namespace:     "torque-test",
+				Kind:          "deployment",
+				Name:          "torque-logs",
+				Resource:      "deployment/torque-logs",
+				Container:     "app",
+				Since:         &logSince,
+				TailLines:     20,
+				LimitBytes:    4096,
+				AllContainers: false,
+			},
+		},
+	}
+	logsCaptureB := *logsCaptureA
+	logsCaptureB.Kubernetes.Logs.TailLines = 25
+	logsCaptureHashA, _, err := ComputeEffectiveInputHashWithOptions(logsCaptureA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash logsCaptureA: %v", err)
+	}
+	logsCaptureHashB, _, err := ComputeEffectiveInputHashWithOptions(&logsCaptureB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash logsCaptureB: %v", err)
+	}
+	if logsCaptureHashA == logsCaptureHashB {
+		t.Fatalf("expected logs capture hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -2809,6 +2882,179 @@ sys.exit(2)
 		!strings.Contains(failedEvents, `"messageDigest"`) ||
 		strings.Contains(failedEvents, "resource-wait-event-secret") {
 		t.Fatalf("resource wait timeout events missing warning proof:\n%s", failedEvents)
+	}
+}
+
+func TestRun_KubernetesLogsCaptureLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	modeFile := filepath.Join(root, "logs-mode.txt")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	writeExecutableForTest(t, filepath.Join(binDir, "kubectl"), `#!/usr/bin/env python3
+import json
+import os
+import sys
+
+mode_file = os.environ["FAKE_KUBECTL_LOGS_MODE"]
+args = sys.argv[1:]
+namespace = "default"
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg in ("--kubeconfig", "--context", "-n", "--namespace"):
+        if arg in ("-n", "--namespace"):
+            namespace = args[i + 1]
+        i += 2
+        continue
+    if arg.startswith("--kubeconfig=") or arg.startswith("--context="):
+        i += 1
+        continue
+    break
+if i >= len(args):
+    sys.exit(2)
+cmd = args[i]
+rest = args[i + 1:]
+
+def mode():
+    try:
+        return open(mode_file, "r", encoding="utf-8").read().strip()
+    except FileNotFoundError:
+        return "ok"
+
+if cmd == "get":
+    target = rest[0] if rest else ""
+    if target not in ("deployment/torque-logs", "deploy/torque-logs"):
+        print("NotFound", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {
+            "name": "torque-logs",
+            "namespace": namespace,
+            "uid": "uid-deployment-torque-logs",
+            "resourceVersion": "77",
+            "annotations": {"note": "token=logs-object-secret"},
+        },
+    }))
+    sys.exit(0)
+if cmd == "logs":
+    if mode() == "fail":
+        print("pod log capture failed", file=sys.stderr)
+        sys.exit(1)
+    print("2026-01-01T00:00:00Z safe-line-1")
+    print("2026-01-01T00:00:01Z safe-line-2")
+    print("2026-01-01T00:00:02Z password=logs-capture-secret")
+    print("2026-01-01T00:00:03Z token=logs-token-secret")
+    print("2026-01-01T00:00:04Z final-line")
+    sys.exit(0)
+sys.exit(2)
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_KUBECTL_LOGS_MODE", modeFile)
+	node := &ResolvedRelease{
+		ID:        "k8s.logs.capture/capture-logs",
+		Kind:      NodeKindK8sLogsCapture,
+		Name:      "capture-logs",
+		Dir:       root,
+		Namespace: "default",
+		Cluster:   ClusterTarget{Name: "default"},
+		Kubernetes: KubernetesSpec{
+			Cluster: KubernetesClusterSpec{Transport: "local", KubectlCommand: "kubectl"},
+			Logs: KubernetesLogsSpec{
+				Namespace:  "torque-test",
+				Kind:       "deployment",
+				Name:       "torque-logs",
+				Resource:   "deployment/torque-logs",
+				Container:  "app",
+				Timestamps: true,
+				TailLines:  5,
+				LimitBytes: 2048,
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	if err := os.WriteFile(modeFile, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write logs mode: %v", err)
+	}
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run logs capture apply: %v\nstderr=%s", err, errOut.String())
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"k8s-logs-capture-observe.json", "k8s-logs-capture-plan.json", "k8s-logs-capture-logs.json", "k8s-logs-capture-verify.json", "k8s-logs-capture.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	logsArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-logs-capture-logs.json")
+	if !strings.Contains(logsArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(logsArtifact, `"changed": false`) ||
+		!strings.Contains(logsArtifact, `password=[REDACTED]`) ||
+		!strings.Contains(logsArtifact, `token=[REDACTED]`) ||
+		!strings.Contains(logsArtifact, `"capturedLineCount": 5`) ||
+		!strings.Contains(logsArtifact, `"noSensitiveKeyValues": true`) ||
+		strings.Contains(logsArtifact, "logs-capture-secret") ||
+		strings.Contains(logsArtifact, "logs-token-secret") ||
+		strings.Contains(logsArtifact, "logs-object-secret") {
+		t.Fatalf("logs capture artifact missing bounded redacted proof:\n%s", logsArtifact)
+	}
+	verifyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "k8s-logs-capture-verify.json")
+	if !strings.Contains(verifyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(verifyArtifact, `"lineCount": 5`) ||
+		!strings.Contains(verifyArtifact, `"noSensitiveKeyValues": true`) {
+		t.Fatalf("logs capture verify artifact missing redaction proof:\n%s", verifyArtifact)
+	}
+
+	if err := os.WriteFile(modeFile, []byte("fail"), 0o644); err != nil {
+		t.Fatalf("write failing logs mode: %v", err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err == nil {
+		t.Fatalf("Run logs capture failure succeeded unexpectedly\nstdout=%s\nstderr=%s", out.String(), errOut.String())
+	}
+	failedRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun failed: %v", err)
+	}
+	failedAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            failedRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit failed: %v", err)
+	}
+	failedLogs := auditArtifactBody(t, failedAudit.Artifacts, node.ID, "k8s-logs-capture-logs.json")
+	if !strings.Contains(failedLogs, `"status": "failed"`) ||
+		!strings.Contains(failedLogs, "pod log capture failed") {
+		t.Fatalf("logs capture failure artifact missing failure proof:\n%s", failedLogs)
 	}
 }
 

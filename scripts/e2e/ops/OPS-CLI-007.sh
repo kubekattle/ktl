@@ -285,6 +285,7 @@ systemd = catalog_adapters.get("host.systemd.unit")
 manifest = catalog_adapters.get("k8s.manifest.apply")
 manifest_delete = catalog_adapters.get("k8s.manifest.delete")
 resource_wait = catalog_adapters.get("k8s.resource.wait")
+logs_capture = catalog_adapters.get("k8s.logs.capture")
 if catalog.get("apiVersion") != "torque.dev/ops/adapter-capabilities/v1":
     errors.append("catalog apiVersion mismatch")
 if (catalog.get("summary") or {}).get("implemented", 0) < 1:
@@ -343,9 +344,13 @@ if not resource_wait or resource_wait.get("status") != "implemented" or resource
     errors.append("k8s.resource.wait implemented contract missing")
 elif "k8s-resource-wait-events.json" not in (resource_wait.get("evidenceArtifacts") or []) or "k8s-resource-wait-verify.json" not in (resource_wait.get("evidenceArtifacts") or []):
     errors.append("k8s.resource.wait missing events/verify artifact")
+if not logs_capture or logs_capture.get("status") != "implemented" or logs_capture.get("diffQuality") != "bounded-redacted-log-evidence" or logs_capture.get("mutating"):
+    errors.append("k8s.logs.capture implemented contract missing")
+elif "k8s-logs-capture-logs.json" not in (logs_capture.get("evidenceArtifacts") or []) or "k8s-logs-capture-verify.json" not in (logs_capture.get("evidenceArtifacts") or []):
+    errors.append("k8s.logs.capture missing logs/verify artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage", "host.user.manage", "host.cron.manage", "host.systemd.unit", "k8s.manifest.apply", "k8s.manifest.delete", "k8s.resource.wait", "k8s.logs.capture"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

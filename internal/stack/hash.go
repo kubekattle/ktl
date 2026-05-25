@@ -114,6 +114,7 @@ type EffectiveKubernetesInput struct {
 	ClusterDigest       string   `json:"clusterDigest,omitempty"`
 	ManifestDigest      string   `json:"manifestDigest,omitempty"`
 	ResourceDigest      string   `json:"resourceDigest,omitempty"`
+	LogsDigest          string   `json:"logsDigest,omitempty"`
 	TargetDigests       []string `json:"targetDigests,omitempty"`
 	RenewBefore         string   `json:"renewBefore,omitempty"`
 	Force               bool     `json:"force,omitempty"`
@@ -240,7 +241,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.KubernetesDigest = kubernetesInput.Digest
-	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait:
+	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait, NodeKindK8sLogsCapture:
 		kubernetesInput, err := digestKubernetesSpec(n.Kubernetes)
 		if err != nil {
 			return "", nil, err
@@ -588,6 +589,11 @@ func digestKubernetesSpec(spec KubernetesSpec) (EffectiveKubernetesInput, error)
 		return EffectiveKubernetesInput{}, err
 	}
 	input.ResourceDigest = resourceInput
+	logsInput, err := digestKubernetesLogsSpec(spec.Logs)
+	if err != nil {
+		return EffectiveKubernetesInput{}, err
+	}
+	input.LogsDigest = logsInput
 	if spec.Certificates.RenewBefore != nil {
 		input.RenewBefore = spec.Certificates.RenewBefore.String()
 	}
@@ -871,6 +877,45 @@ func digestKubernetesResourceSpec(spec KubernetesResourceSpec) (string, error) {
 	}
 	if spec.Timeout != nil {
 		input.Timeout = spec.Timeout.String()
+	}
+	return hashJSONStable(input)
+}
+
+func digestKubernetesLogsSpec(spec KubernetesLogsSpec) (string, error) {
+	input := struct {
+		Namespace      string `json:"namespace,omitempty"`
+		Resource       string `json:"resource,omitempty"`
+		Kind           string `json:"kind,omitempty"`
+		Name           string `json:"name,omitempty"`
+		Selector       string `json:"selector,omitempty"`
+		Container      string `json:"container,omitempty"`
+		AllContainers  bool   `json:"allContainers,omitempty"`
+		Previous       bool   `json:"previous,omitempty"`
+		Timestamps     bool   `json:"timestamps,omitempty"`
+		Prefix         bool   `json:"prefix,omitempty"`
+		Since          string `json:"since,omitempty"`
+		SinceTime      string `json:"sinceTime,omitempty"`
+		TailLines      int64  `json:"tailLines,omitempty"`
+		LimitBytes     int64  `json:"limitBytes,omitempty"`
+		MaxLogRequests int    `json:"maxLogRequests,omitempty"`
+	}{
+		Namespace:      strings.TrimSpace(spec.Namespace),
+		Resource:       strings.TrimSpace(spec.Resource),
+		Kind:           strings.TrimSpace(spec.Kind),
+		Name:           strings.TrimSpace(spec.Name),
+		Selector:       strings.TrimSpace(spec.Selector),
+		Container:      strings.TrimSpace(spec.Container),
+		AllContainers:  spec.AllContainers,
+		Previous:       spec.Previous,
+		Timestamps:     spec.Timestamps,
+		Prefix:         spec.Prefix,
+		SinceTime:      strings.TrimSpace(spec.SinceTime),
+		TailLines:      spec.TailLines,
+		LimitBytes:     spec.LimitBytes,
+		MaxLogRequests: spec.MaxLogRequests,
+	}
+	if spec.Since != nil {
+		input.Since = spec.Since.String()
 	}
 	return hashJSONStable(input)
 }

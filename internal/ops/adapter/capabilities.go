@@ -336,6 +336,25 @@ func Definitions() []Capability {
 			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
 			Description:         "Wait for a declared Kubernetes resource readiness condition and record redacted event evidence for success or timeout.",
 		},
+		{
+			Adapter:             "k8s.logs.capture",
+			Status:              "implemented",
+			Classification:      "guarded",
+			TargetTypes:         []string{"kubernetes", "local", "host"},
+			Transports:          []string{"local", "ssh"},
+			Mutating:            false,
+			RequiredPrivilege:   "Kubernetes RBAC to get declared resources and read pod logs",
+			Idempotence:         "bounded-log-snapshot",
+			CheckMode:           "log-capture-plan",
+			DiffQuality:         "bounded-redacted-log-evidence",
+			SupportedPhases:     []string{"observe", "plan", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts:   []string{"k8s-logs-capture-observe.json", "k8s-logs-capture-plan.json", "k8s-logs-capture-logs.json", "k8s-logs-capture-verify.json", "k8s-logs-capture.json", "decision.json"},
+			RequiredPolicy:      []string{"target graph selection", "Kubernetes RBAC scope", "allow policy decision"},
+			Touches:             []string{"Kubernetes pod logs for the declared resource or selector"},
+			SecretInputs:        []string{"captured log lines are bounded and redacted; command output receipts store digests and byte counts"},
+			NetworkDestinations: []string{"Kubernetes API through selected kubectl target"},
+			Description:         "Capture bounded Kubernetes pod/container logs with redaction proof, line/byte limits, and digest-backed evidence.",
+		},
 	}
 	for i := range out {
 		out[i] = cloneCapability(out[i])
@@ -508,7 +527,7 @@ func probeCommandsFor(adapterName string) []probeCommand {
 			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
 			{Name: "python3", Command: "command -v python3 >/dev/null 2>&1", Required: true},
 		}
-	case "k8s.resource.wait":
+	case "k8s.resource.wait", "k8s.logs.capture":
 		return []probeCommand{
 			{Name: "kubectl", Command: "command -v kubectl >/dev/null 2>&1 || command -v k3s >/dev/null 2>&1", Required: true},
 		}

@@ -259,6 +259,7 @@ adapters = [
     "k8s.manifest.apply",
     "k8s.manifest.delete",
     "k8s.resource.wait",
+    "k8s.logs.capture",
     "http.check",
 ]
 providers = [

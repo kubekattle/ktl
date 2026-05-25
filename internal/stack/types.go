@@ -437,6 +437,7 @@ type KubernetesSpec struct {
 	Cluster      KubernetesClusterSpec  `yaml:"cluster,omitempty" json:"cluster,omitempty"`
 	Manifest     KubernetesManifestSpec `yaml:"manifest,omitempty" json:"manifest,omitempty"`
 	Resource     KubernetesResourceSpec `yaml:"resource,omitempty" json:"resource,omitempty"`
+	Logs         KubernetesLogsSpec     `yaml:"logs,omitempty" json:"logs,omitempty"`
 }
 
 type KubernetesClusterSpec struct {
@@ -482,6 +483,24 @@ type KubernetesResourceSpec struct {
 	For        string         `yaml:"for,omitempty" json:"for,omitempty"`
 	Timeout    *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	EventLimit int            `yaml:"eventLimit,omitempty" json:"eventLimit,omitempty"`
+}
+
+type KubernetesLogsSpec struct {
+	Namespace      string         `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Resource       string         `yaml:"resource,omitempty" json:"resource,omitempty"`
+	Kind           string         `yaml:"kind,omitempty" json:"kind,omitempty"`
+	Name           string         `yaml:"name,omitempty" json:"name,omitempty"`
+	Selector       string         `yaml:"selector,omitempty" json:"selector,omitempty"`
+	Container      string         `yaml:"container,omitempty" json:"container,omitempty"`
+	AllContainers  bool           `yaml:"allContainers,omitempty" json:"allContainers,omitempty"`
+	Previous       bool           `yaml:"previous,omitempty" json:"previous,omitempty"`
+	Timestamps     bool           `yaml:"timestamps,omitempty" json:"timestamps,omitempty"`
+	Prefix         bool           `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	Since          *time.Duration `yaml:"since,omitempty" json:"since,omitempty"`
+	SinceTime      string         `yaml:"sinceTime,omitempty" json:"sinceTime,omitempty"`
+	TailLines      int64          `yaml:"tailLines,omitempty" json:"tailLines,omitempty"`
+	LimitBytes     int64          `yaml:"limitBytes,omitempty" json:"limitBytes,omitempty"`
+	MaxLogRequests int            `yaml:"maxLogRequests,omitempty" json:"maxLogRequests,omitempty"`
 }
 
 type KubernetesAppProbe struct {

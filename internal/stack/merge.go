@@ -705,6 +705,7 @@ func mergeKubernetesSpec(dst KubernetesSpec, src KubernetesSpec) KubernetesSpec 
 	dst.Certificates.Policy = mergeKubernetesLifecyclePolicySpec(dst.Certificates.Policy, src.Certificates.Policy)
 	dst.Manifest = mergeKubernetesManifestSpec(dst.Manifest, src.Manifest)
 	dst.Resource = mergeKubernetesResourceSpec(dst.Resource, src.Resource)
+	dst.Logs = mergeKubernetesLogsSpec(dst.Logs, src.Logs)
 	return dst
 }
 
@@ -766,6 +767,55 @@ func mergeKubernetesResourceSpec(dst KubernetesResourceSpec, src KubernetesResou
 	}
 	if src.EventLimit != 0 {
 		dst.EventLimit = src.EventLimit
+	}
+	return dst
+}
+
+func mergeKubernetesLogsSpec(dst KubernetesLogsSpec, src KubernetesLogsSpec) KubernetesLogsSpec {
+	if src.Namespace != "" {
+		dst.Namespace = strings.TrimSpace(src.Namespace)
+	}
+	if src.Resource != "" {
+		dst.Resource = strings.TrimSpace(src.Resource)
+	}
+	if src.Kind != "" {
+		dst.Kind = strings.TrimSpace(src.Kind)
+	}
+	if src.Name != "" {
+		dst.Name = strings.TrimSpace(src.Name)
+	}
+	if src.Selector != "" {
+		dst.Selector = strings.TrimSpace(src.Selector)
+	}
+	if src.Container != "" {
+		dst.Container = strings.TrimSpace(src.Container)
+	}
+	if src.AllContainers {
+		dst.AllContainers = true
+	}
+	if src.Previous {
+		dst.Previous = true
+	}
+	if src.Timestamps {
+		dst.Timestamps = true
+	}
+	if src.Prefix {
+		dst.Prefix = true
+	}
+	if src.Since != nil {
+		dst.Since = src.Since
+	}
+	if src.SinceTime != "" {
+		dst.SinceTime = strings.TrimSpace(src.SinceTime)
+	}
+	if src.TailLines != 0 {
+		dst.TailLines = src.TailLines
+	}
+	if src.LimitBytes != 0 {
+		dst.LimitBytes = src.LimitBytes
+	}
+	if src.MaxLogRequests != 0 {
+		dst.MaxLogRequests = src.MaxLogRequests
 	}
 	return dst
 }

@@ -843,6 +843,44 @@ torque stack audit --config ./stacks/k8s-resource-wait \
   --output json --include-artifacts > k8s-resource-wait-audit.json
 ```
 
+## Stack: capture Kubernetes logs
+
+Use `k8s.logs.capture` when a stack needs bounded pod/container logs as
+portable evidence. The adapter runs `kubectl logs` locally or over SSH, applies
+line and byte limits, stores command output receipts as digests, and writes
+redacted log lines plus a redaction proof into the run artifacts.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: k8s-logs-capture
+nodes:
+  - name: capture-api-logs
+    kind: k8s.logs.capture
+    kubernetes:
+      cluster:
+        transport: ssh
+        targetEnv: TORQUE_LAB_K3S_SSH
+        kubectlCommand: k3s kubectl
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      logs:
+        namespace: torque-demo
+        kind: deployment
+        name: torque-demo-api
+        container: app
+        tailLines: 100
+        limitBytes: 65536
+        timestamps: true
+```
+
+```bash
+TORQUE_LAB_K3S_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/k8s-logs-capture --yes
+
+torque stack audit --config ./stacks/k8s-logs-capture \
+  --output json --include-artifacts > k8s-logs-capture-audit.json
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and
