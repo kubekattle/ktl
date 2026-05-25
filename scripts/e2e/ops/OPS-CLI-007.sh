@@ -278,6 +278,7 @@ host = catalog_adapters.get("host.command.run")
 render = catalog_adapters.get("host.file.render")
 copy_adapter = catalog_adapters.get("host.file.copy")
 package = catalog_adapters.get("host.package.install")
+service = catalog_adapters.get("host.service.manage")
 if catalog.get("apiVersion") != "torque.dev/ops/adapter-capabilities/v1":
     errors.append("catalog apiVersion mismatch")
 if (catalog.get("summary") or {}).get("implemented", 0) < 1:
@@ -307,9 +308,13 @@ elif package.get("requiredPrivilege") != "root or delegated sudo":
     errors.append("host.package.install privilege contract missing")
 elif "host-package-diff.json" not in (package.get("evidenceArtifacts") or []):
     errors.append("host.package.install missing diff artifact")
+if not service or service.get("status") != "implemented" or service.get("diffQuality") != "exact":
+    errors.append("host.service.manage implemented contract missing")
+elif "host-service-diff.json" not in (service.get("evidenceArtifacts") or []):
+    errors.append("host.service.manage missing diff artifact")
 
 table = table_path.read_text(encoding="utf-8")
-for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install"):
+for text in ("ADAPTER", "STATUS", "host.command.run", "host.file.render", "host.file.copy", "host.package.install", "host.service.manage"):
     if text not in table:
         errors.append(f"table output missing {text}")
 

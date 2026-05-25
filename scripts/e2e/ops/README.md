@@ -123,6 +123,22 @@ scripts/e2e/ops/OPS-HOST-004.sh \
   --cleanup
 ```
 
+## OPS-HOST-005
+
+`OPS-HOST-005.sh` proves `host.service.manage` on the real SSH lab host. It
+creates an isolated systemd test unit, starts and enables it through the stack,
+verifies service before/after evidence, repeats apply as a no-op, proves restart
+evidence, then deletes through the stack and proves the unit was stopped and
+disabled.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-005.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-CLI-004b
 
 `OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved

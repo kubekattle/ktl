@@ -348,6 +348,22 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	if src.Purge {
 		dst.Purge = true
 	}
+	if src.ServiceName != "" {
+		dst.ServiceName = strings.TrimSpace(src.ServiceName)
+	}
+	if src.ServiceManager != "" {
+		dst.ServiceManager = strings.TrimSpace(src.ServiceManager)
+	}
+	if src.Enabled != nil {
+		enabled := *src.Enabled
+		dst.Enabled = &enabled
+	}
+	if src.StopOnDelete {
+		dst.StopOnDelete = true
+	}
+	if src.DisableOnDelete {
+		dst.DisableOnDelete = true
+	}
 	if len(input) == 0 {
 		return dst
 	}
@@ -428,6 +444,21 @@ func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[st
 	}
 	if v, ok := inputBool(input, "purge"); ok {
 		dst.Purge = v
+	}
+	if v := inputString(input, "service"); v != "" {
+		dst.ServiceName = v
+	}
+	if v := inputString(input, "serviceManager"); v != "" {
+		dst.ServiceManager = v
+	}
+	if v, ok := inputBool(input, "enabled"); ok {
+		dst.Enabled = &v
+	}
+	if v, ok := inputBool(input, "stopOnDelete"); ok {
+		dst.StopOnDelete = v
+	}
+	if v, ok := inputBool(input, "disableOnDelete"); ok {
+		dst.DisableOnDelete = v
 	}
 	return dst
 }

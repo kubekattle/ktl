@@ -207,7 +207,24 @@ func Definitions() []Capability {
 			SecretInputs:      []string{"package command output digests only in evidence"},
 			Description:       "Install, upgrade, or remove one package through local or SSH transport with exact before/after package evidence.",
 		},
-		planned("host.service.manage", "guarded", "conditional", "bounded", []string{"service manager", "unit state"}, []string{"host-service-observe.json", "host-service-plan.json", "host-service-apply.json", "host-service-verify.json"}),
+		{
+			Adapter:           "host.service.manage",
+			Status:            "implemented",
+			Classification:    "guarded",
+			TargetTypes:       []string{"host", "local"},
+			Transports:        []string{"local", "ssh"},
+			Mutating:          true,
+			RequiredPrivilege: "root or delegated sudo for systemd units",
+			Idempotence:       "service-state-enablement",
+			CheckMode:         "deterministic-plan",
+			DiffQuality:       "exact",
+			SupportedPhases:   []string{"observe", "plan", "diff", "apply", "verify", "delete", "export"},
+			EvidenceArtifacts: []string{"host-service-observe.json", "host-service-plan.json", "host-service-diff.json", "host-service-apply.json", "host-service-verify.json", "host-service.json", "decision.json"},
+			RequiredPolicy:    []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
+			Touches:           []string{"service manager", "unit runtime state", "unit enablement"},
+			SecretInputs:      []string{"service command output digests only in evidence"},
+			Description:       "Start, stop, restart, enable, or disable one systemd unit through local or SSH transport with exact before/after service evidence.",
+		},
 		planned("host.user.manage", "guarded", "conditional", "bounded", []string{"passwd/group database"}, []string{"host-user-observe.json", "host-user-plan.json", "host-user-apply.json", "host-user-verify.json"}),
 		planned("host.cron.manage", "guarded", "conditional", "exact", []string{"crontab", "cron.d files"}, []string{"host-cron-observe.json", "host-cron-plan.json", "host-cron-diff.json", "host-cron-apply.json", "host-cron-verify.json"}),
 		planned("host.systemd.unit", "guarded", "conditional", "exact", []string{"systemd unit files", "systemd manager"}, []string{"host-systemd-observe.json", "host-systemd-plan.json", "host-systemd-diff.json", "host-systemd-apply.json", "host-systemd-verify.json", "journal-evidence.json"}),
@@ -359,6 +376,10 @@ func probeCommandsFor(adapterName string) []probeCommand {
 	case "host.package.install":
 		return []probeCommand{
 			{Name: "package-manager", Command: "command -v apt-get >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1 || command -v apk >/dev/null 2>&1", Required: true},
+		}
+	case "host.service.manage":
+		return []probeCommand{
+			{Name: "service-manager", Command: "command -v systemctl >/dev/null 2>&1 && systemctl --version >/dev/null 2>&1", Required: true},
 		}
 	default:
 		return nil

@@ -407,6 +407,11 @@ type HostCommandSpec struct {
 	Version         string         `yaml:"version,omitempty" json:"version,omitempty"`
 	UpdateCache     bool           `yaml:"updateCache,omitempty" json:"updateCache,omitempty"`
 	Purge           bool           `yaml:"purge,omitempty" json:"purge,omitempty"`
+	ServiceName     string         `yaml:"service,omitempty" json:"service,omitempty"`
+	ServiceManager  string         `yaml:"serviceManager,omitempty" json:"serviceManager,omitempty"`
+	Enabled         *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	StopOnDelete    bool           `yaml:"stopOnDelete,omitempty" json:"stopOnDelete,omitempty"`
+	DisableOnDelete bool           `yaml:"disableOnDelete,omitempty" json:"disableOnDelete,omitempty"`
 }
 
 type KubernetesSpec struct {

@@ -41,6 +41,10 @@ releases:
     kind: host.package.install
     host:
       package: torque-fake-pkg
+  - name: service
+    kind: host.service.manage
+    host:
+      service: torque-fake.service
 `
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack.yaml: %v", err)
@@ -65,6 +69,12 @@ releases:
 	}
 	if got := p.ByID["dev/default/package"].Host.State; got != "present" {
 		t.Fatalf("package state=%q", got)
+	}
+	if got := normalizeNodeKind(p.ByID["dev/default/service"].Kind); got != NodeKindHostServiceManage {
+		t.Fatalf("service kind=%q", got)
+	}
+	if got := p.ByID["dev/default/service"].Host.State; got != "started" {
+		t.Fatalf("service state=%q", got)
 	}
 }
 
@@ -288,6 +298,34 @@ func TestComputeEffectiveInputHash_CustomNodeDigestChanges(t *testing.T) {
 	}
 	if pkgHashA == pkgHashB {
 		t.Fatalf("expected package hash to change")
+	}
+
+	serviceEnabled := true
+	serviceA := &ResolvedRelease{
+		ID:        "host.service.manage/svc",
+		Kind:      NodeKindHostServiceManage,
+		Name:      "svc",
+		Dir:       stackRoot,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:   "local",
+			ServiceName: "torque-fake.service",
+			State:       "started",
+			Enabled:     &serviceEnabled,
+		},
+	}
+	serviceB := *serviceA
+	serviceB.Host.State = "stopped"
+	serviceHashA, _, err := ComputeEffectiveInputHashWithOptions(serviceA, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash serviceA: %v", err)
+	}
+	serviceHashB, _, err := ComputeEffectiveInputHashWithOptions(&serviceB, EffectiveInputHashOptions{StackRoot: stackRoot, StackGitIdentity: gid})
+	if err != nil {
+		t.Fatalf("hash serviceB: %v", err)
+	}
+	if serviceHashA == serviceHashB {
+		t.Fatalf("expected service hash to change")
 	}
 
 	renewBefore := 24 * time.Hour
@@ -917,6 +955,238 @@ esac
 		!strings.Contains(deleteApply, `"changed": true`) ||
 		!strings.Contains(deleteApply, `"installed": false`) {
 		t.Fatalf("delete did not record package removal:\n%s", deleteApply)
+	}
+}
+
+func TestRun_HostServiceManageLocalNode(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	activeFile := filepath.Join(root, "service-active")
+	enabledFile := filepath.Join(root, "service-enabled")
+	logFile := filepath.Join(root, "service-manager.log")
+	writeExecutableForTest(t, filepath.Join(binDir, "systemctl"), `#!/bin/sh
+active_file=`+shellQuoteForTest(activeFile)+`
+enabled_file=`+shellQuoteForTest(enabledFile)+`
+log_file=`+shellQuoteForTest(logFile)+`
+emit_sensitive() {
+  printf 'password=service-secret\n'
+  printf 'token=service-stderr\n' >&2
+}
+cmd="$1"
+shift || true
+case "$cmd" in
+  --version)
+    printf 'systemd 255\n'
+    ;;
+  show)
+    active=inactive
+    sub=dead
+    if [ -f "$active_file" ]; then
+      active=active
+      sub=running
+    fi
+    unit=disabled
+    if [ -f "$enabled_file" ]; then
+      unit=enabled
+    fi
+    printf 'LoadState=loaded\n'
+    printf 'ActiveState=%s\n' "$active"
+    printf 'SubState=%s\n' "$sub"
+    printf 'UnitFileState=%s\n' "$unit"
+    ;;
+  start)
+    emit_sensitive
+    printf 'start\n' >> "$log_file"
+    printf active > "$active_file"
+    ;;
+  stop)
+    emit_sensitive
+    printf 'stop\n' >> "$log_file"
+    rm -f "$active_file"
+    ;;
+  restart)
+    emit_sensitive
+    printf 'restart\n' >> "$log_file"
+    printf active > "$active_file"
+    ;;
+  enable)
+    emit_sensitive
+    printf 'enable\n' >> "$log_file"
+    printf enabled > "$enabled_file"
+    ;;
+  disable)
+    emit_sensitive
+    printf 'disable\n' >> "$log_file"
+    rm -f "$enabled_file"
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	enabled := true
+	node := &ResolvedRelease{
+		ID:        "host.service.manage/manage-svc",
+		Kind:      NodeKindHostServiceManage,
+		Name:      "manage-svc",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport:       "local",
+			ServiceName:     "torque-fake.service",
+			ServiceManager:  "systemd",
+			State:           "started",
+			Enabled:         &enabled,
+			StopOnDelete:    true,
+			DisableOnDelete: true,
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(activeFile); err != nil {
+		t.Fatalf("service was not started: %v", err)
+	}
+	if _, err := os.Stat(enabledFile); err != nil {
+		t.Fatalf("service was not enabled: %v", err)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	for _, name := range []string{"host-service-observe.json", "host-service-plan.json", "host-service-diff.json", "host-service-apply.json", "host-service-verify.json", "host-service.json"} {
+		if !auditHasArtifact(audit.Artifacts, node.ID, name) {
+			t.Fatalf("missing %s in %+v", name, audit.Artifacts)
+		}
+	}
+	applyArtifact := auditArtifactBody(t, audit.Artifacts, node.ID, "host-service-apply.json")
+	if !strings.Contains(applyArtifact, `"status": "succeeded"`) ||
+		!strings.Contains(applyArtifact, `"changed": true`) ||
+		!strings.Contains(applyArtifact, `"serviceManager": "systemd"`) ||
+		!strings.Contains(applyArtifact, `"active": true`) ||
+		!strings.Contains(applyArtifact, `"enabled": true`) ||
+		strings.Contains(applyArtifact, "service-secret") ||
+		strings.Contains(applyArtifact, "service-stderr") {
+		t.Fatalf("host service apply artifact did not record a redacted changed receipt:\n%s", applyArtifact)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run repeat apply: %v\nstderr=%s", err, errOut.String())
+	}
+	repeatRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun repeat: %v", err)
+	}
+	repeatAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            repeatRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit repeat: %v", err)
+	}
+	repeatApply := auditArtifactBody(t, repeatAudit.Artifacts, node.ID, "host-service-apply.json")
+	if !strings.Contains(repeatApply, `"changed": false`) {
+		t.Fatalf("repeat service apply was not a no-op:\n%s", repeatApply)
+	}
+
+	restartNode := *node
+	restartNode.ID = "host.service.manage/restart-svc"
+	restartNode.Name = "restart-svc"
+	restartNode.Host.State = "restarted"
+	restartNode.Host.Enabled = nil
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        planForTest(root, &restartNode),
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run restart apply: %v\nstderr=%s", err, errOut.String())
+	}
+	restartRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun restart: %v", err)
+	}
+	restartAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            restartRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit restart: %v", err)
+	}
+	restartApply := auditArtifactBody(t, restartAudit.Artifacts, restartNode.ID, "host-service-apply.json")
+	if !strings.Contains(restartApply, `"restart": true`) || !strings.Contains(restartApply, `"changed": true`) {
+		t.Fatalf("restart service apply did not record restart change:\n%s", restartApply)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:     "delete",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run delete: %v\nstderr=%s", err, errOut.String())
+	}
+	if _, err := os.Stat(activeFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to stop fake service, stat err=%v", err)
+	}
+	if _, err := os.Stat(enabledFile); !os.IsNotExist(err) {
+		t.Fatalf("expected delete to disable fake service, stat err=%v", err)
+	}
+	deleteRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun delete: %v", err)
+	}
+	deleteAudit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            deleteRunID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit delete: %v", err)
+	}
+	deleteApply := auditArtifactBody(t, deleteAudit.Artifacts, node.ID, "host-service-apply.json")
+	if !strings.Contains(deleteApply, `"desiredState": "stopped"`) ||
+		!strings.Contains(deleteApply, `"desiredEnabled": false`) ||
+		!strings.Contains(deleteApply, `"changed": true`) ||
+		!strings.Contains(deleteApply, `"active": false`) ||
+		!strings.Contains(deleteApply, `"enabled": false`) {
+		t.Fatalf("delete did not record service stop/disable:\n%s", deleteApply)
 	}
 }
 

@@ -564,6 +564,40 @@ torque stack audit --config ./stacks/host-package \
 torque stack delete --config ./stacks/host-package --yes
 ```
 
+## Stack: manage a host service
+
+Use `host.service.manage` for one-service lifecycle changes that need exact
+before/after service state, systemd command receipts, repeat no-op proof, and
+cleanup through stack delete.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-service
+nodes:
+  - name: start-example
+    kind: host.service.manage
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      service: example.service
+      serviceManager: systemd
+      state: started
+      enabled: true
+      stopOnDelete: true
+      disableOnDelete: true
+```
+
+```bash
+TORQUE_LAB_SSH='ssh://root@lab-host' \
+  torque stack apply --config ./stacks/host-service --yes
+
+torque stack audit --config ./stacks/host-service \
+  --output json --include-artifacts > host-service-audit.json
+
+torque stack delete --config ./stacks/host-service --yes
+```
+
 ## Stack: Kubernetes certificate lifecycle
 
 Use `k8s.cluster.inspect`, `k8s.cert.inspect`, `k8s.cert.renew`, and

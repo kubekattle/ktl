@@ -16,6 +16,7 @@ const (
 	NodeKindHostFileRender     = "host.file.render"
 	NodeKindHostFileCopy       = "host.file.copy"
 	NodeKindHostPackageInstall = "host.package.install"
+	NodeKindHostServiceManage  = "host.service.manage"
 	NodeKindK8sClusterInspect  = "k8s.cluster.inspect"
 	NodeKindK8sCertInspect     = "k8s.cert.inspect"
 	NodeKindK8sCertRenew       = "k8s.cert.renew"

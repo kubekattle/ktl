@@ -74,6 +74,8 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runHostFileCopyNode(ctx, node, command)
 	case NodeKindHostPackageInstall:
 		return e.runHostPackageInstallNode(ctx, node, command)
+	case NodeKindHostServiceManage:
+		return e.runHostServiceManageNode(ctx, node, command)
 	case NodeKindK8sClusterInspect:
 		return e.runKubernetesClusterInspectNode(ctx, node, command)
 	case NodeKindK8sCertInspect:

@@ -83,6 +83,11 @@ type EffectiveHostInput struct {
 	VersionDigest      string `json:"versionDigest,omitempty"`
 	UpdateCache        bool   `json:"updateCache,omitempty"`
 	Purge              bool   `json:"purge,omitempty"`
+	ServiceDigest      string `json:"serviceDigest,omitempty"`
+	ServiceManager     string `json:"serviceManager,omitempty"`
+	Enabled            *bool  `json:"enabled,omitempty"`
+	StopOnDelete       bool   `json:"stopOnDelete,omitempty"`
+	DisableOnDelete    bool   `json:"disableOnDelete,omitempty"`
 	Timeout            string `json:"timeout,omitempty"`
 	Digest             string `json:"digest,omitempty"`
 }
@@ -199,7 +204,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.DatabaseDigest = dbInput.Digest
-	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall:
+	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
 			return "", nil, err
@@ -459,6 +464,11 @@ func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {
 		VersionDigest:      digestString(spec.Version),
 		UpdateCache:        spec.UpdateCache,
 		Purge:              spec.Purge,
+		ServiceDigest:      digestString(spec.ServiceName),
+		ServiceManager:     strings.TrimSpace(spec.ServiceManager),
+		Enabled:            spec.Enabled,
+		StopOnDelete:       spec.StopOnDelete,
+		DisableOnDelete:    spec.DisableOnDelete,
 	}
 	if strings.TrimSpace(spec.Target) != "" {
 		input.TargetDigest = digestString(spec.Target)
