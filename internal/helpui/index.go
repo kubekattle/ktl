@@ -302,6 +302,17 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		})
 	}
 
+	if md := strings.TrimSpace(torquedocs.FleetControlPlaneSpecMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:fleet-control-plane",
+			Kind:     "doc",
+			Title:    "Fleet Control Plane",
+			Subtitle: "Kubernetes, etcd, NATS JetStream, durable agents, and 10,000-host fleet mode",
+			Content:  md,
+			Tags:     []string{"doc", "fleet", "control-plane", "agent", "nats", "jetstream", "etcd", "kubernetes", "inventory", "scale", "evidence"},
+		})
+	}
+
 	if md := strings.TrimSpace(torquedocs.EnterpriseAgentOperationsMD); md != "" {
 		entries = append(entries, Entry{
 			ID:       "doc:enterprise-agent-operations",

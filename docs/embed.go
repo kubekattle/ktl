@@ -24,6 +24,9 @@ var (
 	//go:embed grpc-agent.md
 	GRPCAgentMD string
 
+	//go:embed fleet-control-plane-spec.md
+	FleetControlPlaneSpecMD string
+
 	//go:embed enterprise-agent-operations.md
 	EnterpriseAgentOperationsMD string
 

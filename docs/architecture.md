@@ -2,6 +2,13 @@
 
 This repo is a single-module Go CLI with an optional companion agent.
 
+Fleet mode is designed as an optional Kubernetes-installed control plane, not a
+replacement for local CLI operation. The fleet design lives in
+[`docs/fleet-control-plane-spec.md`](fleet-control-plane-spec.md): dedicated
+etcd stores inventory and coordination metadata, NATS JetStream stores
+high-volume assignments and receipts, durable `torque-agent` processes execute
+typed resources, and local SQLite remains the portable evidence/export cache.
+
 ## Layout
 - `cmd/torque`: end-user CLI (Cobra) and CLI-only helpers.
 - `cmd/torque-agent`: gRPC agent used by `--remote-agent` / `--mirror-bus`.

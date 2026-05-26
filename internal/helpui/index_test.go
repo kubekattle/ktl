@@ -149,6 +149,7 @@ func TestBuildIndex_IncludesAgentAndCacheDocs(t *testing.T) {
 		"doc:incident":                    "incident time machine",
 		"doc:contract":                    "recurrence rules",
 		"doc:proof-graph":                 "torque proof graph",
+		"doc:fleet-control-plane":         "10,000 hosts",
 	}
 	for id, content := range want {
 		found := false
