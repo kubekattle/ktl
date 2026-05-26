@@ -60,6 +60,23 @@ scripts/e2e/ops/STACK-FC-K8S-001.sh \
   --cleanup
 ```
 
+## STACK-FC-MYSQL-001
+
+`STACK-FC-MYSQL-001.sh` proves stack-native idempotent host/database
+automation on the real SSH lab host. The stackfile bootstraps three
+Firecracker VMs on `root@141.105.65.227`, configures a MySQL-compatible Galera
+cluster, verifies replicated writes through the typed
+`mysql.replication.verify` node, reapplies the stack for idempotence, audits
+and exports the run, then deletes the VM resources.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-HOST-001
 
 `OPS-HOST-001.sh` proves the first guarded host adapter on the real

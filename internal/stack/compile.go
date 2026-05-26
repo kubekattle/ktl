@@ -125,6 +125,7 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 			Hooks:        dr.FromFile.Hooks,
 			Action:       dr.FromFile.Action,
 			Database:     dr.FromFile.Database,
+			MySQL:        dr.FromFile.MySQL,
 			Kubernetes:   dr.FromFile.Kubernetes,
 		}
 	case dr.FromInline != nil:
@@ -245,6 +246,10 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 			if strings.TrimSpace(n.Database.ContractSQL) == "" {
 				return nil, fmt.Errorf("%s: db.schema-contract node %s requires database.contractSQL", dr.Dir, leaf.Name)
 			}
+		}
+	case NodeKindMySQLReplicationVerify:
+		if err := validateMySQLReplicationVerifySpec(leaf.Name, &n.MySQL); err != nil {
+			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
 	case NodeKindHostCommandRun:
 		if strings.TrimSpace(n.Host.Command) == "" {
@@ -406,6 +411,118 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 
 func validateKubernetesClusterInspectSpec(name string, spec KubernetesClusterSpec) error {
 	return validateKubernetesClusterAccessSpec(NodeKindK8sClusterInspect, name, spec)
+}
+
+func validateMySQLReplicationVerifySpec(name string, spec *MySQLSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s node %s requires mysql config", NodeKindMySQLReplicationVerify, name)
+	}
+	transportKind := strings.ToLower(strings.TrimSpace(spec.Transport))
+	if transportKind == "" {
+		transportKind = "local"
+	}
+	switch transportKind {
+	case "local", "localhost", "ssh":
+		spec.Transport = transportKind
+	default:
+		return fmt.Errorf("%s node %s has unsupported mysql.transport %q", NodeKindMySQLReplicationVerify, name, spec.Transport)
+	}
+	if transportKind == "ssh" && strings.TrimSpace(spec.Target) == "" && strings.TrimSpace(spec.TargetEnv) == "" {
+		return fmt.Errorf("%s node %s requires mysql.target or targetEnv for ssh transport", NodeKindMySQLReplicationVerify, name)
+	}
+	if len(spec.Nodes) == 0 {
+		return fmt.Errorf("%s node %s requires at least one mysql.nodes entry", NodeKindMySQLReplicationVerify, name)
+	}
+	for i := range spec.Nodes {
+		node := &spec.Nodes[i]
+		node.ID = strings.TrimSpace(node.ID)
+		node.Address = strings.TrimSpace(node.Address)
+		node.SSHUser = strings.TrimSpace(node.SSHUser)
+		if node.ID == "" {
+			node.ID = node.Address
+		}
+		if node.Address == "" {
+			return fmt.Errorf("%s node %s requires mysql.nodes[%d].address", NodeKindMySQLReplicationVerify, name, i)
+		}
+		if strings.ContainsAny(node.Address, " \t\r\n'\"|") {
+			return fmt.Errorf("%s node %s has invalid mysql.nodes[%d].address %q", NodeKindMySQLReplicationVerify, name, i, node.Address)
+		}
+		if strings.ContainsAny(node.ID, " \t\r\n'\"|") {
+			return fmt.Errorf("%s node %s has invalid mysql.nodes[%d].id %q", NodeKindMySQLReplicationVerify, name, i, node.ID)
+		}
+		if node.SSHPort < 0 || node.SSHPort > 65535 {
+			return fmt.Errorf("%s node %s requires mysql.nodes[%d].sshPort between 0 and 65535", NodeKindMySQLReplicationVerify, name, i)
+		}
+	}
+	if spec.ExpectedClusterSize < 0 {
+		return fmt.Errorf("%s node %s requires mysql.expectedClusterSize >= 0", NodeKindMySQLReplicationVerify, name)
+	}
+	if spec.ExpectedClusterSize == 0 {
+		spec.ExpectedClusterSize = len(spec.Nodes)
+	}
+	if spec.ExpectedReplicatedNodes < 0 {
+		return fmt.Errorf("%s node %s requires mysql.expectedReplicatedNodes >= 0", NodeKindMySQLReplicationVerify, name)
+	}
+	if spec.ExpectedReplicatedNodes == 0 {
+		spec.ExpectedReplicatedNodes = len(spec.Nodes)
+	}
+	if spec.ExpectedReplicatedNodes > len(spec.Nodes) {
+		return fmt.Errorf("%s node %s requires mysql.expectedReplicatedNodes <= len(mysql.nodes)", NodeKindMySQLReplicationVerify, name)
+	}
+	spec.Database = strings.TrimSpace(spec.Database)
+	if spec.Database == "" {
+		spec.Database = "torque"
+	}
+	if !mysqlIdentifierOK(spec.Database) {
+		return fmt.Errorf("%s node %s has invalid mysql.database %q", NodeKindMySQLReplicationVerify, name, spec.Database)
+	}
+	spec.ProbeTable = strings.TrimSpace(spec.ProbeTable)
+	if spec.ProbeTable == "" {
+		spec.ProbeTable = "probe"
+	}
+	if !mysqlIdentifierOK(spec.ProbeTable) {
+		return fmt.Errorf("%s node %s has invalid mysql.probeTable %q", NodeKindMySQLReplicationVerify, name, spec.ProbeTable)
+	}
+	spec.ProbeID = strings.TrimSpace(spec.ProbeID)
+	if spec.ProbeID == "" {
+		spec.ProbeID = name
+	}
+	spec.ProbePayload = strings.TrimSpace(spec.ProbePayload)
+	if spec.ProbePayload == "" {
+		spec.ProbePayload = "torque replication verify"
+	}
+	if spec.StableAttempts < 0 {
+		return fmt.Errorf("%s node %s requires mysql.stableAttempts >= 0", NodeKindMySQLReplicationVerify, name)
+	}
+	if spec.StableAttempts == 0 {
+		spec.StableAttempts = defaultMySQLReplicationStableAttempts
+	}
+	if spec.StableInterval == nil {
+		interval := defaultMySQLReplicationStableInterval
+		spec.StableInterval = &interval
+	} else if *spec.StableInterval < 0 {
+		return fmt.Errorf("%s node %s requires mysql.stableInterval >= 0", NodeKindMySQLReplicationVerify, name)
+	}
+	if spec.Timeout == nil {
+		timeout := defaultMySQLReplicationTimeout
+		spec.Timeout = &timeout
+	} else if *spec.Timeout <= 0 {
+		return fmt.Errorf("%s node %s requires mysql.timeout > 0", NodeKindMySQLReplicationVerify, name)
+	}
+	return nil
+}
+
+func mysqlIdentifierOK(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r == '_' || (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateKubernetesClusterVerifySpec(name string, spec KubernetesClusterSpec) error {

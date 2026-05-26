@@ -3863,6 +3863,45 @@ func TestRun_KubernetesClusterVerifyLocalNode(t *testing.T) {
 	}
 }
 
+func TestParseMySQLReplicationStatus(t *testing.T) {
+	requireSynced := true
+	spec := MySQLSpec{
+		ExpectedClusterSize:     3,
+		ExpectedReplicatedNodes: 3,
+		RequireSynced:           &requireSynced,
+		Nodes: []MySQLNodeSpec{
+			{ID: "mysql-00", Address: "172.31.235.10"},
+			{ID: "mysql-01", Address: "172.31.235.11"},
+			{ID: "mysql-02", Address: "172.31.235.12"},
+		},
+	}
+	nodes := parseMySQLReplicationStatus(`
+attempt=1 node=mysql-00 ip=172.31.235.10 count=1 cluster=2 state=Synced
+attempt=2 node=mysql-00 ip=172.31.235.10 count=1 cluster=3 state=Synced
+attempt=2 node=mysql-01 ip=172.31.235.11 count=1 cluster=3 state=Synced
+attempt=2 node=mysql-02 ip=172.31.235.12 count=1 cluster=3 state=Donor
+attempt=3 node=mysql-02 ip=172.31.235.12 count=1 cluster=3 state=Synced
+`, spec)
+	if len(nodes) != 3 {
+		t.Fatalf("nodes=%d: %#v", len(nodes), nodes)
+	}
+	if nodes[0].ID != "mysql-00" || nodes[0].Attempt != 2 || !nodes[0].Replicated {
+		t.Fatalf("mysql-00 status not latest replicated: %#v", nodes[0])
+	}
+	if nodes[2].ID != "mysql-02" || nodes[2].Attempt != 3 || !nodes[2].Replicated {
+		t.Fatalf("mysql-02 status not latest synced: %#v", nodes[2])
+	}
+	evidence := mysqlReplicationVerifyEvidence{Nodes: nodes, ExpectedReplicatedNodes: 3}
+	for _, node := range nodes {
+		if node.Replicated {
+			evidence.ReplicatedNodes++
+		}
+	}
+	if err := evaluateMySQLReplicationEvidence(spec, &evidence); err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+}
+
 func TestRun_KubernetesLifecycleSummaryArtifact(t *testing.T) {
 	root := t.TempDir()
 	statePath := filepath.Join(root, "cert-renewal-state.json")

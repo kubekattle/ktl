@@ -238,6 +238,7 @@ func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 	if r.Database.Backfill.MaxBatches > 0 {
 		dst.Database.Backfill.MaxBatches = r.Database.Backfill.MaxBatches
 	}
+	dst.MySQL = mergeMySQLSpec(dst.MySQL, r.MySQL)
 	dst.Host = mergeHostCommandSpec(dst.Host, r.Host, r.Input)
 	dst.Kubernetes = mergeKubernetesSpec(dst.Kubernetes, r.Kubernetes)
 }
@@ -264,6 +265,68 @@ func cloneActionPluginSpec(in ActionPluginSpec) ActionPluginSpec {
 		out.Config = maps.Clone(in.Config)
 	}
 	return out
+}
+
+func mergeMySQLSpec(dst MySQLSpec, src MySQLSpec) MySQLSpec {
+	if src.Transport != "" {
+		dst.Transport = strings.TrimSpace(src.Transport)
+	}
+	if src.TargetID != "" {
+		dst.TargetID = strings.TrimSpace(src.TargetID)
+	}
+	if src.Target != "" {
+		dst.Target = strings.TrimSpace(src.Target)
+	}
+	if src.TargetEnv != "" {
+		dst.TargetEnv = strings.TrimSpace(src.TargetEnv)
+	}
+	if src.Timeout != nil {
+		dst.Timeout = src.Timeout
+	}
+	if src.NodeIdentityFile != "" {
+		dst.NodeIdentityFile = strings.TrimSpace(src.NodeIdentityFile)
+	}
+	if src.NodeSSHOptions != "" {
+		dst.NodeSSHOptions = strings.TrimSpace(src.NodeSSHOptions)
+	}
+	if len(src.Nodes) > 0 {
+		dst.Nodes = append([]MySQLNodeSpec(nil), src.Nodes...)
+	}
+	if src.ExpectedClusterSize != 0 {
+		dst.ExpectedClusterSize = src.ExpectedClusterSize
+	}
+	if src.ExpectedReplicatedNodes != 0 {
+		dst.ExpectedReplicatedNodes = src.ExpectedReplicatedNodes
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.ProbeTable != "" {
+		dst.ProbeTable = strings.TrimSpace(src.ProbeTable)
+	}
+	if src.ProbeID != "" {
+		dst.ProbeID = strings.TrimSpace(src.ProbeID)
+	}
+	if src.ProbePayload != "" {
+		dst.ProbePayload = src.ProbePayload
+	}
+	if src.StatusPath != "" {
+		dst.StatusPath = strings.TrimSpace(src.StatusPath)
+	}
+	if src.InsertProbe {
+		dst.InsertProbe = true
+	}
+	if src.RequireSynced != nil {
+		requireSynced := *src.RequireSynced
+		dst.RequireSynced = &requireSynced
+	}
+	if src.StableAttempts != 0 {
+		dst.StableAttempts = src.StableAttempts
+	}
+	if src.StableInterval != nil {
+		dst.StableInterval = src.StableInterval
+	}
+	return dst
 }
 
 func mergeHostCommandSpec(dst HostCommandSpec, src HostCommandSpec, input map[string]any) HostCommandSpec {

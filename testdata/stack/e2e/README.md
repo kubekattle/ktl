@@ -7,6 +7,11 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
 - `14-firecracker-k8s-stackfile` is a real-lab stackfile that creates a
   Firecracker-backed k3s cluster, applies an HTTP DaemonSet app, verifies
   node-local access, and deletes the lab resources through the stack DAG.
+- `22-firecracker-mysql-cluster` is a real-lab stackfile that creates three
+  Firecracker VMs on `root@141.105.65.227`, configures a MySQL-compatible
+  Galera cluster through SSH-backed stack nodes, verifies replicated writes
+  through `mysql.replication.verify`, supports idempotent reapply, and deletes
+  the VM resources through the stack DAG.
 - `19-firecracker-gitlab-hybrid` is a real-lab GitLab hybrid stack that
   creates Firecracker VMs for a 3-node k3s service tier and 4-node
   PostgreSQL/Redis/MinIO stateful tier, deploys GitLab with external services,

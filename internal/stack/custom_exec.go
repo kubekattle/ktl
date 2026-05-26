@@ -66,6 +66,8 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runDBCutoverNode(ctx, node, command)
 	case NodeKindDBSchemaContract:
 		return e.runDBSchemaContractNode(ctx, node, command)
+	case NodeKindMySQLReplicationVerify:
+		return e.runMySQLReplicationVerifyNode(ctx, node, command)
 	case NodeKindHostCommandRun:
 		return e.runHostCommandNode(ctx, node, command)
 	case NodeKindHostFileRender:

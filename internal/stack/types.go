@@ -269,6 +269,7 @@ type ReleaseFile struct {
 	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 	Action       ActionSpec        `yaml:"action,omitempty" json:"action,omitempty"`
 	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
+	MySQL        MySQLSpec         `yaml:"mysql,omitempty" json:"mysql,omitempty"`
 	Kubernetes   KubernetesSpec    `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
 }
 
@@ -292,6 +293,7 @@ type ReleaseSpec struct {
 	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 	Action       ActionSpec        `yaml:"action,omitempty" json:"action,omitempty"`
 	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
+	MySQL        MySQLSpec         `yaml:"mysql,omitempty" json:"mysql,omitempty"`
 	Host         HostCommandSpec   `yaml:"host,omitempty" json:"host,omitempty"`
 	Kubernetes   KubernetesSpec    `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
 	Input        map[string]any    `yaml:"input,omitempty" json:"input,omitempty"`
@@ -327,6 +329,7 @@ type ResolvedRelease struct {
 	Hooks      StackHooksConfig `json:"hooks,omitempty"`
 	Action     ActionSpec       `json:"action,omitempty"`
 	Database   DatabaseSpec     `json:"database,omitempty"`
+	MySQL      MySQLSpec        `json:"mysql,omitempty"`
 	Host       HostCommandSpec  `json:"host,omitempty"`
 	Kubernetes KubernetesSpec   `json:"kubernetes,omitempty"`
 
@@ -371,6 +374,7 @@ type EffectiveInput struct {
 	ClusterDigest    string `json:"clusterDigest,omitempty"`
 	ActionDigest     string `json:"actionDigest,omitempty"`
 	DatabaseDigest   string `json:"databaseDigest,omitempty"`
+	MySQLDigest      string `json:"mysqlDigest,omitempty"`
 	HostDigest       string `json:"hostDigest,omitempty"`
 	KubernetesDigest string `json:"kubernetesDigest,omitempty"`
 
@@ -657,6 +661,39 @@ type DatabaseSpec struct {
 	RequireFencing      *bool          `yaml:"requireFencing,omitempty" json:"requireFencing,omitempty"`
 	AmbiguityPolicy     string         `yaml:"ambiguityPolicy,omitempty" json:"ambiguityPolicy,omitempty"`
 	Backfill            BackfillSpec   `yaml:"backfill,omitempty" json:"backfill,omitempty"`
+}
+
+type MySQLSpec struct {
+	Transport string         `yaml:"transport,omitempty" json:"transport,omitempty"`
+	TargetID  string         `yaml:"targetId,omitempty" json:"targetId,omitempty"`
+	Target    string         `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	Timeout   *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+
+	NodeIdentityFile string `yaml:"nodeIdentityFile,omitempty" json:"nodeIdentityFile,omitempty"`
+	NodeSSHOptions   string `yaml:"nodeSshOptions,omitempty" json:"nodeSshOptions,omitempty"`
+
+	Nodes                   []MySQLNodeSpec `yaml:"nodes,omitempty" json:"nodes,omitempty"`
+	ExpectedClusterSize     int             `yaml:"expectedClusterSize,omitempty" json:"expectedClusterSize,omitempty"`
+	ExpectedReplicatedNodes int             `yaml:"expectedReplicatedNodes,omitempty" json:"expectedReplicatedNodes,omitempty"`
+
+	Database      string `yaml:"database,omitempty" json:"database,omitempty"`
+	ProbeTable    string `yaml:"probeTable,omitempty" json:"probeTable,omitempty"`
+	ProbeID       string `yaml:"probeId,omitempty" json:"probeId,omitempty"`
+	ProbePayload  string `yaml:"probePayload,omitempty" json:"probePayload,omitempty"`
+	StatusPath    string `yaml:"statusPath,omitempty" json:"statusPath,omitempty"`
+	InsertProbe   bool   `yaml:"insertProbe,omitempty" json:"insertProbe,omitempty"`
+	RequireSynced *bool  `yaml:"requireSynced,omitempty" json:"requireSynced,omitempty"`
+
+	StableAttempts int            `yaml:"stableAttempts,omitempty" json:"stableAttempts,omitempty"`
+	StableInterval *time.Duration `yaml:"stableInterval,omitempty" json:"stableInterval,omitempty"`
+}
+
+type MySQLNodeSpec struct {
+	ID      string `yaml:"id,omitempty" json:"id,omitempty"`
+	Address string `yaml:"address,omitempty" json:"address,omitempty"`
+	SSHUser string `yaml:"sshUser,omitempty" json:"sshUser,omitempty"`
+	SSHPort int    `yaml:"sshPort,omitempty" json:"sshPort,omitempty"`
 }
 
 type EffectiveChartInput struct {

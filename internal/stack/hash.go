@@ -55,6 +55,29 @@ type EffectiveDatabaseInput struct {
 	Digest              string                 `json:"digest,omitempty"`
 }
 
+type EffectiveMySQLInput struct {
+	Transport               string   `json:"transport,omitempty"`
+	TargetID                string   `json:"targetId,omitempty"`
+	TargetDigest            string   `json:"targetDigest,omitempty"`
+	TargetEnv               string   `json:"targetEnv,omitempty"`
+	Timeout                 string   `json:"timeout,omitempty"`
+	NodeIdentityFileDigest  string   `json:"nodeIdentityFileDigest,omitempty"`
+	NodeSSHOptionsDigest    string   `json:"nodeSshOptionsDigest,omitempty"`
+	NodeDigests             []string `json:"nodeDigests,omitempty"`
+	ExpectedClusterSize     int      `json:"expectedClusterSize,omitempty"`
+	ExpectedReplicatedNodes int      `json:"expectedReplicatedNodes,omitempty"`
+	Database                string   `json:"database,omitempty"`
+	ProbeTable              string   `json:"probeTable,omitempty"`
+	ProbeIDDigest           string   `json:"probeIdDigest,omitempty"`
+	ProbePayloadDigest      string   `json:"probePayloadDigest,omitempty"`
+	StatusPathDigest        string   `json:"statusPathDigest,omitempty"`
+	InsertProbe             bool     `json:"insertProbe,omitempty"`
+	RequireSynced           *bool    `json:"requireSynced,omitempty"`
+	StableAttempts          int      `json:"stableAttempts,omitempty"`
+	StableInterval          string   `json:"stableInterval,omitempty"`
+	Digest                  string   `json:"digest,omitempty"`
+}
+
 type EffectiveHostInput struct {
 	Transport          string   `json:"transport,omitempty"`
 	TargetID           string   `json:"targetId,omitempty"`
@@ -225,6 +248,12 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.DatabaseDigest = dbInput.Digest
+	case NodeKindMySQLReplicationVerify:
+		mysqlInput, err := digestMySQLSpec(n.MySQL)
+		if err != nil {
+			return "", nil, err
+		}
+		input.MySQLDigest = mysqlInput.Digest
 	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage, NodeKindHostUserManage, NodeKindHostCronManage, NodeKindHostSystemdUnit:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
@@ -272,6 +301,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		ClusterDigest    string `json:"clusterDigest,omitempty"`
 		ActionDigest     string `json:"actionDigest,omitempty"`
 		DatabaseDigest   string `json:"databaseDigest,omitempty"`
+		MySQLDigest      string `json:"mysqlDigest,omitempty"`
 		HostDigest       string `json:"hostDigest,omitempty"`
 		KubernetesDigest string `json:"kubernetesDigest,omitempty"`
 
@@ -307,6 +337,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		ClusterDigest:    input.ClusterDigest,
 		ActionDigest:     input.ActionDigest,
 		DatabaseDigest:   input.DatabaseDigest,
+		MySQLDigest:      input.MySQLDigest,
 		HostDigest:       input.HostDigest,
 		KubernetesDigest: input.KubernetesDigest,
 
@@ -454,6 +485,63 @@ func digestDatabaseSpec(spec DatabaseSpec) (EffectiveDatabaseInput, error) {
 	sum, err := hashJSONStable(input)
 	if err != nil {
 		return EffectiveDatabaseInput{}, err
+	}
+	input.Digest = sum
+	return input, nil
+}
+
+func digestMySQLSpec(spec MySQLSpec) (EffectiveMySQLInput, error) {
+	input := EffectiveMySQLInput{
+		Transport:               strings.TrimSpace(spec.Transport),
+		TargetID:                strings.TrimSpace(spec.TargetID),
+		TargetEnv:               strings.TrimSpace(spec.TargetEnv),
+		ExpectedClusterSize:     spec.ExpectedClusterSize,
+		ExpectedReplicatedNodes: spec.ExpectedReplicatedNodes,
+		Database:                strings.TrimSpace(spec.Database),
+		ProbeTable:              strings.TrimSpace(spec.ProbeTable),
+		ProbeIDDigest:           digestString(spec.ProbeID),
+		ProbePayloadDigest:      digestString(spec.ProbePayload),
+		StatusPathDigest:        digestString(spec.StatusPath),
+		InsertProbe:             spec.InsertProbe,
+		RequireSynced:           spec.RequireSynced,
+		StableAttempts:          spec.StableAttempts,
+	}
+	if strings.TrimSpace(spec.Target) != "" {
+		input.TargetDigest = digestString(spec.Target)
+	}
+	if strings.TrimSpace(spec.NodeIdentityFile) != "" {
+		input.NodeIdentityFileDigest = digestString(spec.NodeIdentityFile)
+	}
+	if strings.TrimSpace(spec.NodeSSHOptions) != "" {
+		input.NodeSSHOptionsDigest = digestString(spec.NodeSSHOptions)
+	}
+	for _, node := range spec.Nodes {
+		nodeInput := struct {
+			ID            string `json:"id,omitempty"`
+			AddressDigest string `json:"addressDigest,omitempty"`
+			SSHUser       string `json:"sshUser,omitempty"`
+			SSHPort       int    `json:"sshPort,omitempty"`
+		}{
+			ID:            strings.TrimSpace(node.ID),
+			AddressDigest: digestString(node.Address),
+			SSHUser:       strings.TrimSpace(node.SSHUser),
+			SSHPort:       node.SSHPort,
+		}
+		sum, err := hashJSONStable(nodeInput)
+		if err != nil {
+			return EffectiveMySQLInput{}, err
+		}
+		input.NodeDigests = append(input.NodeDigests, sum)
+	}
+	if spec.Timeout != nil {
+		input.Timeout = spec.Timeout.String()
+	}
+	if spec.StableInterval != nil {
+		input.StableInterval = spec.StableInterval.String()
+	}
+	sum, err := hashJSONStable(input)
+	if err != nil {
+		return EffectiveMySQLInput{}, err
 	}
 	input.Digest = sum
 	return input, nil

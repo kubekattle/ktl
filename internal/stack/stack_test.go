@@ -425,6 +425,69 @@ nodes:
 	}
 }
 
+func TestCompile_MySQLReplicationVerifyNodeDoesNotRequireCluster(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stack.yaml"), `
+apiVersion: torque.dev/v1
+kind: Stack
+name: mysql
+nodes:
+  - name: mysql-verify
+    kind: mysql.replication.verify
+    mysql:
+      transport: local
+      database: torque
+      probeTable: probe
+      nodes:
+        - id: mysql-00
+          address: 127.0.0.1
+`)
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	verify := p.ByID["mysql.replication.verify/mysql-verify"]
+	if verify == nil {
+		t.Fatalf("missing mysql verify node; ids=%v", nodeIDs(p.Nodes))
+	}
+	if verify.Cluster.Name != "" {
+		t.Fatalf("mysql verify unexpectedly required cluster: %#v", verify.Cluster)
+	}
+	if verify.MySQL.ExpectedClusterSize != 1 || verify.MySQL.ExpectedReplicatedNodes != 1 {
+		t.Fatalf("mysql verify defaults not applied: %#v", verify.MySQL)
+	}
+	if verify.MySQL.StableAttempts != defaultMySQLReplicationStableAttempts || verify.MySQL.StableInterval == nil || verify.MySQL.StableInterval.String() != defaultMySQLReplicationStableInterval.String() {
+		t.Fatalf("mysql verify stability defaults not applied: %#v", verify.MySQL)
+	}
+}
+
+func TestCompile_MySQLReplicationVerifyRequiresNodes(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stack.yaml"), `
+apiVersion: torque.dev/v1
+kind: Stack
+name: mysql
+nodes:
+  - name: mysql-verify
+    kind: mysql.replication.verify
+    mysql:
+      transport: ssh
+      target: ssh://root@example.test
+`)
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	_, err = Compile(u, CompileOptions{})
+	if err == nil || !strings.Contains(err.Error(), "requires at least one mysql.nodes entry") {
+		t.Fatalf("expected mysql node validation, got %v", err)
+	}
+}
+
 func TestCompile_KubernetesCertCustomProviderRequiresCommands(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "stack.yaml"), `

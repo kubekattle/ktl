@@ -1,0 +1,399 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-mysql-cluster
+cli:
+  inferDeps: false
+nodes:
+  - name: fc-mysql-bootstrap
+    kind: host.command.run
+    host:
+      transport: ssh
+      target: ssh://root@141.105.65.227
+      timeout: 60m
+      command: |
+        set -euo pipefail
+        RUN_ROOT="/var/lib/torque-firecracker-mysql/cluster"
+        NODE_COUNT="3"
+        SUBNET_OCTET="235"
+        BRIDGE_NAME="tqfcmy"
+        TAP_PREFIX="tqmy"
+        RUN_ID="mysql-cluster"
+        mkdir -p "${RUN_ROOT}"
+        cat >"${RUN_ROOT}/bootstrap-firecracker-mysql.sh" <<'REMOTE'
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        mode="${1:-apply}"
+        : "${RUN_ROOT:?missing RUN_ROOT}"
+        : "${NODE_COUNT:?missing NODE_COUNT}"
+        : "${SUBNET_OCTET:?missing SUBNET_OCTET}"
+        : "${BRIDGE_NAME:?missing BRIDGE_NAME}"
+        : "${TAP_PREFIX:?missing TAP_PREFIX}"
+        : "${RUN_ID:?missing RUN_ID}"
+
+        BASE_ROOTFS="${BASE_ROOTFS:-/opt/firecracker-sandbox-lab/rootfs.ext4}"
+        KERNEL="${KERNEL:-/opt/firecracker-sandbox-lab/vmlinux.bin}"
+        FIRECRACKER="${FIRECRACKER:-/usr/local/bin/firecracker}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        CACHE_ROOT="${CACHE_ROOT:-/var/lib/torque-firecracker-mysql/cache}"
+        NET_PREFIX="172.31.${SUBNET_OCTET}"
+        GATEWAY="${NET_PREFIX}.1"
+        FIRST_IP="${NET_PREFIX}.10"
+        CIDR="${NET_PREFIX}.0/24"
+        CLUSTER_NAME="torque_fc_mysql"
+
+        cleanup_run() {
+          local remove_root="${1:-0}"
+          set +e
+          if [[ -d "${RUN_ROOT}/vms" ]]; then
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill "$(cat "${pid_file}")" 2>/dev/null
+            done
+            sleep 1
+            for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+              [[ -f "${pid_file}" ]] && kill -9 "$(cat "${pid_file}")" 2>/dev/null
+            done
+          fi
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip link del "${TAP_PREFIX}${i}" 2>/dev/null
+          done
+          ip link set "${BRIDGE_NAME}" down 2>/dev/null
+          ip link del "${BRIDGE_NAME}" type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null
+          if [[ "${remove_root}" == "1" ]]; then
+            rm -rf "${RUN_ROOT}"
+          else
+            rm -rf "${RUN_ROOT}/vms" "${RUN_ROOT}/receipt.json" "${RUN_ROOT}/cluster-status.txt" "${RUN_ROOT}/node-status.txt"
+            mkdir -p "${RUN_ROOT}"
+          fi
+          set -e
+        }
+
+        if [[ "${mode}" == "delete" || "${mode}" == "cleanup" ]]; then
+          cleanup_run 1
+          exit 0
+        fi
+
+        require_cmd() {
+          command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 2; }
+        }
+        for cmd in cp e2fsck mount resize2fs sha256sum ssh sysctl truncate umount openssl; do
+          require_cmd "${cmd}"
+        done
+        for path in "${BASE_ROOTFS}" "${KERNEL}" "${FIRECRACKER}" "${LAB_KEY}"; do
+          [[ -e "${path}" ]] || { echo "missing ${path}" >&2; exit 2; }
+        done
+
+        mkdir -p "${RUN_ROOT}/vms" "${CACHE_ROOT}"
+        cache_key="$(
+          {
+            sha256sum "${BASE_ROOTFS}" "${KERNEL}"
+            printf 'packages=openssh-server,mariadb-server,mariadb-client,galera-4,rsync,ca-certificates\n'
+          } | sha256sum | awk '{print substr($1,1,16)}'
+        )"
+        prepared="${CACHE_ROOT}/prepared-${cache_key}.ext4"
+
+        cleanup_mounts() {
+          local mnt="$1"
+          set +e
+          mountpoint -q "${mnt}/proc" && umount "${mnt}/proc"
+          mountpoint -q "${mnt}/sys" && umount "${mnt}/sys"
+          mountpoint -q "${mnt}/dev" && umount "${mnt}/dev"
+          mountpoint -q "${mnt}/run" && umount "${mnt}/run"
+          mountpoint -q "${mnt}" && umount "${mnt}"
+          set -e
+        }
+
+        prepare_base_image() {
+          local tmp="${prepared}.tmp"
+          local mnt="${CACHE_ROOT}/mnt-${cache_key}"
+          rm -f "${tmp}"
+          cp --reflink=auto "${BASE_ROOTFS}" "${tmp}" 2>/dev/null || cp "${BASE_ROOTFS}" "${tmp}"
+          set +e
+          e2fsck -fy "${tmp}" >/tmp/torque-fc-mysql-e2fsck-${cache_key}.log 2>&1
+          local e=$?
+          set -e
+          [[ "${e}" -le 1 ]] || { cat /tmp/torque-fc-mysql-e2fsck-${cache_key}.log >&2; exit "${e}"; }
+          truncate -s 4G "${tmp}"
+          resize2fs "${tmp}" >/tmp/torque-fc-mysql-resize-${cache_key}.log 2>&1
+          mkdir -p "${mnt}"
+          mount -o loop "${tmp}" "${mnt}"
+          trap 'cleanup_mounts "${mnt}"' RETURN
+          rm -f "${mnt}/etc/resolv.conf"
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+          mount -t proc proc "${mnt}/proc"
+          mount -t sysfs sysfs "${mnt}/sys"
+          mount --bind /dev "${mnt}/dev"
+          mount --bind /run "${mnt}/run"
+          printf '#!/bin/sh\nexit 101\n' >"${mnt}/usr/sbin/policy-rc.d"
+          chmod +x "${mnt}/usr/sbin/policy-rc.d"
+          chroot "${mnt}" apt-get update >/tmp/torque-fc-mysql-apt-update-${cache_key}.log 2>&1
+          chroot "${mnt}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            openssh-server mariadb-server mariadb-client galera-4 rsync ca-certificates >/tmp/torque-fc-mysql-apt-install-${cache_key}.log 2>&1
+          rm -f "${mnt}/usr/sbin/policy-rc.d"
+          chroot "${mnt}" ssh-keygen -A >/dev/null 2>&1 || true
+          cleanup_mounts "${mnt}"
+          trap - RETURN
+          mv "${tmp}" "${prepared}"
+        }
+
+        if [[ ! -s "${prepared}" ]]; then
+          echo "preparing-mysql-base-image"
+          prepare_base_image
+        else
+          echo "using-cached-mysql-base-image"
+        fi
+
+        SSH_OPTS=(-n -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2)
+        vm_ip() {
+          printf '%s.%s' "${NET_PREFIX}" "$((10 + $1))"
+        }
+        mysql_client() {
+          if command -v mariadb >/dev/null 2>&1; then
+            mariadb "$@"
+          else
+            mysql "$@"
+          fi
+        }
+        vm_query() {
+          local ip="$1"
+          local sql="$2"
+          ssh "${SSH_OPTS[@]}" "root@${ip}" "if command -v mariadb >/dev/null 2>&1; then mariadb -uroot -Nse \"${sql}\"; else mysql -uroot -Nse \"${sql}\"; fi"
+        }
+        cluster_size() {
+          vm_query "${FIRST_IP}" "SHOW STATUS LIKE 'wsrep_cluster_size';" 2>/dev/null | awk '{print $2}' | tail -n1
+        }
+        write_receipt() {
+          local status="$1"
+          local ready_count="${2:-0}"
+          local cluster="${3:-0}"
+          cat >"${RUN_ROOT}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/firecracker-mysql/v1","kind":"FirecrackerMySQLClusterReceipt","status":"${status}","runId":"${RUN_ID}","nodeCount":${NODE_COUNT},"readyCount":${ready_count},"clusterSize":${cluster},"primaryIP":"${FIRST_IP}","subnet":"${CIDR}","bridge":"${BRIDGE_NAME}"}
+        EOF
+        }
+        cluster_healthy() {
+          local live_count=0
+          local mysql_ready=0
+          local cluster="0"
+          [[ -d "${RUN_ROOT}/vms" ]] || return 1
+          for pid_file in "${RUN_ROOT}"/vms/*/pid; do
+            [[ -f "${pid_file}" ]] && kill -0 "$(cat "${pid_file}")" 2>/dev/null && live_count="$((live_count + 1))"
+          done
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip="$(vm_ip "${i}")"
+            if ssh "${SSH_OPTS[@]}" "root@${ip}" "if command -v mariadb-admin >/dev/null 2>&1; then mariadb-admin ping -uroot --silent; else mysqladmin ping -uroot --silent; fi" >/dev/null 2>&1; then
+              mysql_ready="$((mysql_ready + 1))"
+            fi
+          done
+          cluster="$(cluster_size || true)"
+          [[ "${live_count}" -ge "${NODE_COUNT}" && "${mysql_ready}" -ge "${NODE_COUNT}" && "${cluster}" == "${NODE_COUNT}" ]]
+        }
+
+        if [[ -s "${RUN_ROOT}/receipt.json" ]] && cluster_healthy; then
+          echo "mysql-cluster-already-ready"
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip="$(vm_ip "${i}")"
+            vm_query "${ip}" "SHOW STATUS LIKE 'wsrep_local_state_comment';" || true
+          done >"${RUN_ROOT}/node-status.txt"
+          write_receipt "succeeded" "${NODE_COUNT}" "${NODE_COUNT}"
+          cat "${RUN_ROOT}/receipt.json"
+          exit 0
+        fi
+
+        cleanup_run
+        mkdir -p "${RUN_ROOT}/vms"
+        ip link add name "${BRIDGE_NAME}" type bridge
+        ip addr add "${GATEWAY}/24" dev "${BRIDGE_NAME}"
+        ip link set "${BRIDGE_NAME}" up
+        sysctl -w net.ipv4.ip_forward=1 >/dev/null
+        iptables -t nat -C POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null ||
+          iptables -t nat -A POSTROUTING -s "${CIDR}" ! -o "${BRIDGE_NAME}" -j MASQUERADE
+
+        cluster_address="gcomm://"
+        for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+          [[ "${i}" -gt 0 ]] && cluster_address+=","
+          cluster_address+="$(vm_ip "${i}")"
+        done
+
+        for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+          vm="${RUN_ROOT}/vms/node${i}"
+          mkdir -p "${vm}"
+          ip="$(vm_ip "${i}")"
+          name="$(printf 'mysql-%02d' "${i}")"
+          tap="${TAP_PREFIX}${i}"
+          mac="$(printf '06:00:00:%02x:01:%02x' "${SUBNET_OCTET}" "$((10 + i))")"
+          cp --reflink=auto "${prepared}" "${vm}/rootfs.ext4" 2>/dev/null || cp "${prepared}" "${vm}/rootfs.ext4"
+          set +e
+          e2fsck -fy "${vm}/rootfs.ext4" >/dev/null 2>&1
+          e=$?
+          set -e
+          [[ "${e}" -le 1 ]] || exit "${e}"
+          mnt="${vm}/mnt"
+          mkdir -p "${mnt}"
+          mount -o loop "${vm}/rootfs.ext4" "${mnt}"
+          printf '%s\n' "${name}" >"${mnt}/etc/hostname"
+          cat >"${mnt}/etc/hosts" <<EOF
+        127.0.0.1 localhost
+        127.0.1.1 ${name}
+        ${ip} ${name}
+        EOF
+          cat >"${mnt}/etc/network/interfaces" <<EOF
+        auto lo
+        iface lo inet loopback
+
+        auto eth0
+        iface eth0 inet static
+            address ${ip}
+            netmask 255.255.255.0
+            gateway ${GATEWAY}
+        EOF
+          rm -f "${mnt}/etc/resolv.conf"
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+          rm -f "${mnt}/etc/machine-id"
+          touch "${mnt}/etc/machine-id"
+          rm -f "${mnt}/var/lib/dbus/machine-id" 2>/dev/null || true
+          mkdir -p "${mnt}/etc/mysql/mariadb.conf.d" "${mnt}/etc/systemd/system/multi-user.target.wants"
+          rm -f "${mnt}/etc/systemd/system/multi-user.target.wants/mariadb.service" "${mnt}/etc/systemd/system/multi-user.target.wants/mysql.service" 2>/dev/null || true
+          cat >"${mnt}/etc/mysql/mariadb.conf.d/60-torque-galera.cnf" <<EOF
+        [mysqld]
+        bind-address=0.0.0.0
+        binlog_format=ROW
+        default_storage_engine=InnoDB
+        innodb_autoinc_lock_mode=2
+        wsrep_on=ON
+        wsrep_provider=/usr/lib/galera/libgalera_smm.so
+        wsrep_cluster_name=${CLUSTER_NAME}
+        wsrep_cluster_address=${cluster_address}
+        wsrep_node_address=${ip}
+        wsrep_node_name=${name}
+        wsrep_sst_method=rsync
+        EOF
+          ln -sf /lib/systemd/system/ssh.service "${mnt}/etc/systemd/system/multi-user.target.wants/ssh.service"
+          umount "${mnt}"
+          ip tuntap add dev "${tap}" mode tap
+          ip link set "${tap}" master "${BRIDGE_NAME}"
+          ip link set "${tap}" up
+          cat >"${vm}/vm.json" <<EOF
+        {"boot-source":{"kernel_image_path":"${KERNEL}","boot_args":"console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda rw random.trust_cpu=on systemd.unified_cgroup_hierarchy=0 systemd.legacy_systemd_cgroup_controller=1 systemd.mask=serial-getty@ttyS0.service systemd.mask=systemd-random-seed.service"},"drives":[{"drive_id":"rootfs","path_on_host":"${vm}/rootfs.ext4","is_root_device":true,"is_read_only":false}],"machine-config":{"vcpu_count":1,"mem_size_mib":1024},"network-interfaces":[{"iface_id":"eth0","host_dev_name":"${tap}","guest_mac":"${mac}"}],"logger":{"log_path":"${vm}/firecracker.log","level":"Info","show_level":true,"show_log_origin":true}}
+        EOF
+          "${FIRECRACKER}" --api-sock "${vm}/fc.sock" --config-file "${vm}/vm.json" >"${vm}/console.log" 2>&1 &
+          echo $! >"${vm}/pid"
+          echo "started ${name} ${ip}"
+        done
+
+        for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+          ip="$(vm_ip "${i}")"
+          for _ in $(seq 1 120); do
+            if ssh "${SSH_OPTS[@]}" "root@${ip}" true >/dev/null 2>&1; then
+              echo "vm-ssh-ready ${ip}"
+              break
+            fi
+            sleep 2
+          done
+          ssh "${SSH_OPTS[@]}" "root@${ip}" true >/dev/null 2>&1 || { echo "VM ${ip} did not become reachable over SSH" >&2; exit 1; }
+        done
+
+        ssh "${SSH_OPTS[@]}" "root@${FIRST_IP}" 'systemctl stop mariadb mysql 2>/dev/null || true; galera_new_cluster'
+        for i in $(seq 1 "$((NODE_COUNT - 1))"); do
+          ip="$(vm_ip "${i}")"
+          ssh "${SSH_OPTS[@]}" "root@${ip}" 'systemctl stop mariadb mysql 2>/dev/null || true; systemctl start mariadb'
+        done
+
+        ready_count=0
+        cluster="0"
+        for attempt in $(seq 1 120); do
+          ready_count=0
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip="$(vm_ip "${i}")"
+            if ssh "${SSH_OPTS[@]}" "root@${ip}" "if command -v mariadb-admin >/dev/null 2>&1; then mariadb-admin ping -uroot --silent; else mysqladmin ping -uroot --silent; fi" >/dev/null 2>&1; then
+              ready_count="$((ready_count + 1))"
+            fi
+          done
+          cluster="$(cluster_size || true)"
+          if [[ "${ready_count}" == "${NODE_COUNT}" && "${cluster}" == "${NODE_COUNT}" ]]; then
+            break
+          fi
+          if (( attempt % 10 == 0 )); then
+            echo "waiting-mysql-cluster attempt=${attempt} ready=${ready_count}/${NODE_COUNT} cluster=${cluster}/${NODE_COUNT}"
+          fi
+          sleep 3
+        done
+
+        vm_query "${FIRST_IP}" "CREATE DATABASE IF NOT EXISTS torque;"
+        vm_query "${FIRST_IP}" "CREATE TABLE IF NOT EXISTS torque.probe (id varchar(64) PRIMARY KEY, payload varchar(255), observed_at timestamp DEFAULT current_timestamp ON UPDATE current_timestamp);"
+        vm_query "${FIRST_IP}" "INSERT INTO torque.probe(id, payload) VALUES ('stackfile-mysql', 'proof data') ON DUPLICATE KEY UPDATE payload=VALUES(payload), observed_at=current_timestamp;"
+
+        replicated=0
+        : >"${RUN_ROOT}/cluster-status.txt"
+        for attempt in $(seq 1 60); do
+          replicated=0
+          : >"${RUN_ROOT}/cluster-status.txt"
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do
+            ip="$(vm_ip "${i}")"
+            count="$(vm_query "${ip}" "SELECT COUNT(*) FROM torque.probe WHERE id='stackfile-mysql';" 2>/dev/null || true)"
+            size="$(vm_query "${ip}" "SHOW STATUS LIKE 'wsrep_cluster_size';" 2>/dev/null | awk '{print $2}' | tail -n1 || true)"
+            state="$(vm_query "${ip}" "SHOW STATUS LIKE 'wsrep_local_state_comment';" 2>/dev/null | awk '{print $2}' | tail -n1 || true)"
+            printf 'node=%s ip=%s count=%s cluster=%s state=%s\n' "${i}" "${ip}" "${count}" "${size}" "${state}" >>"${RUN_ROOT}/cluster-status.txt"
+            [[ "${count}" == "1" && "${size}" == "${NODE_COUNT}" ]] && replicated="$((replicated + 1))"
+          done
+          [[ "${replicated}" == "${NODE_COUNT}" ]] && break
+          sleep 2
+        done
+
+        cat "${RUN_ROOT}/cluster-status.txt"
+        if [[ "${ready_count}" != "${NODE_COUNT}" || "${cluster}" != "${NODE_COUNT}" || "${replicated}" != "${NODE_COUNT}" ]]; then
+          write_receipt "failed" "${ready_count}" "${cluster:-0}"
+          echo "verification failed: ready=${ready_count}/${NODE_COUNT} cluster=${cluster}/${NODE_COUNT} replicated=${replicated}/${NODE_COUNT}" >&2
+          exit 1
+        fi
+        write_receipt "succeeded" "${ready_count}" "${cluster}"
+        cat "${RUN_ROOT}/receipt.json"
+        REMOTE
+        chmod +x "${RUN_ROOT}/bootstrap-firecracker-mysql.sh"
+        RUN_ROOT="${RUN_ROOT}" NODE_COUNT="${NODE_COUNT}" SUBNET_OCTET="${SUBNET_OCTET}" BRIDGE_NAME="${BRIDGE_NAME}" TAP_PREFIX="${TAP_PREFIX}" RUN_ID="${RUN_ID}" \
+          "${RUN_ROOT}/bootstrap-firecracker-mysql.sh" apply
+      deleteCommand: |
+        set +e
+        RUN_ROOT="/var/lib/torque-firecracker-mysql/cluster"
+        NODE_COUNT="3"
+        SUBNET_OCTET="235"
+        BRIDGE_NAME="tqfcmy"
+        TAP_PREFIX="tqmy"
+        RUN_ID="mysql-cluster"
+        if [ -x "${RUN_ROOT}/bootstrap-firecracker-mysql.sh" ]; then
+          RUN_ROOT="${RUN_ROOT}" NODE_COUNT="${NODE_COUNT}" SUBNET_OCTET="${SUBNET_OCTET}" BRIDGE_NAME="${BRIDGE_NAME}" TAP_PREFIX="${TAP_PREFIX}" RUN_ID="${RUN_ID}" \
+            "${RUN_ROOT}/bootstrap-firecracker-mysql.sh" delete
+        else
+          for p in "${RUN_ROOT}"/vms/*/pid; do [ -f "$p" ] && kill "$(cat "$p")" 2>/dev/null; done
+          for i in $(seq 0 "$((NODE_COUNT - 1))"); do ip link del "${TAP_PREFIX}${i}" 2>/dev/null; done
+          ip link set "${BRIDGE_NAME}" down 2>/dev/null
+          ip link del "${BRIDGE_NAME}" type bridge 2>/dev/null
+          iptables -t nat -D POSTROUTING -s "172.31.${SUBNET_OCTET}.0/24" ! -o "${BRIDGE_NAME}" -j MASQUERADE 2>/dev/null
+          rm -rf "${RUN_ROOT}"
+        fi
+
+  - name: mysql-cluster-verify
+    kind: mysql.replication.verify
+    needs: [fc-mysql-bootstrap]
+    mysql:
+      transport: ssh
+      target: ssh://root@141.105.65.227
+      timeout: 10m
+      nodeIdentityFile: /opt/firecracker-sandbox-lab/lab_ssh_key
+      expectedClusterSize: 3
+      expectedReplicatedNodes: 3
+      database: torque
+      probeTable: probe
+      probeId: stackfile-mysql-verify
+      probePayload: verify data
+      statusPath: /var/lib/torque-firecracker-mysql/cluster/verify-status.txt
+      insertProbe: true
+      stableAttempts: 60
+      stableInterval: 2s
+      nodes:
+        - id: mysql-00
+          address: 172.31.235.10
+        - id: mysql-01
+          address: 172.31.235.11
+        - id: mysql-02
+          address: 172.31.235.12
