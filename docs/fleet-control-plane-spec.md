@@ -28,10 +28,18 @@ Implemented local slice:
   `AgentStatusSnapshot`, supports label selectors, and outputs table or JSON.
 - `scripts/e2e/ops/OPS-AGENT-004.sh` proves the local NATS loop end to end and
   exports a standard redacted ops evidence bundle.
+- `torque-agent nats heartbeat --jetstream` publishes through JetStream and
+  waits for server acknowledgment.
+- `torque ops agent registry compact` consumes a durable JetStream pull
+  consumer and writes compact latest-agent status into a registry store.
+- `torque ops agent status --source store` reads compact registry status from a
+  file or etcd backend.
+- `scripts/e2e/ops/OPS-AGENT-005.sh` proves JetStream-to-etcd compaction end to
+  end.
 
 This is intentionally not the full fleet registry yet. It proves the
-cross-process contract that the Kubernetes controller, etcd compactor, and JetStream
-durability layers will harden.
+cross-process contract that the Kubernetes controller, etcd compactor, and
+JetStream durability layers will harden.
 
 ## Engineering Posture
 
@@ -1040,8 +1048,10 @@ proof before the feature is called production-ready.
 
 - NATS heartbeat schema. Implemented locally as
   `torque.dev/agent-heartbeat/v1`.
-- Registry controller.
-- etcd compact status schema.
+- Registry controller. Implemented locally as `torque ops agent registry
+  compact`, a one-shot command ready to become a looped controller.
+- etcd compact status schema. Implemented by the `AgentCompactStatus` record
+  under `/torque/agent-registry/v1/tenants/<tenant>/agents/<agent-key>`.
 - `torque fleet status`. Local precursor implemented as
   `torque ops agent status`.
 - stale/drain/quarantine states.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
@@ -11,16 +12,22 @@ import (
 )
 
 type NATSConfig struct {
-	Server  string
-	Creds   string
-	NKey    string
-	Timeout time.Duration
-	Name    string
+	Server       string
+	Creds        string
+	NKey         string
+	Timeout      time.Duration
+	Name         string
+	JetStream    bool
+	Stream       string
+	StreamMaxAge time.Duration
 }
 
 type Publisher struct {
 	conn    *natsgo.Conn
+	js      natsgo.JetStreamContext
 	timeout time.Duration
+	stream  string
+	maxAge  time.Duration
 }
 
 type CollectOptions struct {
@@ -36,7 +43,25 @@ func NewPublisher(ctx context.Context, config NATSConfig) (*Publisher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Publisher{conn: conn, timeout: timeout}, nil
+	publisher := &Publisher{
+		conn:    conn,
+		timeout: timeout,
+		stream:  AgentEventStreamName(config.Stream),
+		maxAge:  config.StreamMaxAge,
+	}
+	if config.JetStream {
+		js, err := conn.JetStream(natsgo.MaxWait(timeout))
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		if err := ensureAgentEventStream(ctx, js, publisher.stream, publisher.maxAge); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		publisher.js = js
+	}
+	return publisher, nil
 }
 
 func (p *Publisher) Publish(ctx context.Context, heartbeat Heartbeat, shardCount int) (string, error) {
@@ -55,6 +80,12 @@ func (p *Publisher) Publish(ctx context.Context, heartbeat Heartbeat, shardCount
 	raw, err := heartbeat.MarshalJSONBytes()
 	if err != nil {
 		return "", err
+	}
+	if p.js != nil {
+		if _, err := p.js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+			return "", err
+		}
+		return subject, nil
 	}
 	if err := p.conn.Publish(subject, raw); err != nil {
 		return "", err
@@ -155,4 +186,61 @@ func connect(ctx context.Context, config NATSConfig, defaultName string) (*natsg
 		return nil, 0, err
 	}
 	return conn, timeout, nil
+}
+
+func EnsureAgentEventStream(ctx context.Context, config NATSConfig) error {
+	conn, _, err := connect(ctx, config, "torque-agent-stream-admin")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	js, err := conn.JetStream(natsgo.MaxWait(timeout))
+	if err != nil {
+		return err
+	}
+	return ensureAgentEventStream(ctx, js, AgentEventStreamName(config.Stream), config.StreamMaxAge)
+}
+
+func AgentEventStreamName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return DefaultEventStream
+	}
+	return NormalizeSubjectToken(name, DefaultEventStream)
+}
+
+func AgentEventSubjects() []string {
+	return []string{
+		"torque.v1.agent.heartbeat.*.*.*",
+		"torque.v1.agent.lifecycle.*.*.*",
+	}
+}
+
+func ensureAgentEventStream(ctx context.Context, js natsgo.JetStreamContext, name string, maxAge time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	name = AgentEventStreamName(name)
+	if maxAge <= 0 {
+		maxAge = 24 * time.Hour
+	}
+	_, err := js.StreamInfo(name, natsgo.Context(ctx))
+	if err == nil {
+		return nil
+	}
+	_, err = js.AddStream(&natsgo.StreamConfig{
+		Name:              name,
+		Description:       "Torque durable agent heartbeat and lifecycle events",
+		Subjects:          AgentEventSubjects(),
+		Retention:         natsgo.LimitsPolicy,
+		MaxAge:            maxAge,
+		MaxMsgsPerSubject: 1024,
+		Storage:           natsgo.FileStorage,
+		Replicas:          1,
+	}, natsgo.Context(ctx))
+	return err
 }

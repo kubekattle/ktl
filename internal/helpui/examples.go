@@ -9,6 +9,7 @@ var curatedExamples = map[string][]string{
 		"# Bridge MCP calls to a remote torque-agent over gRPC\ntorque-mcp --stdio --remote-agent 127.0.0.1:7443 --remote-token \"$TORQUE_REMOTE_TOKEN\"",
 		"# Start a NATS assignment worker for stack transport fan-out\ntorque-agent nats worker --nats-url nats://127.0.0.1:4222 --subject torque.lab.assign.mysql --queue mysql-workers",
 		"# Publish and inspect NATS agent heartbeats\ntorque-agent nats heartbeat --nats-url nats://127.0.0.1:4222 --tenant lab --agent-id host-141 --label role=mysql",
+		"# Compact durable JetStream heartbeats into etcd\ntorque ops agent registry compact --nats-url nats://127.0.0.1:4222 --store etcd --etcd-endpoints http://127.0.0.1:2379 --tenant lab",
 		"# Benchmark host.file.ensure over SSH and NATS in Firecracker VMs\nTORQUE_OPS_E2E_CONFIRM=1 scripts/e2e/ops/OPS-TR-008.sh --counts 1,10,100 --vm-mem 192 --destroy-existing-labs",
 		"# Bridge MCP calls to an mTLS-protected torque-agent\ntorque-mcp --stdio --remote-agent torque-agent.prod.internal:7443 --remote-tls --remote-tls-ca /etc/torque/tls/ca.crt --remote-tls-client-cert /etc/torque/tls/client.crt --remote-tls-client-key /etc/torque/tls/client.key --remote-tls-server-name torque-agent.prod.internal --enable-write",
 		"# Ask MCP for a structured S3 cache plan instead of scraping BuildKit logs\nprintf '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"torque.cache.plan\",\"arguments\":{\"contextDir\":\".\",\"tags\":[\"ghcr.io/acme/app:dev\"],\"changedPaths\":[\"go.mod\"],\"s3Cache\":\"s3://acme-build-cache/torque/main\",\"s3CacheRegion\":\"us-east-1\"}}}\\n' | torque-mcp --stdio",
@@ -164,10 +165,19 @@ var curatedExamples = map[string][]string{
 	"torque ops agent": {
 		"# Inspect live NATS-backed ops agents\ntorque ops agent status --nats-url nats://127.0.0.1:4222 --tenant lab",
 		"# Filter live agents by label\ntorque ops agent status --selector role=mysql --format json",
+		"# Compact durable heartbeat events into the registry\ntorque ops agent registry compact --store etcd --etcd-endpoints http://127.0.0.1:2379 --tenant lab",
 	},
 	"torque ops agent status": {
 		"# Collect live heartbeat status as JSON\ntorque ops agent status --nats-url nats://127.0.0.1:4222 --tenant lab --format json",
 		"# Inspect only MySQL-capable agents\ntorque ops agent status --tenant lab --selector role=mysql",
+		"# Read compact status from etcd instead of live NATS\ntorque ops agent status --source store --store etcd --etcd-endpoints http://127.0.0.1:2379 --tenant lab",
+	},
+	"torque ops agent registry": {
+		"# Compact durable heartbeat events into the registry\ntorque ops agent registry compact --nats-url nats://127.0.0.1:4222 --store etcd --etcd-endpoints http://127.0.0.1:2379 --tenant lab",
+	},
+	"torque ops agent registry compact": {
+		"# Run a one-shot compaction from JetStream into etcd\ntorque ops agent registry compact --nats-url nats://127.0.0.1:4222 --tenant lab --store etcd --etcd-endpoints http://127.0.0.1:2379 --max-messages 100",
+		"# Compact into a local file registry for development\ntorque ops agent registry compact --store file --store-path ./.torque/ops/agent-registry.json --max-messages 100",
 	},
 	"torque ops inventory": {
 		"# Show targets selected by a label\ntorque ops inventory show --targets ./targetgraph.yaml --selector role=db",

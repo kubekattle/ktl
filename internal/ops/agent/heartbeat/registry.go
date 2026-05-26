@@ -41,20 +41,21 @@ type Summary struct {
 }
 
 type AgentStatus struct {
-	AgentID      string            `json:"agentId"`
-	Tenant       string            `json:"tenant"`
-	TargetID     string            `json:"targetId,omitempty"`
-	Hostname     string            `json:"hostname,omitempty"`
-	Version      string            `json:"version,omitempty"`
-	State        string            `json:"state"`
-	Health       string            `json:"health"`
-	LastSeen     string            `json:"lastSeen"`
-	Age          string            `json:"age"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	Capabilities []string          `json:"capabilities,omitempty"`
-	Slots        Slots             `json:"slots,omitempty"`
-	Offsets      Offsets           `json:"offsets,omitempty"`
-	Resources    Resources         `json:"resources,omitempty"`
+	AgentID        string            `json:"agentId"`
+	Tenant         string            `json:"tenant"`
+	TargetID       string            `json:"targetId,omitempty"`
+	Hostname       string            `json:"hostname,omitempty"`
+	Version        string            `json:"version,omitempty"`
+	State          string            `json:"state"`
+	Health         string            `json:"health"`
+	LastSeen       string            `json:"lastSeen"`
+	Age            string            `json:"age"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Capabilities   []string          `json:"capabilities,omitempty"`
+	Slots          Slots             `json:"slots,omitempty"`
+	Offsets        Offsets           `json:"offsets,omitempty"`
+	Resources      Resources         `json:"resources,omitempty"`
+	EvidenceOffset *StreamOffset     `json:"evidenceOffset,omitempty"`
 }
 
 func NewRegistry() *Registry {
@@ -106,30 +107,7 @@ func (r *Registry) Snapshot(req SnapshotRequest) Snapshot {
 	sort.Slice(agents, func(i, j int) bool {
 		return agents[i].AgentID < agents[j].AgentID
 	})
-	summary := Summary{Total: len(agents)}
-	for _, agent := range agents {
-		switch agent.Health {
-		case "ready":
-			summary.Ready++
-		case "stale":
-			summary.Stale++
-		case StateDegraded:
-			summary.Degraded++
-		case StateDraining:
-			summary.Draining++
-		case StateOffline:
-			summary.Offline++
-		}
-	}
-	return Snapshot{
-		APIVersion:  SnapshotAPIVersion,
-		Kind:        SnapshotKind,
-		Tenant:      tenant,
-		GeneratedAt: now.UTC().Format(time.RFC3339Nano),
-		StaleAfter:  staleAfter.String(),
-		Summary:     summary,
-		Agents:      agents,
-	}
+	return snapshotFromAgents(tenant, now.UTC(), staleAfter, agents)
 }
 
 func agentStatus(heartbeat Heartbeat, now time.Time, staleAfter time.Duration) AgentStatus {
@@ -185,4 +163,31 @@ func formatAge(age time.Duration) string {
 		return "0s"
 	}
 	return age.Truncate(time.Second).String()
+}
+
+func snapshotFromAgents(tenant string, now time.Time, staleAfter time.Duration, agents []AgentStatus) Snapshot {
+	summary := Summary{Total: len(agents)}
+	for _, agent := range agents {
+		switch agent.Health {
+		case "ready":
+			summary.Ready++
+		case "stale":
+			summary.Stale++
+		case StateDegraded:
+			summary.Degraded++
+		case StateDraining:
+			summary.Draining++
+		case StateOffline:
+			summary.Offline++
+		}
+	}
+	return Snapshot{
+		APIVersion:  SnapshotAPIVersion,
+		Kind:        SnapshotKind,
+		Tenant:      NormalizeTenant(tenant),
+		GeneratedAt: now.UTC().Format(time.RFC3339Nano),
+		StaleAfter:  staleAfter.String(),
+		Summary:     summary,
+		Agents:      agents,
+	}
 }

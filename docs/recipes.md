@@ -188,6 +188,30 @@ torque ops agent status \
   --format json
 ```
 
+Durable mode uses JetStream for heartbeat events and a compact registry store
+for status reads:
+
+```bash
+torque-agent nats heartbeat \
+  --nats-url nats://127.0.0.1:4222 \
+  --jetstream \
+  --tenant lab \
+  --agent-id host-141 \
+  --label role=mysql
+
+torque ops agent registry compact \
+  --nats-url nats://127.0.0.1:4222 \
+  --tenant lab \
+  --store etcd \
+  --etcd-endpoints http://127.0.0.1:2379
+
+torque ops agent status \
+  --source store \
+  --store etcd \
+  --etcd-endpoints http://127.0.0.1:2379 \
+  --tenant lab
+```
+
 ## Durable Linux agent host
 
 ```bash

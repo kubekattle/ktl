@@ -14,8 +14,10 @@ const (
 	APIVersion = "torque.dev/agent-heartbeat/v1"
 	Kind       = "AgentHeartbeat"
 
-	DefaultTenant     = "default"
-	DefaultShardCount = 256
+	DefaultTenant          = "default"
+	DefaultShardCount      = 256
+	DefaultEventStream     = "TORQUE_AGENT_EVENTS"
+	DefaultRegistryDurable = "torque-agent-registry"
 
 	StateReady    = "ready"
 	StateDegraded = "degraded"

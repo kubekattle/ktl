@@ -38,6 +38,11 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 		return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_AGENT_LABELS: %w", err)
 	}
 	defaultCapabilities := parseCSV(getenv("TORQUE_AGENT_CAPABILITIES"))
+	defaultJetStream, err := parseBoolDefault(getenv("TORQUE_NATS_JETSTREAM"), false)
+	if err != nil {
+		return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_NATS_JETSTREAM: %w", err)
+	}
+	defaultStream := firstNonEmptyAgent(getenv("TORQUE_NATS_STREAM"), heartbeat.DefaultEventStream)
 	defaultTimeout := 30 * time.Second
 	if raw := firstNonEmptyAgent(getenv("TORQUE_NATS_TIMEOUT"), getenv("TORQUE_NATS_HEARTBEAT_TIMEOUT")); raw != "" {
 		parsed, err := time.ParseDuration(raw)
@@ -76,6 +81,9 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 	nkey := fs.String("nkey", strings.TrimSpace(getenv("TORQUE_NATS_NKEY")), "NATS NKey seed file (also TORQUE_NATS_NKEY)")
 	timeout := fs.Duration("timeout", defaultTimeout, "NATS connection timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_HEARTBEAT_TIMEOUT)")
 	interval := fs.Duration("interval", defaultInterval, "Heartbeat interval for continuous mode (also TORQUE_AGENT_HEARTBEAT_INTERVAL)")
+	jetStream := fs.Bool("jetstream", defaultJetStream, "Publish heartbeats through JetStream with server ack (also TORQUE_NATS_JETSTREAM)")
+	stream := fs.String("stream", defaultStream, "JetStream stream for durable agent events (also TORQUE_NATS_STREAM)")
+	streamMaxAge := fs.Duration("stream-max-age", 24*time.Hour, "JetStream stream retention when auto-created")
 	once := fs.Bool("once", false, "Publish one heartbeat and exit")
 	shards := fs.Int("shards", heartbeat.DefaultShardCount, "Heartbeat subject shard count")
 	slots := fs.Int("slots", defaultSlots, "Total local job slots to advertise")
@@ -146,11 +154,14 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 	}
 	return natsHeartbeatConfig{
 		NATS: heartbeat.NATSConfig{
-			Server:  strings.TrimSpace(*server),
-			Creds:   strings.TrimSpace(*creds),
-			NKey:    strings.TrimSpace(*nkey),
-			Timeout: *timeout,
-			Name:    "torque-agent-heartbeat",
+			Server:       strings.TrimSpace(*server),
+			Creds:        strings.TrimSpace(*creds),
+			NKey:         strings.TrimSpace(*nkey),
+			Timeout:      *timeout,
+			Name:         "torque-agent-heartbeat",
+			JetStream:    *jetStream,
+			Stream:       strings.TrimSpace(*stream),
+			StreamMaxAge: *streamMaxAge,
 		},
 		Options:  opts,
 		Interval: *interval,
@@ -201,7 +212,7 @@ func runNATSHeartbeat(ctx context.Context, config natsHeartbeatConfig) error {
 
 func printNATSHeartbeatUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [--nats-url nats://127.0.0.1:4222] [--label role=mysql]")
+	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [--nats-url nats://127.0.0.1:4222] [--label role=mysql] [--jetstream]")
 }
 
 func parseKeyValueCSV(raw string) (map[string]string, error) {
@@ -242,4 +253,19 @@ func copyStringMap(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func parseBoolDefault(raw string, fallback bool) (bool, error) {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return fallback, nil
+	}
+	switch raw {
+	case "1", "t", "true", "y", "yes", "on":
+		return true, nil
+	case "0", "f", "false", "n", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("must be a boolean")
+	}
 }

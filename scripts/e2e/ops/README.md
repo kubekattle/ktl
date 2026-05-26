@@ -451,6 +451,20 @@ scripts/e2e/ops/OPS-AGENT-004.sh \
   --cleanup
 ```
 
+## OPS-AGENT-005
+
+`OPS-AGENT-005.sh` proves durable agent registry compaction. It starts
+JetStream-enabled NATS and etcd, publishes two `torque-agent nats heartbeat
+--jetstream --once` events, compacts them with `torque ops agent registry
+compact`, reads them back with `torque ops agent status --source store`, and
+exports a redacted evidence bundle.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-005.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or
