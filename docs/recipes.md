@@ -197,7 +197,8 @@ torque-agent nats heartbeat \
   --jetstream \
   --tenant lab \
   --agent-id host-141 \
-  --label role=mysql
+  --label role=mysql \
+  --capability host.command.run
 
 torque ops agent registry compact \
   --nats-url nats://127.0.0.1:4222 \
@@ -212,13 +213,14 @@ torque ops agent status \
   --tenant lab
 ```
 
-## Stack fleet readiness gate
+## Stack fleet readiness and capability gate
 
 In local mode, stack nodes can still use direct SSH or NATS transports. Fleet
 mode is the NATS-backed path: `torque stack apply` reads the compact agent
 registry before hooks or node execution, writes `fleet-readiness.json` into the
 stack state store, and blocks mutation when not enough matching agents are
-ready.
+ready. The same receipt also derives required capabilities from the stack node
+kinds and requires every ready matching agent to advertise those capabilities.
 
 ```yaml
 apiVersion: torque.dev/v1

@@ -16,10 +16,10 @@ Options:
   --no-cleanup           Keep local scratch for debugging.
   -h, --help             Show this help.
 
-OPS-AGENT-006 proves stack fleet readiness gates end to end: publish a durable
-agent heartbeat through JetStream, compact it into a registry store, run
-torque stack apply in runner.mode=fleet over NATS, and prove an insufficient
-readiness case blocks before mutation.
+OPS-AGENT-006 proves stack fleet readiness and capability gates end to end:
+publish durable agent heartbeats through JetStream, compact them into a registry
+store, run torque stack apply in runner.mode=fleet over NATS, and prove
+insufficient readiness plus missing capability cases block before mutation.
 EOF
 }
 
@@ -66,10 +66,13 @@ started_at="$(ops_utc_now)"
 scratch_root="$(mktemp -d "${TMPDIR:-/tmp}/torque-ops-agent-006.XXXXXX")"
 stack_pass_dir="${scratch_root}/stack-pass"
 stack_block_dir="${scratch_root}/stack-block"
+stack_capability_block_dir="${scratch_root}/stack-capability-block"
 registry_path="${scratch_root}/agent-registry.json"
 pass_marker="${scratch_root}/pass-marker.txt"
 block_marker="${scratch_root}/block-marker.txt"
+capability_block_marker="${scratch_root}/capability-block-marker.txt"
 subject="torque.e2e.assign.fleet.${OPS_RUN_ID//[^A-Za-z0-9]/}"
+registry_durable="torque-ops-agent-006-${OPS_RUN_ID//[^A-Za-z0-9]/}"
 nats_pid=""
 worker_pid=""
 nats_url="${external_nats_url}"
@@ -136,29 +139,47 @@ def artifact(audit, name):
 
 pass_audit = load("verification/pass-audit.json")
 block_audit = load("verification/block-audit.json")
+capability_block_audit = load("verification/capability-block-audit.json")
 status_store = load("verification/status-store.json")
+status_nocap_store = load("verification/status-nocap-store.json")
 compact = load("verification/registry-compact.json")
+compact_nocap = load("verification/registry-compact-nocap.json")
 pass_marker = (run_dir / "verification/pass-marker.txt").read_text(encoding="utf-8").strip() if (run_dir / "verification/pass-marker.txt").is_file() else ""
 block_marker_exists = (run_dir / "verification/block-marker-present").is_file()
+capability_block_marker_exists = (run_dir / "verification/capability-block-marker-present").is_file()
 block_code_raw = (run_dir / "verification/block-exit-code.txt").read_text(encoding="utf-8").strip() if (run_dir / "verification/block-exit-code.txt").is_file() else ""
+capability_block_code_raw = (run_dir / "verification/capability-block-exit-code.txt").read_text(encoding="utf-8").strip() if (run_dir / "verification/capability-block-exit-code.txt").is_file() else ""
 try:
     block_code = int(block_code_raw)
 except ValueError:
     block_code = -1
+try:
+    capability_block_code = int(capability_block_code_raw)
+except ValueError:
+    capability_block_code = -1
 
 pass_readiness = artifact(pass_audit, "fleet-readiness.json")
 block_readiness = artifact(block_audit, "fleet-readiness.json")
+capability_block_readiness = artifact(capability_block_audit, "fleet-readiness.json")
 errors = []
 if compact.get("stored") != 1:
     errors.append("registry compaction must store exactly one agent")
+if compact_nocap.get("stored") != 1:
+    errors.append("nocap registry compaction must store exactly one agent")
 if status_store.get("summary", {}).get("ready") != 1:
     errors.append("store-backed status must report one ready agent")
+if status_nocap_store.get("summary", {}).get("ready") != 1:
+    errors.append("nocap store-backed status must report one ready agent")
 if pass_audit.get("status") != "succeeded":
     errors.append("pass stack audit status must be succeeded")
 if pass_readiness.get("status") != "ready":
     errors.append("pass fleet-readiness artifact status must be ready")
 if pass_readiness.get("summary", {}).get("readyPercent") != 100:
     errors.append("pass readiness readyPercent must be 100")
+if pass_readiness.get("summary", {}).get("coveredCapabilities") != 1:
+    errors.append("pass readiness must cover one required capability")
+if pass_readiness.get("summary", {}).get("missingCapabilities", 0) != 0:
+    errors.append("pass readiness must not report missing capabilities")
 if pass_marker != "fleet-pass":
     errors.append("pass marker was not written by NATS worker")
 if block_code == 0:
@@ -169,6 +190,18 @@ if block_readiness.get("status") != "blocked":
     errors.append("block fleet-readiness artifact status must be blocked")
 if block_marker_exists:
     errors.append("block marker exists; mutation ran despite readiness block")
+if capability_block_code == 0:
+    errors.append("capability block stack apply unexpectedly succeeded")
+if capability_block_audit.get("status") != "blocked":
+    errors.append("capability block stack audit status must be blocked")
+if capability_block_readiness.get("status") != "blocked":
+    errors.append("capability block fleet-readiness artifact status must be blocked")
+if capability_block_readiness.get("summary", {}).get("missingCapabilities") != 1:
+    errors.append("capability block readiness must report one missing capability")
+if not any(blocker.get("code") == "fleet.capability.missing" for blocker in capability_block_readiness.get("blockers", [])):
+    errors.append("capability block readiness must include fleet.capability.missing")
+if capability_block_marker_exists:
+    errors.append("capability block marker exists; mutation ran despite capability block")
 run_status = "succeeded" if exit_code == 0 and not errors else "failed"
 
 write("metadata.json", {
@@ -178,7 +211,7 @@ write("metadata.json", {
     "runId": run_id,
     "startedAt": started_at,
     "finishedAt": finished_at,
-    "labProfiles": ["local.nats.jetstream", "ops.agent.registry", "stack.fleet-readiness"],
+    "labProfiles": ["local.nats.jetstream", "ops.agent.registry", "stack.fleet-readiness", "stack.fleet-capability"],
 })
 write("target-snapshot.json", {
     "apiVersion": "torque.dev/e2e/v1",
@@ -189,6 +222,7 @@ write("target-snapshot.json", {
         {"id": "nats/local-jetstream", "type": "nats-jetstream", "url": nats_url, "stream": "TORQUE_AGENT_EVENTS"},
         {"id": "worker/local", "type": "torque-agent-nats-worker", "subject": subject},
         {"id": "agent/agent-mysql-01", "type": "torque-agent", "tenant": "lab", "labels": {"role": "mysql", "site": "lab"}},
+        {"id": "agent/agent-nocap-01", "type": "torque-agent", "tenant": "lab", "labels": {"role": "nocap", "site": "lab"}},
     ],
 })
 write("decision.json", {
@@ -196,7 +230,7 @@ write("decision.json", {
     "kind": "OpsLabDecision",
     "taskId": task_id,
     "runId": run_id,
-    "decision": "enforce-stack-fleet-readiness-before-mutation",
+    "decision": "enforce-stack-fleet-readiness-and-capability-before-mutation",
     "status": "succeeded" if run_status == "succeeded" else "blocked",
 })
 write("verification/receipt.json", {
@@ -206,10 +240,14 @@ write("verification/receipt.json", {
     "runId": run_id,
     "status": run_status,
     "compact": compact,
+    "nocapCompact": compact_nocap,
     "storeSummary": status_store.get("summary"),
+    "nocapStoreSummary": status_nocap_store.get("summary"),
     "passReadiness": pass_readiness.get("summary"),
     "blockReadiness": block_readiness.get("summary"),
+    "capabilityBlockReadiness": capability_block_readiness.get("summary"),
     "blockExitCode": block_code,
+    "capabilityBlockExitCode": capability_block_code,
     "errors": errors,
     "verifiedAt": finished_at,
 })
@@ -253,7 +291,7 @@ PY
 }
 trap finish EXIT
 
-mkdir -p "${OPS_RUN_DIR}/build" "${OPS_RUN_DIR}/logs" "${OPS_RUN_DIR}/verification" "${stack_pass_dir}" "${stack_block_dir}"
+mkdir -p "${OPS_RUN_DIR}/build" "${OPS_RUN_DIR}/logs" "${OPS_RUN_DIR}/verification" "${stack_pass_dir}" "${stack_block_dir}" "${stack_capability_block_dir}"
 
 ops_log "build torque and torque-agent"
 make -C "${repo_root}" -s build build-agent >"${OPS_RUN_DIR}/build/make-build.out" 2>&1
@@ -334,6 +372,7 @@ ops_log "publish durable heartbeat and compact registry"
   --tenant lab \
   --store file \
   --store-path "${registry_path}" \
+  --durable "${registry_durable}" \
   --max-messages 1 \
   --wait 200ms \
   --timeout 5s \
@@ -348,6 +387,39 @@ ops_log "publish durable heartbeat and compact registry"
   --selector role=mysql \
   --format json \
   >"${OPS_RUN_DIR}/verification/status-store.json" 2>"${OPS_RUN_DIR}/logs/status-store.err"
+
+"${repo_root}/bin/torque-agent" nats heartbeat \
+  --nats-url "${nats_url}" \
+  --jetstream \
+  --once \
+  --tenant lab \
+  --agent-id agent-nocap-01 \
+  --target-id host/nocap-01 \
+  --label role=nocap \
+  --label site=lab \
+  --capability mysql.replication.verify \
+  >"${OPS_RUN_DIR}/logs/heartbeat-nocap.log" 2>&1
+
+"${repo_root}/bin/torque" ops agent registry compact \
+  --nats-url "${nats_url}" \
+  --tenant lab \
+  --store file \
+  --store-path "${registry_path}" \
+  --durable "${registry_durable}" \
+  --max-messages 1 \
+  --wait 200ms \
+  --timeout 5s \
+  --format json \
+  >"${OPS_RUN_DIR}/verification/registry-compact-nocap.json" 2>"${OPS_RUN_DIR}/logs/registry-compact-nocap.err"
+
+"${repo_root}/bin/torque" ops agent status \
+  --source store \
+  --store file \
+  --store-path "${registry_path}" \
+  --tenant lab \
+  --selector role=nocap \
+  --format json \
+  >"${OPS_RUN_DIR}/verification/status-nocap-store.json" 2>"${OPS_RUN_DIR}/logs/status-nocap-store.err"
 
 cat >"${stack_pass_dir}/stack.yaml" <<YAML
 apiVersion: torque.dev/v1
@@ -407,6 +479,35 @@ nodes:
         printf 'fleet-block\n' > '${block_marker}'
 YAML
 
+cat >"${stack_capability_block_dir}/stack.yaml" <<YAML
+apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-capability-block
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: ${registry_path}
+    tenant: lab
+    selector:
+      role: nocap
+    requireAgents: true
+    minReadyPercent: 95
+    failureBudget: 0
+    staleAfter: 45s
+    onInsufficientReady: block
+nodes:
+  - name: write-capability-block-marker
+    kind: host.command.run
+    host:
+      transport: nats
+      target: ${subject}
+      timeout: 10s
+      command: |
+        printf 'fleet-capability-block\n' > '${capability_block_marker}'
+YAML
+
 ops_log "apply fleet-ready stack over NATS"
 TORQUE_NATS_URL="${nats_url}" "${repo_root}/bin/torque" stack apply --config "${stack_pass_dir}" --yes \
   >"${OPS_RUN_DIR}/logs/pass-stack-apply.log" 2>"${OPS_RUN_DIR}/logs/pass-stack-apply.err"
@@ -434,5 +535,24 @@ fi
   >"${OPS_RUN_DIR}/verification/block-audit.json" 2>"${OPS_RUN_DIR}/logs/block-audit.err"
 "${repo_root}/bin/torque" stack export --config "${stack_block_dir}" --out "${OPS_RUN_DIR}/block-stack-run.tgz" \
   >"${OPS_RUN_DIR}/logs/block-stack-export.log" 2>"${OPS_RUN_DIR}/logs/block-stack-export.err"
+
+ops_log "prove missing capability blocks before mutation"
+set +e
+TORQUE_NATS_URL="${nats_url}" "${repo_root}/bin/torque" stack apply --config "${stack_capability_block_dir}" --yes \
+  >"${OPS_RUN_DIR}/logs/capability-block-stack-apply.log" 2>"${OPS_RUN_DIR}/logs/capability-block-stack-apply.err"
+capability_block_code=$?
+set -e
+echo "${capability_block_code}" >"${OPS_RUN_DIR}/verification/capability-block-exit-code.txt"
+if [[ "${capability_block_code}" -eq 0 ]]; then
+  ops_fail "capability block stack apply unexpectedly succeeded"
+fi
+if [[ -e "${capability_block_marker}" ]]; then
+  touch "${OPS_RUN_DIR}/verification/capability-block-marker-present"
+  ops_fail "capability block marker was written despite fleet capability gate"
+fi
+"${repo_root}/bin/torque" stack audit --config "${stack_capability_block_dir}" --output json --include-events --include-artifacts \
+  >"${OPS_RUN_DIR}/verification/capability-block-audit.json" 2>"${OPS_RUN_DIR}/logs/capability-block-audit.err"
+"${repo_root}/bin/torque" stack export --config "${stack_capability_block_dir}" --out "${OPS_RUN_DIR}/capability-block-stack-run.tgz" \
+  >"${OPS_RUN_DIR}/logs/capability-block-stack-export.log" 2>"${OPS_RUN_DIR}/logs/capability-block-stack-export.err"
 
 ops_log "OPS-AGENT-006 passed: ${OPS_RUN_DIR}"

@@ -23,8 +23,8 @@ func TestRun_FleetReadinessAllowsNATSMutation(t *testing.T) {
 		Transport:    "nats",
 		Target:       "torque.lab.assign.mysql",
 	})
-	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC())
-	writeFleetReadinessAgent(t, registryPath, "mysql-02", heartbeat.StateReady, time.Now().UTC())
+	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
+	writeFleetReadinessAgent(t, registryPath, "mysql-02", heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
 
 	p := compileFleetReadinessStack(t, root)
 	exec := &recordingExecutor{}
@@ -42,7 +42,7 @@ func TestRun_FleetReadinessAllowsNATSMutation(t *testing.T) {
 	}
 	audit := fleetReadinessAudit(t, root)
 	readiness := fleetReadinessArtifact(t, audit.Artifacts)
-	if readiness.Status != "ready" || readiness.Summary.ReadyPercent != 100 || readiness.Summary.TotalAgents != 2 {
+	if readiness.Status != "ready" || readiness.Summary.ReadyPercent != 100 || readiness.Summary.TotalAgents != 2 || readiness.Summary.CoveredCapabilities != 1 {
 		t.Fatalf("readiness artifact = %#v", readiness)
 	}
 	if !auditHasEvent(audit.Events, string(FleetReadiness), "ready") {
@@ -97,7 +97,7 @@ func TestRun_FleetReadinessRequiresNATSTransport(t *testing.T) {
 		Transport:    "ssh",
 		Target:       "root@example.invalid",
 	})
-	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC())
+	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
 
 	p := compileFleetReadinessStack(t, root)
 	exec := &recordingExecutor{}
@@ -120,6 +120,80 @@ func TestRun_FleetReadinessRequiresNATSTransport(t *testing.T) {
 	}
 	if !fleetReadinessHasBlocker(readiness, "fleet.transport.not_nats") {
 		t.Fatalf("missing transport blocker: %#v", readiness.Blockers)
+	}
+}
+
+func TestRun_FleetReadinessRequiresCapability(t *testing.T) {
+	root := t.TempDir()
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	writeFleetReadinessStackFixture(t, root, fleetReadinessStackOptions{
+		RegistryPath: registryPath,
+		Mode:         RunnerModeFleet,
+		Transport:    "nats",
+		Target:       "torque.lab.assign.mysql",
+	})
+	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC(), NodeKindMySQLReplicationVerify)
+
+	p := compileFleetReadinessStack(t, root)
+	exec := &recordingExecutor{}
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Executor:    exec,
+	}, &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "fleet readiness blocked") {
+		t.Fatalf("Run error = %v, want fleet readiness blocked", err)
+	}
+	if calls := exec.calledNames(); len(calls) != 0 {
+		t.Fatalf("executor was called despite missing capability: %v", calls)
+	}
+	readiness := fleetReadinessArtifact(t, fleetReadinessAudit(t, root).Artifacts)
+	if readiness.Status != "blocked" || readiness.Summary.MissingCapabilities != 1 {
+		t.Fatalf("readiness artifact = %#v", readiness)
+	}
+	if !fleetReadinessHasBlocker(readiness, "fleet.capability.missing") {
+		t.Fatalf("missing capability blocker: %#v", readiness.Blockers)
+	}
+	if len(readiness.Capabilities) != 1 || readiness.Capabilities[0].Capability != NodeKindHostCommandRun || readiness.Capabilities[0].Status != "blocked" {
+		t.Fatalf("capability coverage = %#v", readiness.Capabilities)
+	}
+}
+
+func TestRun_FleetReadinessRequiresCapabilityOnEveryReadyAgent(t *testing.T) {
+	root := t.TempDir()
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	writeFleetReadinessStackFixture(t, root, fleetReadinessStackOptions{
+		RegistryPath: registryPath,
+		Mode:         RunnerModeFleet,
+		Transport:    "nats",
+		Target:       "torque.lab.assign.mysql",
+	})
+	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
+	writeFleetReadinessAgent(t, registryPath, "mysql-02", heartbeat.StateReady, time.Now().UTC(), NodeKindMySQLReplicationVerify)
+
+	p := compileFleetReadinessStack(t, root)
+	exec := &recordingExecutor{}
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Executor:    exec,
+	}, &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "fleet readiness blocked") {
+		t.Fatalf("Run error = %v, want fleet readiness blocked", err)
+	}
+	if calls := exec.calledNames(); len(calls) != 0 {
+		t.Fatalf("executor was called despite partial capability coverage: %v", calls)
+	}
+	readiness := fleetReadinessArtifact(t, fleetReadinessAudit(t, root).Artifacts)
+	if readiness.Status != "blocked" || readiness.Summary.MissingCapabilities != 1 {
+		t.Fatalf("readiness artifact = %#v", readiness)
+	}
+	if len(readiness.Capabilities) != 1 || len(readiness.Capabilities[0].MissingReadyAgents) != 1 || readiness.Capabilities[0].MissingReadyAgents[0] != "mysql-02" {
+		t.Fatalf("capability coverage = %#v", readiness.Capabilities)
 	}
 }
 
@@ -164,6 +238,7 @@ func TestEvaluateFleetReadinessWarnModeDoesNotBlock(t *testing.T) {
 		Transport:           "nats",
 		Target:              "torque.lab.assign.mysql",
 		OnInsufficientReady: RunnerReadinessOnWarn,
+		NoNodes:             true,
 	})
 
 	p := compileFleetReadinessStack(t, root)
@@ -183,7 +258,7 @@ func TestEvaluateFleetReadinessWarnModeStillBlocksNonNATSTransport(t *testing.T)
 		Target:              "root@example.invalid",
 		OnInsufficientReady: RunnerReadinessOnWarn,
 	})
-	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC())
+	writeFleetReadinessAgent(t, registryPath, "mysql-01", heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
 
 	p := compileFleetReadinessStack(t, root)
 	readiness := EvaluateFleetReadiness(context.Background(), p)
@@ -201,6 +276,7 @@ type fleetReadinessStackOptions struct {
 	Transport           string
 	Target              string
 	OnInsufficientReady string
+	NoNodes             bool
 }
 
 func writeFleetReadinessStackFixture(t *testing.T, root string, opts fleetReadinessStackOptions) {
@@ -237,19 +313,23 @@ func writeFleetReadinessStackFixture(t *testing.T, root string, opts fleetReadin
     onInsufficientReady: %s
 `, opts.RegistryPath, onInsufficient)
 	}
-	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
-kind: Stack
-name: fleet-readiness
-runner:
-  mode: %s
-%snodes:
+	nodesYAML := fmt.Sprintf(`nodes:
   - kind: host.command.run
     name: verify-mysql
     host:
       transport: %s
       target: %s
       command: echo fleet-ready
-`, mode, readiness, transport, target)
+`, transport, target)
+	if opts.NoNodes {
+		nodesYAML = "nodes: []\n"
+	}
+	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-readiness
+runner:
+  mode: %s
+%s%s`, mode, readiness, nodesYAML)
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +348,7 @@ func compileFleetReadinessStack(t *testing.T, root string) *Plan {
 	return p
 }
 
-func writeFleetReadinessAgent(t *testing.T, registryPath string, agentID string, state string, observedAt time.Time) {
+func writeFleetReadinessAgent(t *testing.T, registryPath string, agentID string, state string, observedAt time.Time, capabilities ...string) {
 	t.Helper()
 	store, err := heartbeat.NewFileStore(registryPath)
 	if err != nil {
@@ -276,13 +356,14 @@ func writeFleetReadinessAgent(t *testing.T, registryPath string, agentID string,
 	}
 	defer store.Close()
 	hb := heartbeat.New(heartbeat.Options{
-		AgentID:    agentID,
-		Tenant:     "lab",
-		TargetID:   agentID,
-		Hostname:   agentID,
-		Labels:     map[string]string{"role": "mysql"},
-		State:      state,
-		ObservedAt: observedAt,
+		AgentID:      agentID,
+		Tenant:       "lab",
+		TargetID:     agentID,
+		Hostname:     agentID,
+		Labels:       map[string]string{"role": "mysql"},
+		Capabilities: capabilities,
+		State:        state,
+		ObservedAt:   observedAt,
 	})
 	record, err := heartbeat.NewCompactRecord(hb, heartbeat.StreamOffset{Stream: "TORQUE_AGENT_EVENTS", Sequence: 1}, observedAt, 45*time.Second)
 	if err != nil {

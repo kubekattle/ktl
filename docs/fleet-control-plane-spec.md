@@ -1,7 +1,7 @@
 # Torque Fleet Control Plane Spec
 
 Status: design draft; local NATS heartbeat/status, durable registry compaction,
-and stack fleet readiness gate slices implemented.
+and stack fleet readiness/capability gate slices implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -38,11 +38,13 @@ Implemented local slice:
 - `scripts/e2e/ops/OPS-AGENT-005.sh` proves JetStream-to-etcd compaction end to
   end.
 - `runner.mode: fleet` with `runner.readiness` makes `torque stack apply` read
-  compact agent status before mutation, write `fleet-readiness.json` into the
-  stack state store, and block when readiness policy is not satisfied.
+  compact agent status before mutation, derive required capabilities from the
+  stack node kinds, write `fleet-readiness.json` into the stack state store, and
+  block when readiness or capability policy is not satisfied.
 - `scripts/e2e/ops/OPS-AGENT-006.sh` proves one NATS-backed fleet stack apply
-  after readiness passes and one insufficient-readiness apply that blocks before
-  mutation.
+  after readiness and capability checks pass, one insufficient-readiness apply
+  that blocks before mutation, and one missing-capability apply that blocks
+  before mutation.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
@@ -668,7 +670,7 @@ Before mutation:
 1. Resolve desired targets.
 2. Check enrolled agent binding for each target.
 3. Check heartbeat freshness.
-4. Check capability digest.
+4. Check required stack capabilities against every ready matching agent.
 5. Check policy digest.
 6. Check quarantine/drain flags.
 7. Check current slot availability.
@@ -677,6 +679,7 @@ Before mutation:
 Outcomes:
 
 - `blocked`: readiness below policy.
+- `blocked`: a ready matching agent lacks a required stack capability.
 - `partial`: allowed only when the stack explicitly permits partial execution.
 - `fallback`: use SSH only when explicitly allowed.
 - `ready`: create assignment stream records.
@@ -686,6 +689,7 @@ Readiness is evidence. The gate writes:
 - selected target count;
 - ready target count;
 - stale target IDs or digests;
+- required capability coverage, including matching and missing ready agents;
 - blocked reasons;
 - selector digest;
 - inventory revision;

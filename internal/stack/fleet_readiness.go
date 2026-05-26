@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,16 +17,17 @@ const (
 )
 
 type FleetReadinessResult struct {
-	APIVersion  string                `json:"apiVersion"`
-	Kind        string                `json:"kind"`
-	Status      string                `json:"status"`
-	GeneratedAt string                `json:"generatedAt"`
-	RunnerMode  string                `json:"runnerMode"`
-	Readiness   FleetReadinessConfig  `json:"readiness"`
-	Summary     FleetReadinessSummary `json:"summary"`
-	Snapshot    *heartbeat.Snapshot   `json:"snapshot,omitempty"`
-	Checks      []FleetReadinessCheck `json:"checks,omitempty"`
-	Blockers    []OpsPlanBlocker      `json:"blockers,omitempty"`
+	APIVersion   string                    `json:"apiVersion"`
+	Kind         string                    `json:"kind"`
+	Status       string                    `json:"status"`
+	GeneratedAt  string                    `json:"generatedAt"`
+	RunnerMode   string                    `json:"runnerMode"`
+	Readiness    FleetReadinessConfig      `json:"readiness"`
+	Summary      FleetReadinessSummary     `json:"summary"`
+	Snapshot     *heartbeat.Snapshot       `json:"snapshot,omitempty"`
+	Capabilities []FleetCapabilityCoverage `json:"capabilities,omitempty"`
+	Checks       []FleetReadinessCheck     `json:"checks,omitempty"`
+	Blockers     []OpsPlanBlocker          `json:"blockers,omitempty"`
 }
 
 type FleetReadinessConfig struct {
@@ -44,29 +46,47 @@ type FleetReadinessConfig struct {
 }
 
 type FleetReadinessSummary struct {
-	TotalAgents         int  `json:"totalAgents"`
-	ReadyAgents         int  `json:"readyAgents"`
-	StaleAgents         int  `json:"staleAgents,omitempty"`
-	DegradedAgents      int  `json:"degradedAgents,omitempty"`
-	DrainingAgents      int  `json:"drainingAgents,omitempty"`
-	OfflineAgents       int  `json:"offlineAgents,omitempty"`
-	UnreadyAgents       int  `json:"unreadyAgents,omitempty"`
-	ReadyPercent        int  `json:"readyPercent"`
-	MinReadyPercent     int  `json:"minReadyPercent"`
-	FailureBudget       int  `json:"failureBudget"`
-	RequireAgents       bool `json:"requireAgents"`
-	TransportViolations int  `json:"transportViolations,omitempty"`
-	Blocked             int  `json:"blocked,omitempty"`
+	TotalAgents          int  `json:"totalAgents"`
+	ReadyAgents          int  `json:"readyAgents"`
+	StaleAgents          int  `json:"staleAgents,omitempty"`
+	DegradedAgents       int  `json:"degradedAgents,omitempty"`
+	DrainingAgents       int  `json:"drainingAgents,omitempty"`
+	OfflineAgents        int  `json:"offlineAgents,omitempty"`
+	UnreadyAgents        int  `json:"unreadyAgents,omitempty"`
+	ReadyPercent         int  `json:"readyPercent"`
+	MinReadyPercent      int  `json:"minReadyPercent"`
+	FailureBudget        int  `json:"failureBudget"`
+	RequireAgents        bool `json:"requireAgents"`
+	TransportViolations  int  `json:"transportViolations,omitempty"`
+	RequiredCapabilities int  `json:"requiredCapabilities,omitempty"`
+	CoveredCapabilities  int  `json:"coveredCapabilities,omitempty"`
+	MissingCapabilities  int  `json:"missingCapabilities,omitempty"`
+	Blocked              int  `json:"blocked,omitempty"`
+}
+
+type FleetCapabilityCoverage struct {
+	Capability          string                       `json:"capability"`
+	Status              string                       `json:"status"`
+	RequiredBy          []FleetCapabilityRequirement `json:"requiredBy,omitempty"`
+	MatchingReadyAgents []string                     `json:"matchingReadyAgents,omitempty"`
+	MissingReadyAgents  []string                     `json:"missingReadyAgents,omitempty"`
+	Reason              string                       `json:"reason,omitempty"`
+}
+
+type FleetCapabilityRequirement struct {
+	NodeID   string `json:"nodeId"`
+	NodeKind string `json:"nodeKind"`
 }
 
 type FleetReadinessCheck struct {
-	Code      string `json:"code"`
-	Status    string `json:"status"`
-	Reason    string `json:"reason,omitempty"`
-	NodeID    string `json:"nodeId,omitempty"`
-	NodeKind  string `json:"nodeKind,omitempty"`
-	Transport string `json:"transport,omitempty"`
-	Store     string `json:"store,omitempty"`
+	Code       string `json:"code"`
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	NodeID     string `json:"nodeId,omitempty"`
+	NodeKind   string `json:"nodeKind,omitempty"`
+	Transport  string `json:"transport,omitempty"`
+	Capability string `json:"capability,omitempty"`
+	Store      string `json:"store,omitempty"`
 }
 
 func EvaluateFleetReadiness(ctx context.Context, p *Plan) *FleetReadinessResult {
@@ -149,6 +169,7 @@ func EvaluateFleetReadiness(ctx context.Context, p *Plan) *FleetReadinessResult 
 	}
 
 	evaluateFleetAgentReadiness(result, snapshot)
+	evaluateFleetCapabilityReadiness(result, p, snapshot)
 	result.Status = fleetReadinessStatus(result)
 	result.Summary.Blocked = len(result.Blockers)
 	return result
@@ -311,7 +332,7 @@ func fleetReadinessStatus(result *FleetReadinessResult) string {
 		return "ready"
 	}
 	for _, blocker := range result.Blockers {
-		if strings.HasPrefix(blocker.Code, "fleet.transport.") {
+		if strings.HasPrefix(blocker.Code, "fleet.transport.") || strings.HasPrefix(blocker.Code, "fleet.capability.") {
 			return "blocked"
 		}
 	}
@@ -319,6 +340,196 @@ func fleetReadinessStatus(result *FleetReadinessResult) string {
 		return "warning"
 	}
 	return "blocked"
+}
+
+func evaluateFleetCapabilityReadiness(result *FleetReadinessResult, p *Plan, snapshot heartbeat.Snapshot) {
+	if result == nil {
+		return
+	}
+	requirements := requiredFleetCapabilities(p)
+	result.Summary.RequiredCapabilities = len(requirements)
+	if len(requirements) == 0 {
+		addFleetReadinessCheck(result, FleetReadinessCheck{
+			Code:   "fleet.capability.required",
+			Status: "skipped",
+			Reason: "no agent-executed capabilities are required by this stack",
+		})
+		return
+	}
+	capabilities := make([]string, 0, len(requirements))
+	for capability := range requirements {
+		capabilities = append(capabilities, capability)
+	}
+	sort.Strings(capabilities)
+	for _, capability := range capabilities {
+		requiredBy := requirements[capability]
+		matches, missing := readyAgentsForCapability(snapshot.Agents, capability)
+		coverage := FleetCapabilityCoverage{
+			Capability:          capability,
+			RequiredBy:          requiredBy,
+			MatchingReadyAgents: matches,
+			MissingReadyAgents:  missing,
+		}
+		readyCount := len(matches) + len(missing)
+		switch {
+		case readyCount == 0:
+			coverage.Status = "blocked"
+			coverage.Reason = "no ready agents are available to prove required capability"
+			result.Summary.MissingCapabilities++
+			addFleetReadinessBlocker(result, OpsPlanBlocker{
+				Code:     "fleet.capability.missing",
+				Severity: "block",
+				Scope:    capability,
+				Reason:   fmt.Sprintf("no ready agents are available to prove required capability %s", capability),
+			})
+			addFleetReadinessCheck(result, FleetReadinessCheck{
+				Code:       "fleet.capability.required",
+				Status:     "blocked",
+				Reason:     coverage.Reason,
+				Capability: capability,
+			})
+		case len(missing) > 0:
+			coverage.Status = "blocked"
+			coverage.Reason = fmt.Sprintf("%d ready agent(s) do not advertise required capability", len(missing))
+			result.Summary.MissingCapabilities++
+			addFleetReadinessBlocker(result, OpsPlanBlocker{
+				Code:     "fleet.capability.missing",
+				Severity: "block",
+				Scope:    capability,
+				Reason:   fmt.Sprintf("%d ready agent(s) do not advertise required capability %s", len(missing), capability),
+			})
+			addFleetReadinessCheck(result, FleetReadinessCheck{
+				Code:       "fleet.capability.required",
+				Status:     "blocked",
+				Reason:     coverage.Reason,
+				Capability: capability,
+			})
+		default:
+			coverage.Status = "passed"
+			coverage.Reason = fmt.Sprintf("%d ready agent(s) advertise required capability", len(matches))
+			result.Summary.CoveredCapabilities++
+			addFleetReadinessCheck(result, FleetReadinessCheck{
+				Code:       "fleet.capability.required",
+				Status:     "passed",
+				Reason:     coverage.Reason,
+				Capability: capability,
+			})
+		}
+		result.Capabilities = append(result.Capabilities, coverage)
+	}
+}
+
+func requiredFleetCapabilities(p *Plan) map[string][]FleetCapabilityRequirement {
+	out := map[string][]FleetCapabilityRequirement{}
+	if p == nil {
+		return out
+	}
+	for _, node := range p.Nodes {
+		capability := requiredFleetCapabilityForNode(node)
+		if capability == "" {
+			continue
+		}
+		out[capability] = append(out[capability], FleetCapabilityRequirement{
+			NodeID:   strings.TrimSpace(node.ID),
+			NodeKind: normalizeNodeKind(node.Kind),
+		})
+	}
+	for capability := range out {
+		sort.Slice(out[capability], func(i, j int) bool {
+			if out[capability][i].NodeID == out[capability][j].NodeID {
+				return out[capability][i].NodeKind < out[capability][j].NodeKind
+			}
+			return out[capability][i].NodeID < out[capability][j].NodeID
+		})
+	}
+	return out
+}
+
+func requiredFleetCapabilityForNode(node *ResolvedRelease) string {
+	if node == nil {
+		return ""
+	}
+	kind := normalizeNodeKind(node.Kind)
+	switch kind {
+	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage, NodeKindHostUserManage, NodeKindHostCronManage, NodeKindHostSystemdUnit:
+		return kind
+	case NodeKindMySQLReplicationVerify:
+		return kind
+	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait, NodeKindK8sLogsCapture, NodeKindK8sEventsCapture, NodeKindK8sCertInspect, NodeKindK8sCertRenew:
+		return kind
+	default:
+		if isModuleBackedNode(node) && transportIsNATS(moduleInputTransport(node.Module)) {
+			return kind
+		}
+		return ""
+	}
+}
+
+func moduleInputTransport(spec ModuleSpec) string {
+	if len(spec.Input) == 0 {
+		return ""
+	}
+	value, ok := spec.Input["transport"]
+	if !ok {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func readyAgentsForCapability(agents []heartbeat.AgentStatus, capability string) ([]string, []string) {
+	capability = strings.TrimSpace(capability)
+	if capability == "" {
+		return nil, nil
+	}
+	var matching []string
+	var missing []string
+	for _, agent := range agents {
+		if !strings.EqualFold(strings.TrimSpace(agent.Health), "ready") {
+			continue
+		}
+		agentID := strings.TrimSpace(agent.AgentID)
+		if agentHasCapability(agent, capability) {
+			matching = append(matching, agentID)
+		} else {
+			missing = append(missing, agentID)
+		}
+	}
+	sort.Strings(matching)
+	sort.Strings(missing)
+	return matching, missing
+}
+
+func agentHasCapability(agent heartbeat.AgentStatus, required string) bool {
+	required = strings.TrimSpace(required)
+	if required == "" {
+		return true
+	}
+	for _, capability := range agent.Capabilities {
+		if capabilityMatches(strings.TrimSpace(capability), required) {
+			return true
+		}
+	}
+	return false
+}
+
+func capabilityMatches(advertised string, required string) bool {
+	advertised = strings.ToLower(strings.TrimSpace(advertised))
+	required = strings.ToLower(strings.TrimSpace(required))
+	if advertised == "" || required == "" {
+		return false
+	}
+	if advertised == "*" || advertised == "all" || advertised == required {
+		return true
+	}
+	if strings.HasSuffix(advertised, ".*") {
+		return strings.HasPrefix(required, strings.TrimSuffix(advertised, "*"))
+	}
+	return false
 }
 
 func addFleetReadinessCheck(result *FleetReadinessResult, check FleetReadinessCheck) {

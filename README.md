@@ -69,7 +69,8 @@ without hiding the important decisions in CI logs or a control-plane database.
 - Agent-backed NATS command execution for stack nodes that need outbound
   worker fan-out without changing stack semantics.
 - Optional fleet control-plane design for Kubernetes, dedicated etcd inventory,
-  NATS JetStream assignment/receipt streams, and 10,000-host durable agents.
+  NATS JetStream assignment/receipt streams, readiness/capability gates, and
+  10,000-host durable agents.
 - Agent policy checks so mutating operations can require proof and release gates.
 - Agent appliance evidence bundles for repo intelligence, browser captures, API
   probes, and command checks that Codex, Claude, OpenCode, CI, and humans can
