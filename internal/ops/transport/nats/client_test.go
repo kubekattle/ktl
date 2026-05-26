@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -42,23 +43,13 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal worker receipt: %v", err)
 	}
-	runner := &recordingRunner{
-		outputs: []fakeOutput{
-			{
-				output: RunOutput{
-					Stdout:   raw,
-					ExitCode: 0,
-				},
-			},
-		},
-	}
+	requester := &recordingRequester{responses: [][]byte{raw}}
 	client, err := New(Config{
 		Target:       "nats-mesh://torque.lab.assign.agent.mysql",
 		Server:       "nats://127.0.0.1:4222",
 		Creds:        "/tmp/nats.creds",
-		NATSBinary:   "nats",
 		RedactValues: []string{"top-secret"},
-		Runner:       runner,
+		Requester:    requester,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -75,33 +66,33 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 		t.Fatalf("TargetDigest = %q, want worker-digest", result.TargetDigest)
 	}
 
-	call := runner.calls[0]
-	if call.name != "nats" {
-		t.Fatalf("runner name = %q, want nats", call.name)
+	call := requester.calls[0]
+	if call.subject != "torque.lab.assign.agent.mysql" {
+		t.Fatalf("request subject = %q, want torque.lab.assign.agent.mysql", call.subject)
 	}
-	joined := strings.Join(call.args, "\x00")
-	for _, want := range []string{"request", "--raw", "--server", "nats://127.0.0.1:4222", "--creds", "/tmp/nats.creds", "torque.lab.assign.agent.mysql"} {
+	for _, want := range []string{"nats.request", "--server", "[REDACTED]", "--creds", "[REDACTED]"} {
+		joined := strings.Join(result.Command, "\x00")
 		if !strings.Contains(joined, want) {
-			t.Fatalf("runner args missing %q: %#v", want, call.args)
+			t.Fatalf("command evidence missing %q: %#v", want, result.Command)
 		}
 	}
 	if strings.Contains(strings.Join(result.Command, " "), "top-secret") || strings.Contains(strings.Join(result.Command, " "), "/tmp/nats.creds") {
 		t.Fatalf("command evidence was not redacted: %#v", result.Command)
 	}
-	var assignment commandAssignment
-	if err := json.Unmarshal([]byte(call.args[len(call.args)-1]), &assignment); err != nil {
+	var assignment CommandAssignment
+	if err := json.Unmarshal(call.payload, &assignment); err != nil {
 		t.Fatalf("assignment payload is not JSON: %v", err)
 	}
-	if assignment.Kind != "CommandAssignment" || assignment.Operation != "run" || assignment.Target != "torque.lab.assign.agent.mysql" {
+	if assignment.Kind != AssignmentKind || assignment.Operation != "run" || assignment.Target != "torque.lab.assign.agent.mysql" {
 		t.Fatalf("assignment = %#v", assignment)
 	}
 }
 
 func TestRunRecordsTimeout(t *testing.T) {
 	client, err := New(Config{
-		Target:  "torque.lab.assign.agent.slow",
-		Timeout: 10 * time.Millisecond,
-		Runner:  blockingRunner{},
+		Target:    "torque.lab.assign.agent.slow",
+		Timeout:   10 * time.Millisecond,
+		Requester: blockingRequester{},
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -112,6 +103,23 @@ func TestRunRecordsTimeout(t *testing.T) {
 	}
 	if !result.TimedOut {
 		t.Fatal("TimedOut = false, want true")
+	}
+}
+
+func TestRunRecordsRequestErrors(t *testing.T) {
+	client, err := New(Config{
+		Target:    "torque.lab.assign.agent.missing",
+		Requester: errRequester{err: errors.New("no responders token=top-secret")},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result := client.Run(context.Background(), "printf token=top-secret")
+	if result.Status != "failed" || result.ExitCode != 1 {
+		t.Fatalf("result = %#v, want failed exit 1", result)
+	}
+	if strings.Contains(result.Error, "top-secret") || strings.Contains(strings.Join(result.Command, " "), "top-secret") {
+		t.Fatalf("error evidence was not redacted: %#v", result)
 	}
 }
 
@@ -126,37 +134,52 @@ func TestNormalizeTargetAndDigest(t *testing.T) {
 	}
 }
 
-type recordingRunner struct {
-	calls   []recordedCall
-	outputs []fakeOutput
+type recordingRequester struct {
+	calls     []recordedRequest
+	responses [][]byte
+	errs      []error
 }
 
-type recordedCall struct {
-	name string
-	args []string
+type recordedRequest struct {
+	subject string
+	payload []byte
 }
 
-type fakeOutput struct {
-	output RunOutput
-	err    error
-}
-
-func (r *recordingRunner) Run(ctx context.Context, name string, args []string) (RunOutput, error) {
-	r.calls = append(r.calls, recordedCall{name: name, args: append([]string(nil), args...)})
-	if len(r.outputs) == 0 {
-		return RunOutput{ExitCode: 0}, nil
+func (r *recordingRequester) Request(ctx context.Context, subject string, payload []byte) ([]byte, error) {
+	r.calls = append(r.calls, recordedRequest{subject: subject, payload: append([]byte(nil), payload...)})
+	var err error
+	if len(r.errs) > 0 {
+		err = r.errs[0]
+		r.errs = r.errs[1:]
 	}
-	next := r.outputs[0]
-	r.outputs = r.outputs[1:]
-	return next.output, next.err
+	if len(r.responses) == 0 {
+		return nil, err
+	}
+	next := r.responses[0]
+	r.responses = r.responses[1:]
+	return next, err
 }
 
-type blockingRunner struct{}
+func (r *recordingRequester) Close() {}
 
-func (blockingRunner) Run(ctx context.Context, name string, args []string) (RunOutput, error) {
+type blockingRequester struct{}
+
+func (blockingRequester) Request(ctx context.Context, subject string, payload []byte) ([]byte, error) {
 	<-ctx.Done()
-	return RunOutput{Stderr: []byte("token=top-secret\n"), ExitCode: -1}, errors.New("timed out token=top-secret")
+	return nil, fmt.Errorf("timed out token=top-secret: %w", ctx.Err())
 }
+
+func (blockingRequester) Close() {}
+
+type errRequester struct {
+	err error
+}
+
+func (r errRequester) Request(ctx context.Context, subject string, payload []byte) ([]byte, error) {
+	return nil, r.err
+}
+
+func (r errRequester) Close() {}
 
 func jsonFields(t reflect.Type) []string {
 	fields := make([]string, 0, t.NumField())

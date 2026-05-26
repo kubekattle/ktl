@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -14,12 +15,19 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ingresslabs/torque/internal/agent"
+	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
 	"github.com/ingresslabs/torque/internal/workflows/buildsvc"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "nats" {
+		runNATSCommand(os.Args[2:])
+		return
+	}
+
 	mode := flag.String("mode", "serve", "Runtime mode: serve or durable (durable enables mirror storage and sandboxed remote builds by default)")
 	listen := flag.String("listen", ":7443", "gRPC listen address (host:port)")
 	kubeconfig := flag.String("kubeconfig", "", "Path to kubeconfig for log/traffic services")
@@ -95,6 +103,117 @@ func main() {
 	}
 }
 
+func runNATSCommand(args []string) {
+	if len(args) == 0 {
+		printNATSUsage(os.Stderr)
+		os.Exit(2)
+	}
+	if strings.TrimSpace(args[0]) == "-h" || strings.TrimSpace(args[0]) == "--help" {
+		printNATSUsage(os.Stdout)
+		os.Exit(0)
+	}
+	switch strings.TrimSpace(args[0]) {
+	case "worker":
+		config, err := parseNATSWorkerConfig(args[1:], os.Getenv)
+		if err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				os.Exit(0)
+			}
+			fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+			printNATSWorkerUsage(os.Stderr)
+			os.Exit(2)
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+		ready := make(chan struct{})
+		config.Ready = ready
+		worker, err := natsworker.New(config)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(2)
+		}
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- worker.Run(ctx)
+		}()
+		select {
+		case <-ready:
+			fmt.Fprintf(os.Stderr, "nats worker ready subject=%s\n", config.Subject)
+		case err := <-errCh:
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if err := <-errCh; err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unknown nats command %q\n\n", args[0])
+		printNATSUsage(os.Stderr)
+		os.Exit(2)
+	}
+}
+
+func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworker.Config, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	defaultServer := firstNonEmptyAgent(getenv("TORQUE_NATS_URL"), getenv("TORQUE_NATS_SERVER"))
+	defaultSubject := firstNonEmptyAgent(getenv("TORQUE_NATS_SUBJECT"), getenv("TORQUE_NATS_WORKER_SUBJECT"))
+	defaultQueue := firstNonEmptyAgent(getenv("TORQUE_NATS_QUEUE"), getenv("TORQUE_NATS_WORKER_QUEUE"))
+	defaultTimeout := 30 * time.Second
+	if raw := firstNonEmptyAgent(getenv("TORQUE_NATS_TIMEOUT"), getenv("TORQUE_NATS_WORKER_TIMEOUT")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return natsworker.Config{}, fmt.Errorf("parse NATS worker timeout env: %w", err)
+		}
+		defaultTimeout = parsed
+	}
+	fs := flag.NewFlagSet("torque-agent nats worker", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	server := fs.String("nats-url", defaultServer, "NATS server URL (also TORQUE_NATS_URL or TORQUE_NATS_SERVER)")
+	subject := fs.String("subject", defaultSubject, "NATS assignment subject to serve (also TORQUE_NATS_SUBJECT or TORQUE_NATS_WORKER_SUBJECT)")
+	queue := fs.String("queue", defaultQueue, "Optional NATS queue group (also TORQUE_NATS_QUEUE or TORQUE_NATS_WORKER_QUEUE)")
+	creds := fs.String("creds", strings.TrimSpace(getenv("TORQUE_NATS_CREDS")), "NATS user credentials file (also TORQUE_NATS_CREDS)")
+	nkey := fs.String("nkey", strings.TrimSpace(getenv("TORQUE_NATS_NKEY")), "NATS NKey seed file (also TORQUE_NATS_NKEY)")
+	timeout := fs.Duration("timeout", defaultTimeout, "Per-assignment execution timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_WORKER_TIMEOUT)")
+	shell := fs.String("shell", strings.TrimSpace(getenv("TORQUE_AGENT_SHELL")), "Shell binary for local command execution (default sh)")
+	if err := fs.Parse(args); err != nil {
+		return natsworker.Config{}, err
+	}
+	if fs.NArg() != 0 {
+		return natsworker.Config{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if strings.TrimSpace(*subject) == "" {
+		return natsworker.Config{}, fmt.Errorf("--subject is required")
+	}
+	if *timeout <= 0 {
+		return natsworker.Config{}, fmt.Errorf("--timeout must be greater than zero")
+	}
+	return natsworker.Config{
+		Server:      strings.TrimSpace(*server),
+		Subject:     strings.TrimSpace(*subject),
+		Queue:       strings.TrimSpace(*queue),
+		Creds:       strings.TrimSpace(*creds),
+		NKey:        strings.TrimSpace(*nkey),
+		Timeout:     *timeout,
+		ShellBinary: strings.TrimSpace(*shell),
+	}, nil
+}
+
+func printNATSUsage(out *os.File) {
+	fmt.Fprintln(out, "Usage:")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [flags]")
+}
+
+func printNATSWorkerUsage(out *os.File) {
+	fmt.Fprintln(out, "Usage:")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--queue workers]")
+}
+
 func flagWasSet(name string) bool {
 	seen := false
 	flag.Visit(func(f *flag.Flag) {
@@ -113,4 +232,13 @@ func defaultDurableMirrorStore() string {
 		return filepath.Join(home, ".torque", "agent", "mirror.sqlite")
 	}
 	return filepath.Join(os.TempDir(), "torque-agent", "mirror.sqlite")
+}
+
+func firstNonEmptyAgent(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

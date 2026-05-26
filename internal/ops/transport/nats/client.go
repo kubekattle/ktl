@@ -9,49 +9,43 @@ import (
 	"time"
 
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
+	natsgo "github.com/nats-io/nats.go"
 )
-
-const defaultNATSBinary = "nats"
 
 type Config struct {
 	Target       string
 	Server       string
 	Creds        string
 	NKey         string
-	NATSBinary   string
-	ExtraArgs    []string
 	Timeout      time.Duration
 	RedactValues []string
-	Runner       transport.Runner
+	Requester    Requester
+	Dialer       RequestDialer
 }
 
 // Client sends command assignments over a NATS request/reply subject and
 // expects the worker response to be an OperationResult JSON receipt.
 type Client struct {
-	target   string
-	server   string
-	creds    string
-	nkey     string
-	binary   string
-	extra    []string
-	timeout  time.Duration
-	redactor transport.Redactor
-	runner   transport.Runner
+	target    string
+	server    string
+	creds     string
+	nkey      string
+	timeout   time.Duration
+	redactor  transport.Redactor
+	requester Requester
+	dialer    RequestDialer
 }
 
-type Runner = transport.Runner
 type RunOutput = transport.RunOutput
 type OperationResult = transport.OperationResult
 type Redactor = transport.Redactor
 
-type commandAssignment struct {
-	APIVersion string `json:"apiVersion"`
-	Kind       string `json:"kind"`
-	Operation  string `json:"operation"`
-	Target     string `json:"target"`
-	Command    string `json:"command,omitempty"`
-	SentAt     string `json:"sentAt"`
+type Requester interface {
+	Request(ctx context.Context, subject string, payload []byte) ([]byte, error)
+	Close()
 }
+
+type RequestDialer func(ctx context.Context, config DialConfig) (Requester, error)
 
 func New(config Config) (*Client, error) {
 	target := NormalizeTarget(config.Target)
@@ -61,33 +55,28 @@ func New(config Config) (*Client, error) {
 	if strings.ContainsAny(target, " \t\r\n") {
 		return nil, fmt.Errorf("nats target subject must not contain whitespace")
 	}
-	binary := strings.TrimSpace(config.NATSBinary)
-	if binary == "" {
-		binary = defaultNATSBinary
-	}
 	timeout := config.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	runner := config.Runner
-	if runner == nil {
-		runner = transport.ExecRunner{}
+	dialer := config.Dialer
+	if dialer == nil {
+		dialer = defaultRequestDialer
 	}
-	server := strings.TrimSpace(config.Server)
+	server := ServerOrDefault(config.Server)
 	creds := strings.TrimSpace(config.Creds)
 	nkey := strings.TrimSpace(config.NKey)
 	redactValues := append([]string(nil), config.RedactValues...)
 	redactValues = append(redactValues, target, server, creds, nkey)
 	return &Client{
-		target:   target,
-		server:   server,
-		creds:    creds,
-		nkey:     nkey,
-		binary:   binary,
-		extra:    append([]string(nil), config.ExtraArgs...),
-		timeout:  timeout,
-		redactor: transport.NewRedactor(redactValues),
-		runner:   runner,
+		target:    target,
+		server:    server,
+		creds:     creds,
+		nkey:      nkey,
+		timeout:   timeout,
+		redactor:  transport.NewRedactor(redactValues),
+		requester: config.Requester,
+		dialer:    dialer,
 	}, nil
 }
 
@@ -116,44 +105,51 @@ func (c *Client) Run(ctx context.Context, command string) OperationResult {
 
 func (c *Client) request(ctx context.Context, operation string, command string) OperationResult {
 	started := time.Now()
-	assignment := commandAssignment{
-		APIVersion: "torque.dev/nats-assignment/v1",
-		Kind:       "CommandAssignment",
-		Operation:  operation,
-		Target:     c.target,
-		Command:    command,
-		SentAt:     started.UTC().Format(time.RFC3339Nano),
-	}
+	assignment := NewCommandAssignment(operation, c.target, command, started)
 	rawAssignment, err := json.Marshal(assignment)
 	if err != nil {
 		return c.resultFromError(operation, started, err)
 	}
-	args := c.requestArgs(string(rawAssignment))
 	runCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	output, runErr := c.runner.Run(runCtx, c.binary, args)
-	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded)
-	result, parsed := c.parseWorkerResponse(output.Stdout)
-	if !parsed {
-		status := "succeeded"
-		if timedOut {
-			status = "timeout"
-		} else if runErr != nil || output.ExitCode != 0 {
-			status = "failed"
+	requester := c.requester
+	closeRequester := false
+	if requester == nil {
+		requester, err = c.dialer(runCtx, DialConfig{
+			Server:  c.server,
+			Creds:   c.creds,
+			NKey:    c.nkey,
+			Timeout: c.timeout,
+			Name:    "torque-nats-command-client",
+		})
+		if err != nil {
+			return c.resultFromRequestError(operation, started, string(rawAssignment), runCtx, err)
 		}
+		closeRequester = true
+	}
+	if closeRequester {
+		defer requester.Close()
+	}
+
+	response, requestErr := requester.Request(runCtx, c.target, rawAssignment)
+	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded)
+	if requestErr != nil {
+		return c.resultFromRequestError(operation, started, string(rawAssignment), runCtx, requestErr)
+	}
+	result, parsed := c.parseWorkerResponse(response)
+	if !parsed {
 		result = transport.OperationResult{
 			Operation: operation,
-			Status:    status,
-			Stdout:    c.redactor.RedactString(string(output.Stdout)),
-			Stderr:    c.redactor.RedactString(string(output.Stderr)),
-			ExitCode:  output.ExitCode,
+			Status:    "succeeded",
+			Stdout:    c.redactor.RedactString(string(response)),
+			ExitCode:  0,
 			TimedOut:  timedOut,
 		}
 	}
 	result.Operation = firstNonEmpty(result.Operation, operation)
 	result.TargetDigest = firstNonEmpty(result.TargetDigest, c.TargetDigest())
-	result.Command = c.redactor.RedactArgs(append([]string{c.binary}, args...))
+	result.Command = c.commandEvidence(string(rawAssignment))
 	result.Stdout = c.redactor.RedactString(result.Stdout)
 	result.Stderr = c.redactor.RedactString(result.Stderr)
 	result.Error = c.redactor.RedactString(result.Error)
@@ -162,24 +158,14 @@ func (c *Client) request(ctx context.Context, operation string, command string) 
 		result.Status = "timeout"
 	}
 	if result.Status == "" {
-		if runErr != nil || output.ExitCode != 0 {
-			result.Status = "failed"
-		} else {
-			result.Status = "succeeded"
-		}
-	}
-	if result.ExitCode == 0 && output.ExitCode != 0 {
-		result.ExitCode = output.ExitCode
-	}
-	if runErr != nil && result.Error == "" {
-		result.Error = c.redactor.RedactString(runErr.Error())
+		result.Status = "succeeded"
 	}
 	result.DurationMillis = time.Since(started).Milliseconds()
 	return result
 }
 
-func (c *Client) requestArgs(payload string) []string {
-	args := []string{"request", "--raw"}
+func (c *Client) commandEvidence(payload string) []string {
+	args := []string{"nats.request"}
 	if c.server != "" {
 		args = append(args, "--server", c.server)
 	}
@@ -190,9 +176,8 @@ func (c *Client) requestArgs(payload string) []string {
 		args = append(args, "--nkey", c.nkey)
 	}
 	args = append(args, "--timeout", c.timeout.String())
-	args = append(args, c.extra...)
 	args = append(args, c.target, payload)
-	return args
+	return c.redactor.RedactArgs(args)
 }
 
 func (c *Client) parseWorkerResponse(raw []byte) (transport.OperationResult, bool) {
@@ -225,10 +210,61 @@ func (c *Client) resultFromError(operation string, started time.Time, err error)
 		Operation:      operation,
 		Status:         "failed",
 		TargetDigest:   c.TargetDigest(),
-		Command:        []string{c.binary, "request", c.target},
+		Command:        c.commandEvidence(""),
 		ExitCode:       1,
 		DurationMillis: time.Since(started).Milliseconds(),
 		Error:          c.redactor.RedactString(err.Error()),
+	}
+}
+
+func (c *Client) resultFromRequestError(operation string, started time.Time, payload string, ctx context.Context, err error) OperationResult {
+	status := "failed"
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+	if timedOut {
+		status = "timeout"
+	}
+	return OperationResult{
+		Operation:      operation,
+		Status:         status,
+		TargetDigest:   c.TargetDigest(),
+		Command:        c.commandEvidence(payload),
+		ExitCode:       1,
+		TimedOut:       timedOut,
+		DurationMillis: time.Since(started).Milliseconds(),
+		Error:          c.redactor.RedactString(err.Error()),
+	}
+}
+
+type natsRequester struct {
+	conn *natsgo.Conn
+}
+
+func defaultRequestDialer(ctx context.Context, config DialConfig) (Requester, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	opts, err := ConnectOptions(config)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := natsgo.Connect(ServerOrDefault(config.Server), opts...)
+	if err != nil {
+		return nil, err
+	}
+	return natsRequester{conn: conn}, nil
+}
+
+func (r natsRequester) Request(ctx context.Context, subject string, payload []byte) ([]byte, error) {
+	msg, err := r.conn.RequestWithContext(ctx, subject, payload)
+	if err != nil {
+		return nil, err
+	}
+	return msg.Data, nil
+}
+
+func (r natsRequester) Close() {
+	if r.conn != nil {
+		r.conn.Close()
 	}
 }
 

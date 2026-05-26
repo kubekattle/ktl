@@ -681,8 +681,6 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 			Server:       server,
 			Creds:        strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS")),
 			NKey:         strings.TrimSpace(os.Getenv("TORQUE_NATS_NKEY")),
-			NATSBinary:   strings.TrimSpace(os.Getenv("TORQUE_NATS_CLI")),
-			ExtraArgs:    strings.Fields(strings.TrimSpace(os.Getenv("TORQUE_NATS_OPTS"))),
 			Timeout:      timeout,
 			RedactValues: []string{target, server},
 		})

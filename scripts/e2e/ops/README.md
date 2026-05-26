@@ -72,11 +72,10 @@ and exports the run, then deletes the VM resources.
 The live lab fixture runs the verifier through SSH today. The same
 `mysql.replication.verify` node also accepts `transport: nats-mesh`, which
 publishes a typed command assignment to a NATS subject and consumes the same
-redacted operation receipt shape; the durable agent/JetStream E2E remains the
-`OPS-TR-007` follow-up. Set the stack `mysql.target` or `mysql.targetEnv` to
-the NATS assignment subject; connection details come from `TORQUE_NATS_URL` or
-`TORQUE_NATS_SERVER`, with optional `TORQUE_NATS_CREDS`, `TORQUE_NATS_NKEY`,
-`TORQUE_NATS_CLI`, and `TORQUE_NATS_OPTS`.
+redacted operation receipt shape. Set the stack `mysql.target` or
+`mysql.targetEnv` to the NATS assignment subject; connection details come from
+`TORQUE_NATS_URL` or `TORQUE_NATS_SERVER`, with optional `TORQUE_NATS_CREDS` and
+`TORQUE_NATS_NKEY`.
 
 ```bash
 TORQUE_OPS_E2E_CONFIRM=1 \
@@ -435,6 +434,21 @@ cleanup.
 
 ```bash
 scripts/e2e/ops/OPS-TR-002.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-TR-007
+
+`OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or
+connects to NATS, starts `torque-agent nats worker`, applies a stack with
+`mysql.replication.verify` using `transport: nats-mesh`, audits the resulting
+stack artifacts for replicated-node and `nats.request` evidence, and exports a
+redacted run bundle. Durable JetStream retries, signed assignments, and
+evidence-offset resume remain follow-up hardening.
+
+```bash
+scripts/e2e/ops/OPS-TR-007.sh \
   --evidence-root /tmp/torque-ops-e2e \
   --cleanup
 ```

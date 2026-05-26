@@ -64,6 +64,8 @@ without hiding the important decisions in CI logs or a control-plane database.
 - Ops target inventory, adapter capability discovery, and evidence-backed host
   command/file/package/service/user/cron/systemd plus Kubernetes manifest and
   readiness/log/event automation.
+- Agent-backed NATS command execution for stack nodes that need outbound
+  worker fan-out without changing stack semantics.
 - Agent policy checks so mutating operations can require proof and release gates.
 - Agent appliance evidence bundles for repo intelligence, browser captures, API
   probes, and command checks that Codex, Claude, OpenCode, CI, and humans can

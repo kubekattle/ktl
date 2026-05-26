@@ -154,6 +154,20 @@ torque-mcp --stdio \
   --remote-token "$TORQUE_REMOTE_TOKEN"
 ```
 
+## Agent NATS worker
+
+Start a minimal outbound worker for stack nodes that use `transport:
+nats-mesh`. The stack target is a NATS assignment subject; the worker executes
+accepted `CommandAssignment` payloads through the local transport and replies
+with the standard redacted `OperationResult`.
+
+```bash
+torque-agent nats worker \
+  --nats-url nats://127.0.0.1:4222 \
+  --subject torque.lab.assign.mysql \
+  --queue mysql-workers
+```
+
 ## Durable Linux agent host
 
 ```bash

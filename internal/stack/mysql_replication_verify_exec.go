@@ -250,7 +250,9 @@ SSH_OPTS=(-n -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=
 if [[ -n "${NODE_IDENTITY_FILE}" ]]; then
   SSH_OPTS+=(-i "${NODE_IDENTITY_FILE}")
 fi
-SSH_OPTS+=("${EXTRA_SSH_OPTS[@]}")
+if [[ "${#EXTRA_SSH_OPTS[@]}" -gt 0 ]]; then
+  SSH_OPTS+=("${EXTRA_SSH_OPTS[@]}")
+fi
 
 sql_literal() {
   local escaped

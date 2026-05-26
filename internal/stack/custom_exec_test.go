@@ -5,13 +5,20 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ingresslabs/torque/internal/ops/locks"
+	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
+	natsgo "github.com/nats-io/nats.go"
 	_ "modernc.org/sqlite"
 )
 
@@ -3904,44 +3911,53 @@ attempt=3 node=mysql-02 ip=172.31.235.12 count=1 cluster=3 state=Synced
 
 func TestRun_MySQLReplicationVerifyUsesNATSTransport(t *testing.T) {
 	root := t.TempDir()
+	serverURL := startStackTestNATSServer(t)
+	subject := "torque.lab.assign.mysql"
 	binDir := filepath.Join(root, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("mkdir fake bin: %v", err)
 	}
-	argsPath := filepath.Join(root, "nats-args.txt")
-	writeExecutableForTest(t, filepath.Join(binDir, "nats"), `#!/usr/bin/env python3
-import json
-import os
-import sys
-
-with open(os.environ["TORQUE_TEST_NATS_ARGS"], "w", encoding="utf-8") as fh:
-    fh.write("\n".join(sys.argv[1:]))
-
-payload = json.loads(sys.argv[-1])
-if payload.get("kind") != "CommandAssignment" or payload.get("operation") != "run":
-    print(json.dumps({"receipt": {"operation": payload.get("operation", ""), "status": "failed", "exitCode": 2, "stderr": "bad assignment"}}))
-    sys.exit(0)
-
-stdout = "\n".join([
-    "attempt=1 node=mysql-00 ip=10.0.0.10 count=1 cluster=2 state=Synced",
-    "attempt=1 node=mysql-01 ip=10.0.0.11 count=1 cluster=2 state=Synced",
-    "mysql-replication-verified replicated=2/2 cluster=2",
-    "",
-])
-print(json.dumps({"receipt": {
-    "operation": "run",
-    "status": "succeeded",
-    "targetDigest": "worker-digest",
-    "command": ["torque-agent", "run"],
-    "stdout": stdout,
-    "exitCode": 0,
-    "timedOut": False,
-    "durationMillis": 7
-}}))
+	sshLog := filepath.Join(root, "ssh.log")
+	writeExecutableForTest(t, filepath.Join(binDir, "ssh"), `#!/bin/sh
+last=""
+for arg in "$@"; do
+  last="$arg"
+done
+if [ -n "${TORQUE_TEST_SSH_LOG:-}" ]; then
+  printf '%s\n' "$last" >>"${TORQUE_TEST_SSH_LOG}"
+fi
+case "$last" in
+  *SELECT*COUNT*) printf '1\n' ;;
+  *wsrep_cluster_size*) printf 'wsrep_cluster_size\t2\n' ;;
+  *wsrep_local_state_comment*) printf 'wsrep_local_state_comment\tSynced\n' ;;
+  *) exit 0 ;;
+esac
 `)
-	t.Setenv("TORQUE_NATS_CLI", filepath.Join(binDir, "nats"))
-	t.Setenv("TORQUE_NATS_URL", "nats://127.0.0.1:4222")
-	t.Setenv("TORQUE_TEST_NATS_ARGS", argsPath)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TORQUE_TEST_SSH_LOG", sshLog)
+	t.Setenv("TORQUE_NATS_URL", serverURL)
+	ready := make(chan struct{})
+	worker, err := natsworker.New(natsworker.Config{
+		Server:  serverURL,
+		Subject: subject,
+		Ready:   ready,
+		Timeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("new nats worker: %v", err)
+	}
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	workerErr := make(chan error, 1)
+	go func() {
+		workerErr <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		workerCancel()
+		t.Fatal("nats worker did not become ready")
+	}
 
 	interval := time.Millisecond
 	requireSynced := true
@@ -3952,12 +3968,13 @@ print(json.dumps({"receipt": {
 		Dir:  root,
 		MySQL: MySQLSpec{
 			Transport:               "nats-mesh",
-			Target:                  "torque.lab.assign.mysql",
+			Target:                  subject,
 			ExpectedClusterSize:     2,
 			ExpectedReplicatedNodes: 2,
 			Database:                "torque_ops",
 			ProbeTable:              "replication_probe",
 			ProbeID:                 "probe-1",
+			StatusPath:              filepath.Join(root, "mysql-status.txt"),
 			StableAttempts:          1,
 			StableInterval:          &interval,
 			RequireSynced:           &requireSynced,
@@ -3975,15 +3992,20 @@ print(json.dumps({"receipt": {
 		Concurrency: 1,
 		Lock:        true,
 	}, &out, &errOut); err != nil {
-		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
-	}
-
-	rawArgs, err := os.ReadFile(argsPath)
-	if err != nil {
-		t.Fatalf("read fake nats args: %v", err)
-	}
-	if got := string(rawArgs); !strings.Contains(got, "torque.lab.assign.mysql") || !strings.Contains(got, "nats://127.0.0.1:4222") {
-		t.Fatalf("fake nats args did not include subject/server: %s", got)
+		status, _ := os.ReadFile(filepath.Join(root, "mysql-status.txt"))
+		sshCalls, _ := os.ReadFile(sshLog)
+		runID, _ := LoadMostRecentRun(root)
+		var artifactBody string
+		if runID != "" {
+			if audit, auditErr := GetRunAudit(context.Background(), RunAuditOptions{RootDir: root, RunID: runID, IncludeArtifacts: true}); auditErr == nil {
+				for _, artifact := range audit.Artifacts {
+					if artifact.Name == "mysql-replication-execute.json" || artifact.Name == "mysql-replication-verify.json" {
+						artifactBody += "\n" + artifact.Name + "=" + artifact.Body
+					}
+				}
+			}
+		}
+		t.Fatalf("Run apply: %v\nstderr=%s\nstatus=%s\nssh=%s\nartifacts=%s", err, errOut.String(), string(status), string(sshCalls), artifactBody)
 	}
 	runID, err := LoadMostRecentRun(root)
 	if err != nil {
@@ -4003,12 +4025,21 @@ print(json.dumps({"receipt": {
 		if artifact.NodeID == node.ID && artifact.Name == "mysql-replication-verify.json" {
 			found = strings.Contains(artifact.Body, `"status": "succeeded"`) &&
 				strings.Contains(artifact.Body, `"replicatedNodes": 2`) &&
-				strings.Contains(artifact.Body, `"targetDigest": "worker-digest"`)
+				strings.Contains(artifact.Body, `"nats.request"`)
 			break
 		}
 	}
 	if !found {
 		t.Fatalf("missing nats-backed mysql replication evidence in %+v", audit.Artifacts)
+	}
+	workerCancel()
+	select {
+	case err := <-workerErr:
+		if err != nil {
+			t.Fatalf("nats worker error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nats worker did not stop")
 	}
 }
 
@@ -5226,6 +5257,49 @@ func writeExecutableForTest(t *testing.T, path string, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatalf("write executable %s: %v", path, err)
 	}
+}
+
+func startStackTestNATSServer(t *testing.T) string {
+	t.Helper()
+	binary, err := exec.LookPath("nats-server")
+	if err != nil {
+		t.Skip("nats-server binary not found")
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve nats port: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close reserved nats port: %v", err)
+	}
+	cmd := exec.Command(binary, "-a", "127.0.0.1", "-p", strconv.Itoa(port))
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start nats-server: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	})
+	url := fmt.Sprintf("nats://127.0.0.1:%d", port)
+	deadline := time.Now().Add(5 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, err := natsgo.Connect(url, natsgo.NoReconnect(), natsgo.Timeout(100*time.Millisecond))
+		if err == nil {
+			conn.Close()
+			return url
+		}
+		lastErr = err
+		time.Sleep(50 * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = errors.New("nats-server did not become ready")
+	}
+	t.Fatalf("wait for nats-server: %v", lastErr)
+	return ""
 }
 
 func providerMatrixJSONCommand(raw string) string {
