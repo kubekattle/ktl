@@ -8,6 +8,7 @@ var curatedExamples = map[string][]string{
 		"# Run the MCP bridge over stdio for an agent host\ntorque-mcp --stdio",
 		"# Bridge MCP calls to a remote torque-agent over gRPC\ntorque-mcp --stdio --remote-agent 127.0.0.1:7443 --remote-token \"$TORQUE_REMOTE_TOKEN\"",
 		"# Start a NATS assignment worker for stack transport fan-out\ntorque-agent nats worker --nats-url nats://127.0.0.1:4222 --subject torque.lab.assign.mysql --queue mysql-workers",
+		"# Benchmark host.file.ensure over SSH and NATS in Firecracker VMs\nTORQUE_OPS_E2E_CONFIRM=1 scripts/e2e/ops/OPS-TR-008.sh --counts 1,10,100 --vm-mem 192 --destroy-existing-labs",
 		"# Bridge MCP calls to an mTLS-protected torque-agent\ntorque-mcp --stdio --remote-agent torque-agent.prod.internal:7443 --remote-tls --remote-tls-ca /etc/torque/tls/ca.crt --remote-tls-client-cert /etc/torque/tls/client.crt --remote-tls-client-key /etc/torque/tls/client.key --remote-tls-server-name torque-agent.prod.internal --enable-write",
 		"# Ask MCP for a structured S3 cache plan instead of scraping BuildKit logs\nprintf '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"torque.cache.plan\",\"arguments\":{\"contextDir\":\".\",\"tags\":[\"ghcr.io/acme/app:dev\"],\"changedPaths\":[\"go.mod\"],\"s3Cache\":\"s3://acme-build-cache/torque/main\",\"s3CacheRegion\":\"us-east-1\"}}}\\n' | torque-mcp --stdio",
 		"# Install durable gRPC and MCP services on a Linux systemd host\ncurl -fsSL https://ingresslabs.github.io/torque/install.sh | sh -s -- --mode systemd-daemon",

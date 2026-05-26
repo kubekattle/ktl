@@ -14,6 +14,7 @@ modules:
       - delete
       - verify
     transports:
+      - ssh
       - nats
     inputs:
       required:
@@ -27,6 +28,8 @@ modules:
         - createParents
         - target
         - targetEnv
+        - identityFile
+        - sshOptions
         - natsUrl
         - natsUrlEnv
         - timeoutSeconds

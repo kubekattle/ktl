@@ -210,6 +210,12 @@ Ansible/Salt replacements without moving file behavior into core:
 
 - desired state is a typed resource, not an opaque task;
 - each run emits observe, diff, plan, apply/delete, and verify receipts;
-- the module uses `transport: nats` and a `torque-agent nats worker`, so host
+- the module supports `transport: ssh` and `transport: nats`, so host
   reachability can move from SSH bootstrap to agent-backed fan-out without
-  changing the stack node kind.
+  changing the stack node kind;
+- the remote payload is POSIX shell, not Python, so managed hosts do not need a
+  module runtime installed just to reconcile a file;
+- `scripts/e2e/ops/OPS-TR-008.sh` benchmarks the same typed resource over SSH
+  and NATS in 1/10/100 real Firecracker VMs, including changed and no-op runs,
+  p50/p95 node timing, operation counts, proof bundle sizes, and a validated
+  ops evidence bundle.

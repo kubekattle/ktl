@@ -453,6 +453,26 @@ scripts/e2e/ops/OPS-TR-007.sh \
   --cleanup
 ```
 
+## OPS-TR-008
+
+`OPS-TR-008.sh` benchmarks the same external `host.file.ensure` typed module
+over SSH and NATS inside real Firecracker VMs on the lab host. It boots the
+requested VM counts, starts a NATS worker per VM, runs changed and no-op stack
+applies for each transport, records p50/p95 node duration, total runtime,
+operation count, and proof bundle size, then validates the standard ops
+evidence contract.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-TR-008.sh \
+  --counts 1,10,100 \
+  --vm-mem 192 \
+  --destroy-existing-labs \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-FACT-001
 
 `OPS-FACT-001.sh` proves `host.fact.collect` against a real `lab.ssh-linux`

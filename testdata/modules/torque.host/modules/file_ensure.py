@@ -4,8 +4,10 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import socket
 import ssl
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -64,6 +66,17 @@ def operation_summary(result):
         "targetDigest": result.get("targetDigest", ""),
         "operation": result.get("operation", ""),
     }
+
+
+def redact_args(args, values):
+    out = []
+    for arg in args:
+        item = str(arg)
+        for value in values:
+            if value:
+                item = item.replace(value, "[REDACTED]")
+        out.append(item)
+    return out
 
 
 def read_line(sock, deadline):
@@ -180,6 +193,8 @@ def nats_request(server_url, subject, payload, timeout):
 
 
 def remote_run(command, cfg):
+    if cfg["transport"] == "ssh":
+        return ssh_run(command, cfg)
     assignment = {
         "apiVersion": ASSIGNMENT_API_VERSION,
         "kind": ASSIGNMENT_KIND,
@@ -191,6 +206,53 @@ def remote_run(command, cfg):
     result = nats_request(cfg["natsUrl"], cfg["target"], assignment, cfg["timeoutSeconds"])
     if not isinstance(result, dict):
         raise RuntimeError("worker returned non-object operation result")
+    return result
+
+
+def ssh_run(command, cfg):
+    started = time.monotonic()
+    target = cfg["target"]
+    args = ["ssh"]
+    if cfg.get("identityFile"):
+        args.extend(["-i", cfg["identityFile"]])
+    args.extend(cfg.get("sshOptions") or [])
+    args.extend([target, command])
+    try:
+        proc = subprocess.run(
+            args,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=cfg["timeoutSeconds"],
+            check=False,
+        )
+        status = "succeeded" if proc.returncode == 0 else "failed"
+        error = ""
+        exit_code = proc.returncode
+        timed_out = False
+    except subprocess.TimeoutExpired as err:
+        proc = err
+        status = "timeout"
+        error = "ssh command timed out"
+        exit_code = 124
+        timed_out = True
+    duration_ms = int((time.monotonic() - started) * 1000)
+    stdout = proc.stdout if isinstance(proc.stdout, str) else (proc.stdout or b"").decode("utf-8", "replace")
+    stderr = proc.stderr if isinstance(proc.stderr, str) else (proc.stderr or b"").decode("utf-8", "replace")
+    redact_values = [target, cfg.get("identityFile", "")]
+    result = {
+        "operation": "run",
+        "status": status,
+        "targetDigest": digest(target),
+        "command": redact_args(args, redact_values),
+        "stdout": stdout,
+        "stderr": stderr,
+        "exitCode": exit_code,
+        "timedOut": timed_out,
+        "durationMillis": duration_ms,
+    }
+    if error:
+        result["error"] = error
     return result
 
 
@@ -206,107 +268,128 @@ def remote_json(command, cfg):
     return json.loads(stdout), summary
 
 
-def observe_command(path):
-    code = f"""
-import hashlib,json,os,pwd,grp,stat,sys
-path = {json.dumps(path)}
-state = {{"path": path, "exists": os.path.lexists(path)}}
-if not state["exists"]:
-    state["type"] = "absent"
-    print(json.dumps(state, sort_keys=True))
-    sys.exit(0)
-st = os.lstat(path)
-mode = stat.S_IMODE(st.st_mode)
-state.update({{"mode": format(mode, "04o"), "uid": st.st_uid, "gid": st.st_gid}})
-try:
-    state["owner"] = pwd.getpwuid(st.st_uid).pw_name
-except KeyError:
-    state["owner"] = str(st.st_uid)
-try:
-    state["group"] = grp.getgrgid(st.st_gid).gr_name
-except KeyError:
-    state["group"] = str(st.st_gid)
-if stat.S_ISREG(st.st_mode):
-    h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
-            h.update(chunk)
-    state.update({{"type": "file", "sha256": "sha256:" + h.hexdigest(), "size": st.st_size}})
-elif stat.S_ISDIR(st.st_mode):
-    state["type"] = "directory"
-elif stat.S_ISLNK(st.st_mode):
-    state.update({{"type": "symlink", "target": os.readlink(path)}})
-else:
-    state["type"] = "other"
-print(json.dumps(state, sort_keys=True))
+def shell_quote(value):
+    return shlex.quote(str(value))
+
+
+def shell_helpers():
+    return r"""
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+mode4() {
+  value="$1"
+  while [ "${#value}" -lt 4 ]; do
+    value="0${value}"
+  done
+  printf '%s' "$value"
+}
+base64_decode() {
+  if base64 -d >/dev/null 2>&1 </dev/null; then
+    base64 -d
+  else
+    base64 --decode
+  fi
+}
 """
-    return "python3 - <<'PY'\n" + code.strip() + "\nPY"
+
+
+def observe_command(path):
+    return f"""set -eu
+{shell_helpers()}
+path={shell_quote(path)}
+path_json="$(json_escape "$path")"
+if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+  printf '{{"exists":false,"path":"%s","type":"absent"}}\\n' "$path_json"
+  exit 0
+fi
+mode="$(mode4 "$(stat -c '%a' -- "$path")")"
+uid="$(stat -c '%u' -- "$path")"
+gid="$(stat -c '%g' -- "$path")"
+owner="$(json_escape "$(stat -c '%U' -- "$path")")"
+group="$(json_escape "$(stat -c '%G' -- "$path")")"
+if [ -L "$path" ]; then
+  target="$(json_escape "$(readlink -- "$path")")"
+  printf '{{"exists":true,"gid":%s,"group":"%s","mode":"%s","owner":"%s","path":"%s","target":"%s","type":"symlink","uid":%s}}\\n' "$gid" "$group" "$mode" "$owner" "$path_json" "$target" "$uid"
+elif [ -f "$path" ]; then
+  sha="$(sha256sum -- "$path" | awk '{{print $1}}')"
+  size="$(wc -c <"$path" | tr -d ' ')"
+  printf '{{"exists":true,"gid":%s,"group":"%s","mode":"%s","owner":"%s","path":"%s","sha256":"sha256:%s","size":%s,"type":"file","uid":%s}}\\n' "$gid" "$group" "$mode" "$owner" "$path_json" "$sha" "$size" "$uid"
+elif [ -d "$path" ]; then
+  printf '{{"exists":true,"gid":%s,"group":"%s","mode":"%s","owner":"%s","path":"%s","type":"directory","uid":%s}}\\n' "$gid" "$group" "$mode" "$owner" "$path_json" "$uid"
+else
+  printf '{{"exists":true,"gid":%s,"group":"%s","mode":"%s","owner":"%s","path":"%s","type":"other","uid":%s}}\\n' "$gid" "$group" "$mode" "$owner" "$path_json" "$uid"
+fi"""
 
 
 def apply_command(path, content, mode, owner, group, create_parents):
-    code = f"""
-import base64,json,os,pwd,grp,stat,sys
-path = {json.dumps(path)}
-content = base64.b64decode({json.dumps(base64.b64encode(content).decode("ascii"))})
-mode = int({json.dumps(mode)}, 8)
-owner = {json.dumps(owner or "")}
-group = {json.dumps(group or "")}
-create_parents = {repr(bool(create_parents))}
-def resolve_user(value):
-    if value == "":
-        return -1
-    try:
-        return int(value)
-    except ValueError:
-        return pwd.getpwnam(value).pw_uid
-def resolve_group(value):
-    if value == "":
-        return -1
-    try:
-        return int(value)
-    except ValueError:
-        return grp.getgrnam(value).gr_gid
-if os.path.lexists(path) and not os.path.isfile(path):
-    print(json.dumps({{"ok": False, "error": "path exists and is not a regular file"}}))
-    sys.exit(0)
-parent = os.path.dirname(path) or "."
-if create_parents:
-    os.makedirs(parent, exist_ok=True)
-elif not os.path.isdir(parent):
-    print(json.dumps({{"ok": False, "error": "parent directory does not exist"}}))
-    sys.exit(0)
-uid = resolve_user(owner)
-gid = resolve_group(group)
-tmp = path + ".torque-" + str(os.getpid()) + ".tmp"
-with open(tmp, "wb") as fh:
-    fh.write(content)
-os.chmod(tmp, mode)
-if uid != -1 or gid != -1:
-    os.chown(tmp, uid, gid)
-os.replace(tmp, path)
-os.chmod(path, mode)
-if uid != -1 or gid != -1:
-    os.chown(path, uid, gid)
-print(json.dumps({{"ok": True}}))
-"""
-    return "python3 - <<'PY'\n" + code.strip() + "\nPY"
+    content_b64 = base64.b64encode(content).decode("ascii")
+    create = "1" if create_parents else "0"
+    return f"""set -eu
+{shell_helpers()}
+path={shell_quote(path)}
+content_b64={shell_quote(content_b64)}
+mode={shell_quote(mode)}
+owner={shell_quote(owner or "")}
+group={shell_quote(group or "")}
+create_parents={create}
+if [ -e "$path" ] || [ -L "$path" ]; then
+  if [ ! -f "$path" ]; then
+    printf '{{"error":"path exists and is not a regular file","ok":false}}\\n'
+    exit 0
+  fi
+fi
+parent="${{path%/*}}"
+if [ "$parent" = "$path" ]; then
+  parent="."
+elif [ -z "$parent" ]; then
+  parent="/"
+fi
+if [ "$create_parents" = "1" ]; then
+  mkdir -p -- "$parent"
+elif [ ! -d "$parent" ]; then
+  printf '{{"error":"parent directory does not exist","ok":false}}\\n'
+  exit 0
+fi
+tmp="${{path}}.torque-$$.tmp"
+trap 'rm -f -- "$tmp"' EXIT HUP INT TERM
+if ! printf '%s' "$content_b64" | base64_decode >"$tmp"; then
+  printf '{{"error":"content base64 decode failed","ok":false}}\\n'
+  exit 0
+fi
+chmod "$mode" "$tmp"
+if [ -n "$owner" ] || [ -n "$group" ]; then
+  if [ -n "$owner" ] && [ -n "$group" ]; then
+    chown_spec="${{owner}}:${{group}}"
+  elif [ -n "$owner" ]; then
+    chown_spec="$owner"
+  else
+    chown_spec=":${{group}}"
+  fi
+  chown "$chown_spec" "$tmp"
+fi
+mv -f -- "$tmp" "$path"
+trap - EXIT HUP INT TERM
+chmod "$mode" "$path"
+if [ -n "$owner" ] || [ -n "$group" ]; then
+  chown "$chown_spec" "$path"
+fi
+printf '{{"ok":true}}\\n'"""
 
 
 def delete_command(path):
-    code = f"""
-import json,os,stat,sys
-path = {json.dumps(path)}
-if not os.path.lexists(path):
-    print(json.dumps({{"ok": True, "changed": False}}))
-    sys.exit(0)
-st = os.lstat(path)
-if stat.S_ISDIR(st.st_mode):
-    print(json.dumps({{"ok": False, "error": "refusing to delete directory"}}))
-    sys.exit(0)
-os.unlink(path)
-print(json.dumps({{"ok": True, "changed": True}}))
-"""
-    return "python3 - <<'PY'\n" + code.strip() + "\nPY"
+    return f"""set -eu
+path={shell_quote(path)}
+if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+  printf '{{"changed":false,"ok":true}}\\n'
+  exit 0
+fi
+if [ -d "$path" ] && [ ! -L "$path" ]; then
+  printf '{{"error":"refusing to delete directory","ok":false}}\\n'
+  exit 0
+fi
+rm -f -- "$path"
+printf '{{"changed":true,"ok":true}}\\n'"""
 
 
 def observe(path, cfg):
@@ -353,24 +436,42 @@ def desired_from_inputs(inputs):
 
 def config_from_inputs(inputs):
     transport = str(inputs.get("transport") or "nats").strip().lower()
-    if transport != "nats":
-        raise ValueError("host.file.ensure currently supports transport: nats")
+    if transport not in ("ssh", "nats"):
+        raise ValueError("host.file.ensure supports transport: ssh or transport: nats")
     target = str(inputs.get("target") or "").strip()
     target_env = str(inputs.get("targetEnv") or "").strip()
     if target_env:
         target = os.environ.get(target_env, target)
-    target = normalize_target(target)
+    if transport == "nats":
+        target = normalize_target(target)
+    elif target.startswith("ssh://"):
+        target = target[len("ssh://"):]
     if target == "":
-        raise ValueError("input.target or input.targetEnv is required for transport: nats")
+        raise ValueError("input.target or input.targetEnv is required")
+    timeout = float(inputs.get("timeoutSeconds") or 30)
+    if timeout <= 0:
+        raise ValueError("timeoutSeconds must be greater than zero")
+    if transport == "ssh":
+        ssh_options = inputs.get("sshOptions") or inputs.get("ssh_options") or []
+        if isinstance(ssh_options, str):
+            ssh_options = shlex.split(ssh_options)
+        if not isinstance(ssh_options, list):
+            raise ValueError("sshOptions must be a string or list")
+        ssh_options = [str(item) for item in ssh_options]
+        identity_file = str(inputs.get("identityFile") or inputs.get("identity_file") or "").strip()
+        return {
+            "transport": transport,
+            "target": target,
+            "identityFile": identity_file,
+            "sshOptions": ssh_options,
+            "timeoutSeconds": timeout,
+        }
     nats_url = str(inputs.get("natsUrl") or "").strip()
     nats_url_env = str(inputs.get("natsUrlEnv") or "").strip()
     if nats_url_env:
         nats_url = os.environ.get(nats_url_env, nats_url)
     if nats_url == "":
         nats_url = os.environ.get("TORQUE_NATS_URL") or os.environ.get("TORQUE_NATS_SERVER") or DEFAULT_NATS_URL
-    timeout = float(inputs.get("timeoutSeconds") or 30)
-    if timeout <= 0:
-        raise ValueError("timeoutSeconds must be greater than zero")
     return {"transport": transport, "target": target, "natsUrl": nats_url, "timeoutSeconds": timeout}
 
 
@@ -384,7 +485,7 @@ def main():
         cfg = config_from_inputs(inputs)
         path_digest = digest(desired["path"])
         base_evidence = {
-            "transport": "nats",
+            "transport": cfg["transport"],
             "targetDigest": digest(cfg["target"]),
             "pathDigest": path_digest,
             "desiredDigest": desired["sha256"],
@@ -443,7 +544,7 @@ def main():
                     "after": before,
                     "diff": {"changes": changes},
                     "evidence": dict(base_evidence, observe=before_op),
-                    "receipt": {"pathDigest": path_digest, "desiredDigest": desired["sha256"], "mode": desired["mode"], "transport": "nats"},
+                    "receipt": {"pathDigest": path_digest, "desiredDigest": desired["sha256"], "mode": desired["mode"], "transport": cfg["transport"]},
                 })
                 return
             doc, apply_op = remote_json(apply_command(
@@ -467,7 +568,7 @@ def main():
                 "after": after,
                 "diff": {"changes": changes},
                 "evidence": dict(base_evidence, observe=before_op, apply=apply_op, verify=after_op),
-                "receipt": {"pathDigest": path_digest, "desiredDigest": desired["sha256"], "mode": desired["mode"], "transport": "nats"},
+                "receipt": {"pathDigest": path_digest, "desiredDigest": desired["sha256"], "mode": desired["mode"], "transport": cfg["transport"]},
             })
             return
         if phase == "delete":
@@ -484,7 +585,7 @@ def main():
                 "before": before,
                 "after": after,
                 "evidence": dict(base_evidence, observe=before_op, delete=delete_op, verify=after_op),
-                "receipt": {"pathDigest": path_digest, "deleted": True, "transport": "nats"},
+                "receipt": {"pathDigest": path_digest, "deleted": True, "transport": cfg["transport"]},
             })
             return
         if phase == "verify":
@@ -501,7 +602,7 @@ def main():
                 "message": message,
                 "after": state,
                 "evidence": dict(base_evidence, operation=op),
-                "receipt": {"pathDigest": path_digest, "verified": ok, "transport": "nats"},
+                "receipt": {"pathDigest": path_digest, "verified": ok, "transport": cfg["transport"]},
             })
             return
         emit({"status": "failed", "message": "unsupported phase: " + phase})

@@ -507,7 +507,8 @@ normal stack audit/export bundle.
 
 Typed modules can use the same replaceable transports as core adapters. This
 fixture keeps `host.file.ensure` outside the core repo while dispatching host
-commands through a NATS assignment worker:
+commands through SSH or a NATS assignment worker without changing the stack
+node kind:
 
 ```yaml
 apiVersion: torque.dev/v1
@@ -528,6 +529,18 @@ nodes:
         content: |
           torque host.file.ensure via nats
         mode: "0644"
+```
+
+The module payload uses POSIX shell on managed hosts, so targets do not need a
+Python runtime. Use the Firecracker benchmark harness to compare the same
+resource over SSH and NATS at fleet sizes:
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 scripts/e2e/ops/OPS-TR-008.sh \
+  --counts 1,10,100 \
+  --vm-mem 192 \
+  --destroy-existing-labs \
+  --evidence-root /tmp/torque-ops-e2e
 ```
 
 ## Stack: render a host file
