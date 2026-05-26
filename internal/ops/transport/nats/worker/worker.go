@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	agentcapability "github.com/ingresslabs/torque/internal/ops/agent/capability"
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 	localtransport "github.com/ingresslabs/torque/internal/ops/transport/local"
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
@@ -15,31 +17,34 @@ import (
 )
 
 type Config struct {
-	Server       string
-	Subject      string
-	Queue        string
-	Creds        string
-	NKey         string
-	Timeout      time.Duration
-	ShellBinary  string
-	RedactValues []string
-	Runner       transport.Runner
-	Ready        chan<- struct{}
+	Server                     string
+	Subject                    string
+	Queue                      string
+	Creds                      string
+	NKey                       string
+	Timeout                    time.Duration
+	ShellBinary                string
+	RedactValues               []string
+	Capabilities               []string
+	DisableCapabilityDiscovery bool
+	Runner                     transport.Runner
+	Ready                      chan<- struct{}
 }
 
 // Worker subscribes to one NATS assignment subject and executes supported
 // command assignments through the local transport contract.
 type Worker struct {
-	server   string
-	subject  string
-	queue    string
-	creds    string
-	nkey     string
-	timeout  time.Duration
-	shell    string
-	redactor transport.Redactor
-	runner   transport.Runner
-	ready    chan<- struct{}
+	server       string
+	subject      string
+	queue        string
+	creds        string
+	nkey         string
+	timeout      time.Duration
+	shell        string
+	redactor     transport.Redactor
+	capabilities map[string]struct{}
+	runner       transport.Runner
+	ready        chan<- struct{}
 }
 
 func New(config Config) (*Worker, error) {
@@ -63,17 +68,19 @@ func New(config Config) (*Worker, error) {
 	nkey := strings.TrimSpace(config.NKey)
 	redactValues := append([]string(nil), config.RedactValues...)
 	redactValues = append(redactValues, subject, server, creds, nkey)
+	capabilities := workerCapabilities(config)
 	return &Worker{
-		server:   server,
-		subject:  subject,
-		queue:    strings.TrimSpace(config.Queue),
-		creds:    creds,
-		nkey:     nkey,
-		timeout:  timeout,
-		shell:    strings.TrimSpace(config.ShellBinary),
-		redactor: transport.NewRedactor(redactValues),
-		runner:   runner,
-		ready:    config.Ready,
+		server:       server,
+		subject:      subject,
+		queue:        strings.TrimSpace(config.Queue),
+		creds:        creds,
+		nkey:         nkey,
+		timeout:      timeout,
+		shell:        strings.TrimSpace(config.ShellBinary),
+		redactor:     transport.NewRedactor(redactValues),
+		capabilities: capabilities,
+		runner:       runner,
+		ready:        config.Ready,
 	}, nil
 }
 
@@ -139,6 +146,10 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	if target != w.subject {
 		return w.errorResult(operation, target, fmt.Errorf("assignment target %q does not match worker subject %q", target, w.subject), false)
 	}
+	requiredCapability := strings.TrimSpace(assignment.RequiredCapability)
+	if requiredCapability != "" && !w.hasCapability(requiredCapability) {
+		return w.blockedResult(operation, target, requiredCapability)
+	}
 	client, err := localtransport.New(localtransport.Config{
 		Target:       "local://" + w.subject,
 		ShellBinary:  w.shell,
@@ -192,6 +203,71 @@ func (w *Worker) errorResult(operation string, target string, err error, timedOu
 	}
 }
 
+func (w *Worker) blockedResult(operation string, target string, requiredCapability string) transport.OperationResult {
+	if strings.TrimSpace(operation) == "" {
+		operation = "run"
+	}
+	if strings.TrimSpace(target) == "" {
+		target = w.subject
+	}
+	msg := fmt.Sprintf("missing required capability %s", strings.TrimSpace(requiredCapability))
+	return transport.OperationResult{
+		Operation:    strings.TrimSpace(operation),
+		Status:       "blocked",
+		TargetDigest: natstransport.TargetDigest(target),
+		Command: w.redactor.RedactArgs([]string{
+			"torque-agent",
+			"nats",
+			"worker",
+			"--subject",
+			w.subject,
+		}),
+		ExitCode: 1,
+		Error:    w.redactor.RedactString(msg),
+	}
+}
+
+func (w *Worker) hasCapability(requiredCapability string) bool {
+	requiredCapability = strings.TrimSpace(requiredCapability)
+	if requiredCapability == "" {
+		return true
+	}
+	_, ok := w.capabilities[requiredCapability]
+	return ok
+}
+
 func (w *Worker) redactorValues() []string {
 	return []string{w.subject, w.server, w.creds, w.nkey}
+}
+
+func workerCapabilities(config Config) map[string]struct{} {
+	names := append([]string(nil), config.Capabilities...)
+	if !config.DisableCapabilityDiscovery {
+		report := agentcapability.Discover(agentcapability.Options{})
+		names = append(names, agentcapability.AvailableAdapters(report)...)
+	}
+	names = normalizeCapabilityNames(names)
+	out := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		out[name] = struct{}{}
+	}
+	return out
+}
+
+func normalizeCapabilityNames(names []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }

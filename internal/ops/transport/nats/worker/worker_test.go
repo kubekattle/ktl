@@ -52,6 +52,62 @@ func TestHandleAssignmentRunsLocalCommand(t *testing.T) {
 	}
 }
 
+func TestHandleAssignmentRunsWhenRequiredCapabilityIsAvailable(t *testing.T) {
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("ok\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.lab.assign.mysql",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf ok", time.Now(), natstransport.CommandAssignmentMetadata{
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-123",
+		NodeID:             "host.command.run/write-marker",
+	})
+	result := worker.HandleAssignment(context.Background(), assignment)
+	if result.Status != "succeeded" {
+		t.Fatalf("Status = %q, want succeeded: %#v", result.Status, result)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("runner calls = %#v, want one call", runner.calls)
+	}
+}
+
+func TestHandleAssignmentBlocksMissingRequiredCapability(t *testing.T) {
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("should-not-run\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.lab.assign.mysql",
+		Capabilities:               []string{"mysql.replication.verify"},
+		DisableCapabilityDiscovery: true,
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf should-not-run", time.Now(), natstransport.CommandAssignmentMetadata{
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-123",
+		NodeID:             "host.command.run/write-marker",
+	})
+	result := worker.HandleAssignment(context.Background(), assignment)
+	if result.Status != "blocked" || !strings.Contains(result.Error, "missing required capability host.command.run") {
+		t.Fatalf("result = %#v, want blocked missing capability", result)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("runner was called despite missing capability: %#v", runner.calls)
+	}
+}
+
 func TestHandleAssignmentRejectsTargetMismatch(t *testing.T) {
 	worker, err := New(Config{Subject: "torque.lab.assign.mysql"})
 	if err != nil {

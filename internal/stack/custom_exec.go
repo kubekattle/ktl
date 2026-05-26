@@ -202,6 +202,7 @@ func (e *customNodeExecutor) recordActionNodeArtifacts(node *runNode, phase stri
 
 func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNode, command string) error {
 	spec := node.Host
+	spec = e.hostCommandAssignmentSpec(spec, node, NodeKindHostCommandRun)
 	remoteCommand := strings.TrimSpace(spec.Command)
 	phase := "host-command"
 	if strings.EqualFold(command, "delete") {
@@ -682,16 +683,36 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 		}
 		server := firstNonEmptyString(os.Getenv("TORQUE_NATS_URL"), os.Getenv("TORQUE_NATS_SERVER"))
 		return natstransport.New(natstransport.Config{
-			Target:       target,
-			Server:       server,
-			Creds:        strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS")),
-			NKey:         strings.TrimSpace(os.Getenv("TORQUE_NATS_NKEY")),
-			Timeout:      timeout,
-			RedactValues: []string{target, server},
+			Target:             target,
+			Server:             server,
+			Creds:              strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS")),
+			NKey:               strings.TrimSpace(os.Getenv("TORQUE_NATS_NKEY")),
+			Timeout:            timeout,
+			RedactValues:       []string{target, server},
+			RequiredCapability: strings.TrimSpace(spec.RequiredCap),
+			NodeKind:           strings.TrimSpace(spec.NodeKind),
+			RunID:              strings.TrimSpace(spec.RunID),
+			NodeID:             strings.TrimSpace(spec.NodeID),
+			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
 		})
 	default:
 		return nil, fmt.Errorf("unsupported host.command.run transport %q", transportKind)
 	}
+}
+
+func (e *customNodeExecutor) hostCommandAssignmentSpec(spec HostCommandSpec, node *runNode, requiredCapability string) HostCommandSpec {
+	spec.RequiredCap = strings.TrimSpace(requiredCapability)
+	if node != nil {
+		spec.NodeKind = normalizeNodeKind(node.Kind)
+		spec.NodeID = strings.TrimSpace(node.ID)
+		if strings.TrimSpace(spec.PlanDigest) == "" {
+			spec.PlanDigest = strings.TrimSpace(node.EffectiveInputHash)
+		}
+	}
+	if e != nil && e.run != nil {
+		spec.RunID = strings.TrimSpace(e.run.RunID)
+	}
+	return spec
 }
 
 type hostFileState struct {

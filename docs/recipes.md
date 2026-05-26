@@ -159,13 +159,16 @@ torque-mcp --stdio \
 Start a minimal outbound worker for stack nodes that use `transport: nats`.
 The stack target is a NATS assignment subject; the worker executes
 accepted `CommandAssignment` payloads through the local transport and replies
-with the standard redacted `OperationResult`.
+with the standard redacted `OperationResult`. Workers discover local
+capabilities at startup and reject assignments whose `requiredCapability` is
+not available, returning a `blocked` receipt without executing the command.
 
 ```bash
 torque-agent nats worker \
   --nats-url nats://127.0.0.1:4222 \
   --subject torque.lab.assign.mysql \
-  --queue mysql-workers
+  --queue mysql-workers \
+  --capability host.command.run
 ```
 
 ## Agent capability report
@@ -230,6 +233,8 @@ registry before hooks or node execution, writes `fleet-readiness.json` into the
 stack state store, and blocks mutation when not enough matching agents are
 ready. The same receipt also derives required capabilities from the stack node
 kinds and requires every ready matching agent to advertise those capabilities.
+NATS assignments carry the same required capability and node/run identifiers;
+the worker enforces the contract again locally before command execution.
 
 ```yaml
 apiVersion: torque.dev/v1

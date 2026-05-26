@@ -127,7 +127,7 @@ func (e *customNodeExecutor) runMySQLReplicationVerifyNode(ctx context.Context, 
 		return nil
 	}
 
-	runner, err := mysqlReplicationVerifyRunner(node.MySQL)
+	runner, err := e.mysqlReplicationVerifyRunner(node)
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
@@ -180,13 +180,15 @@ func (e *customNodeExecutor) runMySQLReplicationVerifyNode(ctx context.Context, 
 	return nil
 }
 
-func mysqlReplicationVerifyRunner(spec MySQLSpec) (hostCommandRunner, error) {
-	return hostCommandTransport(HostCommandSpec{
+func (e *customNodeExecutor) mysqlReplicationVerifyRunner(node *runNode) (hostCommandRunner, error) {
+	spec := node.MySQL
+	hostSpec := e.hostCommandAssignmentSpec(HostCommandSpec{
 		Transport: spec.Transport,
 		Target:    spec.Target,
 		TargetEnv: spec.TargetEnv,
 		Timeout:   spec.Timeout,
-	})
+	}, node, NodeKindMySQLReplicationVerify)
+	return hostCommandTransport(hostSpec)
 }
 
 func buildMySQLReplicationVerifyCommand(spec MySQLSpec) string {

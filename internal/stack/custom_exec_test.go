@@ -3938,10 +3938,12 @@ esac
 	t.Setenv("TORQUE_NATS_URL", serverURL)
 	ready := make(chan struct{})
 	worker, err := natsworker.New(natsworker.Config{
-		Server:  serverURL,
-		Subject: subject,
-		Ready:   ready,
-		Timeout: 2 * time.Second,
+		Server:                     serverURL,
+		Subject:                    subject,
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{NodeKindMySQLReplicationVerify},
+		DisableCapabilityDiscovery: true,
 	})
 	if err != nil {
 		t.Fatalf("new nats worker: %v", err)
@@ -4025,7 +4027,11 @@ esac
 		if artifact.NodeID == node.ID && artifact.Name == "mysql-replication-verify.json" {
 			found = strings.Contains(artifact.Body, `"status": "succeeded"`) &&
 				strings.Contains(artifact.Body, `"replicatedNodes": 2`) &&
-				strings.Contains(artifact.Body, `"nats.request"`)
+				strings.Contains(artifact.Body, `"nats.request"`) &&
+				strings.Contains(artifact.Body, "requiredCapability") &&
+				strings.Contains(artifact.Body, "mysql.replication.verify") &&
+				strings.Contains(artifact.Body, "nodeId") &&
+				strings.Contains(artifact.Body, "runId")
 			break
 		}
 	}

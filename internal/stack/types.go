@@ -427,6 +427,11 @@ type HostCommandSpec struct {
 	TargetID        string         `yaml:"targetId,omitempty" json:"targetId,omitempty"`
 	Target          string         `yaml:"target,omitempty" json:"target,omitempty"`
 	TargetEnv       string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	RequiredCap     string         `yaml:"-" json:"-"`
+	NodeKind        string         `yaml:"-" json:"-"`
+	RunID           string         `yaml:"-" json:"-"`
+	NodeID          string         `yaml:"-" json:"-"`
+	PlanDigest      string         `yaml:"-" json:"-"`
 	Command         string         `yaml:"command,omitempty" json:"command,omitempty"`
 	DeleteCommand   string         `yaml:"deleteCommand,omitempty" json:"deleteCommand,omitempty"`
 	Timeout         *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`

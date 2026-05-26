@@ -13,25 +13,32 @@ import (
 )
 
 type Config struct {
-	Target       string
-	Server       string
-	Creds        string
-	NKey         string
-	Timeout      time.Duration
-	RedactValues []string
-	Requester    Requester
-	Dialer       RequestDialer
+	Target             string
+	Server             string
+	Creds              string
+	NKey               string
+	Timeout            time.Duration
+	RedactValues       []string
+	RequiredCapability string
+	NodeKind           string
+	RunID              string
+	NodeID             string
+	PlanDigest         string
+	Requester          Requester
+	Dialer             RequestDialer
 }
 
 // Client sends command assignments over a NATS request/reply subject and
 // expects the worker response to be an OperationResult JSON receipt.
 type Client struct {
-	target    string
-	server    string
-	creds     string
-	nkey      string
-	timeout   time.Duration
-	redactor  transport.Redactor
+	target   string
+	server   string
+	creds    string
+	nkey     string
+	timeout  time.Duration
+	metadata CommandAssignmentMetadata
+	redactor transport.Redactor
+
 	requester Requester
 	dialer    RequestDialer
 }
@@ -69,11 +76,18 @@ func New(config Config) (*Client, error) {
 	redactValues := append([]string(nil), config.RedactValues...)
 	redactValues = append(redactValues, target, server, creds, nkey)
 	return &Client{
-		target:    target,
-		server:    server,
-		creds:     creds,
-		nkey:      nkey,
-		timeout:   timeout,
+		target:  target,
+		server:  server,
+		creds:   creds,
+		nkey:    nkey,
+		timeout: timeout,
+		metadata: CommandAssignmentMetadata{
+			RequiredCapability: strings.TrimSpace(config.RequiredCapability),
+			NodeKind:           strings.TrimSpace(config.NodeKind),
+			RunID:              strings.TrimSpace(config.RunID),
+			NodeID:             strings.TrimSpace(config.NodeID),
+			PlanDigest:         strings.TrimSpace(config.PlanDigest),
+		},
 		redactor:  transport.NewRedactor(redactValues),
 		requester: config.Requester,
 		dialer:    dialer,
@@ -105,7 +119,7 @@ func (c *Client) Run(ctx context.Context, command string) OperationResult {
 
 func (c *Client) request(ctx context.Context, operation string, command string) OperationResult {
 	started := time.Now()
-	assignment := NewCommandAssignment(operation, c.target, command, started)
+	assignment := NewCommandAssignmentWithMetadata(operation, c.target, command, started, c.metadata)
 	rawAssignment, err := json.Marshal(assignment)
 	if err != nil {
 		return c.resultFromError(operation, started, err)

@@ -1,8 +1,8 @@
 # Torque Fleet Control Plane Spec
 
 Status: design draft; local NATS heartbeat/status, agent capability reporting,
-durable registry compaction, and stack fleet readiness/capability gate slices
-implemented.
+durable registry compaction, stack fleet readiness/capability gate slices, and
+worker-side capability enforcement implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -47,7 +47,9 @@ Implemented local slice:
 - `scripts/e2e/ops/OPS-AGENT-006.sh` proves one NATS-backed fleet stack apply
   after discovered capability and readiness checks pass, one
   insufficient-readiness apply that blocks before mutation, and one
-  missing-capability apply that blocks before mutation.
+  missing-capability apply that blocks before mutation. It also proves an
+  incapable worker returns a local `blocked` receipt without executing an
+  assignment that escaped the controller-side gate.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
@@ -411,6 +413,26 @@ TORQUE_AUDIT
   subjects:
     torque.v1.audit.<tenant>.<actor>.<event-type>
 ```
+
+Assignment envelopes include the node/run context the worker must enforce:
+
+```json
+{
+  "apiVersion": "torque.dev/nats-assignment/v1",
+  "kind": "CommandAssignment",
+  "operation": "run",
+  "target": "torque.lab.assign.mysql",
+  "requiredCapability": "host.command.run",
+  "nodeKind": "host.command.run",
+  "runId": "2026-05-27T10-00-00.000000000Z",
+  "nodeId": "host.command.run/mysql-check",
+  "planDigest": "sha256:..."
+}
+```
+
+An agent that cannot satisfy `requiredCapability` returns an
+`OperationResult` with `status: blocked` and a missing-capability reason before
+it starts any local process.
 
 Stream retention:
 

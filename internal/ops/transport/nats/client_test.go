@@ -45,11 +45,16 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	}
 	requester := &recordingRequester{responses: [][]byte{raw}}
 	client, err := New(Config{
-		Target:       "nats-mesh://torque.lab.assign.agent.mysql",
-		Server:       "nats://127.0.0.1:4222",
-		Creds:        "/tmp/nats.creds",
-		RedactValues: []string{"top-secret"},
-		Requester:    requester,
+		Target:             "nats-mesh://torque.lab.assign.agent.mysql",
+		Server:             "nats://127.0.0.1:4222",
+		Creds:              "/tmp/nats.creds",
+		RedactValues:       []string{"top-secret"},
+		RequiredCapability: "mysql.replication.verify",
+		NodeKind:           "mysql.replication.verify",
+		RunID:              "run-123",
+		NodeID:             "mysql.replication.verify/mysql",
+		PlanDigest:         "sha256:plan",
+		Requester:          requester,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -85,6 +90,9 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	}
 	if assignment.Kind != AssignmentKind || assignment.Operation != "run" || assignment.Target != "torque.lab.assign.agent.mysql" {
 		t.Fatalf("assignment = %#v", assignment)
+	}
+	if assignment.RequiredCapability != "mysql.replication.verify" || assignment.NodeKind != "mysql.replication.verify" || assignment.RunID != "run-123" || assignment.NodeID != "mysql.replication.verify/mysql" || assignment.PlanDigest != "sha256:plan" {
+		t.Fatalf("assignment metadata = %#v", assignment)
 	}
 }
 

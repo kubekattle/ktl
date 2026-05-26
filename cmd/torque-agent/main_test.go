@@ -30,6 +30,9 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 	if config.Creds != "/tmp/nats.creds" || config.Timeout != 3*time.Second {
 		t.Fatalf("unexpected creds/timeout: %#v", config)
 	}
+	if config.DisableCapabilityDiscovery {
+		t.Fatalf("DisableCapabilityDiscovery = true, want default discovery enabled")
+	}
 }
 
 func TestParseNATSWorkerConfigTimeoutFromEnv(t *testing.T) {
@@ -52,6 +55,26 @@ func TestParseNATSWorkerConfigRequiresSubject(t *testing.T) {
 	_, err := parseNATSWorkerConfig(nil, func(key string) string { return "" })
 	if err == nil || !strings.Contains(err.Error(), "--subject is required") {
 		t.Fatalf("expected subject error, got %v", err)
+	}
+}
+
+func TestParseNATSWorkerConfigCapabilities(t *testing.T) {
+	env := map[string]string{
+		"TORQUE_NATS_SUBJECT":                "torque.lab.assign.mysql",
+		"TORQUE_AGENT_CAPABILITIES":          "mysql.replication.verify",
+		"TORQUE_AGENT_DISCOVER_CAPABILITIES": "false",
+	}
+	config, err := parseNATSWorkerConfig([]string{"--capability", "host.command.run"}, func(key string) string {
+		return env[key]
+	})
+	if err != nil {
+		t.Fatalf("parseNATSWorkerConfig: %v", err)
+	}
+	if !config.DisableCapabilityDiscovery {
+		t.Fatalf("DisableCapabilityDiscovery = false, want true")
+	}
+	if strings.Join(config.Capabilities, ",") != "mysql.replication.verify,host.command.run" {
+		t.Fatalf("Capabilities = %#v", config.Capabilities)
 	}
 }
 
