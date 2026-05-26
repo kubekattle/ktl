@@ -14,10 +14,19 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 		Stacks: map[string]StackFile{
 			root: {
 				Runner: RunnerConfig{
+					Mode:                   RunnerModeFleet,
 					Concurrency:            pint(5),
 					ProgressiveConcurrency: pbool(true),
 					KubeQPS:                pf32(25),
 					KubeBurst:              pint(50),
+					Readiness: RunnerReadiness{
+						Store:           RunnerReadinessStoreFile,
+						StorePath:       "/tmp/base-registry.json",
+						Tenant:          "lab",
+						Selector:        map[string]string{"role": "mysql"},
+						MinReadyPercent: pint(95),
+						FailureBudget:   pint(5),
+					},
 					Adaptive: RunnerAdaptive{
 						Mode: "conservative",
 					},
@@ -31,6 +40,9 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 					"ci": {
 						Runner: RunnerConfig{
 							Concurrency: pint(10),
+							Readiness: RunnerReadiness{
+								Selector: map[string]string{"role": "db"},
+							},
 							Adaptive: RunnerAdaptive{
 								RampMaxFailureRate: pf64(0.25),
 							},
@@ -50,6 +62,12 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 	}
 	if !got.ProgressiveConcurrency {
 		t.Fatalf("expected progressiveConcurrency=true")
+	}
+	if got.Mode != RunnerModeFleet || !got.Readiness.Enabled || !got.Readiness.RequireAgents {
+		t.Fatalf("expected fleet readiness enabled, got %#v", got.Readiness)
+	}
+	if got.Readiness.Tenant != "lab" || got.Readiness.Selector["role"] != "db" || got.Readiness.MinReadyPercent != 95 || got.Readiness.FailureBudget != 5 {
+		t.Fatalf("readiness override/defaults = %#v", got.Readiness)
 	}
 	if got.KubeQPS != 25 || got.KubeBurst != 50 {
 		t.Fatalf("expected kubeQPS=25 kubeBurst=50, got kubeQPS=%v kubeBurst=%v", got.KubeQPS, got.KubeBurst)

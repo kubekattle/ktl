@@ -14,6 +14,7 @@ const (
 	RunFinalized   RunEventType = "RUN_FINALIZED"
 	OpsReplay      RunEventType = "OPS_REPLAY"
 	OpsPreflight   RunEventType = "OPS_PREFLIGHT"
+	FleetReadiness RunEventType = "FLEET_READINESS"
 
 	NodeMeta RunEventType = "NODE_META"
 

@@ -784,6 +784,10 @@ func validateKubernetesClusterAccessSpec(kind string, name string, spec Kubernet
 		if strings.TrimSpace(spec.Target) == "" && strings.TrimSpace(spec.TargetEnv) == "" {
 			return fmt.Errorf("%s node %s requires kubernetes.cluster.target or targetEnv for ssh transport", kind, name)
 		}
+	case "nats", "nats-mesh":
+		if strings.TrimSpace(spec.Target) == "" && strings.TrimSpace(spec.TargetEnv) == "" {
+			return fmt.Errorf("%s node %s requires kubernetes.cluster.target or targetEnv for %s transport", kind, name, transport)
+		}
 	default:
 		return fmt.Errorf("%s node %s has unsupported kubernetes.cluster.transport %q", kind, name, spec.Transport)
 	}

@@ -465,6 +465,20 @@ scripts/e2e/ops/OPS-AGENT-005.sh \
   --cleanup
 ```
 
+## OPS-AGENT-006
+
+`OPS-AGENT-006.sh` proves the stack fleet readiness gate. It starts
+JetStream-enabled NATS, runs a `torque-agent nats worker`, publishes one durable
+agent heartbeat, compacts the heartbeat into a file-backed registry, applies a
+`runner.mode: fleet` stack over NATS, and then proves an insufficient-readiness
+stack blocks before the marker command can run.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-006.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or

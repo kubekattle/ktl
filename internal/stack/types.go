@@ -199,14 +199,31 @@ type StackLockCLIConfig struct {
 }
 
 type RunnerConfig struct {
-	Concurrency            *int           `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
-	ProgressiveConcurrency *bool          `yaml:"progressiveConcurrency,omitempty" json:"progressiveConcurrency,omitempty"`
-	KubeQPS                *float32       `yaml:"kubeQPS,omitempty" json:"kubeQPS,omitempty"`
-	KubeBurst              *int           `yaml:"kubeBurst,omitempty" json:"kubeBurst,omitempty"`
-	Limits                 RunnerLimits   `yaml:"limits,omitempty" json:"limits,omitempty"`
-	Adaptive               RunnerAdaptive `yaml:"adaptive,omitempty" json:"adaptive,omitempty"`
-	Extra                  map[string]any `yaml:",inline" json:"-"`
-	RawIgnored             map[string]any `yaml:"-" json:"-"`
+	Mode                   string          `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Concurrency            *int            `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
+	ProgressiveConcurrency *bool           `yaml:"progressiveConcurrency,omitempty" json:"progressiveConcurrency,omitempty"`
+	KubeQPS                *float32        `yaml:"kubeQPS,omitempty" json:"kubeQPS,omitempty"`
+	KubeBurst              *int            `yaml:"kubeBurst,omitempty" json:"kubeBurst,omitempty"`
+	Readiness              RunnerReadiness `yaml:"readiness,omitempty" json:"readiness,omitempty"`
+	Limits                 RunnerLimits    `yaml:"limits,omitempty" json:"limits,omitempty"`
+	Adaptive               RunnerAdaptive  `yaml:"adaptive,omitempty" json:"adaptive,omitempty"`
+	Extra                  map[string]any  `yaml:",inline" json:"-"`
+	RawIgnored             map[string]any  `yaml:"-" json:"-"`
+}
+
+type RunnerReadiness struct {
+	Source              string            `yaml:"source,omitempty" json:"source,omitempty"`
+	Store               string            `yaml:"store,omitempty" json:"store,omitempty"`
+	StorePath           string            `yaml:"storePath,omitempty" json:"storePath,omitempty"`
+	EtcdEndpoints       []string          `yaml:"etcdEndpoints,omitempty" json:"etcdEndpoints,omitempty"`
+	EtcdPrefix          string            `yaml:"etcdPrefix,omitempty" json:"etcdPrefix,omitempty"`
+	Tenant              string            `yaml:"tenant,omitempty" json:"tenant,omitempty"`
+	Selector            map[string]string `yaml:"selector,omitempty" json:"selector,omitempty"`
+	RequireAgents       *bool             `yaml:"requireAgents,omitempty" json:"requireAgents,omitempty"`
+	MinReadyPercent     *int              `yaml:"minReadyPercent,omitempty" json:"minReadyPercent,omitempty"`
+	FailureBudget       *int              `yaml:"failureBudget,omitempty" json:"failureBudget,omitempty"`
+	StaleAfter          *time.Duration    `yaml:"staleAfter,omitempty" json:"staleAfter,omitempty"`
+	OnInsufficientReady string            `yaml:"onInsufficientReady,omitempty" json:"onInsufficientReady,omitempty"`
 }
 
 type RunnerLimits struct {
@@ -225,12 +242,30 @@ type RunnerAdaptive struct {
 }
 
 type RunnerResolved struct {
-	Concurrency            int                    `json:"concurrency"`
-	ProgressiveConcurrency bool                   `json:"progressiveConcurrency"`
-	KubeQPS                float32                `json:"kubeQPS,omitempty"`
-	KubeBurst              int                    `json:"kubeBurst,omitempty"`
-	Limits                 RunnerLimitsResolved   `json:"limits,omitempty"`
-	Adaptive               RunnerAdaptiveResolved `json:"adaptive,omitempty"`
+	Mode                   string                  `json:"mode,omitempty"`
+	Concurrency            int                     `json:"concurrency"`
+	ProgressiveConcurrency bool                    `json:"progressiveConcurrency"`
+	KubeQPS                float32                 `json:"kubeQPS,omitempty"`
+	KubeBurst              int                     `json:"kubeBurst,omitempty"`
+	Readiness              RunnerReadinessResolved `json:"readiness,omitempty"`
+	Limits                 RunnerLimitsResolved    `json:"limits,omitempty"`
+	Adaptive               RunnerAdaptiveResolved  `json:"adaptive,omitempty"`
+}
+
+type RunnerReadinessResolved struct {
+	Enabled             bool              `json:"enabled,omitempty"`
+	Source              string            `json:"source,omitempty"`
+	Store               string            `json:"store,omitempty"`
+	StorePath           string            `json:"storePath,omitempty"`
+	EtcdEndpoints       []string          `json:"etcdEndpoints,omitempty"`
+	EtcdPrefix          string            `json:"etcdPrefix,omitempty"`
+	Tenant              string            `json:"tenant,omitempty"`
+	Selector            map[string]string `json:"selector,omitempty"`
+	RequireAgents       bool              `json:"requireAgents,omitempty"`
+	MinReadyPercent     int               `json:"minReadyPercent,omitempty"`
+	FailureBudget       int               `json:"failureBudget,omitempty"`
+	StaleAfter          time.Duration     `json:"staleAfter,omitempty"`
+	OnInsufficientReady string            `json:"onInsufficientReady,omitempty"`
 }
 
 type RunnerLimitsResolved struct {

@@ -597,6 +597,38 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 				return preflightErr
 			}
 		}
+		if readiness := EvaluateFleetReadiness(ctx, run.Plan); readiness != nil {
+			run.RecordJSONArtifact("", "fleet-readiness.json", readiness)
+			run.AppendEvent("", FleetReadiness, 0, readiness.Status, map[string]any{
+				"status":       readiness.Status,
+				"readyPercent": readiness.Summary.ReadyPercent,
+				"readyAgents":  readiness.Summary.ReadyAgents,
+				"totalAgents":  readiness.Summary.TotalAgents,
+				"blocked":      len(readiness.Blockers),
+				"artifact":     "fleet-readiness.json",
+			}, nil)
+			if readiness.Status == "blocked" {
+				readinessErr := fmt.Errorf("fleet readiness blocked: %d blocker(s)", len(readiness.Blockers))
+				for _, n := range run.Nodes {
+					run.AppendEvent(n.ID, NodeBlocked, n.Attempt, "fleet readiness blocked before mutation", map[string]any{
+						"blockers": len(readiness.Blockers),
+						"artifact": "fleet-readiness.json",
+					}, nil)
+				}
+				run.AppendEvent("", RunCompleted, 0, "blocked", map[string]any{
+					"status":   "blocked",
+					"reason":   readinessErr.Error(),
+					"blockers": len(readiness.Blockers),
+					"artifact": "fleet-readiness.json",
+				}, &RunError{Class: "FLEET_READINESS_BLOCKED", Message: readinessErr.Error(), Digest: computeRunErrorDigest("FLEET_READINESS_BLOCKED", readinessErr.Error())})
+				run.WriteSummarySnapshot(run.BuildSummary("blocked", start, blockedPreflightSnapshot(run.Nodes, readinessErr)))
+				if run.store != nil {
+					_, _ = run.store.FinalizeRun(context.Background(), run.RunID, time.Now().UTC().UnixNano(), run.eventPrevHash)
+					_ = run.store.CheckpointPortable(context.Background())
+				}
+				return readinessErr
+			}
+		}
 	}
 
 	// Stack-level runOnce hooks (pre).

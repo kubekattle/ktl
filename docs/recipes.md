@@ -212,6 +212,47 @@ torque ops agent status \
   --tenant lab
 ```
 
+## Stack fleet readiness gate
+
+In local mode, stack nodes can still use direct SSH or NATS transports. Fleet
+mode is the NATS-backed path: `torque stack apply` reads the compact agent
+registry before hooks or node execution, writes `fleet-readiness.json` into the
+stack state store, and blocks mutation when not enough matching agents are
+ready.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: mysql-fleet
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: etcd
+    etcdEndpoints:
+      - http://127.0.0.1:2379
+    tenant: lab
+    selector:
+      role: mysql
+    requireAgents: true
+    minReadyPercent: 95
+    failureBudget: 5
+    staleAfter: 45s
+    onInsufficientReady: block
+nodes:
+  - name: mysql-check
+    kind: host.command.run
+    host:
+      transport: nats
+      target: torque.lab.assign.mysql
+      command: mysqladmin ping
+```
+
+```bash
+TORQUE_NATS_URL=nats://127.0.0.1:4222 \
+  torque stack apply --config ./stacks/mysql-fleet --yes
+```
+
 ## Durable Linux agent host
 
 ```bash
