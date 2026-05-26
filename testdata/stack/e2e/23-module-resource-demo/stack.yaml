@@ -1,0 +1,13 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: module-resource-demo
+nodes:
+  - name: counter
+    kind: demo.counter.ensure
+    module:
+      source: oci://example.test/torque-modules/demo
+      version: 0.1.0
+      command: ["python3", "./modules/counter.py"]
+      input:
+        path: /tmp/torque-module-resource-demo-counter.txt
+        value: ready

@@ -55,6 +55,8 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runScriptNode(ctx, node, command)
 	case NodeKindActionPlugin:
 		return e.runActionPluginNode(ctx, node, command)
+	case NodeKindModuleResource:
+		return e.runModuleResourceNode(ctx, node, command)
 	case NodeKindDBRestorePoint:
 		return e.runDBRestorePointNode(ctx, node, command)
 	case NodeKindDBSchemaExpand:
@@ -104,6 +106,9 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 	case NodeKindK8sClusterVerify:
 		return e.runKubernetesClusterVerifyNode(ctx, node, command)
 	default:
+		if isModuleBackedNode(node.ResolvedRelease) {
+			return e.runModuleResourceNode(ctx, node, command)
+		}
 		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("unsupported node kind %q", normalizeNodeKind(node.Kind)))
 	}
 }

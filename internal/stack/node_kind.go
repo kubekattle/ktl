@@ -6,6 +6,7 @@ const (
 	NodeKindHelm                   = "release.helm"
 	NodeKindAction                 = "action.script"
 	NodeKindActionPlugin           = "action.plugin"
+	NodeKindModuleResource         = "module.resource"
 	NodeKindDBRestorePoint         = "db.restore-point"
 	NodeKindDBSchemaExpand         = "db.schema-expand"
 	NodeKindDBBackfill             = "db.backfill"

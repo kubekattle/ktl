@@ -35,6 +35,18 @@ type EffectiveActionInput struct {
 	Digest       string `json:"digest,omitempty"`
 }
 
+type EffectiveModuleInput struct {
+	Source        string         `json:"source,omitempty"`
+	Version       string         `json:"version,omitempty"`
+	CommandDigest string         `json:"commandDigest,omitempty"`
+	EnvDigest     string         `json:"envDigest,omitempty"`
+	WorkDirDigest string         `json:"workDirDigest,omitempty"`
+	Timeout       string         `json:"timeout,omitempty"`
+	Phases        []string       `json:"phases,omitempty"`
+	Input         map[string]any `json:"input,omitempty"`
+	Digest        string         `json:"digest,omitempty"`
+}
+
 type EffectiveDatabaseInput struct {
 	Driver              string                 `json:"driver,omitempty"`
 	DSNRef              string                 `json:"dsnRef,omitempty"`
@@ -242,6 +254,12 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.ActionDigest = actionInput.Digest
+	case NodeKindModuleResource:
+		moduleInput, err := digestModuleSpec(n.Module)
+		if err != nil {
+			return "", nil, err
+		}
+		input.ModuleDigest = moduleInput.Digest
 	case NodeKindDBRestorePoint, NodeKindDBSchemaExpand, NodeKindDBBackfill, NodeKindDBVerify, NodeKindDBCutover, NodeKindDBSchemaContract:
 		dbInput, err := digestDatabaseSpec(n.Database)
 		if err != nil {
@@ -277,6 +295,14 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.KubernetesDigest = kubernetesInput.Digest
+	default:
+		if isModuleBackedNode(n) {
+			moduleInput, err := digestModuleSpec(n.Module)
+			if err != nil {
+				return "", nil, err
+			}
+			input.ModuleDigest = moduleInput.Digest
+		}
 	}
 
 	type effectiveInputHashV1 struct {
@@ -300,6 +326,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		SetDigest        string `json:"setDigest,omitempty"`
 		ClusterDigest    string `json:"clusterDigest,omitempty"`
 		ActionDigest     string `json:"actionDigest,omitempty"`
+		ModuleDigest     string `json:"moduleDigest,omitempty"`
 		DatabaseDigest   string `json:"databaseDigest,omitempty"`
 		MySQLDigest      string `json:"mysqlDigest,omitempty"`
 		HostDigest       string `json:"hostDigest,omitempty"`
@@ -336,6 +363,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		SetDigest:        input.SetDigest,
 		ClusterDigest:    input.ClusterDigest,
 		ActionDigest:     input.ActionDigest,
+		ModuleDigest:     input.ModuleDigest,
 		DatabaseDigest:   input.DatabaseDigest,
 		MySQLDigest:      input.MySQLDigest,
 		HostDigest:       input.HostDigest,
@@ -1078,6 +1106,50 @@ func digestActionPluginSpec(cfg ActionPluginSpec) string {
 		Phases:  normalizedActionPluginPhasesForHash(cfg.Phases),
 		Config:  cfg.Config,
 	})
+	return "sha256:" + hashBytes(raw)
+}
+
+func digestModuleSpec(cfg ModuleSpec) (EffectiveModuleInput, error) {
+	input := EffectiveModuleInput{
+		Source:  strings.TrimSpace(cfg.Source),
+		Version: strings.TrimSpace(cfg.Version),
+		Phases:  normalizedModulePhasesForHash(cfg.Phases),
+		Input:   cloneAnyMap(cfg.Input),
+	}
+	if len(cfg.Command) > 0 {
+		input.CommandDigest = digestStringSlice(cfg.Command)
+	}
+	if len(cfg.Env) > 0 {
+		input.EnvDigest = digestStringMap(cfg.Env)
+	}
+	if strings.TrimSpace(cfg.WorkDir) != "" {
+		input.WorkDirDigest = digestString(cfg.WorkDir)
+	}
+	if cfg.Timeout != nil {
+		input.Timeout = cfg.Timeout.String()
+	}
+	digest, err := hashJSONStable(input)
+	if err != nil {
+		return EffectiveModuleInput{}, err
+	}
+	input.Digest = digest
+	return input, nil
+}
+
+func digestStringSlice(values []string) string {
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		cleaned = append(cleaned, strings.TrimSpace(value))
+	}
+	raw, _ := json.Marshal(cleaned)
+	return "sha256:" + hashBytes(raw)
+}
+
+func digestStringMap(values map[string]string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	raw, _ := json.Marshal(values)
 	return "sha256:" + hashBytes(raw)
 }
 

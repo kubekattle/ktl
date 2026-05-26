@@ -470,6 +470,41 @@ Result contract:
 records `plugin-<phase>.json`, `decision.json`, and any plugin-provided
 artifacts in the normal stack audit/export bundle.
 
+## Stack: typed resource modules
+
+Use module-backed typed resources when the integration should live outside the
+Torque core repo. The stack keeps a domain kind such as
+`demo.counter.ensure`, while `module.command` supplies the implementation.
+Torque still controls the lifecycle and records module phase receipts.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: module-demo
+nodes:
+  - name: counter
+    kind: demo.counter.ensure
+    module:
+      source: oci://ghcr.io/torque-modules/demo
+      version: 0.1.0
+      command: ["./modules/demo-counter"]
+      input:
+        path: /var/lib/demo/counter
+        value: ready
+```
+
+Default lifecycle:
+
+```text
+observe -> diff -> plan -> apply -> verify
+```
+
+The module reads a JSON request on stdin and writes one JSON result on stdout.
+Torque records `module-observe.json`, `module-diff.json`,
+`module-plan.json`, `module-apply.json`, `module-verify.json`,
+`module-resource.json`, `decision.json`, and module-provided artifacts in the
+normal stack audit/export bundle.
+
 ## Stack: render a host file
 
 Use `host.file.render` for small host-side configuration files that need a

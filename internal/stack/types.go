@@ -268,6 +268,7 @@ type ReleaseFile struct {
 	Delete       DeleteOptions     `yaml:"delete,omitempty" json:"delete,omitempty"`
 	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 	Action       ActionSpec        `yaml:"action,omitempty" json:"action,omitempty"`
+	Module       ModuleSpec        `yaml:"module,omitempty" json:"module,omitempty"`
 	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
 	MySQL        MySQLSpec         `yaml:"mysql,omitempty" json:"mysql,omitempty"`
 	Kubernetes   KubernetesSpec    `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
@@ -292,6 +293,7 @@ type ReleaseSpec struct {
 	Verify       VerifyOptions     `yaml:"verify,omitempty" json:"verify,omitempty"`
 	Hooks        StackHooksConfig  `yaml:"hooks,omitempty" json:"hooks,omitempty"`
 	Action       ActionSpec        `yaml:"action,omitempty" json:"action,omitempty"`
+	Module       ModuleSpec        `yaml:"module,omitempty" json:"module,omitempty"`
 	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
 	MySQL        MySQLSpec         `yaml:"mysql,omitempty" json:"mysql,omitempty"`
 	Host         HostCommandSpec   `yaml:"host,omitempty" json:"host,omitempty"`
@@ -328,6 +330,7 @@ type ResolvedRelease struct {
 
 	Hooks      StackHooksConfig `json:"hooks,omitempty"`
 	Action     ActionSpec       `json:"action,omitempty"`
+	Module     ModuleSpec       `json:"module,omitempty"`
 	Database   DatabaseSpec     `json:"database,omitempty"`
 	MySQL      MySQLSpec        `json:"mysql,omitempty"`
 	Host       HostCommandSpec  `json:"host,omitempty"`
@@ -373,6 +376,7 @@ type EffectiveInput struct {
 	SetDigest        string `json:"setDigest,omitempty"`
 	ClusterDigest    string `json:"clusterDigest,omitempty"`
 	ActionDigest     string `json:"actionDigest,omitempty"`
+	ModuleDigest     string `json:"moduleDigest,omitempty"`
 	DatabaseDigest   string `json:"databaseDigest,omitempty"`
 	MySQLDigest      string `json:"mysqlDigest,omitempty"`
 	HostDigest       string `json:"hostDigest,omitempty"`
@@ -630,6 +634,17 @@ type ActionPluginSpec struct {
 	Timeout *time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	Phases  []string          `yaml:"phases,omitempty" json:"phases,omitempty"`
 	Config  map[string]any    `yaml:"config,omitempty" json:"config,omitempty"`
+}
+
+type ModuleSpec struct {
+	Source  string            `yaml:"source,omitempty" json:"source,omitempty"`
+	Version string            `yaml:"version,omitempty" json:"version,omitempty"`
+	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	WorkDir string            `yaml:"workDir,omitempty" json:"workDir,omitempty"`
+	Timeout *time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Phases  []string          `yaml:"phases,omitempty" json:"phases,omitempty"`
+	Input   map[string]any    `yaml:"input,omitempty" json:"input,omitempty"`
 }
 
 type BackfillSpec struct {

@@ -4,6 +4,10 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
 
 - Success fixtures used by the main suite live under `testdata/stack/e2e/01-...` through `testdata/stack/e2e/10-...` plus `13-mixed-nodes`.
 - `13-mixed-nodes` proves generic `nodes:` can mix `host.command.run`, `release.helm`, and the legacy `releases:` alias in one DAG.
+- `23-module-resource-demo` proves an external typed resource module can keep
+  its domain kind (`demo.counter.ensure`) while Torque owns
+  `observe -> diff -> plan -> apply/delete -> verify` receipts and audit
+  artifacts.
 - `14-firecracker-k8s-stackfile` is a real-lab stackfile that creates a
   Firecracker-backed k3s cluster, applies an HTTP DaemonSet app, verifies
   node-local access, and deletes the lab resources through the stack DAG.

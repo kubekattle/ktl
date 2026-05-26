@@ -196,6 +196,10 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		if err := validateActionPluginSpec(n.Action.Plugin); err != nil {
 			return nil, fmt.Errorf("%s: action.plugin node %s: %w", dr.Dir, leaf.Name, err)
 		}
+	case NodeKindModuleResource:
+		if err := validateModuleSpec(leaf.Name, n.Kind, &n.Module); err != nil {
+			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
+		}
 	case NodeKindDBRestorePoint, NodeKindDBSchemaExpand, NodeKindDBBackfill, NodeKindDBVerify, NodeKindDBCutover, NodeKindDBSchemaContract:
 		if strings.TrimSpace(n.Database.Driver) == "" {
 			n.Database.Driver = "postgres"
@@ -396,6 +400,12 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
 	default:
+		if isModuleBackedNode(n) {
+			if err := validateModuleSpec(leaf.Name, n.Kind, &n.Module); err != nil {
+				return nil, fmt.Errorf("%s: %w", dr.Dir, err)
+			}
+			break
+		}
 		return nil, fmt.Errorf("%s: unsupported node kind %q for %s", dr.Dir, n.Kind, leaf.Name)
 	}
 

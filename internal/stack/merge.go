@@ -166,6 +166,7 @@ func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 	if r.Action.Idempotent {
 		dst.Action.Idempotent = true
 	}
+	dst.Module = mergeModuleSpec(dst.Module, r.Module, r.Input, baseDir)
 	if r.Database.Driver != "" {
 		dst.Database.Driver = strings.TrimSpace(r.Database.Driver)
 	}
@@ -265,6 +266,36 @@ func cloneActionPluginSpec(in ActionPluginSpec) ActionPluginSpec {
 		out.Config = maps.Clone(in.Config)
 	}
 	return out
+}
+
+func mergeModuleSpec(dst ModuleSpec, src ModuleSpec, input map[string]any, baseDir string) ModuleSpec {
+	if src.Source != "" {
+		dst.Source = strings.TrimSpace(src.Source)
+	}
+	if src.Version != "" {
+		dst.Version = strings.TrimSpace(src.Version)
+	}
+	if len(src.Command) > 0 {
+		dst.Command = append([]string(nil), src.Command...)
+	}
+	if src.Env != nil {
+		dst.Env = maps.Clone(src.Env)
+	}
+	if src.WorkDir != "" {
+		dst.WorkDir = resolvePath(baseDir, src.WorkDir)
+	}
+	if src.Timeout != nil {
+		dst.Timeout = src.Timeout
+	}
+	if len(src.Phases) > 0 {
+		dst.Phases = append([]string(nil), src.Phases...)
+	}
+	if src.Input != nil {
+		dst.Input = maps.Clone(src.Input)
+	} else if len(input) > 0 && len(src.Command) > 0 {
+		dst.Input = maps.Clone(input)
+	}
+	return dst
 }
 
 func mergeMySQLSpec(dst MySQLSpec, src MySQLSpec) MySQLSpec {
