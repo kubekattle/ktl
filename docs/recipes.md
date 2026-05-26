@@ -168,6 +168,26 @@ torque-agent nats worker \
   --queue mysql-workers
 ```
 
+## Agent NATS heartbeats
+
+Run a minimal heartbeat publisher so operators can verify which agents are live
+before a fleet run.
+
+```bash
+torque-agent nats heartbeat \
+  --nats-url nats://127.0.0.1:4222 \
+  --tenant lab \
+  --agent-id host-141 \
+  --label role=mysql \
+  --capability mysql.replication.verify
+
+torque ops agent status \
+  --nats-url nats://127.0.0.1:4222 \
+  --tenant lab \
+  --selector role=mysql \
+  --format json
+```
+
 ## Durable Linux agent host
 
 ```bash

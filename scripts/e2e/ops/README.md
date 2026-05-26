@@ -438,6 +438,19 @@ scripts/e2e/ops/OPS-TR-002.sh \
   --cleanup
 ```
 
+## OPS-AGENT-004
+
+`OPS-AGENT-004.sh` proves the first local NATS fleet-control slice. It starts
+or connects to NATS, runs two `torque-agent nats heartbeat` publishers, collects
+live status with `torque ops agent status`, verifies selector behavior, and
+exports a redacted evidence bundle.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-004.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or

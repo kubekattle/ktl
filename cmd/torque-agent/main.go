@@ -150,6 +150,22 @@ func runNATSCommand(args []string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "heartbeat":
+		config, err := parseNATSHeartbeatConfig(args[1:], os.Getenv)
+		if err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				os.Exit(0)
+			}
+			fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+			printNATSHeartbeatUsage(os.Stderr)
+			os.Exit(2)
+		}
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer cancel()
+		if err := runNATSHeartbeat(ctx, config); err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown nats command %q\n\n", args[0])
 		printNATSUsage(os.Stderr)
@@ -207,6 +223,7 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 func printNATSUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
 	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [flags]")
+	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [flags]")
 }
 
 func printNATSWorkerUsage(out *os.File) {

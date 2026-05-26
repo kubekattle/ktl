@@ -25,6 +25,7 @@ func newOpsCommand() *cobra.Command {
 	cmd.AddCommand(newOpsLockCommand())
 	cmd.AddCommand(newOpsPolicyCommand())
 	cmd.AddCommand(newOpsAdapterCommand())
+	cmd.AddCommand(newOpsAgentCommand())
 	decorateCommandHelp(cmd, "Ops Flags")
 	return cmd
 }

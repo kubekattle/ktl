@@ -1,6 +1,6 @@
 # Torque Fleet Control Plane Spec
 
-Status: design draft.
+Status: design draft; first local NATS heartbeat/status slice implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -19,6 +19,19 @@ The short version:
   assignments, receipts, retries, dead letters, and evidence offsets.
 - SQLite remains the portable local cache/export format, not the shared source
   of truth for 10,000-host execution.
+
+Implemented local slice:
+
+- `torque-agent nats heartbeat` publishes typed `AgentHeartbeat` messages to
+  `torque.v1.agent.heartbeat.<tenant>.<shard>.<agent-id>`.
+- `torque ops agent status` subscribes to live heartbeat subjects, builds an
+  `AgentStatusSnapshot`, supports label selectors, and outputs table or JSON.
+- `scripts/e2e/ops/OPS-AGENT-004.sh` proves the local NATS loop end to end and
+  exports a standard redacted ops evidence bundle.
+
+This is intentionally not the full fleet registry yet. It proves the
+cross-process contract that the Kubernetes controller, etcd compactor, and JetStream
+durability layers will harden.
 
 ## Engineering Posture
 
@@ -1025,10 +1038,12 @@ proof before the feature is called production-ready.
 
 ### Slice 2: Heartbeat Registry
 
-- NATS heartbeat schema.
+- NATS heartbeat schema. Implemented locally as
+  `torque.dev/agent-heartbeat/v1`.
 - Registry controller.
 - etcd compact status schema.
-- `torque fleet status`.
+- `torque fleet status`. Local precursor implemented as
+  `torque ops agent status`.
 - stale/drain/quarantine states.
 
 ### Slice 3: Fleet Readiness Gate
