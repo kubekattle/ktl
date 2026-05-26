@@ -85,6 +85,7 @@ func newAgentCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newAgentPolicyCommand())
 	cmd.AddCommand(newAgentRunCommand())
+	cmd.AddCommand(newAgentApplianceCommand())
 	decorateCommandHelp(cmd, "Agent Commands")
 	return cmd
 }

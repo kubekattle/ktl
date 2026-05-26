@@ -65,7 +65,19 @@ without hiding the important decisions in CI logs or a control-plane database.
   command/file/package/service/user/cron/systemd plus Kubernetes manifest and
   readiness/log/event automation.
 - Agent policy checks so mutating operations can require proof and release gates.
+- Agent appliance evidence bundles for repo intelligence, browser captures, API
+  probes, and command checks that Codex, Claude, OpenCode, CI, and humans can
+  inspect from the same files.
 - Release scoring, autopilot, canary, blue/green, and flight recorder workflows.
+
+```bash
+torque agent appliance run . \
+  --actor codex \
+  --task "review checkout regression" \
+  --api-url http://localhost:3000/api/health \
+  --browser-url http://localhost:3000/checkout \
+  --check "go test ./internal/checkout"
+```
 
 ## Learn More
 

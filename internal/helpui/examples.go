@@ -130,6 +130,15 @@ var curatedExamples = map[string][]string{
 	"torque agent": {
 		"# Check whether an agent may run a mutating operation\ntorque agent policy check agent-request.json --proof proof.graph.json --allow apply --require-gate",
 		"# Write a proof-backed authorization record\ntorque agent run agent-request.json --proof proof.graph.json --allow apply --require-gate --out agent-run.json",
+		"# Collect repo, browser, API, and command-check evidence for an agent task\ntorque agent appliance run . --actor codex --task 'review checkout regression' --api-url http://localhost:3000/api/health --browser-url http://localhost:3000/checkout --check 'go test ./internal/checkout'",
+	},
+	"torque agent appliance": {
+		"# Collect a full local evidence bundle for an agent task\ntorque agent appliance run . --actor codex --task 'review checkout regression' --api-url http://localhost:3000/api/health --browser-url http://localhost:3000/checkout --check 'go test ./internal/checkout'",
+	},
+	"torque agent appliance run": {
+		"# Build an evidence bundle with repo intelligence and command checks\ntorque agent appliance run . --actor codex --task 'repo smoke' --check 'go test ./...'",
+		"# Add API and browser workbench captures\ntorque agent appliance run . --api-url http://localhost:3000/api/health --browser-url http://localhost:3000 --browser-mode headless",
+		"# Emit the manifest as JSON for CI or another agent\ntorque agent appliance run . --check 'go test ./cmd/torque' --format json --out-dir .torque/agent-appliance/ci",
 	},
 	"torque agent policy": {
 		"# Evaluate proof-backed operation policy\ntorque agent policy check agent-request.json --proof proof.graph.json --allow apply --require-gate --out agent-policy.json",
