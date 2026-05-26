@@ -422,13 +422,13 @@ func validateMySQLReplicationVerifySpec(name string, spec *MySQLSpec) error {
 		transportKind = "local"
 	}
 	switch transportKind {
-	case "local", "localhost", "ssh":
+	case "local", "localhost", "ssh", "nats", "nats-mesh":
 		spec.Transport = transportKind
 	default:
 		return fmt.Errorf("%s node %s has unsupported mysql.transport %q", NodeKindMySQLReplicationVerify, name, spec.Transport)
 	}
-	if transportKind == "ssh" && strings.TrimSpace(spec.Target) == "" && strings.TrimSpace(spec.TargetEnv) == "" {
-		return fmt.Errorf("%s node %s requires mysql.target or targetEnv for ssh transport", NodeKindMySQLReplicationVerify, name)
+	if (transportKind == "ssh" || transportKind == "nats" || transportKind == "nats-mesh") && strings.TrimSpace(spec.Target) == "" && strings.TrimSpace(spec.TargetEnv) == "" {
+		return fmt.Errorf("%s node %s requires mysql.target or targetEnv for %s transport", NodeKindMySQLReplicationVerify, name, transportKind)
 	}
 	if len(spec.Nodes) == 0 {
 		return fmt.Errorf("%s node %s requires at least one mysql.nodes entry", NodeKindMySQLReplicationVerify, name)

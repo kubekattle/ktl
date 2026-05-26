@@ -3902,6 +3902,116 @@ attempt=3 node=mysql-02 ip=172.31.235.12 count=1 cluster=3 state=Synced
 	}
 }
 
+func TestRun_MySQLReplicationVerifyUsesNATSTransport(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir fake bin: %v", err)
+	}
+	argsPath := filepath.Join(root, "nats-args.txt")
+	writeExecutableForTest(t, filepath.Join(binDir, "nats"), `#!/usr/bin/env python3
+import json
+import os
+import sys
+
+with open(os.environ["TORQUE_TEST_NATS_ARGS"], "w", encoding="utf-8") as fh:
+    fh.write("\n".join(sys.argv[1:]))
+
+payload = json.loads(sys.argv[-1])
+if payload.get("kind") != "CommandAssignment" or payload.get("operation") != "run":
+    print(json.dumps({"receipt": {"operation": payload.get("operation", ""), "status": "failed", "exitCode": 2, "stderr": "bad assignment"}}))
+    sys.exit(0)
+
+stdout = "\n".join([
+    "attempt=1 node=mysql-00 ip=10.0.0.10 count=1 cluster=2 state=Synced",
+    "attempt=1 node=mysql-01 ip=10.0.0.11 count=1 cluster=2 state=Synced",
+    "mysql-replication-verified replicated=2/2 cluster=2",
+    "",
+])
+print(json.dumps({"receipt": {
+    "operation": "run",
+    "status": "succeeded",
+    "targetDigest": "worker-digest",
+    "command": ["torque-agent", "run"],
+    "stdout": stdout,
+    "exitCode": 0,
+    "timedOut": False,
+    "durationMillis": 7
+}}))
+`)
+	t.Setenv("TORQUE_NATS_CLI", filepath.Join(binDir, "nats"))
+	t.Setenv("TORQUE_NATS_URL", "nats://127.0.0.1:4222")
+	t.Setenv("TORQUE_TEST_NATS_ARGS", argsPath)
+
+	interval := time.Millisecond
+	requireSynced := true
+	node := &ResolvedRelease{
+		ID:   "mysql.replication.verify/mysql-verify",
+		Kind: NodeKindMySQLReplicationVerify,
+		Name: "mysql-verify",
+		Dir:  root,
+		MySQL: MySQLSpec{
+			Transport:               "nats-mesh",
+			Target:                  "torque.lab.assign.mysql",
+			ExpectedClusterSize:     2,
+			ExpectedReplicatedNodes: 2,
+			Database:                "torque_ops",
+			ProbeTable:              "replication_probe",
+			ProbeID:                 "probe-1",
+			StableAttempts:          1,
+			StableInterval:          &interval,
+			RequireSynced:           &requireSynced,
+			Nodes: []MySQLNodeSpec{
+				{ID: "mysql-00", Address: "10.0.0.10"},
+				{ID: "mysql-01", Address: "10.0.0.11"},
+			},
+		},
+	}
+	plan := planForTest(root, node)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        plan,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+
+	rawArgs, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read fake nats args: %v", err)
+	}
+	if got := string(rawArgs); !strings.Contains(got, "torque.lab.assign.mysql") || !strings.Contains(got, "nats://127.0.0.1:4222") {
+		t.Fatalf("fake nats args did not include subject/server: %s", got)
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	found := false
+	for _, artifact := range audit.Artifacts {
+		if artifact.NodeID == node.ID && artifact.Name == "mysql-replication-verify.json" {
+			found = strings.Contains(artifact.Body, `"status": "succeeded"`) &&
+				strings.Contains(artifact.Body, `"replicatedNodes": 2`) &&
+				strings.Contains(artifact.Body, `"targetDigest": "worker-digest"`)
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing nats-backed mysql replication evidence in %+v", audit.Artifacts)
+	}
+}
+
 func TestRun_KubernetesLifecycleSummaryArtifact(t *testing.T) {
 	root := t.TempDir()
 	statePath := filepath.Join(root, "cert-renewal-state.json")

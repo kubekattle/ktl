@@ -488,6 +488,64 @@ nodes:
 	}
 }
 
+func TestCompile_MySQLReplicationVerifyAllowsNATSTransport(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stack.yaml"), `
+apiVersion: torque.dev/v1
+kind: Stack
+name: mysql
+nodes:
+  - name: mysql-verify
+    kind: mysql.replication.verify
+    mysql:
+      transport: nats-mesh
+      target: torque.lab.assign.agent.mysql
+      nodes:
+        - id: mysql-00
+          address: 127.0.0.1
+`)
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	verify := p.ByID["mysql.replication.verify/mysql-verify"]
+	if verify == nil {
+		t.Fatalf("missing mysql verify node; ids=%v", nodeIDs(p.Nodes))
+	}
+	if verify.MySQL.Transport != "nats-mesh" || verify.MySQL.Target != "torque.lab.assign.agent.mysql" {
+		t.Fatalf("mysql nats transport not preserved: %#v", verify.MySQL)
+	}
+}
+
+func TestCompile_MySQLReplicationVerifyRequiresNATSTarget(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stack.yaml"), `
+apiVersion: torque.dev/v1
+kind: Stack
+name: mysql
+nodes:
+  - name: mysql-verify
+    kind: mysql.replication.verify
+    mysql:
+      transport: nats
+      nodes:
+        - id: mysql-00
+          address: 127.0.0.1
+`)
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	_, err = Compile(u, CompileOptions{})
+	if err == nil || !strings.Contains(err.Error(), "requires mysql.target or targetEnv for nats transport") {
+		t.Fatalf("expected mysql nats target validation, got %v", err)
+	}
+}
+
 func TestCompile_KubernetesCertCustomProviderRequiresCommands(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "stack.yaml"), `

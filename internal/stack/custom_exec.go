@@ -21,6 +21,7 @@ import (
 
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 	localtransport "github.com/ingresslabs/torque/internal/ops/transport/local"
+	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
 	sshtransport "github.com/ingresslabs/torque/internal/ops/transport/ssh"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -669,6 +670,21 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 			ExtraArgs:    strings.Fields(strings.TrimSpace(os.Getenv("TORQUE_LAB_SSH_OPTS"))),
 			Timeout:      timeout,
 			RedactValues: []string{target},
+		})
+	case "nats", "nats-mesh":
+		if target == "" {
+			return nil, fmt.Errorf("host.command.run nats transport requires host.target or host.targetEnv")
+		}
+		server := firstNonEmptyString(os.Getenv("TORQUE_NATS_URL"), os.Getenv("TORQUE_NATS_SERVER"))
+		return natstransport.New(natstransport.Config{
+			Target:       target,
+			Server:       server,
+			Creds:        strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS")),
+			NKey:         strings.TrimSpace(os.Getenv("TORQUE_NATS_NKEY")),
+			NATSBinary:   strings.TrimSpace(os.Getenv("TORQUE_NATS_CLI")),
+			ExtraArgs:    strings.Fields(strings.TrimSpace(os.Getenv("TORQUE_NATS_OPTS"))),
+			Timeout:      timeout,
+			RedactValues: []string{target, server},
 		})
 	default:
 		return nil, fmt.Errorf("unsupported host.command.run transport %q", transportKind)

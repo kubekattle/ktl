@@ -11,7 +11,10 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
   Firecracker VMs on `root@141.105.65.227`, configures a MySQL-compatible
   Galera cluster through SSH-backed stack nodes, verifies replicated writes
   through `mysql.replication.verify`, supports idempotent reapply, and deletes
-  the VM resources through the stack DAG.
+  the VM resources through the stack DAG. The verifier keeps the same stack
+  semantics with `transport: ssh` or `transport: nats-mesh`; the NATS path
+  dispatches to an agent subject and expects the same redacted operation receipt
+  shape as the SSH path.
 - `19-firecracker-gitlab-hybrid` is a real-lab GitLab hybrid stack that
   creates Firecracker VMs for a 3-node k3s service tier and 4-node
   PostgreSQL/Redis/MinIO stateful tier, deploys GitLab with external services,
