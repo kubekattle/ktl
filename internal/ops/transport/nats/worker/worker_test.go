@@ -60,6 +60,10 @@ func TestHandleAssignmentRunsWhenRequiredCapabilityIsAvailable(t *testing.T) {
 		Subject:                    "torque.lab.assign.mysql",
 		Capabilities:               []string{"host.command.run"},
 		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-worker-01",
+		Tenant:                     "lab",
+		TargetID:                   "host/mysql-01",
+		Hostname:                   "mysql-01",
 		Runner:                     runner,
 	})
 	if err != nil {
@@ -78,6 +82,21 @@ func TestHandleAssignmentRunsWhenRequiredCapabilityIsAvailable(t *testing.T) {
 	if len(runner.calls) != 1 {
 		t.Fatalf("runner calls = %#v, want one call", runner.calls)
 	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"agentId":            "agent-worker-01",
+		"tenant":             "lab",
+		"targetId":           "host/mysql-01",
+		"hostname":           "mysql-01",
+		"workerSubject":      "torque.lab.assign.mysql",
+		"requiredCapability": "host.command.run",
+		"nodeKind":           "host.command.run",
+		"runId":              "run-123",
+		"nodeId":             "host.command.run/write-marker",
+		"workerDecision":     "executed",
+	})
+	if !strings.HasPrefix(result.Metadata["capabilityDigest"], "sha256:") {
+		t.Fatalf("capabilityDigest = %q", result.Metadata["capabilityDigest"])
+	}
 }
 
 func TestHandleAssignmentBlocksMissingRequiredCapability(t *testing.T) {
@@ -88,6 +107,10 @@ func TestHandleAssignmentBlocksMissingRequiredCapability(t *testing.T) {
 		Subject:                    "torque.lab.assign.mysql",
 		Capabilities:               []string{"mysql.replication.verify"},
 		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-worker-02",
+		Tenant:                     "lab",
+		TargetID:                   "host/mysql-02",
+		Hostname:                   "mysql-02",
 		Runner:                     runner,
 	})
 	if err != nil {
@@ -106,6 +129,18 @@ func TestHandleAssignmentBlocksMissingRequiredCapability(t *testing.T) {
 	if len(runner.calls) != 0 {
 		t.Fatalf("runner was called despite missing capability: %#v", runner.calls)
 	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"agentId":            "agent-worker-02",
+		"tenant":             "lab",
+		"targetId":           "host/mysql-02",
+		"hostname":           "mysql-02",
+		"workerSubject":      "torque.lab.assign.mysql",
+		"requiredCapability": "host.command.run",
+		"nodeKind":           "host.command.run",
+		"runId":              "run-123",
+		"nodeId":             "host.command.run/write-marker",
+		"workerDecision":     "blocked",
+	})
 }
 
 func TestHandleAssignmentRejectsTargetMismatch(t *testing.T) {
@@ -124,10 +159,14 @@ func TestWorkerExecutesCommandOverLocalNATSServer(t *testing.T) {
 	subject := "torque.test.assign.worker"
 	ready := make(chan struct{})
 	worker, err := New(Config{
-		Server:  serverURL,
-		Subject: subject,
-		Ready:   ready,
-		Timeout: 2 * time.Second,
+		Server:   serverURL,
+		Subject:  subject,
+		Ready:    ready,
+		Timeout:  2 * time.Second,
+		AgentID:  "agent-nats-test",
+		Tenant:   "lab",
+		TargetID: "host/nats-test",
+		Hostname: "nats-test",
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -175,6 +214,10 @@ func TestWorkerExecutesCommandOverLocalNATSServer(t *testing.T) {
 		cancel()
 		t.Fatalf("stdout was not redacted: %q", result.Stdout)
 	}
+	if result.Metadata["agentId"] != "agent-nats-test" || result.Metadata["workerDecision"] != "executed" {
+		cancel()
+		t.Fatalf("metadata = %#v", result.Metadata)
+	}
 	cancel()
 	select {
 	case err := <-errCh:
@@ -183,6 +226,15 @@ func TestWorkerExecutesCommandOverLocalNATSServer(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker did not stop")
+	}
+}
+
+func assertMetadata(t *testing.T, got map[string]string, want map[string]string) {
+	t.Helper()
+	for key, value := range want {
+		if got[key] != value {
+			t.Fatalf("metadata[%s] = %q, want %q in %#v", key, got[key], value, got)
+		}
 	}
 }
 

@@ -27,16 +27,17 @@ type RunOutput struct {
 
 // OperationResult is the evidence-safe receipt for one transport primitive.
 type OperationResult struct {
-	Operation      string   `json:"operation"`
-	Status         string   `json:"status"`
-	TargetDigest   string   `json:"targetDigest"`
-	Command        []string `json:"command"`
-	Stdout         string   `json:"stdout,omitempty"`
-	Stderr         string   `json:"stderr,omitempty"`
-	ExitCode       int      `json:"exitCode"`
-	TimedOut       bool     `json:"timedOut"`
-	DurationMillis int64    `json:"durationMillis"`
-	Error          string   `json:"error,omitempty"`
+	Operation      string            `json:"operation"`
+	Status         string            `json:"status"`
+	TargetDigest   string            `json:"targetDigest"`
+	Command        []string          `json:"command"`
+	Stdout         string            `json:"stdout,omitempty"`
+	Stderr         string            `json:"stderr,omitempty"`
+	ExitCode       int               `json:"exitCode"`
+	TimedOut       bool              `json:"timedOut"`
+	DurationMillis int64             `json:"durationMillis"`
+	Error          string            `json:"error,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 // ExecRunner runs commands with os/exec and captures stdout, stderr, and exit

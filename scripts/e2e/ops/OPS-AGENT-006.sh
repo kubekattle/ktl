@@ -21,7 +21,8 @@ capture an agent capability report, publish durable agent heartbeats through
 JetStream, compact them into a registry store, run torque stack apply in
 runner.mode=fleet over NATS, and prove insufficient readiness plus missing
 capability cases block before mutation. It also proves the worker enforces
-requiredCapability locally and rejects unsafe assignments before execution.
+requiredCapability locally, stamps worker identity receipts, and rejects unsafe
+assignments before execution.
 EOF
 }
 
@@ -148,6 +149,31 @@ def artifact(audit, name):
                 return {}
     return {}
 
+def assignment_from_receipt(receipt):
+    for item in receipt.get("command", []):
+        if not isinstance(item, str):
+            continue
+        item = item.strip()
+        if not item.startswith("{"):
+            continue
+        try:
+            return json.loads(item)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+def require_metadata(errors, label, metadata, expected):
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            errors.append(f"{label} metadata {key}={metadata.get(key)!r}, want {value!r}")
+    if not str(metadata.get("capabilityDigest", "")).startswith("sha256:"):
+        errors.append(f"{label} metadata capabilityDigest must be sha256")
+
+def require_assignment_matches_metadata(errors, label, assignment, metadata):
+    for key in ("requiredCapability", "runId", "nodeId"):
+        if assignment.get(key) != metadata.get(key):
+            errors.append(f"{label} assignment {key}={assignment.get(key)!r} does not match metadata {metadata.get(key)!r}")
+
 pass_audit = load("verification/pass-audit.json")
 block_audit = load("verification/block-audit.json")
 capability_block_audit = load("verification/capability-block-audit.json")
@@ -182,7 +208,12 @@ pass_readiness = artifact(pass_audit, "fleet-readiness.json")
 block_readiness = artifact(block_audit, "fleet-readiness.json")
 capability_block_readiness = artifact(capability_block_audit, "fleet-readiness.json")
 worker_capability_block_readiness = artifact(worker_capability_block_audit, "fleet-readiness.json")
+pass_execute = artifact(pass_audit, "host-command-execute.json")
 worker_execute = artifact(worker_capability_block_audit, "host-command-execute.json")
+pass_metadata = pass_execute.get("metadata", {})
+worker_metadata = worker_execute.get("metadata", {})
+pass_assignment = assignment_from_receipt(pass_execute)
+worker_assignment = assignment_from_receipt(worker_execute)
 errors = []
 available_caps = {
     item.get("adapter")
@@ -226,6 +257,19 @@ if pass_readiness.get("summary", {}).get("missingCapabilities", 0) != 0:
     errors.append("pass readiness must not report missing capabilities")
 if pass_marker != "fleet-pass":
     errors.append("pass marker was not written by NATS worker")
+if pass_execute.get("status") != "succeeded":
+    errors.append("pass worker receipt must be succeeded")
+require_metadata(errors, "pass worker", pass_metadata, {
+    "agentId": "agent-worker-01",
+    "tenant": "lab",
+    "targetId": "host/mysql-01",
+    "hostname": "worker-mysql-01",
+    "workerSubject": subject,
+    "requiredCapability": "host.command.run",
+    "nodeId": "host.command.run/write-pass-marker",
+    "workerDecision": "executed",
+})
+require_assignment_matches_metadata(errors, "pass worker", pass_assignment, pass_metadata)
 if block_code == 0:
     errors.append("block stack apply unexpectedly succeeded")
 if block_audit.get("status") != "blocked":
@@ -256,6 +300,17 @@ if worker_execute.get("status") != "blocked":
     errors.append("worker-side capability rejection receipt must be blocked")
 if "missing required capability host.command.run" not in worker_execute.get("error", ""):
     errors.append("worker-side capability rejection must explain missing host.command.run")
+require_metadata(errors, "blocked worker", worker_metadata, {
+    "agentId": "agent-worker-blocked",
+    "tenant": "lab",
+    "targetId": "host/blocked-01",
+    "hostname": "worker-blocked-01",
+    "workerSubject": blocked_subject,
+    "requiredCapability": "host.command.run",
+    "nodeId": "host.command.run/write-worker-capability-block-marker",
+    "workerDecision": "blocked",
+})
+require_assignment_matches_metadata(errors, "blocked worker", worker_assignment, worker_metadata)
 if worker_capability_block_marker_exists:
     errors.append("worker capability block marker exists; worker executed despite missing capability")
 run_status = "succeeded" if exit_code == 0 and not errors else "failed"
@@ -267,7 +322,7 @@ write("metadata.json", {
     "runId": run_id,
     "startedAt": started_at,
     "finishedAt": finished_at,
-    "labProfiles": ["local.nats.jetstream", "ops.agent.registry", "stack.fleet-readiness", "stack.fleet-capability", "agent.worker-capability-enforcement"],
+    "labProfiles": ["local.nats.jetstream", "ops.agent.registry", "stack.fleet-readiness", "stack.fleet-capability", "agent.worker-capability-enforcement", "agent.worker-identity-receipts"],
 })
 write("target-snapshot.json", {
     "apiVersion": "torque.dev/e2e/v1",
@@ -276,8 +331,8 @@ write("target-snapshot.json", {
     "runId": run_id,
     "targets": [
         {"id": "nats/local-jetstream", "type": "nats-jetstream", "url": nats_url, "stream": "TORQUE_AGENT_EVENTS"},
-        {"id": "worker/local", "type": "torque-agent-nats-worker", "subject": subject},
-        {"id": "worker/incapable", "type": "torque-agent-nats-worker", "subject": blocked_subject, "capabilities": []},
+        {"id": "worker/local", "type": "torque-agent-nats-worker", "subject": subject, "agentId": "agent-worker-01", "targetId": "host/mysql-01"},
+        {"id": "worker/incapable", "type": "torque-agent-nats-worker", "subject": blocked_subject, "agentId": "agent-worker-blocked", "targetId": "host/blocked-01", "capabilities": []},
         {"id": "agent/agent-mysql-01", "type": "torque-agent", "tenant": "lab", "labels": {"role": "mysql", "site": "lab"}},
         {"id": "agent/agent-nocap-01", "type": "torque-agent", "tenant": "lab", "labels": {"role": "nocap", "site": "lab"}},
     ],
@@ -307,6 +362,7 @@ write("verification/receipt.json", {
     "blockReadiness": block_readiness.get("summary"),
     "capabilityBlockReadiness": capability_block_readiness.get("summary"),
     "workerCapabilityBlockReadiness": worker_capability_block_readiness.get("summary"),
+    "passWorkerReceipt": pass_execute,
     "workerCapabilityBlockReceipt": worker_execute,
     "blockExitCode": block_code,
     "capabilityBlockExitCode": capability_block_code,
@@ -413,6 +469,11 @@ PY
   --nats-url "${nats_url}" \
   --subject "${subject}" \
   --queue torque-ops-agent-006 \
+  --agent-id agent-worker-01 \
+  --tenant lab \
+  --target-id host/mysql-01 \
+  --hostname worker-mysql-01 \
+  --capability host.command.run \
   >"${OPS_RUN_DIR}/logs/worker.log" 2>&1 &
 worker_pid="$!"
 
@@ -420,6 +481,10 @@ PATH=/nonexistent "${repo_root}/bin/torque-agent" nats worker \
   --nats-url "${nats_url}" \
   --subject "${blocked_subject}" \
   --queue torque-ops-agent-006-blocked \
+  --agent-id agent-worker-blocked \
+  --tenant lab \
+  --target-id host/blocked-01 \
+  --hostname worker-blocked-01 \
   >"${OPS_RUN_DIR}/logs/worker-incapable.log" 2>&1 &
 blocked_worker_pid="$!"
 

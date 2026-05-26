@@ -1,8 +1,8 @@
 # Torque Fleet Control Plane Spec
 
 Status: design draft; local NATS heartbeat/status, agent capability reporting,
-durable registry compaction, stack fleet readiness/capability gate slices, and
-worker-side capability enforcement implemented.
+durable registry compaction, stack fleet readiness/capability gate slices,
+worker-side capability enforcement, and worker identity receipts implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -49,7 +49,8 @@ Implemented local slice:
   insufficient-readiness apply that blocks before mutation, and one
   missing-capability apply that blocks before mutation. It also proves an
   incapable worker returns a local `blocked` receipt without executing an
-  assignment that escaped the controller-side gate.
+  assignment that escaped the controller-side gate, and worker receipts carry
+  identity plus assignment metadata.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
@@ -432,7 +433,23 @@ Assignment envelopes include the node/run context the worker must enforce:
 
 An agent that cannot satisfy `requiredCapability` returns an
 `OperationResult` with `status: blocked` and a missing-capability reason before
-it starts any local process.
+it starts any local process. Success, blocked, and failed worker receipts carry
+metadata:
+
+```json
+{
+  "agentId": "agent-mysql-01",
+  "tenant": "lab",
+  "targetId": "host/mysql-01",
+  "hostname": "mysql-01",
+  "workerSubject": "torque.lab.assign.mysql",
+  "capabilityDigest": "sha256:...",
+  "requiredCapability": "host.command.run",
+  "runId": "2026-05-27T10-00-00.000000000Z",
+  "nodeId": "host.command.run/mysql-check",
+  "workerDecision": "executed"
+}
+```
 
 Stream retention:
 

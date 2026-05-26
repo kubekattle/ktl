@@ -38,6 +38,10 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 		Stderr:       "authorization: bearer top-secret\n",
 		ExitCode:     0,
 		TargetDigest: "worker-digest",
+		Metadata: map[string]string{
+			"agentId":        "agent-mysql-01",
+			"workerDecision": "executed",
+		},
 	}
 	raw, err := json.Marshal(workerReceipt)
 	if err != nil {
@@ -69,6 +73,9 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	}
 	if result.TargetDigest != "worker-digest" {
 		t.Fatalf("TargetDigest = %q, want worker-digest", result.TargetDigest)
+	}
+	if result.Metadata["agentId"] != "agent-mysql-01" || result.Metadata["workerDecision"] != "executed" {
+		t.Fatalf("metadata = %#v", result.Metadata)
 	}
 
 	call := requester.calls[0]

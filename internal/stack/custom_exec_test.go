@@ -3944,6 +3944,10 @@ esac
 		Timeout:                    2 * time.Second,
 		Capabilities:               []string{NodeKindMySQLReplicationVerify},
 		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-mysql-verify",
+		Tenant:                     "lab",
+		TargetID:                   "host/mysql-verify",
+		Hostname:                   "mysql-verify",
 	})
 	if err != nil {
 		t.Fatalf("new nats worker: %v", err)
@@ -4031,7 +4035,11 @@ esac
 				strings.Contains(artifact.Body, "requiredCapability") &&
 				strings.Contains(artifact.Body, "mysql.replication.verify") &&
 				strings.Contains(artifact.Body, "nodeId") &&
-				strings.Contains(artifact.Body, "runId")
+				strings.Contains(artifact.Body, "runId") &&
+				strings.Contains(artifact.Body, `"metadata"`) &&
+				strings.Contains(artifact.Body, "agent-mysql-verify") &&
+				strings.Contains(artifact.Body, "workerDecision") &&
+				strings.Contains(artifact.Body, "executed")
 			break
 		}
 	}

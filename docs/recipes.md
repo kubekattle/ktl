@@ -162,11 +162,16 @@ accepted `CommandAssignment` payloads through the local transport and replies
 with the standard redacted `OperationResult`. Workers discover local
 capabilities at startup and reject assignments whose `requiredCapability` is
 not available, returning a `blocked` receipt without executing the command.
+Receipts include the worker identity, subject, capability digest, and matching
+assignment `runId`/`nodeId` metadata.
 
 ```bash
 torque-agent nats worker \
   --nats-url nats://127.0.0.1:4222 \
   --subject torque.lab.assign.mysql \
+  --agent-id agent-mysql-01 \
+  --tenant lab \
+  --target-id host/mysql-01 \
   --queue mysql-workers \
   --capability host.command.run
 ```
@@ -234,7 +239,8 @@ stack state store, and blocks mutation when not enough matching agents are
 ready. The same receipt also derives required capabilities from the stack node
 kinds and requires every ready matching agent to advertise those capabilities.
 NATS assignments carry the same required capability and node/run identifiers;
-the worker enforces the contract again locally before command execution.
+the worker enforces the contract again locally before command execution and
+returns identity metadata in the execution receipt.
 
 ```yaml
 apiVersion: torque.dev/v1

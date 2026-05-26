@@ -2,9 +2,12 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +30,10 @@ type Config struct {
 	RedactValues               []string
 	Capabilities               []string
 	DisableCapabilityDiscovery bool
+	AgentID                    string
+	Tenant                     string
+	TargetID                   string
+	Hostname                   string
 	Runner                     transport.Runner
 	Ready                      chan<- struct{}
 }
@@ -34,17 +41,22 @@ type Config struct {
 // Worker subscribes to one NATS assignment subject and executes supported
 // command assignments through the local transport contract.
 type Worker struct {
-	server       string
-	subject      string
-	queue        string
-	creds        string
-	nkey         string
-	timeout      time.Duration
-	shell        string
-	redactor     transport.Redactor
-	capabilities map[string]struct{}
-	runner       transport.Runner
-	ready        chan<- struct{}
+	server           string
+	subject          string
+	queue            string
+	creds            string
+	nkey             string
+	timeout          time.Duration
+	shell            string
+	redactor         transport.Redactor
+	capabilities     map[string]struct{}
+	capabilityDigest string
+	agentID          string
+	tenant           string
+	targetID         string
+	hostname         string
+	runner           transport.Runner
+	ready            chan<- struct{}
 }
 
 func New(config Config) (*Worker, error) {
@@ -68,19 +80,25 @@ func New(config Config) (*Worker, error) {
 	nkey := strings.TrimSpace(config.NKey)
 	redactValues := append([]string(nil), config.RedactValues...)
 	redactValues = append(redactValues, subject, server, creds, nkey)
-	capabilities := workerCapabilities(config)
+	capabilities, capabilityDigest := workerCapabilities(config)
+	identity := workerIdentity(config)
 	return &Worker{
-		server:       server,
-		subject:      subject,
-		queue:        strings.TrimSpace(config.Queue),
-		creds:        creds,
-		nkey:         nkey,
-		timeout:      timeout,
-		shell:        strings.TrimSpace(config.ShellBinary),
-		redactor:     transport.NewRedactor(redactValues),
-		capabilities: capabilities,
-		runner:       runner,
-		ready:        config.Ready,
+		server:           server,
+		subject:          subject,
+		queue:            strings.TrimSpace(config.Queue),
+		creds:            creds,
+		nkey:             nkey,
+		timeout:          timeout,
+		shell:            strings.TrimSpace(config.ShellBinary),
+		redactor:         transport.NewRedactor(redactValues),
+		capabilities:     capabilities,
+		capabilityDigest: capabilityDigest,
+		agentID:          identity.agentID,
+		tenant:           identity.tenant,
+		targetID:         identity.targetID,
+		hostname:         identity.hostname,
+		runner:           runner,
+		ready:            config.Ready,
 	}, nil
 }
 
@@ -144,11 +162,11 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	operation := strings.TrimSpace(assignment.Operation)
 	target := natstransport.NormalizeTarget(assignment.Target)
 	if target != w.subject {
-		return w.errorResult(operation, target, fmt.Errorf("assignment target %q does not match worker subject %q", target, w.subject), false)
+		return w.errorResultForAssignment(operation, target, assignment, fmt.Errorf("assignment target %q does not match worker subject %q", target, w.subject), false)
 	}
 	requiredCapability := strings.TrimSpace(assignment.RequiredCapability)
 	if requiredCapability != "" && !w.hasCapability(requiredCapability) {
-		return w.blockedResult(operation, target, requiredCapability)
+		return w.blockedResult(operation, target, assignment)
 	}
 	client, err := localtransport.New(localtransport.Config{
 		Target:       "local://" + w.subject,
@@ -158,7 +176,7 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 		Runner:       w.runner,
 	})
 	if err != nil {
-		return w.errorResult(operation, target, err, false)
+		return w.errorResultForAssignment(operation, target, assignment, err, false)
 	}
 	var result transport.OperationResult
 	switch operation {
@@ -166,11 +184,11 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 		result = client.Connect(ctx)
 	case "run":
 		if strings.TrimSpace(assignment.Command) == "" {
-			return w.errorResult(operation, target, fmt.Errorf("run assignment command is required"), false)
+			return w.errorResultForAssignment(operation, target, assignment, fmt.Errorf("run assignment command is required"), false)
 		}
 		result = client.Run(ctx, assignment.Command)
 	default:
-		return w.errorResult(operation, target, fmt.Errorf("unsupported assignment operation %q", operation), false)
+		return w.errorResultForAssignment(operation, target, assignment, fmt.Errorf("unsupported assignment operation %q", operation), false)
 	}
 	result.Operation = operation
 	result.TargetDigest = natstransport.TargetDigest(target)
@@ -178,10 +196,15 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	result.Stderr = w.redactor.RedactString(result.Stderr)
 	result.Error = w.redactor.RedactString(result.Error)
 	result.Command = w.redactor.RedactArgs(result.Command)
+	result.Metadata = mergeMetadata(result.Metadata, w.receiptMetadata(assignment, "executed"))
 	return result
 }
 
 func (w *Worker) errorResult(operation string, target string, err error, timedOut bool) transport.OperationResult {
+	return w.errorResultForAssignment(operation, target, natstransport.CommandAssignment{}, err, timedOut)
+}
+
+func (w *Worker) errorResultForAssignment(operation string, target string, assignment natstransport.CommandAssignment, err error, timedOut bool) transport.OperationResult {
 	if strings.TrimSpace(operation) == "" {
 		operation = "run"
 	}
@@ -200,17 +223,18 @@ func (w *Worker) errorResult(operation string, target string, err error, timedOu
 		ExitCode:     1,
 		TimedOut:     timedOut,
 		Error:        w.redactor.RedactString(err.Error()),
+		Metadata:     w.receiptMetadata(assignment, "failed"),
 	}
 }
 
-func (w *Worker) blockedResult(operation string, target string, requiredCapability string) transport.OperationResult {
+func (w *Worker) blockedResult(operation string, target string, assignment natstransport.CommandAssignment) transport.OperationResult {
 	if strings.TrimSpace(operation) == "" {
 		operation = "run"
 	}
 	if strings.TrimSpace(target) == "" {
 		target = w.subject
 	}
-	msg := fmt.Sprintf("missing required capability %s", strings.TrimSpace(requiredCapability))
+	msg := fmt.Sprintf("missing required capability %s", strings.TrimSpace(assignment.RequiredCapability))
 	return transport.OperationResult{
 		Operation:    strings.TrimSpace(operation),
 		Status:       "blocked",
@@ -224,6 +248,7 @@ func (w *Worker) blockedResult(operation string, target string, requiredCapabili
 		}),
 		ExitCode: 1,
 		Error:    w.redactor.RedactString(msg),
+		Metadata: w.receiptMetadata(assignment, "blocked"),
 	}
 }
 
@@ -240,7 +265,7 @@ func (w *Worker) redactorValues() []string {
 	return []string{w.subject, w.server, w.creds, w.nkey}
 }
 
-func workerCapabilities(config Config) map[string]struct{} {
+func workerCapabilities(config Config) (map[string]struct{}, string) {
 	names := append([]string(nil), config.Capabilities...)
 	if !config.DisableCapabilityDiscovery {
 		report := agentcapability.Discover(agentcapability.Options{})
@@ -251,7 +276,7 @@ func workerCapabilities(config Config) map[string]struct{} {
 	for _, name := range names {
 		out[name] = struct{}{}
 	}
-	return out
+	return out, capabilityNamesDigest(names)
 }
 
 func normalizeCapabilityNames(names []string) []string {
@@ -269,5 +294,90 @@ func normalizeCapabilityNames(names []string) []string {
 		out = append(out, name)
 	}
 	sort.Strings(out)
+	return out
+}
+
+type workerIdentityInfo struct {
+	agentID  string
+	tenant   string
+	targetID string
+	hostname string
+}
+
+func workerIdentity(config Config) workerIdentityInfo {
+	hostname := strings.TrimSpace(config.Hostname)
+	if hostname == "" {
+		hostname, _ = os.Hostname()
+	}
+	agentID := strings.TrimSpace(config.AgentID)
+	if agentID == "" {
+		agentID = hostname
+	}
+	tenant := strings.TrimSpace(config.Tenant)
+	if tenant == "" {
+		tenant = "default"
+	}
+	targetID := strings.TrimSpace(config.TargetID)
+	if targetID == "" {
+		targetID = agentID
+	}
+	return workerIdentityInfo{
+		agentID:  agentID,
+		tenant:   tenant,
+		targetID: targetID,
+		hostname: hostname,
+	}
+}
+
+func capabilityNamesDigest(names []string) string {
+	raw, _ := json.Marshal(normalizeCapabilityNames(names))
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, decision string) map[string]string {
+	metadata := map[string]string{
+		"agentId":          strings.TrimSpace(w.agentID),
+		"tenant":           strings.TrimSpace(w.tenant),
+		"targetId":         strings.TrimSpace(w.targetID),
+		"hostname":         strings.TrimSpace(w.hostname),
+		"workerSubject":    strings.TrimSpace(w.subject),
+		"capabilityDigest": strings.TrimSpace(w.capabilityDigest),
+		"workerDecision":   strings.TrimSpace(decision),
+	}
+	addMetadata := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			metadata[key] = value
+		}
+	}
+	addMetadata("requiredCapability", assignment.RequiredCapability)
+	addMetadata("nodeKind", assignment.NodeKind)
+	addMetadata("runId", assignment.RunID)
+	addMetadata("nodeId", assignment.NodeID)
+	addMetadata("planDigest", assignment.PlanDigest)
+	for key, value := range metadata {
+		if strings.TrimSpace(value) == "" {
+			delete(metadata, key)
+		}
+	}
+	return metadata
+}
+
+func mergeMetadata(base map[string]string, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overlay))
+	for key, value := range base {
+		if strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
+	for key, value := range overlay {
+		if strings.TrimSpace(value) != "" {
+			out[key] = value
+		}
+	}
 	return out
 }

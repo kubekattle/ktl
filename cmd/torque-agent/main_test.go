@@ -17,6 +17,10 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 		"TORQUE_NATS_WORKER_QUEUE":   "mysql-workers",
 		"TORQUE_NATS_CREDS":          "/tmp/nats.creds",
 		"TORQUE_NATS_WORKER_TIMEOUT": "9s",
+		"TORQUE_AGENT_ID":            "agent-mysql-01",
+		"TORQUE_AGENT_TENANT":        "lab",
+		"TORQUE_AGENT_TARGET_ID":     "host/mysql-01",
+		"TORQUE_AGENT_HOSTNAME":      "mysql-01",
 	}
 	config, err := parseNATSWorkerConfig([]string{"--timeout", "3s"}, func(key string) string {
 		return env[key]
@@ -29,6 +33,9 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 	}
 	if config.Creds != "/tmp/nats.creds" || config.Timeout != 3*time.Second {
 		t.Fatalf("unexpected creds/timeout: %#v", config)
+	}
+	if config.AgentID != "agent-mysql-01" || config.Tenant != "lab" || config.TargetID != "host/mysql-01" || config.Hostname != "mysql-01" {
+		t.Fatalf("identity not parsed: %#v", config)
 	}
 	if config.DisableCapabilityDiscovery {
 		t.Fatalf("DisableCapabilityDiscovery = true, want default discovery enabled")
@@ -55,6 +62,26 @@ func TestParseNATSWorkerConfigRequiresSubject(t *testing.T) {
 	_, err := parseNATSWorkerConfig(nil, func(key string) string { return "" })
 	if err == nil || !strings.Contains(err.Error(), "--subject is required") {
 		t.Fatalf("expected subject error, got %v", err)
+	}
+}
+
+func TestParseNATSWorkerConfigIdentityFlags(t *testing.T) {
+	env := map[string]string{
+		"TORQUE_NATS_SUBJECT": "torque.lab.assign.mysql",
+	}
+	config, err := parseNATSWorkerConfig([]string{
+		"--agent-id", "agent-flag",
+		"--tenant", "lab",
+		"--target-id", "host/flag",
+		"--hostname", "host-flag",
+	}, func(key string) string {
+		return env[key]
+	})
+	if err != nil {
+		t.Fatalf("parseNATSWorkerConfig: %v", err)
+	}
+	if config.AgentID != "agent-flag" || config.Tenant != "lab" || config.TargetID != "host/flag" || config.Hostname != "host-flag" {
+		t.Fatalf("identity flags not parsed: %#v", config)
 	}
 }
 

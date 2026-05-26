@@ -183,9 +183,14 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	if getenv == nil {
 		getenv = os.Getenv
 	}
+	hostname, _ := os.Hostname()
 	defaultServer := firstNonEmptyAgent(getenv("TORQUE_NATS_URL"), getenv("TORQUE_NATS_SERVER"))
 	defaultSubject := firstNonEmptyAgent(getenv("TORQUE_NATS_SUBJECT"), getenv("TORQUE_NATS_WORKER_SUBJECT"))
 	defaultQueue := firstNonEmptyAgent(getenv("TORQUE_NATS_QUEUE"), getenv("TORQUE_NATS_WORKER_QUEUE"))
+	defaultAgentID := firstNonEmptyAgent(getenv("TORQUE_AGENT_ID"), hostname)
+	defaultTenant := firstNonEmptyAgent(getenv("TORQUE_AGENT_TENANT"), "default")
+	defaultTargetID := firstNonEmptyAgent(getenv("TORQUE_AGENT_TARGET_ID"), defaultAgentID)
+	defaultHostname := firstNonEmptyAgent(getenv("TORQUE_AGENT_HOSTNAME"), hostname)
 	defaultCapabilities := parseCSV(getenv("TORQUE_AGENT_CAPABILITIES"))
 	defaultDiscoverCapabilities := true
 	if raw := strings.TrimSpace(getenv("TORQUE_AGENT_DISCOVER_CAPABILITIES")); raw != "" {
@@ -212,6 +217,10 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	nkey := fs.String("nkey", strings.TrimSpace(getenv("TORQUE_NATS_NKEY")), "NATS NKey seed file (also TORQUE_NATS_NKEY)")
 	timeout := fs.Duration("timeout", defaultTimeout, "Per-assignment execution timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_WORKER_TIMEOUT)")
 	shell := fs.String("shell", strings.TrimSpace(getenv("TORQUE_AGENT_SHELL")), "Shell binary for local command execution (default sh)")
+	agentID := fs.String("agent-id", defaultAgentID, "Stable worker agent identity for receipts (also TORQUE_AGENT_ID)")
+	tenant := fs.String("tenant", defaultTenant, "Tenant namespace for worker receipts (also TORQUE_AGENT_TENANT)")
+	targetID := fs.String("target-id", defaultTargetID, "TargetGraph target ID represented by this worker (also TORQUE_AGENT_TARGET_ID)")
+	hostnameFlag := fs.String("hostname", defaultHostname, "Hostname to include in worker receipts (also TORQUE_AGENT_HOSTNAME)")
 	discoverCapabilities := fs.Bool("discover-capabilities", defaultDiscoverCapabilities, "Discover local worker capabilities before accepting assignments (also TORQUE_AGENT_DISCOVER_CAPABILITIES)")
 	capabilities := append([]string(nil), defaultCapabilities...)
 	fs.Func("capability", "Worker capability string (repeatable; also TORQUE_AGENT_CAPABILITIES)", func(raw string) error {
@@ -244,6 +253,10 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		ShellBinary:                strings.TrimSpace(*shell),
 		Capabilities:               capabilities,
 		DisableCapabilityDiscovery: !*discoverCapabilities,
+		AgentID:                    strings.TrimSpace(*agentID),
+		Tenant:                     strings.TrimSpace(*tenant),
+		TargetID:                   strings.TrimSpace(*targetID),
+		Hostname:                   strings.TrimSpace(*hostnameFlag),
 	}, nil
 }
 
@@ -258,7 +271,7 @@ func printNATSUsage(out *os.File) {
 
 func printNATSWorkerUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--queue workers] [--discover-capabilities=false]")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
 }
 
 func flagWasSet(name string) bool {
