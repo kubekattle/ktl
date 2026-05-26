@@ -156,8 +156,8 @@ torque-mcp --stdio \
 
 ## Agent NATS worker
 
-Start a minimal outbound worker for stack nodes that use `transport:
-nats-mesh`. The stack target is a NATS assignment subject; the worker executes
+Start a minimal outbound worker for stack nodes that use `transport: nats`.
+The stack target is a NATS assignment subject; the worker executes
 accepted `CommandAssignment` payloads through the local transport and replies
 with the standard redacted `OperationResult`.
 
@@ -504,6 +504,31 @@ Torque records `module-observe.json`, `module-diff.json`,
 `module-plan.json`, `module-apply.json`, `module-verify.json`,
 `module-resource.json`, `decision.json`, and module-provided artifacts in the
 normal stack audit/export bundle.
+
+Typed modules can use the same replaceable transports as core adapters. This
+fixture keeps `host.file.ensure` outside the core repo while dispatching host
+commands through a NATS assignment worker:
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-file-nats-module
+nodes:
+  - name: host-file
+    kind: host.file.ensure
+    module:
+      source: oci://example.test/torque-modules/host
+      version: 0.1.0
+      command: ["python3", "../../../modules/torque.host/modules/file_ensure.py"]
+      input:
+        transport: nats
+        target: torque.lab.assign.hostfile
+        natsUrlEnv: TORQUE_NATS_URL
+        path: /tmp/torque-host-file-nats-module.txt
+        content: |
+          torque host.file.ensure via nats
+        mode: "0644"
+```
 
 ## Stack: render a host file
 

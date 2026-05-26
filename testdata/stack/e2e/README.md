@@ -16,9 +16,13 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
   Galera cluster through SSH-backed stack nodes, verifies replicated writes
   through `mysql.replication.verify`, supports idempotent reapply, and deletes
   the VM resources through the stack DAG. The verifier keeps the same stack
-  semantics with `transport: ssh` or `transport: nats-mesh`; the NATS path
+  semantics with `transport: ssh` or `transport: nats`; the NATS path
   dispatches to an agent subject and expects the same redacted operation receipt
   shape as the SSH path.
+- `24-host-file-nats-module` proves the external `torque.host` module
+  collection by applying `host.file.ensure` through a NATS assignment worker,
+  then verifying the same module receipt shape that SSH-backed execution will
+  use.
 - `19-firecracker-gitlab-hybrid` is a real-lab GitLab hybrid stack that
   creates Firecracker VMs for a 3-node k3s service tier and 4-node
   PostgreSQL/Redis/MinIO stateful tier, deploys GitLab with external services,

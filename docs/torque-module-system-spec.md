@@ -16,6 +16,7 @@ contract:
 
 External module collections own domain behavior:
 
+- `host.file.ensure`
 - `mysql.replication.verify`
 - `gitlab.runner.ensure`
 - `docker.container.ensure`
@@ -200,3 +201,15 @@ Publishing requirements:
 
 This keeps Torque core small while allowing an ecosystem of typed,
 proof-producing operations modules.
+
+## Host Module Example
+
+`testdata/modules/torque.host` is the first external-style module collection in
+the repo. It exports `host.file.ensure` and proves the shape Torque needs from
+Ansible/Salt replacements without moving file behavior into core:
+
+- desired state is a typed resource, not an opaque task;
+- each run emits observe, diff, plan, apply/delete, and verify receipts;
+- the module uses `transport: nats` and a `torque-agent nats worker`, so host
+  reachability can move from SSH bootstrap to agent-backed fan-out without
+  changing the stack node kind.

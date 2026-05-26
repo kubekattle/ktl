@@ -1,0 +1,20 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: host-file-nats-module
+nodes:
+  - name: host-file
+    kind: host.file.ensure
+    module:
+      source: oci://example.test/torque-modules/host
+      version: 0.1.0
+      command: ["python3", "../../../modules/torque.host/modules/file_ensure.py"]
+      timeout: 1m
+      input:
+        transport: nats
+        target: torque.lab.assign.hostfile
+        natsUrlEnv: TORQUE_NATS_URL
+        timeoutSeconds: 30
+        path: /tmp/torque-host-file-nats-module.txt
+        content: |
+          torque host.file.ensure via nats
+        mode: "0644"

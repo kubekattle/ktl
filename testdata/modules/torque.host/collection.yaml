@@ -1,0 +1,32 @@
+apiVersion: torque.dev/module-collection/v1alpha1
+kind: ModuleCollection
+name: torque.host
+version: 0.1.0
+description: Typed host resources implemented outside Torque core.
+modules:
+  - kind: host.file.ensure
+    command: ["python3", "modules/file_ensure.py"]
+    lifecycle:
+      - observe
+      - diff
+      - plan
+      - apply
+      - delete
+      - verify
+    transports:
+      - nats
+    inputs:
+      required:
+        - path
+      optional:
+        - content
+        - contentBase64
+        - mode
+        - owner
+        - group
+        - createParents
+        - target
+        - targetEnv
+        - natsUrl
+        - natsUrlEnv
+        - timeoutSeconds
