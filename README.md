@@ -64,6 +64,8 @@ without hiding the important decisions in CI logs or a control-plane database.
 - Ops target inventory, adapter capability discovery, and evidence-backed host
   command/file/package/service/user/cron/systemd plus Kubernetes manifest and
   readiness/log/event automation.
+- Terraform/OpenTofu provider resources as typed stack modules with saved-plan
+  apply/delete, state digests, redacted receipts, and audit artifacts.
 - Agent-backed NATS command execution for stack nodes that need outbound
   worker fan-out without changing stack semantics.
 - Optional fleet control-plane design for Kubernetes, dedicated etcd inventory,

@@ -112,6 +112,12 @@ This section is intentionally short and repetitive: AI agents do best with a sta
 - Key types: `BundleManifest`, `BundleOptions`.
 - Invariants: bundle artifacts contain redacted previews and counts only; raw secret values must not be stored.
 
+### `internal/terraformadapter`
+
+- Purpose: run Terraform/OpenTofu provider resources behind the stack `module.resource` lifecycle.
+- Key entrypoints: `terraformadapter.Run` via the hidden `torque terraform-adapter` module command.
+- Invariants: `plan` writes saved plan metadata; `apply`/`delete` only execute the exact saved plan after node, command, intent, config, and plan digest checks; Terraform plan/state contents stay in `.torque/terraform` and are not copied into stack audit artifacts.
+
 ### Guardian Runtime Proof
 
 - Purpose: top-level `torque guardian` command for observe-only runtime proof.

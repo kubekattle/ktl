@@ -382,6 +382,7 @@ var curatedExamples = map[string][]string{
 		"# Plan a mixed graph with Helm, scripts, and DB cutover nodes\ntorque stack plan --config ./stacks/db-cutover --output json",
 		"# Plan typed adapter nodes that behave like evidence-backed automation modules\ntorque stack plan --config ./stacks/ops-program --output json",
 		"# Plan an external typed resource module with observe/diff/plan receipts\ntorque stack plan --config ./stacks/module-demo --output json",
+		"# Plan a Terraform/OpenTofu provider resource through the module adapter\ntorque stack plan --config ./stacks/terraform-aws-s3 --output json",
 		"# Plan a host.file.ensure module that executes through a NATS worker\nTORQUE_NATS_URL=nats://127.0.0.1:4222 torque stack plan --config ./testdata/stack/e2e/24-host-file-nats-module --output json",
 		"# Plan Kubernetes lifecycle inspect, policy-gated maintenance, verification, and summary evidence nodes\ntorque stack plan --config ./stacks/cluster-lifecycle --output json",
 		"# Plan a full DB change program with restore/backfill/cutover nodes\ntorque stack plan --config ./stacks/db-program --output json",
@@ -417,6 +418,7 @@ var curatedExamples = map[string][]string{
 		"# Apply a mixed graph with PostgreSQL or MariaDB cutover nodes\ntorque stack apply --config ./stacks/db-cutover --yes",
 		"# Run evidence-backed action plugins inside the stack DAG\ntorque stack apply --config ./stacks/ops-program --yes",
 		"# Run an external typed resource module through observe/diff/plan/apply/verify\ntorque stack apply --config ./stacks/module-demo --yes",
+		"# Apply a Terraform/OpenTofu provider resource from a saved plan\nTORQUE_TERRAFORM_BIN=tofu torque stack apply --config ./stacks/terraform-aws-s3 --yes",
 		"# Apply a host.file.ensure module over a NATS assignment worker\nTORQUE_NATS_URL=nats://127.0.0.1:4222 torque stack apply --config ./testdata/stack/e2e/24-host-file-nats-module --yes",
 		"# Inspect topology, apply lifecycle policy gates, derive cert targets, verify, and export summary evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes",
 		"# Apply an approved lifecycle policy override with scoped approval evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes --policy-override",
@@ -427,6 +429,7 @@ var curatedExamples = map[string][]string{
 	"torque stack delete": {
 		"# Delete the selected stack nodes (reverse DAG order)\ntorque stack delete --config ./stacks/prod --yes",
 		"# Prompt only when deleting 50+ stack nodes\ntorque stack delete --config ./stacks/prod --delete-confirm-threshold 50",
+		"# Destroy a Terraform/OpenTofu provider resource and verify empty state\ntorque stack delete --config ./stacks/terraform-aws-s3 --yes",
 	},
 	"torque stack status": {
 		"# Tail the most recent run\ntorque stack status --config ./stacks/prod --follow",
