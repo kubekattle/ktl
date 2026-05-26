@@ -56,6 +56,7 @@ nodes:
         SECRETS_FILE="${RUN_ROOT}/secrets.env"
         GITLAB_HOST="gitlab.141.105.65.227.nip.io"
         CHART_VERSION="7.11.10"
+        RUNNER_DOCKER_IMAGE="${RUNNER_DOCKER_IMAGE:-quay.io/prometheus/busybox:latest}"
         SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=4)
 
         node_ip() { printf '%s.%d' "${NET_PREFIX}" "$((10 + $1))"; }
@@ -883,12 +884,243 @@ nodes:
           } | tee "${RUN_ROOT}/verify-gitlab.txt"
         }
 
+        runner_api_url() {
+          printf 'http://%s:32080/api/v4/%s' "${SERVER_IP}" "$1"
+        }
+
+        runner_curl() {
+          local token="$1"
+          shift
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 120 \
+            -H "Host: ${GITLAB_HOST}" \
+            -H "PRIVATE-TOKEN: ${token}" \
+            "$@"
+        }
+
+        create_runner_api_token() {
+          ensure_secrets
+          local token_file="${RUN_ROOT}/runner/api-token"
+          install -d -m 0700 "${RUN_ROOT}/runner"
+          local token
+          token="$(openssl rand -hex 32)"
+          local toolbox
+          toolbox="$(kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pod -l app=toolbox -o jsonpath='{.items[0].metadata.name}')"
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab exec "${toolbox}" -- gitlab-rails runner "
+        user = User.find_by_username('root')
+        raise 'root user not found' unless user
+        user.personal_access_tokens.where(name: 'torque-runner-provision').find_each(&:revoke!)
+        token = user.personal_access_tokens.build(name: 'torque-runner-provision')
+        token.scopes = [:api]
+        token.expires_at = 1.day.from_now
+        token.set_token('${token}')
+        token.save!
+        puts 'pat-ok'
+        " >/dev/null
+          printf '%s' "${token}" >"${token_file}"
+          chmod 0600 "${token_file}"
+        }
+
+        revoke_runner_api_token() {
+          [[ -s "${RUN_ROOT}/kubeconfig.yaml" ]] || return 0
+          local toolbox
+          toolbox="$(kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab get pod -l app=toolbox -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          [[ -n "${toolbox}" ]] || return 0
+          kubectl --kubeconfig "${RUN_ROOT}/kubeconfig.yaml" -n gitlab exec "${toolbox}" -- gitlab-rails runner "
+        token = PersonalAccessToken.find_by(name: 'torque-runner-provision')
+        token&.revoke!
+        puts 'pat-revoked'
+        " >/dev/null 2>&1 || true
+          rm -f "${RUN_ROOT}/runner/api-token"
+        }
+
+        install_runner_host_prereqs() {
+          install -d -m 0755 "${RUN_ROOT}/runner" "${CACHE_ROOT}/bin" "${CACHE_ROOT}/src"
+          id gitlab-runner >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/gitlab-runner --shell /bin/bash gitlab-runner
+          install -d -o gitlab-runner -g gitlab-runner -m 0750 /var/lib/gitlab-runner /var/lib/gitlab-runner/builds /var/lib/gitlab-runner/cache
+          install -d -o root -g gitlab-runner -m 0750 /etc/gitlab-runner
+          command -v docker >/dev/null 2>&1 || { echo "missing docker for GitLab Runner docker executor" >&2; exit 2; }
+          systemctl is-active --quiet docker || systemctl start docker
+          usermod -aG docker gitlab-runner
+          docker info >/tmp/torque-gitlab-runner-docker-info.txt 2>&1 || { cat /tmp/torque-gitlab-runner-docker-info.txt >&2; exit 1; }
+          docker pull "${RUNNER_DOCKER_IMAGE}" >/tmp/torque-gitlab-runner-docker-pull.log 2>&1 || { cat /tmp/torque-gitlab-runner-docker-pull.log >&2; exit 1; }
+
+          if [[ ! -x /usr/local/bin/nsjail ]]; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update >/tmp/torque-gitlab-runner-apt-update.log 2>&1
+            apt-get install -y --no-install-recommends \
+              git make gcc g++ pkg-config flex bison protobuf-compiler libprotobuf-dev libnl-route-3-dev libseccomp-dev \
+              >/tmp/torque-gitlab-runner-apt-install.log 2>&1
+            if [[ ! -d "${CACHE_ROOT}/src/nsjail/.git" ]]; then
+              rm -rf "${CACHE_ROOT}/src/nsjail"
+              git clone --depth 1 https://github.com/google/nsjail.git "${CACHE_ROOT}/src/nsjail" \
+                >/tmp/torque-gitlab-runner-nsjail-clone.log 2>&1
+            fi
+            make -C "${CACHE_ROOT}/src/nsjail" -j"$(nproc)" >/tmp/torque-gitlab-runner-nsjail-build.log 2>&1
+            install -m 0755 "${CACHE_ROOT}/src/nsjail/nsjail" /usr/local/bin/nsjail
+          fi
+          runuser -u gitlab-runner -- /usr/local/bin/nsjail -Mo -N --disable_clone_newns \
+            -H torque-gitlab-runner-smoke -E TORQUE_NSJAIL_ACTIVE=1 -- /bin/sh -c 'test "${TORQUE_NSJAIL_ACTIVE:-}" = "1"'
+
+          local runner_url="https://gitlab-runner-downloads.s3.amazonaws.com/v16.11.0/binaries/gitlab-runner-linux-amd64"
+          if [[ ! -x /usr/local/bin/gitlab-runner ]] || ! /usr/local/bin/gitlab-runner --version 2>/dev/null | grep -q 'Version:.*16\.11\.0'; then
+            curl -fL --connect-timeout 20 --max-time 300 -o "${CACHE_ROOT}/bin/gitlab-runner-linux-amd64.tmp" "${runner_url}"
+            chmod 0755 "${CACHE_ROOT}/bin/gitlab-runner-linux-amd64.tmp"
+            install -m 0755 "${CACHE_ROOT}/bin/gitlab-runner-linux-amd64.tmp" /usr/local/bin/gitlab-runner
+            mv "${CACHE_ROOT}/bin/gitlab-runner-linux-amd64.tmp" "${CACHE_ROOT}/bin/gitlab-runner-linux-amd64"
+          fi
+          /usr/local/bin/gitlab-runner --version >"${RUN_ROOT}/runner/gitlab-runner-version.txt"
+          /usr/local/bin/nsjail --help >"${RUN_ROOT}/runner/nsjail-help.txt" 2>&1 || true
+        }
+
+        prepare_runner_config() {
+          ensure_secrets
+          [[ -s "${RUN_ROOT}/kubeconfig.yaml" ]] || { echo "missing kubeconfig" >&2; exit 1; }
+          install_runner_host_prereqs
+          create_runner_api_token
+          local api_token runner_json runner_token
+          api_token="$(cat "${RUN_ROOT}/runner/api-token")"
+          runner_curl "${api_token}" "$(runner_api_url runners/all?search=torque-gitlab-runner-nsjail)" |
+            jq -r '.[] | select(.description == "torque-gitlab-runner-nsjail") | .id' |
+            while read -r old_runner_id; do
+              [[ -n "${old_runner_id}" ]] || continue
+              runner_curl "${api_token}" --request DELETE "$(runner_api_url runners/${old_runner_id})" >/dev/null || true
+            done
+          runner_json="$(runner_curl "${api_token}" --request POST "$(runner_api_url user/runners)" \
+            --form "runner_type=instance_type" \
+            --form "description=torque-gitlab-runner-nsjail" \
+            --form "tag_list=torque-docker-nsjail,torque-nsjail,systemd" \
+            --form "run_untagged=false" \
+            --form "maximum_timeout=3600")"
+          runner_token="$(printf '%s' "${runner_json}" | jq -r '.token // empty')"
+          if [[ -z "${runner_token}" ]]; then
+            echo "failed to create runner token" >&2
+            exit 1
+          fi
+          umask 077
+          cat >/etc/gitlab-runner/config.toml <<EOF
+        concurrent = 1
+        check_interval = 0
+        log_level = "info"
+
+        [[runners]]
+          name = "torque-gitlab-runner-nsjail"
+          url = "http://${GITLAB_HOST}/"
+          clone_url = "http://${GITLAB_HOST}/"
+          token = "${runner_token}"
+          executor = "docker"
+          builds_dir = "/var/lib/gitlab-runner/builds"
+          cache_dir = "/var/lib/gitlab-runner/cache"
+          environment = ["TORQUE_NSJAIL_ACTIVE=1", "TORQUE_NSJAIL_MODE=systemd", "TORQUE_RUNNER_EXECUTOR=docker", "DOCKER_API_VERSION=1.44"]
+          limit = 1
+          request_concurrency = 1
+          [runners.custom_build_dir]
+            enabled = false
+          [runners.docker]
+            image = "${RUNNER_DOCKER_IMAGE}"
+            privileged = false
+            disable_entrypoint_overwrite = false
+            oom_kill_disable = false
+            disable_cache = false
+            volumes = ["/var/lib/gitlab-runner/cache:/cache"]
+            shm_size = 0
+        EOF
+          chown root:gitlab-runner /etc/gitlab-runner /etc/gitlab-runner/config.toml
+          chmod 0640 /etc/gitlab-runner/config.toml
+          chown -R gitlab-runner:gitlab-runner /var/lib/gitlab-runner
+          cat >"${RUN_ROOT}/runner/prepare-receipt.json" <<EOF
+        {"apiVersion":"torque.dev/gitlab-runner-nsjail/v1","kind":"GitLabRunnerPrepareReceipt","status":"succeeded","runner":"torque-gitlab-runner-nsjail","executor":"docker","service":"gitlab-runner-nsjail.service","configPath":"/etc/gitlab-runner/config.toml","nsjail":"/usr/local/bin/nsjail","gitlabRunner":"/usr/local/bin/gitlab-runner","dockerImage":"${RUNNER_DOCKER_IMAGE}"}
+        EOF
+          cat "${RUN_ROOT}/runner/prepare-receipt.json"
+        }
+
+        verify_runner_nsjail() {
+          [[ -s "${RUN_ROOT}/kubeconfig.yaml" ]] || { echo "missing kubeconfig" >&2; exit 1; }
+          systemctl is-active --quiet gitlab-runner-nsjail.service
+          pgrep -af 'nsjail.*gitlab-runner run' >"${RUN_ROOT}/runner/nsjail-process.txt"
+          journalctl -u gitlab-runner-nsjail.service -n 120 --no-pager >"${RUN_ROOT}/runner/systemd-journal.txt" || true
+          create_runner_api_token
+          local api_token project_json project_id ci_file existing_code pipeline_json pipeline_id status job_id trace_url
+          api_token="$(cat "${RUN_ROOT}/runner/api-token")"
+          project_json="$(runner_curl "${api_token}" --request POST "$(runner_api_url projects)" \
+            --form "name=runner-nsjail-proof" \
+            --form "path=runner-nsjail-proof" \
+            --form "visibility=private" \
+            --form "initialize_with_readme=true" 2>/dev/null || true)"
+          project_id="$(printf '%s' "${project_json}" | jq -r '.id // empty' 2>/dev/null || true)"
+          if [[ -z "${project_id}" ]]; then
+            project_json="$(runner_curl "${api_token}" "$(runner_api_url projects/root%2Frunner-nsjail-proof)")"
+            project_id="$(printf '%s' "${project_json}" | jq -r '.id // empty')"
+          fi
+          [[ -n "${project_id}" ]] || { echo "failed to resolve proof project" >&2; exit 1; }
+          ci_file="$(mktemp)"
+          cat >"${ci_file}" <<'CI'
+        stages: [proof]
+        nsjail-proof:
+          stage: proof
+          tags: ["torque-docker-nsjail"]
+          script:
+            - echo "torque-runner-proof"
+            - echo "TORQUE_NSJAIL_ACTIVE=${TORQUE_NSJAIL_ACTIVE:-missing}"
+            - echo "TORQUE_NSJAIL_MODE=${TORQUE_NSJAIL_MODE:-missing}"
+            - echo "TORQUE_RUNNER_EXECUTOR=${TORQUE_RUNNER_EXECUTOR:-missing}"
+            - echo "DOCKER_API_VERSION=${DOCKER_API_VERSION:-missing}"
+            - echo "HOSTNAME=$(hostname)"
+            - test -f /.dockerenv
+            - echo "DOCKER_JOB_CONTAINER=1"
+            - busybox >/tmp/busybox-help.txt 2>&1
+            - head -1 /tmp/busybox-help.txt
+            - readlink /proc/self/ns/pid
+            - test "${TORQUE_NSJAIL_ACTIVE:-}" = "1"
+        CI
+          existing_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H "Host: ${GITLAB_HOST}" -H "PRIVATE-TOKEN: ${api_token}" \
+            "$(runner_api_url projects/${project_id}/repository/files/.gitlab-ci.yml)?ref=main")"
+          if [[ "${existing_code}" == "200" ]]; then
+            runner_curl "${api_token}" --request PUT "$(runner_api_url projects/${project_id}/repository/files/.gitlab-ci.yml)" \
+              --form "branch=main" --form "commit_message=Update nsjail runner proof" --form "content=<${ci_file}" >/dev/null
+          else
+            runner_curl "${api_token}" --request POST "$(runner_api_url projects/${project_id}/repository/files/.gitlab-ci.yml)" \
+              --form "branch=main" --form "commit_message=Add nsjail runner proof" --form "content=<${ci_file}" >/dev/null
+          fi
+          rm -f "${ci_file}"
+          pipeline_json="$(runner_curl "${api_token}" --request POST "$(runner_api_url projects/${project_id}/pipeline)" --form "ref=main")"
+          pipeline_id="$(printf '%s' "${pipeline_json}" | jq -r '.id // empty')"
+          [[ -n "${pipeline_id}" ]] || { echo "failed to create proof pipeline" >&2; exit 1; }
+          status=""
+          for _ in $(seq 1 120); do
+            status="$(runner_curl "${api_token}" "$(runner_api_url projects/${project_id}/pipelines/${pipeline_id})" | jq -r '.status // empty')"
+            case "${status}" in
+              success|failed|canceled|skipped) break ;;
+            esac
+            sleep 5
+          done
+          [[ "${status}" == "success" ]] || { echo "proof pipeline status=${status}" >&2; exit 1; }
+          job_id="$(runner_curl "${api_token}" "$(runner_api_url projects/${project_id}/pipelines/${pipeline_id}/jobs)" | jq -r '.[0].id // empty')"
+          [[ -n "${job_id}" ]] || { echo "missing proof job" >&2; exit 1; }
+          trace_url="$(runner_api_url projects/${project_id}/jobs/${job_id}/trace)"
+          runner_curl "${api_token}" "${trace_url}" >"${RUN_ROOT}/runner/ci-trace.txt"
+          grep -q 'torque-runner-proof' "${RUN_ROOT}/runner/ci-trace.txt"
+          grep -q 'TORQUE_NSJAIL_ACTIVE=1' "${RUN_ROOT}/runner/ci-trace.txt"
+          grep -q 'TORQUE_NSJAIL_MODE=systemd' "${RUN_ROOT}/runner/ci-trace.txt"
+          grep -q 'TORQUE_RUNNER_EXECUTOR=docker' "${RUN_ROOT}/runner/ci-trace.txt"
+          grep -q 'DOCKER_API_VERSION=1.44' "${RUN_ROOT}/runner/ci-trace.txt"
+          grep -q 'DOCKER_JOB_CONTAINER=1' "${RUN_ROOT}/runner/ci-trace.txt"
+          grep -q 'BusyBox' "${RUN_ROOT}/runner/ci-trace.txt"
+          revoke_runner_api_token
+          cat >"${RUN_ROOT}/runner/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/gitlab-runner-nsjail/v1","kind":"GitLabRunnerNSJailReceipt","status":"succeeded","service":"gitlab-runner-nsjail.service","runner":"torque-gitlab-runner-nsjail","executor":"docker","dockerImage":"${RUNNER_DOCKER_IMAGE}","projectId":${project_id},"pipelineId":${pipeline_id},"jobId":${job_id},"proofTrace":"${RUN_ROOT}/runner/ci-trace.txt","nsjailProcess":"$(head -1 "${RUN_ROOT}/runner/nsjail-process.txt" | sed 's/"/\\"/g')"}
+        EOF
+          cat "${RUN_ROOT}/runner/receipt.json"
+        }
+
         case "${mode}" in
           apply-vms) apply_vms ;;
           stateful-apply) apply_stateful ;;
           stateful-verify) verify_stateful ;;
           gitlab-deploy) deploy_gitlab ;;
           gitlab-verify) verify_gitlab ;;
+          runner-prepare) prepare_runner_config ;;
+          runner-verify) verify_runner_nsjail ;;
           delete|cleanup) cleanup_run 1 ;;
           *) echo "unknown mode: ${mode}" >&2; exit 2 ;;
         esac
@@ -961,9 +1193,79 @@ nodes:
         /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh gitlab-verify
       deleteCommand: "true"
 
+  - name: gitlab-runner-prepare
+    kind: host.command.run
+    needs: [gitlab-verify]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 25m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh runner-prepare
+      deleteCommand: |
+        set +e
+        systemctl stop gitlab-runner-nsjail.service 2>/dev/null
+        systemctl disable gitlab-runner-nsjail.service 2>/dev/null
+        rm -f /etc/systemd/system/gitlab-runner-nsjail.service
+        systemctl daemon-reload 2>/dev/null
+        rm -rf /etc/gitlab-runner /var/lib/gitlab-runner /var/lib/torque-firecracker-gitlab/hybrid/runner
+
+  - name: gitlab-runner-nsjail-unit
+    kind: host.systemd.unit
+    needs: [gitlab-runner-prepare]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 5m
+      unit: gitlab-runner-nsjail.service
+      path: /etc/systemd/system/gitlab-runner-nsjail.service
+      state: restarted
+      enabled: true
+      content: |
+        [Unit]
+        Description=Torque GitLab Runner inside nsjail
+        Wants=network-online.target
+        After=network-online.target
+
+        [Service]
+        Type=simple
+        User=gitlab-runner
+        Group=gitlab-runner
+        SupplementaryGroups=docker
+        WorkingDirectory=/var/lib/gitlab-runner
+        Environment=TORQUE_NSJAIL_ACTIVE=1
+        Environment=TORQUE_NSJAIL_MODE=systemd
+        Environment=DOCKER_API_VERSION=1.44
+        ExecStart=/usr/local/bin/nsjail -Mo -N --disable_clone_newns -H torque-gitlab-runner -E TORQUE_NSJAIL_ACTIVE=1 -E TORQUE_NSJAIL_MODE=systemd -E DOCKER_API_VERSION=1.44 -E HOME=/var/lib/gitlab-runner -E USER=gitlab-runner -D /var/lib/gitlab-runner -- /usr/local/bin/gitlab-runner run --working-directory /var/lib/gitlab-runner --config /etc/gitlab-runner/config.toml
+        Restart=always
+        RestartSec=5s
+        KillMode=control-group
+        NoNewPrivileges=yes
+        PrivateTmp=yes
+
+        [Install]
+        WantedBy=multi-user.target
+      mode: '0644'
+      stopOnDelete: true
+      disableOnDelete: true
+      removeOnDelete: true
+
+  - name: gitlab-runner-verify
+    kind: host.command.run
+    needs: [gitlab-runner-nsjail-unit]
+    host:
+      transport: ssh
+      targetEnv: TORQUE_LAB_SSH
+      timeout: 20m
+      command: |
+        set -euo pipefail
+        /var/lib/torque-firecracker-gitlab/hybrid/gitlab-hybrid-lab.sh runner-verify
+      deleteCommand: "true"
+
   - name: gitlab-k8s-cluster-inspect
     kind: k8s.cluster.inspect
-    needs: [gitlab-verify]
+    needs: [gitlab-runner-verify]
     kubernetes:
       cluster:
         transport: ssh
