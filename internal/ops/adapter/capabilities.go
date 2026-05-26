@@ -280,6 +280,25 @@ func Definitions() []Capability {
 			Description:       "Render, reload, verify, and delete one systemd unit through local or SSH transport with exact unit and journal evidence.",
 		},
 		{
+			Adapter:             "mysql.replication.verify",
+			Status:              "implemented",
+			Classification:      "guarded",
+			TargetTypes:         []string{"host", "database"},
+			Transports:          []string{"local", "ssh", "nats-agent"},
+			Mutating:            false,
+			RequiredPrivilege:   "MySQL replication read access and SSH access to declared MySQL nodes",
+			Idempotence:         "read-only-verification",
+			CheckMode:           "bounded",
+			DiffQuality:         "unsupported",
+			SupportedPhases:     []string{"observe", "plan", "apply", "verify", "export"},
+			EvidenceArtifacts:   []string{"mysql-replication-observe.json", "mysql-replication-plan.json", "mysql-replication-execute.json", "mysql-replication-verify.json", "mysql-replication.json", "decision.json"},
+			RequiredPolicy:      []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
+			Touches:             []string{"MySQL replication status", "optional probe table when configured"},
+			SecretInputs:        []string{"database credentials and probe payloads are emitted as digests only"},
+			NetworkDestinations: []string{"declared MySQL node addresses"},
+			Description:         "Verify MySQL replication topology and synchronized state with typed receipts.",
+		},
+		{
 			Adapter:             "k8s.manifest.apply",
 			Status:              "implemented",
 			Classification:      "guarded",
@@ -540,6 +559,12 @@ func probeCommandsFor(adapterName string) []probeCommand {
 			{Name: "systemd-manager", Command: "command -v systemctl >/dev/null 2>&1 && systemctl --version >/dev/null 2>&1", Required: true},
 			{Name: "journal", Command: "command -v journalctl >/dev/null 2>&1", Required: true},
 			{Name: "unit-path", Command: "test -d /etc/systemd/system", Required: true},
+		}
+	case "mysql.replication.verify":
+		return []probeCommand{
+			{Name: "bash", Command: "command -v bash >/dev/null 2>&1", Required: true},
+			{Name: "ssh", Command: "command -v ssh >/dev/null 2>&1", Required: true},
+			{Name: "mysql-client", Command: "command -v mysql >/dev/null 2>&1 || command -v mariadb >/dev/null 2>&1", Required: true},
 		}
 	case "k8s.manifest.apply", "k8s.manifest.delete":
 		return []probeCommand{

@@ -10,15 +10,16 @@ import (
 func TestHeartbeatSubjectAndParse(t *testing.T) {
 	observedAt := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
 	heartbeat := New(Options{
-		AgentID:      "host.141",
-		Tenant:       "lab.prod",
-		TargetID:     "host/mysql-01",
-		Hostname:     "mysql-01",
-		Version:      "dev",
-		Labels:       map[string]string{"role": "mysql", "site": "lab"},
-		Capabilities: []string{"host.file.ensure", "mysql.replication.verify", "host.file.ensure"},
-		State:        StateReady,
-		ObservedAt:   observedAt,
+		AgentID:          "host.141",
+		Tenant:           "lab.prod",
+		TargetID:         "host/mysql-01",
+		Hostname:         "mysql-01",
+		Version:          "dev",
+		Labels:           map[string]string{"role": "mysql", "site": "lab"},
+		Capabilities:     []string{"host.file.ensure", "mysql.replication.verify", "host.file.ensure"},
+		CapabilityDigest: "sha256:test",
+		State:            StateReady,
+		ObservedAt:       observedAt,
 	})
 	raw, err := json.Marshal(heartbeat)
 	if err != nil {
@@ -33,6 +34,9 @@ func TestHeartbeatSubjectAndParse(t *testing.T) {
 	}
 	if len(parsed.Capabilities) != 2 || parsed.Capabilities[0] != "host.file.ensure" {
 		t.Fatalf("capabilities were not normalized: %#v", parsed.Capabilities)
+	}
+	if parsed.CapabilityDigest != "sha256:test" {
+		t.Fatalf("capability digest was not preserved: %#v", parsed)
 	}
 	subject := Subject(parsed.Tenant, 16, parsed.AgentID)
 	if !strings.HasPrefix(subject, "torque.v1.agent.heartbeat.lab_prod.") || strings.Contains(subject, ".host.141") {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	agentcapability "github.com/ingresslabs/torque/internal/ops/agent/capability"
 	"github.com/ingresslabs/torque/internal/ops/agent/heartbeat"
 	"github.com/ingresslabs/torque/internal/version"
 )
@@ -38,6 +39,14 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 		return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_AGENT_LABELS: %w", err)
 	}
 	defaultCapabilities := parseCSV(getenv("TORQUE_AGENT_CAPABILITIES"))
+	defaultDiscoverCapabilities := true
+	if raw := strings.TrimSpace(getenv("TORQUE_AGENT_DISCOVER_CAPABILITIES")); raw != "" {
+		parsed, err := parseBoolDefault(raw, true)
+		if err != nil {
+			return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_AGENT_DISCOVER_CAPABILITIES: %w", err)
+		}
+		defaultDiscoverCapabilities = parsed
+	}
 	defaultJetStream, err := parseBoolDefault(getenv("TORQUE_NATS_JETSTREAM"), false)
 	if err != nil {
 		return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_NATS_JETSTREAM: %w", err)
@@ -88,6 +97,7 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 	shards := fs.Int("shards", heartbeat.DefaultShardCount, "Heartbeat subject shard count")
 	slots := fs.Int("slots", defaultSlots, "Total local job slots to advertise")
 	inUse := fs.Int("in-use", 0, "Currently used local job slots")
+	discoverCapabilities := fs.Bool("discover-capabilities", defaultDiscoverCapabilities, "Discover local agent capabilities and include available adapters by default (also TORQUE_AGENT_DISCOVER_CAPABILITIES)")
 	labels := copyStringMap(defaultLabels)
 	capabilities := append([]string(nil), defaultCapabilities...)
 	fs.Func("label", "Agent label as key=value (repeatable)", func(raw string) error {
@@ -135,14 +145,26 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 	if *inUse > *slots {
 		return natsHeartbeatConfig{}, fmt.Errorf("--in-use must not exceed --slots")
 	}
+	capabilityDigest := ""
+	if *discoverCapabilities {
+		report := agentcapability.Discover(agentcapability.Options{
+			AgentVersion: strings.TrimSpace(*versionFlag),
+			Hostname:     strings.TrimSpace(*hostnameFlag),
+		})
+		capabilities = append(capabilities, agentcapability.AvailableAdapters(report)...)
+		capabilityDigest = report.Digest
+	} else if len(capabilities) > 0 {
+		capabilityDigest = agentcapability.DigestNames(capabilities)
+	}
 	opts := heartbeat.Options{
-		AgentID:      strings.TrimSpace(*agentID),
-		Tenant:       strings.TrimSpace(*tenant),
-		TargetID:     strings.TrimSpace(*targetID),
-		Hostname:     strings.TrimSpace(*hostnameFlag),
-		Version:      strings.TrimSpace(*versionFlag),
-		Labels:       labels,
-		Capabilities: capabilities,
+		AgentID:          strings.TrimSpace(*agentID),
+		Tenant:           strings.TrimSpace(*tenant),
+		TargetID:         strings.TrimSpace(*targetID),
+		Hostname:         strings.TrimSpace(*hostnameFlag),
+		Version:          strings.TrimSpace(*versionFlag),
+		Labels:           labels,
+		Capabilities:     capabilities,
+		CapabilityDigest: capabilityDigest,
 		Slots: heartbeat.Slots{
 			Total: *slots,
 			InUse: *inUse,
@@ -212,7 +234,7 @@ func runNATSHeartbeat(ctx context.Context, config natsHeartbeatConfig) error {
 
 func printNATSHeartbeatUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [--nats-url nats://127.0.0.1:4222] [--label role=mysql] [--jetstream]")
+	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [--nats-url nats://127.0.0.1:4222] [--label role=mysql] [--jetstream] [--discover-capabilities=false]")
 }
 
 func parseKeyValueCSV(raw string) (map[string]string, error) {

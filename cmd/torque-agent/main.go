@@ -23,9 +23,15 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "nats" {
-		runNATSCommand(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "nats":
+			runNATSCommand(os.Args[2:])
+			return
+		case "capabilities":
+			runCapabilitiesCommand(os.Args[2:])
+			return
+		}
 	}
 
 	mode := flag.String("mode", "serve", "Runtime mode: serve or durable (durable enables mirror storage and sandboxed remote builds by default)")
@@ -224,6 +230,9 @@ func printNATSUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
 	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [flags]")
 	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [flags]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Other commands:")
+	fmt.Fprintln(out, "  torque-agent capabilities report [--format json]")
 }
 
 func printNATSWorkerUsage(out *os.File) {

@@ -66,8 +66,8 @@ without hiding the important decisions in CI logs or a control-plane database.
   readiness/log/event automation.
 - Terraform/OpenTofu provider resources as typed stack modules with saved-plan
   apply/delete, state digests, redacted receipts, and audit artifacts.
-- Agent-backed NATS command execution for stack nodes that need outbound
-  worker fan-out without changing stack semantics.
+- Agent-backed NATS command execution and capability reporting for stack nodes
+  that need outbound worker fan-out without changing stack semantics.
 - Optional fleet control-plane design for Kubernetes, dedicated etcd inventory,
   NATS JetStream assignment/receipt streams, readiness/capability gates, and
   10,000-host durable agents.

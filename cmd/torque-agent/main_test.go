@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	agentcapability "github.com/ingresslabs/torque/internal/ops/agent/capability"
 )
 
 func TestParseNATSWorkerConfig(t *testing.T) {
@@ -53,12 +57,13 @@ func TestParseNATSWorkerConfigRequiresSubject(t *testing.T) {
 
 func TestParseNATSHeartbeatConfig(t *testing.T) {
 	env := map[string]string{
-		"TORQUE_NATS_URL":                 "nats://127.0.0.1:4222",
-		"TORQUE_AGENT_ID":                 "host-141",
-		"TORQUE_AGENT_TENANT":             "lab",
-		"TORQUE_AGENT_LABELS":             "role=mysql,site=lab",
-		"TORQUE_AGENT_CAPABILITIES":       "host.file.ensure,mysql.replication.verify",
-		"TORQUE_AGENT_HEARTBEAT_INTERVAL": "1s",
+		"TORQUE_NATS_URL":                    "nats://127.0.0.1:4222",
+		"TORQUE_AGENT_ID":                    "host-141",
+		"TORQUE_AGENT_TENANT":                "lab",
+		"TORQUE_AGENT_LABELS":                "role=mysql,site=lab",
+		"TORQUE_AGENT_CAPABILITIES":          "host.file.ensure,mysql.replication.verify",
+		"TORQUE_AGENT_DISCOVER_CAPABILITIES": "false",
+		"TORQUE_AGENT_HEARTBEAT_INTERVAL":    "1s",
 	}
 	config, err := parseNATSHeartbeatConfig([]string{"--once", "--label", "zone=a", "--capability", "host.systemd.unit"}, func(key string) string {
 		return env[key]
@@ -77,6 +82,69 @@ func TestParseNATSHeartbeatConfig(t *testing.T) {
 	}
 	if len(config.Options.Capabilities) != 3 {
 		t.Fatalf("capabilities not parsed: %#v", config.Options.Capabilities)
+	}
+	if config.Options.CapabilityDigest == "" {
+		t.Fatalf("capability digest was not set")
+	}
+}
+
+func TestParseNATSHeartbeatConfigDiscoversCapabilitiesByDefault(t *testing.T) {
+	env := map[string]string{
+		"TORQUE_AGENT_ID": "host-141",
+	}
+	config, err := parseNATSHeartbeatConfig([]string{"--once"}, func(key string) string {
+		return env[key]
+	})
+	if err != nil {
+		t.Fatalf("parseNATSHeartbeatConfig: %v", err)
+	}
+	if len(config.Options.Capabilities) == 0 {
+		t.Fatalf("expected discovered capabilities: %#v", config.Options.Capabilities)
+	}
+	if config.Options.CapabilityDigest == "" {
+		t.Fatalf("capability digest was not set")
+	}
+}
+
+func TestParseCapabilityReportConfig(t *testing.T) {
+	env := map[string]string{
+		"TORQUE_AGENT_HOSTNAME": "agent-01",
+		"TORQUE_AGENT_VERSION":  "dev",
+	}
+	config, err := parseCapabilityReportConfig([]string{"--adapter", "host.command.run", "--format", "json"}, func(key string) string {
+		return env[key]
+	})
+	if err != nil {
+		t.Fatalf("parseCapabilityReportConfig: %v", err)
+	}
+	if config.Options.Hostname != "agent-01" || config.Options.AgentVersion != "dev" || config.Format != "json" {
+		t.Fatalf("unexpected config: %#v", config)
+	}
+	if len(config.Options.Adapters) != 1 || config.Options.Adapters[0] != "host.command.run" {
+		t.Fatalf("adapters not parsed: %#v", config.Options.Adapters)
+	}
+}
+
+func TestRunCapabilityReportWritesJSON(t *testing.T) {
+	var out bytes.Buffer
+	err := runCapabilityReport(t.Context(), capabilityReportConfig{
+		Options: agentcapability.Options{
+			Adapters:     []string{"host.command.run"},
+			AgentVersion: "dev",
+			Hostname:     "agent-01",
+			Now:          time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC),
+		},
+		Format: "json",
+	}, &out)
+	if err != nil {
+		t.Fatalf("runCapabilityReport: %v", err)
+	}
+	var report agentcapability.Report
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("decode report: %v\n%s", err, out.String())
+	}
+	if report.Kind != agentcapability.ReportKind || report.Digest == "" || len(report.Capabilities) != 1 {
+		t.Fatalf("unexpected report: %#v", report)
 	}
 }
 

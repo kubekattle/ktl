@@ -2,6 +2,7 @@ package heartbeat
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -41,21 +42,22 @@ type Summary struct {
 }
 
 type AgentStatus struct {
-	AgentID        string            `json:"agentId"`
-	Tenant         string            `json:"tenant"`
-	TargetID       string            `json:"targetId,omitempty"`
-	Hostname       string            `json:"hostname,omitempty"`
-	Version        string            `json:"version,omitempty"`
-	State          string            `json:"state"`
-	Health         string            `json:"health"`
-	LastSeen       string            `json:"lastSeen"`
-	Age            string            `json:"age"`
-	Labels         map[string]string `json:"labels,omitempty"`
-	Capabilities   []string          `json:"capabilities,omitempty"`
-	Slots          Slots             `json:"slots,omitempty"`
-	Offsets        Offsets           `json:"offsets,omitempty"`
-	Resources      Resources         `json:"resources,omitempty"`
-	EvidenceOffset *StreamOffset     `json:"evidenceOffset,omitempty"`
+	AgentID          string            `json:"agentId"`
+	Tenant           string            `json:"tenant"`
+	TargetID         string            `json:"targetId,omitempty"`
+	Hostname         string            `json:"hostname,omitempty"`
+	Version          string            `json:"version,omitempty"`
+	State            string            `json:"state"`
+	Health           string            `json:"health"`
+	LastSeen         string            `json:"lastSeen"`
+	Age              string            `json:"age"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	Capabilities     []string          `json:"capabilities,omitempty"`
+	CapabilityDigest string            `json:"capabilityDigest,omitempty"`
+	Slots            Slots             `json:"slots,omitempty"`
+	Offsets          Offsets           `json:"offsets,omitempty"`
+	Resources        Resources         `json:"resources,omitempty"`
+	EvidenceOffset   *StreamOffset     `json:"evidenceOffset,omitempty"`
 }
 
 func NewRegistry() *Registry {
@@ -126,20 +128,21 @@ func agentStatus(heartbeat Heartbeat, now time.Time, staleAfter time.Duration) A
 		health = "ready"
 	}
 	return AgentStatus{
-		AgentID:      heartbeat.AgentID,
-		Tenant:       NormalizeTenant(heartbeat.Tenant),
-		TargetID:     heartbeat.TargetID,
-		Hostname:     heartbeat.Hostname,
-		Version:      heartbeat.Version,
-		State:        heartbeat.State,
-		Health:       health,
-		LastSeen:     observedAt.UTC().Format(time.RFC3339Nano),
-		Age:          formatAge(age),
-		Labels:       cleanLabels(heartbeat.Labels),
-		Capabilities: cleanList(heartbeat.Capabilities),
-		Slots:        heartbeat.Slots,
-		Offsets:      cleanOffsets(heartbeat.Offsets),
-		Resources:    heartbeat.Resources,
+		AgentID:          heartbeat.AgentID,
+		Tenant:           NormalizeTenant(heartbeat.Tenant),
+		TargetID:         heartbeat.TargetID,
+		Hostname:         heartbeat.Hostname,
+		Version:          heartbeat.Version,
+		State:            heartbeat.State,
+		Health:           health,
+		LastSeen:         observedAt.UTC().Format(time.RFC3339Nano),
+		Age:              formatAge(age),
+		Labels:           cleanLabels(heartbeat.Labels),
+		Capabilities:     cleanList(heartbeat.Capabilities),
+		CapabilityDigest: strings.TrimSpace(heartbeat.CapabilityDigest),
+		Slots:            heartbeat.Slots,
+		Offsets:          cleanOffsets(heartbeat.Offsets),
+		Resources:        heartbeat.Resources,
 	}
 }
 

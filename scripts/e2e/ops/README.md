@@ -467,9 +467,10 @@ scripts/e2e/ops/OPS-AGENT-005.sh \
 
 ## OPS-AGENT-006
 
-`OPS-AGENT-006.sh` proves the stack fleet readiness and capability gate. It starts
-JetStream-enabled NATS, runs a `torque-agent nats worker`, publishes one durable
-capable agent heartbeat plus one ready-but-incapable heartbeat, compacts the
+`OPS-AGENT-006.sh` proves the stack fleet readiness and capability gate. It
+captures `torque-agent capabilities report`, starts JetStream-enabled NATS, runs
+a `torque-agent nats worker`, publishes one durable heartbeat with discovered
+capabilities plus one ready-but-incapable manual heartbeat, compacts the
 heartbeats into a file-backed registry, applies a `runner.mode: fleet` stack
 over NATS, and then proves insufficient-readiness and missing-capability stacks
 block before marker commands can run.

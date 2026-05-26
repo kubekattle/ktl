@@ -168,18 +168,28 @@ torque-agent nats worker \
   --queue mysql-workers
 ```
 
+## Agent capability report
+
+`torque-agent capabilities report` observes the local host and emits the
+adapter capabilities this agent can actually run, plus unavailable capabilities
+with missing dependency reasons and a digest of the capability set.
+
+```bash
+torque-agent capabilities report --format json
+```
+
 ## Agent NATS heartbeats
 
 Run a minimal heartbeat publisher so operators can verify which agents are live
-before a fleet run.
+before a fleet run. Heartbeats discover local capabilities by default; use
+`--discover-capabilities=false` only for manual or negative-test heartbeats.
 
 ```bash
 torque-agent nats heartbeat \
   --nats-url nats://127.0.0.1:4222 \
   --tenant lab \
   --agent-id host-141 \
-  --label role=mysql \
-  --capability mysql.replication.verify
+  --label role=mysql
 
 torque ops agent status \
   --nats-url nats://127.0.0.1:4222 \
@@ -197,8 +207,7 @@ torque-agent nats heartbeat \
   --jetstream \
   --tenant lab \
   --agent-id host-141 \
-  --label role=mysql \
-  --capability host.command.run
+  --label role=mysql
 
 torque ops agent registry compact \
   --nats-url nats://127.0.0.1:4222 \

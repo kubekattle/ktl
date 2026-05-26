@@ -17,9 +17,10 @@ Options:
   -h, --help             Show this help.
 
 OPS-AGENT-006 proves stack fleet readiness and capability gates end to end:
-publish durable agent heartbeats through JetStream, compact them into a registry
-store, run torque stack apply in runner.mode=fleet over NATS, and prove
-insufficient readiness plus missing capability cases block before mutation.
+capture an agent capability report, publish durable agent heartbeats through
+JetStream, compact them into a registry store, run torque stack apply in
+runner.mode=fleet over NATS, and prove insufficient readiness plus missing
+capability cases block before mutation.
 EOF
 }
 
@@ -140,6 +141,8 @@ def artifact(audit, name):
 pass_audit = load("verification/pass-audit.json")
 block_audit = load("verification/block-audit.json")
 capability_block_audit = load("verification/capability-block-audit.json")
+capability_report = load("verification/capability-report.json")
+missing_path_capability_report = load("verification/capability-report-missing-path.json")
 status_store = load("verification/status-store.json")
 status_nocap_store = load("verification/status-nocap-store.json")
 compact = load("verification/registry-compact.json")
@@ -162,6 +165,28 @@ pass_readiness = artifact(pass_audit, "fleet-readiness.json")
 block_readiness = artifact(block_audit, "fleet-readiness.json")
 capability_block_readiness = artifact(capability_block_audit, "fleet-readiness.json")
 errors = []
+available_caps = {
+    item.get("adapter")
+    for item in capability_report.get("capabilities", [])
+    if item.get("status") == "available"
+}
+missing_path_caps = {
+    item.get("adapter"): item
+    for item in missing_path_capability_report.get("capabilities", [])
+}
+store_agents = status_store.get("agents", [])
+store_agent = store_agents[0] if store_agents else {}
+if not str(capability_report.get("digest", "")).startswith("sha256:"):
+    errors.append("capability report must include a sha256 digest")
+if "host.command.run" not in available_caps:
+    errors.append("capability report must discover host.command.run")
+if store_agent.get("capabilityDigest") != capability_report.get("digest"):
+    errors.append("store-backed heartbeat must include discovered capability digest")
+if "host.command.run" not in set(store_agent.get("capabilities", [])):
+    errors.append("store-backed heartbeat must include discovered host.command.run")
+missing_host_command = missing_path_caps.get("host.command.run", {})
+if missing_host_command.get("status") != "unavailable" or not missing_host_command.get("missingDependencies"):
+    errors.append("missing-path capability report must explain unavailable host.command.run")
 if compact.get("stored") != 1:
     errors.append("registry compaction must store exactly one agent")
 if compact_nocap.get("stored") != 1:
@@ -239,6 +264,9 @@ write("verification/receipt.json", {
     "taskId": task_id,
     "runId": run_id,
     "status": run_status,
+    "capabilityReportDigest": capability_report.get("digest"),
+    "capabilityReportSummary": capability_report.get("summary"),
+    "missingPathCapabilityReportSummary": missing_path_capability_report.get("summary"),
     "compact": compact,
     "nocapCompact": compact_nocap,
     "storeSummary": status_store.get("summary"),
@@ -295,6 +323,15 @@ mkdir -p "${OPS_RUN_DIR}/build" "${OPS_RUN_DIR}/logs" "${OPS_RUN_DIR}/verificati
 
 ops_log "build torque and torque-agent"
 make -C "${repo_root}" -s build build-agent >"${OPS_RUN_DIR}/build/make-build.out" 2>&1
+
+ops_log "capture discovered agent capability reports"
+"${repo_root}/bin/torque-agent" capabilities report \
+  --format json \
+  >"${OPS_RUN_DIR}/verification/capability-report.json" 2>"${OPS_RUN_DIR}/logs/capability-report.err"
+PATH=/nonexistent "${repo_root}/bin/torque-agent" capabilities report \
+  --format json \
+  --adapter host.command.run \
+  >"${OPS_RUN_DIR}/verification/capability-report-missing-path.json" 2>"${OPS_RUN_DIR}/logs/capability-report-missing-path.err"
 
 if [[ -z "${nats_url}" ]]; then
   if command -v nats-server >/dev/null 2>&1; then
@@ -364,7 +401,6 @@ ops_log "publish durable heartbeat and compact registry"
   --target-id host/mysql-01 \
   --label role=mysql \
   --label site=lab \
-  --capability host.command.run \
   >"${OPS_RUN_DIR}/logs/heartbeat.log" 2>&1
 
 "${repo_root}/bin/torque" ops agent registry compact \
@@ -397,6 +433,7 @@ ops_log "publish durable heartbeat and compact registry"
   --target-id host/nocap-01 \
   --label role=nocap \
   --label site=lab \
+  --discover-capabilities=false \
   --capability mysql.replication.verify \
   >"${OPS_RUN_DIR}/logs/heartbeat-nocap.log" 2>&1
 

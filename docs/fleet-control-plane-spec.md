@@ -1,7 +1,8 @@
 # Torque Fleet Control Plane Spec
 
-Status: design draft; local NATS heartbeat/status, durable registry compaction,
-and stack fleet readiness/capability gate slices implemented.
+Status: design draft; local NATS heartbeat/status, agent capability reporting,
+durable registry compaction, and stack fleet readiness/capability gate slices
+implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -25,6 +26,8 @@ Implemented local slice:
 
 - `torque-agent nats heartbeat` publishes typed `AgentHeartbeat` messages to
   `torque.v1.agent.heartbeat.<tenant>.<shard>.<agent-id>`.
+- `torque-agent capabilities report` observes local built-in adapter support,
+  emits unavailable dependency reasons, and calculates a capability digest.
 - `torque ops agent status` subscribes to live heartbeat subjects, builds an
   `AgentStatusSnapshot`, supports label selectors, and outputs table or JSON.
 - `scripts/e2e/ops/OPS-AGENT-004.sh` proves the local NATS loop end to end and
@@ -42,9 +45,9 @@ Implemented local slice:
   stack node kinds, write `fleet-readiness.json` into the stack state store, and
   block when readiness or capability policy is not satisfied.
 - `scripts/e2e/ops/OPS-AGENT-006.sh` proves one NATS-backed fleet stack apply
-  after readiness and capability checks pass, one insufficient-readiness apply
-  that blocks before mutation, and one missing-capability apply that blocks
-  before mutation.
+  after discovered capability and readiness checks pass, one
+  insufficient-readiness apply that blocks before mutation, and one
+  missing-capability apply that blocks before mutation.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and

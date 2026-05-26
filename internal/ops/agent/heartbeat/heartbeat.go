@@ -45,35 +45,37 @@ type Resources struct {
 }
 
 type Heartbeat struct {
-	APIVersion   string            `json:"apiVersion"`
-	Kind         string            `json:"kind"`
-	AgentID      string            `json:"agentId"`
-	Tenant       string            `json:"tenant"`
-	TargetID     string            `json:"targetId,omitempty"`
-	Hostname     string            `json:"hostname,omitempty"`
-	Version      string            `json:"version,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	Capabilities []string          `json:"capabilities,omitempty"`
-	Slots        Slots             `json:"slots,omitempty"`
-	Offsets      Offsets           `json:"offsets,omitempty"`
-	Resources    Resources         `json:"resources,omitempty"`
-	State        string            `json:"state"`
-	ObservedAt   string            `json:"observedAt"`
+	APIVersion       string            `json:"apiVersion"`
+	Kind             string            `json:"kind"`
+	AgentID          string            `json:"agentId"`
+	Tenant           string            `json:"tenant"`
+	TargetID         string            `json:"targetId,omitempty"`
+	Hostname         string            `json:"hostname,omitempty"`
+	Version          string            `json:"version,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	Capabilities     []string          `json:"capabilities,omitempty"`
+	CapabilityDigest string            `json:"capabilityDigest,omitempty"`
+	Slots            Slots             `json:"slots,omitempty"`
+	Offsets          Offsets           `json:"offsets,omitempty"`
+	Resources        Resources         `json:"resources,omitempty"`
+	State            string            `json:"state"`
+	ObservedAt       string            `json:"observedAt"`
 }
 
 type Options struct {
-	AgentID      string
-	Tenant       string
-	TargetID     string
-	Hostname     string
-	Version      string
-	Labels       map[string]string
-	Capabilities []string
-	Slots        Slots
-	Offsets      Offsets
-	Resources    Resources
-	State        string
-	ObservedAt   time.Time
+	AgentID          string
+	Tenant           string
+	TargetID         string
+	Hostname         string
+	Version          string
+	Labels           map[string]string
+	Capabilities     []string
+	CapabilityDigest string
+	Slots            Slots
+	Offsets          Offsets
+	Resources        Resources
+	State            string
+	ObservedAt       time.Time
 }
 
 func New(opts Options) Heartbeat {
@@ -91,20 +93,21 @@ func New(opts Options) Heartbeat {
 		targetID = agentID
 	}
 	return Heartbeat{
-		APIVersion:   APIVersion,
-		Kind:         Kind,
-		AgentID:      agentID,
-		Tenant:       NormalizeTenant(opts.Tenant),
-		TargetID:     targetID,
-		Hostname:     strings.TrimSpace(opts.Hostname),
-		Version:      strings.TrimSpace(opts.Version),
-		Labels:       cleanLabels(opts.Labels),
-		Capabilities: cleanList(opts.Capabilities),
-		Slots:        opts.Slots,
-		Offsets:      cleanOffsets(opts.Offsets),
-		Resources:    opts.Resources,
-		State:        state,
-		ObservedAt:   observedAt.UTC().Format(time.RFC3339Nano),
+		APIVersion:       APIVersion,
+		Kind:             Kind,
+		AgentID:          agentID,
+		Tenant:           NormalizeTenant(opts.Tenant),
+		TargetID:         targetID,
+		Hostname:         strings.TrimSpace(opts.Hostname),
+		Version:          strings.TrimSpace(opts.Version),
+		Labels:           cleanLabels(opts.Labels),
+		Capabilities:     cleanList(opts.Capabilities),
+		CapabilityDigest: strings.TrimSpace(opts.CapabilityDigest),
+		Slots:            opts.Slots,
+		Offsets:          cleanOffsets(opts.Offsets),
+		Resources:        opts.Resources,
+		State:            state,
+		ObservedAt:       observedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -122,6 +125,7 @@ func Parse(raw []byte) (Heartbeat, error) {
 	heartbeat.Version = strings.TrimSpace(heartbeat.Version)
 	heartbeat.Labels = cleanLabels(heartbeat.Labels)
 	heartbeat.Capabilities = cleanList(heartbeat.Capabilities)
+	heartbeat.CapabilityDigest = strings.TrimSpace(heartbeat.CapabilityDigest)
 	heartbeat.Offsets = cleanOffsets(heartbeat.Offsets)
 	heartbeat.State = strings.ToLower(strings.TrimSpace(heartbeat.State))
 	heartbeat.ObservedAt = strings.TrimSpace(heartbeat.ObservedAt)
