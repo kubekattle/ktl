@@ -249,7 +249,10 @@ and sends one assignment per target subject. Queue groups remain for HA workers
 on the same target, not for broadcasting one message to many hosts. Set
 `runner.fanout.delivery: jetstream` when assignments must survive a temporarily
 offline worker; the worker consumes from `TORQUE_ASSIGNMENTS` and writes
-receipts to `TORQUE_RECEIPTS` before ACKing the assignment.
+receipts to `TORQUE_RECEIPTS` before ACKing the assignment. Durable workers also
+keep a local SQLite assignment ledger, keyed by stable `assignmentId`, so a
+redelivered assignment replays the stored receipt instead of running the command
+again.
 
 ```yaml
 apiVersion: torque.dev/v1
@@ -295,6 +298,7 @@ TORQUE_NATS_RECEIPT_STREAM=TORQUE_RECEIPTS \
 torque-agent nats worker \
   --nats-url nats://127.0.0.1:4222 \
   --delivery jetstream \
+  --ledger-path ./.torque/agent/assignments.sqlite \
   --subject torque.assign.lab.host_mysql-01 \
   --agent-id agent-mysql-01 \
   --tenant lab \

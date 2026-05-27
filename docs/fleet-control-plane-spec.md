@@ -63,10 +63,17 @@ Implemented local slice:
   `OperationResult` receipts to `TORQUE_RECEIPTS`, and workers ACK assignments
   only after the receipt publish succeeds. The stack audit preserves assignment
   and receipt stream offsets in `host-command-fanout.json`.
+- Durable `CommandAssignment` messages carry a stable `assignmentId` derived
+  from run/node/target/plan and command digest fields, not from send time.
+  `torque-agent nats worker --delivery jetstream` records assignments in a
+  local SQLite idempotency ledger, stores receipts before publishing them, ACKs
+  only after publish, and replays stored receipts with `deduped: true` when the
+  same assignment is delivered again.
 - `scripts/e2e/ops/OPS-AGENT-008.sh` proves durable assignment delivery end to
   end by starting stack apply while the target worker is offline, starting the
-  worker later, then verifying execution and JetStream offsets in the run
-  artifacts.
+  worker later, verifying execution and JetStream offsets in the run artifacts,
+  then republishing the same assignment and proving the ledger prevents a second
+  command execution.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and

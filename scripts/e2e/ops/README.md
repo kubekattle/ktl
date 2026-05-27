@@ -498,11 +498,13 @@ scripts/e2e/ops/OPS-AGENT-007.sh \
 
 ## OPS-AGENT-008
 
-`OPS-AGENT-008.sh` proves JetStream durable assignments. It publishes and
-compacts one ready agent, starts `torque stack apply` with
-`runner.fanout.delivery: jetstream` while the target worker is offline, starts a
-`torque-agent nats worker --delivery jetstream` afterward, and verifies the
-marker plus assignment and receipt offsets in `host-command-fanout.json`.
+`OPS-AGENT-008.sh` proves JetStream durable assignments and worker
+idempotency. It publishes and compacts one ready agent, starts
+`torque stack apply` with `runner.fanout.delivery: jetstream` while the target
+worker is offline, starts a `torque-agent nats worker --delivery jetstream`
+afterward, and verifies the marker plus assignment and receipt offsets in
+`host-command-fanout.json`. It then republishes the same assignment and proves
+the SQLite ledger returns a deduped receipt without writing the marker again.
 
 ```bash
 scripts/e2e/ops/OPS-AGENT-008.sh \

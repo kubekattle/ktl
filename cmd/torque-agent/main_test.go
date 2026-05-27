@@ -13,19 +13,20 @@ import (
 
 func TestParseNATSWorkerConfig(t *testing.T) {
 	env := map[string]string{
-		"TORQUE_NATS_URL":               "nats://127.0.0.1:4222",
-		"TORQUE_NATS_WORKER_SUBJECT":    "torque.lab.assign.mysql",
-		"TORQUE_NATS_WORKER_QUEUE":      "mysql-workers",
-		"TORQUE_NATS_CREDS":             "/tmp/nats.creds",
-		"TORQUE_NATS_WORKER_TIMEOUT":    "9s",
-		"TORQUE_NATS_DELIVERY":          "jetstream",
-		"TORQUE_NATS_DURABLE":           "mysql-targets",
-		"TORQUE_NATS_ASSIGNMENT_STREAM": "TORQUE_ASSIGNMENTS_TEST",
-		"TORQUE_NATS_RECEIPT_STREAM":    "TORQUE_RECEIPTS_TEST",
-		"TORQUE_AGENT_ID":               "agent-mysql-01",
-		"TORQUE_AGENT_TENANT":           "lab",
-		"TORQUE_AGENT_TARGET_ID":        "host/mysql-01",
-		"TORQUE_AGENT_HOSTNAME":         "mysql-01",
+		"TORQUE_NATS_URL":                "nats://127.0.0.1:4222",
+		"TORQUE_NATS_WORKER_SUBJECT":     "torque.lab.assign.mysql",
+		"TORQUE_NATS_WORKER_QUEUE":       "mysql-workers",
+		"TORQUE_NATS_CREDS":              "/tmp/nats.creds",
+		"TORQUE_NATS_WORKER_TIMEOUT":     "9s",
+		"TORQUE_NATS_DELIVERY":           "jetstream",
+		"TORQUE_NATS_DURABLE":            "mysql-targets",
+		"TORQUE_NATS_ASSIGNMENT_STREAM":  "TORQUE_ASSIGNMENTS_TEST",
+		"TORQUE_NATS_RECEIPT_STREAM":     "TORQUE_RECEIPTS_TEST",
+		"TORQUE_AGENT_ASSIGNMENT_LEDGER": "/tmp/torque-agent-ledger.sqlite",
+		"TORQUE_AGENT_ID":                "agent-mysql-01",
+		"TORQUE_AGENT_TENANT":            "lab",
+		"TORQUE_AGENT_TARGET_ID":         "host/mysql-01",
+		"TORQUE_AGENT_HOSTNAME":          "mysql-01",
 	}
 	config, err := parseNATSWorkerConfig([]string{"--timeout", "3s"}, func(key string) string {
 		return env[key]
@@ -41,6 +42,9 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 	}
 	if config.Delivery != natstransport.DeliveryJetStream || config.Durable != "mysql-targets" || config.AssignmentStream != "TORQUE_ASSIGNMENTS_TEST" || config.ReceiptStream != "TORQUE_RECEIPTS_TEST" {
 		t.Fatalf("durable delivery not parsed: %#v", config)
+	}
+	if config.LedgerPath != "/tmp/torque-agent-ledger.sqlite" {
+		t.Fatalf("LedgerPath = %q", config.LedgerPath)
 	}
 	if config.AgentID != "agent-mysql-01" || config.Tenant != "lab" || config.TargetID != "host/mysql-01" || config.Hostname != "mysql-01" {
 		t.Fatalf("identity not parsed: %#v", config)

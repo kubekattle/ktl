@@ -19,7 +19,9 @@ Options:
 OPS-AGENT-008 proves JetStream durable assignments: start stack apply while the
 target worker is offline, publish a durable assignment to TORQUE_ASSIGNMENTS,
 start the worker later, then prove the marker is written and
-host-command-fanout.json preserves assignment and receipt stream offsets.
+host-command-fanout.json preserves assignment and receipt stream offsets. It
+then republishes the same assignment and proves the worker returns a deduped
+ledger receipt without executing the command a second time.
 EOF
 }
 
@@ -81,6 +83,7 @@ assignment_stream="TORQUE_ASSIGNMENTS_${OPS_RUN_ID//[^A-Za-z0-9]/}"
 receipt_stream="TORQUE_RECEIPTS_${OPS_RUN_ID//[^A-Za-z0-9]/}"
 registry_durable="torque-ops-agent-008-${OPS_RUN_ID//[^A-Za-z0-9]/}"
 worker_durable="torque-worker-durable-${OPS_RUN_ID//[^A-Za-z0-9]/}"
+ledger_path="${scratch_root}/agent-assignments.sqlite"
 
 finish() {
   local code=$?
@@ -286,6 +289,7 @@ ops_log "start JetStream worker after assignment publication window"
   --assignment-stream "${assignment_stream}" \
   --receipt-stream "${receipt_stream}" \
   --durable "${worker_durable}" \
+  --ledger-path "${ledger_path}" \
   --subject "${subject}" \
   --agent-id "${agent_id}" \
   --tenant lab \
@@ -306,6 +310,121 @@ set -e
   >"${OPS_RUN_DIR}/verification/audit.json"
 "${repo_root}/bin/torque" stack export --config "${stack_dir}" --out "${OPS_RUN_DIR}/stack-run.tgz" \
   >"${OPS_RUN_DIR}/logs/export.out" 2>"${OPS_RUN_DIR}/logs/export.err"
+
+ops_log "republish duplicate assignment and prove worker dedupes it"
+duplicate_receipt_subject="$(
+python3 - "${OPS_RUN_DIR}/verification/audit.json" "${scratch_root}/duplicate-assignment.json" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+audit_path = Path(sys.argv[1])
+assignment_path = Path(sys.argv[2])
+audit = json.loads(audit_path.read_text(encoding="utf-8"))
+
+def artifact(audit, name):
+    for item in audit.get("artifacts", []):
+        if item.get("name") == name:
+            return json.loads(item.get("body", "{}"))
+    return {}
+
+def token(value, fallback):
+    value = (value or "").strip() or fallback
+    value = re.sub(r"[^A-Za-z0-9_-]+", "_", value).strip("_")
+    return value or fallback
+
+fanout = artifact(audit, "host-command-fanout.json")
+assignment = (fanout.get("results") or [{}])[0].get("assignment") or {}
+assignment_path.write_text(json.dumps(assignment, sort_keys=True) + "\n", encoding="utf-8")
+print("torque.receipt.lab." + token(assignment.get("runId"), "run") + "." + token(assignment.get("targetId"), "target"))
+PY
+)"
+cat >"${scratch_root}/duplicate-probe.go" <<'GO'
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"time"
+
+	nats "github.com/nats-io/nats.go"
+)
+
+func main() {
+	if len(os.Args) != 7 {
+		fmt.Fprintf(os.Stderr, "usage: duplicate-probe <nats-url> <assignment-file> <receipt-subject> <receipt-stream> <durable> <timeout>\n")
+		os.Exit(2)
+	}
+	natsURL := os.Args[1]
+	assignmentFile := os.Args[2]
+	receiptSubject := os.Args[3]
+	receiptStream := os.Args[4]
+	durable := os.Args[5]
+	timeout, err := time.ParseDuration(os.Args[6])
+	if err != nil {
+		panic(err)
+	}
+	raw, err := os.ReadFile(assignmentFile)
+	if err != nil {
+		panic(err)
+	}
+	var assignment struct {
+		Target string `json:"target"`
+	}
+	if err := json.Unmarshal(raw, &assignment); err != nil {
+		panic(err)
+	}
+	if assignment.Target == "" {
+		panic("assignment target is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := nats.Connect(natsURL, nats.Name("torque-ops-agent-008-duplicate-probe"), nats.Timeout(timeout))
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(nats.MaxWait(timeout))
+	if err != nil {
+		panic(err)
+	}
+	sub, err := js.PullSubscribe(
+		receiptSubject,
+		durable,
+		nats.BindStream(receiptStream),
+		nats.DeliverNew(),
+		nats.AckExplicit(),
+		nats.ManualAck(),
+	)
+	if err != nil {
+		panic(err)
+	}
+	if _, err := js.Publish(assignment.Target, raw, nats.Context(ctx)); err != nil {
+		panic(err)
+	}
+	msgs, err := sub.Fetch(1, nats.MaxWait(timeout))
+	if err != nil {
+		panic(err)
+	}
+	if len(msgs) != 1 {
+		panic("expected one duplicate receipt")
+	}
+	fmt.Println(string(msgs[0].Data))
+	_ = msgs[0].Ack(nats.Context(ctx))
+}
+GO
+go run "${scratch_root}/duplicate-probe.go" \
+  "${nats_url}" \
+  "${scratch_root}/duplicate-assignment.json" \
+  "${duplicate_receipt_subject}" \
+  "${receipt_stream}" \
+  "torque-ops-agent-008-duplicate-${OPS_RUN_ID//[^A-Za-z0-9]/}" \
+  10s \
+  >"${OPS_RUN_DIR}/verification/duplicate-receipt.json" \
+  2>"${OPS_RUN_DIR}/logs/duplicate-probe.err"
 
 ops_log "verify durable assignment receipts"
 python3 - "${OPS_RUN_DIR}" "${OPS_TASK_ID}" "${OPS_RUN_ID}" "${started_at}" "${nats_url}" "${event_stream}" "${assignment_stream}" "${receipt_stream}" "${marker}" "${apply_code}" "${agent_id}" "${target_id}" "${subject}" <<'PY'
@@ -348,6 +467,7 @@ def marker_count(path, token):
 
 audit = load("verification/audit.json")
 registry_status = load("verification/registry-status.json")
+duplicate_receipt = load("verification/duplicate-receipt.json")
 fanout = artifact(audit, "host-command-fanout.json")
 execute = artifact(audit, "host-command-execute.json")
 errors = []
@@ -369,6 +489,13 @@ if execute.get("metadata", {}).get("delivery") != "jetstream":
     errors.append("execute receipt must identify jetstream delivery")
 if marker_count(marker, "durable-jetstream") != 1:
     errors.append("durable marker must be written exactly once")
+duplicate_metadata = duplicate_receipt.get("metadata", {})
+if duplicate_receipt.get("status") != "succeeded":
+    errors.append(f"duplicate receipt must preserve succeeded status: {duplicate_receipt}")
+if duplicate_metadata.get("deduped") != "true" or duplicate_metadata.get("replayedReceipt") != "true":
+    errors.append(f"duplicate receipt must prove ledger replay: {duplicate_metadata}")
+if duplicate_metadata.get("workerDecision") != "deduped":
+    errors.append(f"duplicate worker decision must be deduped: {duplicate_metadata}")
 
 results = fanout.get("results", [])
 if len(results) != 1:
@@ -405,7 +532,7 @@ metadata = {
     "runId": run_id,
     "startedAt": started_at,
     "finishedAt": __import__("datetime").datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-    "labProfiles": ["local.nats.jetstream", "stack.fleet-jetstream-durable-assignments", "agent.worker-identity-receipts"],
+    "labProfiles": ["local.nats.jetstream", "stack.fleet-jetstream-durable-assignments", "agent.worker-identity-receipts", "agent.assignment-idempotency-ledger"],
 }
 (run_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 (run_dir / "target-snapshot.json").write_text(json.dumps({
@@ -435,6 +562,10 @@ metadata = {
     "status": status,
     "errors": errors,
     "fanout": summary,
+    "duplicateReceipt": {
+        "status": duplicate_receipt.get("status"),
+        "metadata": duplicate_metadata,
+    },
     "applyCode": apply_code,
 }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 if errors:

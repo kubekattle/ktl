@@ -4269,6 +4269,7 @@ nodes:
 		AssignmentStream:           assignmentStream,
 		ReceiptStream:              receiptStream,
 		Durable:                    "stack-js-fanout-worker",
+		LedgerPath:                 filepath.Join(root, "agent-assignments.sqlite"),
 		Ready:                      ready,
 		Timeout:                    2 * time.Second,
 		Capabilities:               []string{NodeKindHostCommandRun},

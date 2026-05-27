@@ -103,6 +103,13 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	if assignment.TargetID != "host/mysql-01" || assignment.ExpectedAgentID != "agent-mysql-01" || assignment.RequiredCapability != "mysql.replication.verify" || assignment.NodeKind != "mysql.replication.verify" || assignment.RunID != "run-123" || assignment.NodeID != "mysql.replication.verify/mysql" || assignment.PlanDigest != "sha256:plan" {
 		t.Fatalf("assignment metadata = %#v", assignment)
 	}
+	if assignment.AssignmentID == "" || assignment.AssignmentID != DeriveAssignmentID(assignment) {
+		t.Fatalf("assignmentId = %q, want derived stable ID", assignment.AssignmentID)
+	}
+	assignment.SentAt = time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	if got := DeriveAssignmentID(assignment); got != assignment.AssignmentID {
+		t.Fatalf("DeriveAssignmentID changed with sentAt: got %q want %q", got, assignment.AssignmentID)
+	}
 }
 
 func TestRunRecordsTimeout(t *testing.T) {

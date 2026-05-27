@@ -192,6 +192,7 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	defaultAssignmentStream := firstNonEmptyAgent(getenv("TORQUE_NATS_ASSIGNMENT_STREAM"), natstransport.DefaultAssignmentStream)
 	defaultReceiptStream := firstNonEmptyAgent(getenv("TORQUE_NATS_RECEIPT_STREAM"), natstransport.DefaultReceiptStream)
 	defaultDurable := firstNonEmptyAgent(getenv("TORQUE_NATS_DURABLE"), getenv("TORQUE_NATS_WORKER_DURABLE"))
+	defaultLedgerPath := strings.TrimSpace(getenv("TORQUE_AGENT_ASSIGNMENT_LEDGER"))
 	defaultAgentID := firstNonEmptyAgent(getenv("TORQUE_AGENT_ID"), hostname)
 	defaultTenant := firstNonEmptyAgent(getenv("TORQUE_AGENT_TENANT"), "default")
 	defaultTargetID := firstNonEmptyAgent(getenv("TORQUE_AGENT_TARGET_ID"), defaultAgentID)
@@ -222,6 +223,7 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	assignmentStream := fs.String("assignment-stream", defaultAssignmentStream, "JetStream assignment stream for durable delivery (also TORQUE_NATS_ASSIGNMENT_STREAM)")
 	receiptStream := fs.String("receipt-stream", defaultReceiptStream, "JetStream receipt stream for durable delivery (also TORQUE_NATS_RECEIPT_STREAM)")
 	durable := fs.String("durable", defaultDurable, "JetStream durable consumer name (also TORQUE_NATS_DURABLE or TORQUE_NATS_WORKER_DURABLE)")
+	ledgerPath := fs.String("ledger-path", defaultLedgerPath, "SQLite assignment idempotency ledger path (also TORQUE_AGENT_ASSIGNMENT_LEDGER)")
 	creds := fs.String("creds", strings.TrimSpace(getenv("TORQUE_NATS_CREDS")), "NATS user credentials file (also TORQUE_NATS_CREDS)")
 	nkey := fs.String("nkey", strings.TrimSpace(getenv("TORQUE_NATS_NKEY")), "NATS NKey seed file (also TORQUE_NATS_NKEY)")
 	timeout := fs.Duration("timeout", defaultTimeout, "Per-assignment execution timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_WORKER_TIMEOUT)")
@@ -265,6 +267,7 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		AssignmentStream:           strings.TrimSpace(*assignmentStream),
 		ReceiptStream:              strings.TrimSpace(*receiptStream),
 		Durable:                    strings.TrimSpace(*durable),
+		LedgerPath:                 strings.TrimSpace(*ledgerPath),
 		Creds:                      strings.TrimSpace(*creds),
 		NKey:                       strings.TrimSpace(*nkey),
 		Timeout:                    *timeout,
@@ -289,7 +292,7 @@ func printNATSUsage(out *os.File) {
 
 func printNATSWorkerUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--ledger-path .torque/agent/assignments.sqlite] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
 }
 
 func flagWasSet(name string) bool {

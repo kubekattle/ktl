@@ -67,9 +67,10 @@ without hiding the important decisions in CI logs or a control-plane database.
 - Terraform/OpenTofu provider resources as typed stack modules with saved-plan
   apply/delete, state digests, redacted receipts, and audit artifacts.
 - Agent-backed NATS command execution, targeted fleet fan-out, durable
-  JetStream assignments/receipts, capability reporting, worker-side capability
-  enforcement, and identity receipts for stack nodes that need outbound worker
-  fan-out without changing stack semantics.
+  JetStream assignments/receipts, worker idempotency ledgers, capability
+  reporting, worker-side capability enforcement, and identity receipts for
+  stack nodes that need outbound worker fan-out without changing stack
+  semantics.
 - Optional fleet control-plane design for Kubernetes, dedicated etcd inventory,
   NATS JetStream assignment/receipt streams, readiness/capability gates, and
   10,000-host durable agents.

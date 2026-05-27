@@ -28,6 +28,7 @@ type Config struct {
 	AssignmentStream           string
 	ReceiptStream              string
 	Durable                    string
+	LedgerPath                 string
 	StreamMaxAge               time.Duration
 	Creds                      string
 	NKey                       string
@@ -54,6 +55,7 @@ type Worker struct {
 	assignmentStream string
 	receiptStream    string
 	durable          string
+	ledgerPath       string
 	streamMaxAge     time.Duration
 	creds            string
 	nkey             string
@@ -119,6 +121,7 @@ func New(config Config) (*Worker, error) {
 		assignmentStream: assignmentStream,
 		receiptStream:    receiptStream,
 		durable:          durable,
+		ledgerPath:       defaultLedgerPath(config.LedgerPath),
 		streamMaxAge:     streamMaxAge,
 		creds:            creds,
 		nkey:             nkey,
@@ -217,6 +220,11 @@ func (w *Worker) runJetStream(ctx context.Context) error {
 	if err := natstransport.EnsureStream(ctx, js, w.receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, w.streamMaxAge); err != nil {
 		return fmt.Errorf("ensure receipt stream: %w", err)
 	}
+	ledger, err := openAssignmentLedger(ctx, w.ledgerPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = ledger.Close() }()
 	sub, err := js.PullSubscribe(
 		w.subject,
 		w.durable,
@@ -251,7 +259,7 @@ func (w *Worker) runJetStream(ctx context.Context) error {
 			return err
 		}
 		for _, msg := range msgs {
-			if err := w.handleJetStreamMessage(ctx, js, msg); err != nil {
+			if err := w.handleJetStreamMessage(ctx, js, ledger, msg); err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
@@ -262,38 +270,110 @@ func (w *Worker) runJetStream(ctx context.Context) error {
 	}
 }
 
-func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStreamContext, msg *natsgo.Msg) error {
-	result := w.HandleMessage(ctx, msg.Data)
+func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStreamContext, ledger *assignmentLedger, msg *natsgo.Msg) error {
 	assignmentOffset := natstransport.OffsetFromMessage(msg, w.assignmentStream, w.durable)
-	result.Metadata = mergeMetadata(result.Metadata, streamOffsetMetadata("assignment", assignmentOffset))
-	result.Metadata = mergeMetadata(result.Metadata, map[string]string{
-		"delivery":                natstransport.DeliveryJetStream,
-		"assignmentStream":        strings.TrimSpace(w.assignmentStream),
-		"receiptStream":           strings.TrimSpace(w.receiptStream),
-		"assignmentConsumer":      strings.TrimSpace(w.durable),
-		"assignmentStreamSubject": strings.TrimSpace(msg.Subject),
-	})
-	subject := natstransport.ReceiptSubject(
-		w.tenant,
-		firstNonEmptyWorker(result.Metadata["runId"], "run"),
-		firstNonEmptyWorker(result.Metadata["assignmentTargetId"], result.Metadata["targetId"], w.targetID),
-	)
+	assignment, err := natstransport.ParseCommandAssignment(msg.Data)
+	if err != nil {
+		result := w.errorResult("run", "", err, false)
+		result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, ledgerDecision{})
+		if err := w.publishJetStreamReceipt(ctx, js, result); err != nil {
+			return err
+		}
+		return w.ackJetStreamAssignment(ctx, msg, ledger, "")
+	}
+	decision, err := ledger.Begin(ctx, assignment)
+	if err != nil {
+		return err
+	}
+	if decision.Replay {
+		result := decision.Receipt
+		result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, decision)
+		result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+			"deduped":         "true",
+			"replayedReceipt": "true",
+			"ledgerStatus":    decision.Status,
+			"workerDecision":  "deduped",
+		})
+		if err := w.publishJetStreamReceipt(ctx, js, result); err != nil {
+			return err
+		}
+		return w.ackJetStreamAssignment(ctx, msg, ledger, assignment.AssignmentID)
+	}
+	if decision.UnsafeReplay {
+		result := w.blockedResultWithReason("run", assignment.Target, assignment, "assignment already has a running ledger entry without a stored receipt; refusing duplicate execution")
+		result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, decision)
+		result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+			"ledgerUnsafeReplay": "true",
+			"workerDecision":     "blocked",
+		})
+		if err := ledger.SaveReceipt(ctx, assignment.AssignmentID, result); err != nil {
+			return err
+		}
+		if err := w.publishJetStreamReceipt(ctx, js, result); err != nil {
+			return err
+		}
+		return w.ackJetStreamAssignment(ctx, msg, ledger, assignment.AssignmentID)
+	}
+
+	result := w.HandleAssignment(ctx, assignment)
+	result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, decision)
+	if err := ledger.SaveReceipt(ctx, assignment.AssignmentID, result); err != nil {
+		return err
+	}
+	if err := w.publishJetStreamReceipt(ctx, js, result); err != nil {
+		return err
+	}
+	return w.ackJetStreamAssignment(ctx, msg, ledger, assignment.AssignmentID)
+}
+
+func (w *Worker) publishJetStreamReceipt(ctx context.Context, js natsgo.JetStreamContext, result transport.OperationResult) error {
 	raw, err := json.Marshal(result)
 	if err != nil {
 		result = w.errorResult("run", "", fmt.Errorf("marshal operation result: %w", err), false)
-		result.Metadata = mergeMetadata(result.Metadata, streamOffsetMetadata("assignment", assignmentOffset))
 		raw, err = json.Marshal(result)
 		if err != nil {
 			return err
 		}
 	}
+	subject := natstransport.ReceiptSubject(
+		w.tenant,
+		firstNonEmptyWorker(result.Metadata["runId"], "run"),
+		firstNonEmptyWorker(result.Metadata["assignmentTargetId"], result.Metadata["targetId"], w.targetID),
+	)
 	if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
 		return fmt.Errorf("publish receipt: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) ackJetStreamAssignment(ctx context.Context, msg *natsgo.Msg, ledger *assignmentLedger, assignmentID string) error {
+	if strings.TrimSpace(assignmentID) != "" {
+		if err := ledger.MarkReceiptPublished(ctx, assignmentID); err != nil {
+			return err
+		}
 	}
 	if err := msg.Ack(natsgo.Context(ctx)); err != nil {
 		return fmt.Errorf("ack assignment: %w", err)
 	}
 	return nil
+}
+
+func (w *Worker) jetStreamReceiptMetadata(base map[string]string, assignmentOffset *natstransport.StreamOffset, decision ledgerDecision) map[string]string {
+	metadata := mergeMetadata(base, streamOffsetMetadata("assignment", assignmentOffset))
+	metadata = mergeMetadata(metadata, map[string]string{
+		"delivery":                natstransport.DeliveryJetStream,
+		"assignmentStream":        strings.TrimSpace(w.assignmentStream),
+		"receiptStream":           strings.TrimSpace(w.receiptStream),
+		"assignmentConsumer":      strings.TrimSpace(w.durable),
+		"assignmentStreamSubject": firstNonEmptyWorker(assignmentOffsetSubject(assignmentOffset), w.subject),
+	})
+	if decision.Attempt > 0 {
+		metadata = mergeMetadata(metadata, map[string]string{"ledgerAttempt": strconv.Itoa(decision.Attempt)})
+	}
+	if strings.TrimSpace(decision.Status) != "" {
+		metadata = mergeMetadata(metadata, map[string]string{"ledgerStatus": strings.TrimSpace(decision.Status)})
+	}
+	return metadata
 }
 
 func (w *Worker) HandleMessage(ctx context.Context, raw []byte) transport.OperationResult {
@@ -508,6 +588,7 @@ func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, dec
 		}
 	}
 	addMetadata("requiredCapability", assignment.RequiredCapability)
+	addMetadata("assignmentId", assignment.AssignmentID)
 	addMetadata("nodeKind", assignment.NodeKind)
 	addMetadata("runId", assignment.RunID)
 	addMetadata("nodeId", assignment.NodeID)
@@ -568,6 +649,13 @@ func streamOffsetMetadata(prefix string, offset *natstransport.StreamOffset) map
 		}
 	}
 	return out
+}
+
+func assignmentOffsetSubject(offset *natstransport.StreamOffset) string {
+	if offset == nil {
+		return ""
+	}
+	return strings.TrimSpace(offset.Subject)
 }
 
 func firstNonEmptyWorker(values ...string) string {

@@ -326,6 +326,7 @@ func TestWorkerConsumesDurableJetStreamAssignment(t *testing.T) {
 		AssignmentStream:           assignmentStream,
 		ReceiptStream:              receiptStream,
 		Durable:                    "worker-js-1",
+		LedgerPath:                 t.TempDir() + "/assignments.sqlite",
 		Ready:                      ready,
 		Timeout:                    2 * time.Second,
 		Capabilities:               []string{"host.command.run"},
@@ -416,6 +417,149 @@ func TestWorkerConsumesDurableJetStreamAssignment(t *testing.T) {
 	}
 }
 
+func TestWorkerDedupesRepeatedDurableJetStreamAssignment(t *testing.T) {
+	serverURL := startLocalNATSJetStreamServer(t)
+	subject := "torque.assign.lab.host_js-dedupe"
+	assignmentStream := "TORQUE_ASSIGNMENTS_DEDUPE_TEST"
+	receiptStream := "TORQUE_RECEIPTS_DEDUPE_TEST"
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("dedupe-ok\n"), ExitCode: 0},
+	}
+	conn, err := natsgo.Connect(serverURL, natsgo.Name("torque-worker-js-dedupe-test"), natsgo.Timeout(time.Second))
+	if err != nil {
+		t.Fatalf("connect test client: %v", err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(2 * time.Second))
+	if err != nil {
+		t.Fatalf("open JetStream: %v", err)
+	}
+	ctx := context.Background()
+	if err := natstransport.EnsureStream(ctx, js, assignmentStream, []string{natstransport.DefaultAssignmentStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure assignment stream: %v", err)
+	}
+	if err := natstransport.EnsureStream(ctx, js, receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure receipt stream: %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", subject, "printf dedupe-ok", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/js-dedupe",
+		ExpectedAgentID:    "agent-js-dedupe",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-js-dedupe",
+		NodeID:             "host.command.run/write-marker",
+		PlanDigest:         "sha256:plan",
+	})
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+		t.Fatalf("publish first assignment: %v", err)
+	}
+	if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+		t.Fatalf("publish duplicate assignment: %v", err)
+	}
+
+	ready := make(chan struct{})
+	worker, err := New(Config{
+		Server:                     serverURL,
+		Subject:                    subject,
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "worker-js-dedupe",
+		LedgerPath:                 t.TempDir() + "/assignments.sqlite",
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-js-dedupe",
+		Tenant:                     "lab",
+		TargetID:                   "host/js-dedupe",
+		Hostname:                   "js-dedupe",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("worker did not become ready")
+	}
+
+	receiptSubject := natstransport.ReceiptSubject("lab", "run-js-dedupe", "host/js-dedupe")
+	sub, err := js.PullSubscribe(
+		receiptSubject,
+		"worker-js-dedupe-receipts",
+		natsgo.BindStream(receiptStream),
+		natsgo.DeliverAll(),
+		natsgo.AckExplicit(),
+		natsgo.ManualAck(),
+	)
+	if err != nil {
+		cancel()
+		t.Fatalf("subscribe receipt stream: %v", err)
+	}
+	msgs := fetchNATSReceipts(t, sub, 2, 5*time.Second)
+	if len(msgs) != 2 {
+		cancel()
+		t.Fatalf("receipts = %d, want two", len(msgs))
+	}
+	executed := 0
+	deduped := 0
+	for _, msg := range msgs {
+		var result transport.OperationResult
+		if err := json.Unmarshal(msg.Data, &result); err != nil {
+			cancel()
+			t.Fatalf("parse receipt: %v", err)
+		}
+		_ = msg.Ack()
+		if result.Metadata["assignmentId"] != assignment.AssignmentID {
+			cancel()
+			t.Fatalf("assignmentId metadata = %q, want %q", result.Metadata["assignmentId"], assignment.AssignmentID)
+		}
+		switch result.Metadata["workerDecision"] {
+		case "executed":
+			executed++
+		case "deduped":
+			deduped++
+			if result.Metadata["deduped"] != "true" || result.Metadata["replayedReceipt"] != "true" {
+				cancel()
+				t.Fatalf("dedupe metadata missing: %#v", result.Metadata)
+			}
+		default:
+			cancel()
+			t.Fatalf("unexpected workerDecision metadata: %#v", result.Metadata)
+		}
+	}
+	if executed != 1 || deduped != 1 {
+		cancel()
+		t.Fatalf("executed=%d deduped=%d, want one each", executed, deduped)
+	}
+	if len(runner.calls) != 1 {
+		cancel()
+		t.Fatalf("runner calls = %#v, want one execution", runner.calls)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
 func assertMetadata(t *testing.T, got map[string]string, want map[string]string) {
 	t.Helper()
 	for key, value := range want {
@@ -494,4 +638,28 @@ func startLocalNATSServerWithArgs(t *testing.T, extraArgs []string) string {
 	}
 	t.Fatalf("wait for nats-server: %v", lastErr)
 	return ""
+}
+
+func fetchNATSReceipts(t *testing.T, sub *natsgo.Subscription, want int, timeout time.Duration) []*natsgo.Msg {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var out []*natsgo.Msg
+	for len(out) < want && time.Now().Before(deadline) {
+		wait := time.Until(deadline)
+		if wait > 500*time.Millisecond {
+			wait = 500 * time.Millisecond
+		}
+		if wait <= 0 {
+			break
+		}
+		msgs, err := sub.Fetch(want-len(out), natsgo.MaxWait(wait))
+		if err != nil {
+			if errors.Is(err, natsgo.ErrTimeout) {
+				continue
+			}
+			t.Fatalf("fetch receipts: %v", err)
+		}
+		out = append(out, msgs...)
+	}
+	return out
 }
