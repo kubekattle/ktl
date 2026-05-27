@@ -563,6 +563,61 @@ TORQUE_OPS_E2E_CONFIRM=1 scripts/e2e/ops/OPS-TR-008.sh \
   --evidence-root /tmp/torque-ops-e2e
 ```
 
+## Stack: Terraform providers as modules
+
+Use `torque terraform-adapter` when a stack needs a resource from the
+Terraform/OpenTofu provider ecosystem. Torque still owns the stack DAG,
+receipts, audit, and replay; Terraform/OpenTofu owns provider installation,
+planning, state, and resource CRUD. The adapter writes a saved plan during
+`plan`, then `apply`/`delete` executes only that exact plan after checking the
+node ID, intent digest, generated config digest, and plan digest.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: terraform-aws-s3
+nodes:
+  - name: logs-bucket
+    kind: aws.s3.bucket.ensure
+    module:
+      source: oci://ghcr.io/torque-modules/terraform-aws
+      version: 0.1.0
+      command: ["torque", "terraform-adapter"]
+      timeout: 20m
+      input:
+        provider:
+          source: hashicorp/aws
+          version: ">= 5.0"
+          localName: aws
+          config:
+            region: us-east-1
+        resource:
+          type: aws_s3_bucket
+          name: this
+          values:
+            bucket: my-company-prod-logs
+            force_destroy: true
+            tags:
+              managed-by: torque
+```
+
+```bash
+torque stack plan --config ./stacks/terraform-aws-s3 --output json
+torque stack apply --config ./stacks/terraform-aws-s3 --yes
+torque stack audit --config ./stacks/terraform-aws-s3 --output json --include-artifacts
+torque stack delete --config ./stacks/terraform-aws-s3 --yes
+```
+
+See [`docs/terraform-provider-adapter.md`](terraform-provider-adapter.md) for
+the full input contract and the opt-in AWS S3 smoke harness.
+
+Run the deterministic 100-node provider harness before certifying generator or
+adapter changes:
+
+```bash
+scripts/e2e/terraform-provider-100.sh --count 100 --concurrency 20
+```
+
 ## Stack: render a host file
 
 Use `host.file.render` for small host-side configuration files that need a

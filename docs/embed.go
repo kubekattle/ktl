@@ -27,6 +27,9 @@ var (
 	//go:embed fleet-control-plane-spec.md
 	FleetControlPlaneSpecMD string
 
+	//go:embed terraform-provider-ecosystem-spec.md
+	TerraformProviderEcosystemSpecMD string
+
 	//go:embed enterprise-agent-operations.md
 	EnterpriseAgentOperationsMD string
 

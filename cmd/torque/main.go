@@ -253,6 +253,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 	applyCmd := newApplyCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	deleteCmd := newDeleteCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
 	stackCmd := newStackCommand(&kubeconfigPath, &kubeContext, &logLevel, &remoteAgentAddr)
+	terraformAdapterCmd := newTerraformAdapterCommand()
 	upCmd := newUpCommand(&kubeconfigPath, &kubeContext)
 	cmd.AddCommand(
 		initCmd,
@@ -281,6 +282,7 @@ func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Comman
 		secretsCmd,
 		securityCmd,
 		versionCmd,
+		terraformAdapterCmd,
 		upCmd,
 		waitCmd,
 	)

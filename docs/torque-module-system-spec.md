@@ -202,6 +202,46 @@ Publishing requirements:
 This keeps Torque core small while allowing an ecosystem of typed,
 proof-producing operations modules.
 
+## Terraform Provider Adapter
+
+`torque terraform-adapter` is the first compatibility module for the
+Terraform/OpenTofu provider ecosystem. A stack node keeps a domain kind such as
+`aws.s3.bucket.ensure`, while the adapter renders a minimal Terraform module
+from `module.input.provider` and `module.input.resource`.
+
+The adapter follows the normal module lifecycle. `plan` writes a saved
+Terraform/OpenTofu plan and metadata under `.torque/terraform/<node>/`;
+`apply` and `delete` execute only that saved plan after checking node ID,
+command, intent digest, generated config digest, and plan digest. Plan/state
+file contents are not copied into stack audit artifacts because providers can
+store sensitive private state there. Audit artifacts contain redacted CLI
+receipts, provider/resource references, action summaries, and digests.
+
+Example:
+
+```yaml
+nodes:
+  - name: logs-bucket
+    kind: aws.s3.bucket.ensure
+    module:
+      source: oci://ghcr.io/torque-modules/terraform-aws
+      version: 0.1.0
+      command: ["torque", "terraform-adapter"]
+      input:
+        provider:
+          source: hashicorp/aws
+          version: ">= 5.0"
+          localName: aws
+          config:
+            region: us-east-1
+        resource:
+          type: aws_s3_bucket
+          name: this
+          values:
+            bucket: my-company-prod-logs
+            force_destroy: true
+```
+
 ## Host Module Example
 
 `testdata/modules/torque.host` is the first external-style module collection in
