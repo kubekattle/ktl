@@ -360,9 +360,11 @@ collect_remote_evidence() {
   remote_cat "/var/lib/torque-firecracker-k8s/kafka-cluster/receipt.json" "${OPS_RUN_DIR}/remote/kafka/receipt.json"
   remote_cat "/var/lib/torque-firecracker-k8s/kafka-cluster/nodes.txt" "${OPS_RUN_DIR}/remote/kafka/nodes.txt"
   remote_cat "/var/lib/torque-firecracker-k8s/kafka-cluster/pods.txt" "${OPS_RUN_DIR}/remote/kafka/pods.txt"
+  remote_exec "ssh -i /opt/firecracker-sandbox-lab/lab_ssh_key -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@172.31.233.10 '/usr/local/bin/k3s kubectl -n torque-kafka logs deployment/kafka-traffic-generator --all-containers --tail=200 || true'" >"${OPS_RUN_DIR}/remote/kafka/traffic-generator.log" 2>/dev/null || true
   remote_cat "/var/lib/torque-firecracker-k8s/rabbitmq-cluster/receipt.json" "${OPS_RUN_DIR}/remote/rabbitmq/receipt.json"
   remote_cat "/var/lib/torque-firecracker-k8s/rabbitmq-cluster/nodes.txt" "${OPS_RUN_DIR}/remote/rabbitmq/nodes.txt"
   remote_cat "/var/lib/torque-firecracker-k8s/rabbitmq-cluster/pods.txt" "${OPS_RUN_DIR}/remote/rabbitmq/pods.txt"
+  remote_exec "ssh -i /opt/firecracker-sandbox-lab/lab_ssh_key -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@172.31.234.10 '/usr/local/bin/k3s kubectl -n torque-rabbitmq logs deployment/rabbitmq-traffic-generator --tail=200 || true'" >"${OPS_RUN_DIR}/remote/rabbitmq/traffic-generator.log" 2>/dev/null || true
   remote_cat "${remote_logs}/nats-server.log" "${OPS_RUN_DIR}/remote/control/nats-server.log"
   remote_cat "${remote_logs}/kafka-worker.log" "${OPS_RUN_DIR}/remote/control/kafka-worker.log"
   remote_cat "${remote_logs}/rabbitmq-worker.log" "${OPS_RUN_DIR}/remote/control/rabbitmq-worker.log"
@@ -428,6 +430,12 @@ def load(rel: str) -> dict:
         return {}
     return value if isinstance(value, dict) else {}
 
+def read_text(rel: str) -> str:
+    path = run / rel
+    if not path.is_file():
+        return ""
+    return path.read_text(encoding="utf-8", errors="replace")
+
 def write(rel: str, doc: dict) -> None:
     path = run / rel
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -437,6 +445,8 @@ kafka_receipt = load("remote/kafka/receipt.json")
 rabbitmq_receipt = load("remote/rabbitmq/receipt.json")
 kafka_audit = load("stack/kafka/audit.json")
 rabbitmq_audit = load("stack/rabbitmq/audit.json")
+kafka_traffic_log = read_text("remote/kafka/traffic-generator.log")
+rabbitmq_traffic_log = read_text("remote/rabbitmq/traffic-generator.log")
 
 checks = {
     "natsTransport": bool(nats_url and kafka_subject and rabbitmq_subject),
@@ -446,6 +456,8 @@ checks = {
     "rabbitmqReadyNodes": int(rabbitmq_receipt.get("readyCount") or 0),
     "kafkaAuditStatus": kafka_audit.get("status"),
     "rabbitmqAuditStatus": rabbitmq_audit.get("status"),
+    "kafkaTrafficProduced": "kafka-traffic-produced" in kafka_traffic_log,
+    "rabbitmqTrafficPublished": "rabbitmq-traffic-published" in rabbitmq_traffic_log,
     "kafkaExportExists": (run / "stack" / "kafka" / "stack-export.tgz").is_file(),
     "rabbitmqExportExists": (run / "stack" / "rabbitmq" / "stack-export.tgz").is_file(),
 }
@@ -458,6 +470,8 @@ verification_ok = (
     and checks["rabbitmqReadyNodes"] == 5
     and checks["kafkaAuditStatus"] == "succeeded"
     and checks["rabbitmqAuditStatus"] == "succeeded"
+    and checks["kafkaTrafficProduced"]
+    and checks["rabbitmqTrafficPublished"]
     and checks["kafkaExportExists"]
     and checks["rabbitmqExportExists"]
 )

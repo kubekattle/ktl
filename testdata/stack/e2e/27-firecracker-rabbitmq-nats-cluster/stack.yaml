@@ -491,6 +491,8 @@ nodes:
         SERVER_IP="172.31.234.10"
         LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
         ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" \
+          '/usr/local/bin/k3s kubectl -n torque-rabbitmq delete deployment rabbitmq-traffic-generator --ignore-not-found --timeout=90s'
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" \
           '/usr/local/bin/k3s kubectl delete namespace torque-rabbitmq --ignore-not-found --timeout=90s'
 
   - name: rabbitmq-verify
@@ -564,5 +566,144 @@ nodes:
           echo "missing consumed RabbitMQ message" >&2
           exit 1
         fi
+        VERIFY
+      deleteCommand: "true"
+
+  - name: rabbitmq-traffic-generator
+    kind: host.command.run
+    needs: [rabbitmq-verify]
+    host:
+      transport: nats
+      targetEnv: TORQUE_RABBITMQ_NATS_LAB_SUBJECT
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        SERVER_IP="172.31.234.10"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" 'bash -se' <<'REMOTE_APPLY'
+        set -euo pipefail
+        manifest="$(mktemp)"
+        trap 'rm -f "${manifest}"' EXIT
+        cat >"${manifest}" <<'RABBITMQ'
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: rabbitmq-traffic-generator
+          namespace: torque-rabbitmq
+          labels:
+            app.kubernetes.io/name: rabbitmq-traffic-generator
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: rabbitmq-traffic-generator
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: rabbitmq-traffic-generator
+            spec:
+              nodeName: fc-00
+              hostNetwork: true
+              dnsPolicy: Default
+              containers:
+                - name: generator
+                  image: rabbitmq:3.13-management
+                  imagePullPolicy: IfNotPresent
+                  command: ["/bin/bash", "-ec"]
+                  env:
+                    - name: RABBITMQ_TRAFFIC_HOST
+                      value: 172.31.234.10
+                    - name: RABBITMQ_TRAFFIC_USER
+                      value: torque
+                    - name: RABBITMQ_TRAFFIC_PASS
+                      value: torque
+                    - name: RABBITMQ_TRAFFIC_EXCHANGE
+                      value: torque_traffic
+                    - name: RABBITMQ_TRAFFIC_QUEUE
+                      value: torque_traffic
+                    - name: RABBITMQ_TRAFFIC_BATCH_SIZE
+                      value: "5"
+                    - name: RABBITMQ_TRAFFIC_CONSUME_BATCH_SIZE
+                      value: "2"
+                    - name: RABBITMQ_TRAFFIC_INTERVAL_SECONDS
+                      value: "1"
+                  args:
+                    - |
+                      set -euo pipefail
+                      host="${RABBITMQ_TRAFFIC_HOST:-172.31.234.10}"
+                      user="${RABBITMQ_TRAFFIC_USER:-torque}"
+                      pass="${RABBITMQ_TRAFFIC_PASS:-torque}"
+                      exchange="${RABBITMQ_TRAFFIC_EXCHANGE:-torque_traffic}"
+                      queue="${RABBITMQ_TRAFFIC_QUEUE:-torque_traffic}"
+                      ready=0
+                      for attempt in $(seq 1 120); do
+                        if rabbitmqadmin -H "${host}" -u "${user}" -p "${pass}" list queues >/dev/null 2>&1; then
+                          ready=1
+                          break
+                        fi
+                        sleep 2
+                      done
+                      [[ "${ready}" == "1" ]] || exit 1
+                      rabbitmqadmin -H "${host}" -u "${user}" -p "${pass}" declare exchange name="${exchange}" type=direct durable=true
+                      rabbitmqadmin -H "${host}" -u "${user}" -p "${pass}" declare queue name="${queue}" durable=true arguments='{"x-queue-type":"quorum","x-quorum-initial-group-size":5}'
+                      rabbitmqadmin -H "${host}" -u "${user}" -p "${pass}" declare binding source="${exchange}" destination="${queue}" routing_key="${queue}" >/dev/null
+                      counter=0
+                      while true; do
+                        for _ in $(seq 1 "${RABBITMQ_TRAFFIC_BATCH_SIZE:-5}"); do
+                          counter="$((counter + 1))"
+                          payload="rabbitmq-traffic count=${counter} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                          rabbitmqadmin -H "${host}" -u "${user}" -p "${pass}" publish exchange="${exchange}" routing_key="${queue}" payload="${payload}" >/dev/null
+                        done
+                        rabbitmqadmin -H "${host}" -u "${user}" -p "${pass}" get queue="${queue}" count="${RABBITMQ_TRAFFIC_CONSUME_BATCH_SIZE:-2}" ackmode=ack_requeue_false >/dev/null 2>&1 || true
+                        echo "rabbitmq-traffic-published count=${counter}"
+                        sleep "${RABBITMQ_TRAFFIC_INTERVAL_SECONDS:-1}"
+                      done
+        RABBITMQ
+        /usr/local/bin/k3s kubectl apply -f "${manifest}"
+        /usr/local/bin/k3s kubectl -n torque-rabbitmq rollout status deployment/rabbitmq-traffic-generator --timeout=5m
+        /usr/local/bin/k3s kubectl -n torque-rabbitmq get pods -l app.kubernetes.io/name=rabbitmq-traffic-generator -o wide
+        REMOTE_APPLY
+      deleteCommand: |
+        set +e
+        SERVER_IP="172.31.234.10"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" \
+          '/usr/local/bin/k3s kubectl -n torque-rabbitmq delete deployment rabbitmq-traffic-generator --ignore-not-found --timeout=90s'
+
+  - name: rabbitmq-traffic-verify
+    kind: host.command.run
+    needs: [rabbitmq-traffic-generator]
+    host:
+      transport: nats
+      targetEnv: TORQUE_RABBITMQ_NATS_LAB_SUBJECT
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        SERVER_IP="172.31.234.10"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" 'bash -se' <<'VERIFY'
+        set -euo pipefail
+        logs="$(mktemp)"
+        consumed="$(mktemp)"
+        trap 'rm -f "${logs}" "${consumed}"' EXIT
+        published=0
+        for attempt in $(seq 1 60); do
+          /usr/local/bin/k3s kubectl -n torque-rabbitmq rollout status deployment/rabbitmq-traffic-generator --timeout=5s >/dev/null 2>&1 || true
+          /usr/local/bin/k3s kubectl -n torque-rabbitmq logs deployment/rabbitmq-traffic-generator --tail=100 >"${logs}" 2>&1 || true
+          if grep -q 'rabbitmq-traffic-published' "${logs}"; then
+            published=1
+            break
+          fi
+          sleep 5
+        done
+        cat "${logs}"
+        if [[ "${published}" != "1" ]]; then
+          echo "RabbitMQ traffic generator did not publish messages" >&2
+          exit 1
+        fi
+        /usr/local/bin/k3s kubectl -n torque-rabbitmq exec rabbitmq-0 -- \
+          rabbitmqadmin -u torque -p torque get queue=torque_traffic count=1 ackmode=ack_requeue_false >"${consumed}"
+        cat "${consumed}"
+        grep -q 'rabbitmq-traffic' "${consumed}" || { echo "RabbitMQ traffic queue had no proof messages" >&2; exit 1; }
         VERIFY
       deleteCommand: "true"

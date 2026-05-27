@@ -187,8 +187,11 @@ torque-agent nats worker \
 Run the real lab harness when you need a complete multi-node data-service
 proof over NATS transport. The harness starts NATS and two
 `torque-agent nats worker` processes on the lab host, then applies the Kafka
-and RabbitMQ stackfiles through `transport: nats`. Use `--no-cleanup` to leave
-both clusters running side by side.
+and RabbitMQ stackfiles through `transport: nats`. Each stack deploys a
+traffic generator workload: Kafka continuously produces to and consumes from
+`torque-traffic`, and RabbitMQ continuously publishes to and drains the
+`torque_traffic` quorum queue. Use `--no-cleanup` to leave both clusters and
+generators running side by side.
 
 ```bash
 TORQUE_OPS_E2E_CONFIRM=1 \

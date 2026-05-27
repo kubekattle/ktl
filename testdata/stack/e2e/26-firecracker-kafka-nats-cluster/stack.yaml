@@ -476,6 +476,8 @@ nodes:
         SERVER_IP="172.31.233.10"
         LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
         ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" \
+          '/usr/local/bin/k3s kubectl -n torque-kafka delete deployment kafka-traffic-generator --ignore-not-found --timeout=90s'
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" \
           '/usr/local/bin/k3s kubectl delete namespace torque-kafka --ignore-not-found --timeout=90s'
 
   - name: kafka-verify
@@ -535,5 +537,157 @@ nodes:
             exit 1
           fi
         done
+        VERIFY
+      deleteCommand: "true"
+
+  - name: kafka-traffic-generator
+    kind: host.command.run
+    needs: [kafka-verify]
+    host:
+      transport: nats
+      targetEnv: TORQUE_KAFKA_NATS_LAB_SUBJECT
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        SERVER_IP="172.31.233.10"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" 'bash -se' <<'REMOTE_APPLY'
+        set -euo pipefail
+        manifest="$(mktemp)"
+        trap 'rm -f "${manifest}"' EXIT
+        cat >"${manifest}" <<'KAFKA'
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: kafka-traffic-generator
+          namespace: torque-kafka
+          labels:
+            app.kubernetes.io/name: kafka-traffic-generator
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: kafka-traffic-generator
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: kafka-traffic-generator
+            spec:
+              nodeName: fc-00
+              hostNetwork: true
+              dnsPolicy: Default
+              containers:
+                - name: producer
+                  image: apache/kafka:3.7.0
+                  imagePullPolicy: IfNotPresent
+                  command: ["/bin/bash", "-ec"]
+                  env:
+                    - name: KAFKA_BOOTSTRAP
+                      value: 172.31.233.10:9092
+                    - name: KAFKA_TRAFFIC_TOPIC
+                      value: torque-traffic
+                    - name: KAFKA_TRAFFIC_BATCH_SIZE
+                      value: "5"
+                    - name: KAFKA_TRAFFIC_INTERVAL_SECONDS
+                      value: "1"
+                    - name: KAFKA_HEAP_OPTS
+                      value: "-Xms64m -Xmx128m"
+                  args:
+                    - |
+                      set -euo pipefail
+                      topic="${KAFKA_TRAFFIC_TOPIC:-torque-traffic}"
+                      bootstrap="${KAFKA_BOOTSTRAP:-172.31.233.10:9092}"
+                      created=0
+                      for attempt in $(seq 1 120); do
+                        if /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${bootstrap}" --create --if-not-exists --topic "${topic}" --partitions 6 --replication-factor 3; then
+                          created=1
+                          break
+                        fi
+                        sleep 2
+                      done
+                      [[ "${created}" == "1" ]] || exit 1
+                      counter=0
+                      (
+                        while true; do
+                          for _ in $(seq 1 "${KAFKA_TRAFFIC_BATCH_SIZE:-5}"); do
+                            counter="$((counter + 1))"
+                            printf 'kafka-traffic count=%s ts=%s\n' "${counter}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                          done
+                          echo "kafka-traffic-produced count=${counter}" >&2
+                          sleep "${KAFKA_TRAFFIC_INTERVAL_SECONDS:-1}"
+                        done
+                      ) | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server "${bootstrap}" --topic "${topic}"
+                - name: consumer
+                  image: apache/kafka:3.7.0
+                  imagePullPolicy: IfNotPresent
+                  command: ["/bin/bash", "-ec"]
+                  env:
+                    - name: KAFKA_BOOTSTRAP
+                      value: 172.31.233.10:9092
+                    - name: KAFKA_TRAFFIC_TOPIC
+                      value: torque-traffic
+                    - name: KAFKA_HEAP_OPTS
+                      value: "-Xms64m -Xmx128m"
+                  args:
+                    - |
+                      set -euo pipefail
+                      topic="${KAFKA_TRAFFIC_TOPIC:-torque-traffic}"
+                      bootstrap="${KAFKA_BOOTSTRAP:-172.31.233.10:9092}"
+                      for attempt in $(seq 1 120); do
+                        if /opt/kafka/bin/kafka-topics.sh --bootstrap-server "${bootstrap}" --describe --topic "${topic}" >/dev/null 2>&1; then
+                          break
+                        fi
+                        sleep 2
+                      done
+                      exec /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server "${bootstrap}" --topic "${topic}" --group torque-traffic-generator
+        KAFKA
+        /usr/local/bin/k3s kubectl apply -f "${manifest}"
+        /usr/local/bin/k3s kubectl -n torque-kafka rollout status deployment/kafka-traffic-generator --timeout=5m
+        /usr/local/bin/k3s kubectl -n torque-kafka get pods -l app.kubernetes.io/name=kafka-traffic-generator -o wide
+        REMOTE_APPLY
+      deleteCommand: |
+        set +e
+        SERVER_IP="172.31.233.10"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" \
+          '/usr/local/bin/k3s kubectl -n torque-kafka delete deployment kafka-traffic-generator --ignore-not-found --timeout=90s'
+
+  - name: kafka-traffic-verify
+    kind: host.command.run
+    needs: [kafka-traffic-generator]
+    host:
+      transport: nats
+      targetEnv: TORQUE_KAFKA_NATS_LAB_SUBJECT
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        SERVER_IP="172.31.233.10"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        ssh -i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "root@${SERVER_IP}" 'bash -se' <<'VERIFY'
+        set -euo pipefail
+        BOOTSTRAP="172.31.233.10:9092"
+        topic="torque-traffic"
+        logs="$(mktemp)"
+        consumed="$(mktemp)"
+        trap 'rm -f "${logs}" "${consumed}"' EXIT
+        produced=0
+        for attempt in $(seq 1 60); do
+          /usr/local/bin/k3s kubectl -n torque-kafka rollout status deployment/kafka-traffic-generator --timeout=5s >/dev/null 2>&1 || true
+          /usr/local/bin/k3s kubectl -n torque-kafka logs deployment/kafka-traffic-generator -c producer --tail=100 >"${logs}" 2>&1 || true
+          if grep -q 'kafka-traffic-produced' "${logs}"; then
+            produced=1
+            break
+          fi
+          sleep 5
+        done
+        cat "${logs}"
+        if [[ "${produced}" != "1" ]]; then
+          echo "Kafka traffic generator did not produce messages" >&2
+          exit 1
+        fi
+        /usr/local/bin/k3s kubectl -n torque-kafka exec kafka-1 -- \
+          timeout 45 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server "${BOOTSTRAP}" --topic "${topic}" --group "torque-traffic-proof-$(date +%s)" --from-beginning --max-messages 3 >"${consumed}"
+        cat "${consumed}"
+        grep -q 'kafka-traffic' "${consumed}" || { echo "Kafka traffic topic had no proof messages" >&2; exit 1; }
         VERIFY
       deleteCommand: "true"

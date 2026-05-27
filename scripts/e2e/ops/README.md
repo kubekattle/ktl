@@ -90,14 +90,19 @@ scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
 `STACK-FC-KAFKA-RABBITMQ-001.sh` proves two side-by-side NATS-dispatched
 Firecracker data-service labs on the real SSH host. It starts a NATS server on
 the lab host, starts one `torque-agent nats worker` subject for Kafka and one
-for RabbitMQ, applies/reapplies the NATS stackfiles, audits and exports both
-runs, then optionally deletes the labs through the same NATS workers.
+for RabbitMQ, applies/reapplies the NATS stackfiles, deploys continuous
+traffic generators, audits and exports both runs, then optionally deletes the
+labs through the same NATS workers.
 
 Kafka runs as five host-network pods on a five-node Firecracker/k3s cluster
-over `172.31.233.0/24` and verifies topic create, produce, and consume.
+over `172.31.233.0/24`, verifies topic create, produce, consume, and leaves a
+`kafka-traffic-generator` deployment producing to and consuming from
+`torque-traffic`.
 RabbitMQ runs as five host-network pods on a separate five-node
 Firecracker/k3s cluster over `172.31.234.0/24` and verifies cluster membership
-plus quorum queue publish/consume.
+plus quorum queue publish/consume, then leaves a
+`rabbitmq-traffic-generator` deployment publishing to and draining the
+`torque_traffic` quorum queue.
 
 ```bash
 TORQUE_OPS_E2E_CONFIRM=1 \
