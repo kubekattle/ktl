@@ -127,15 +127,18 @@ Implemented local slice:
   succeeds through the surviving worker with receipt evidence naming the exact
   process. The same proof injects a held target slot lease, proves stack apply
   blocks before assignment, expires the held lease, proves the next run reclaims
-  it, and verifies released/expired ledger rows.
+  it, verifies long-running assignments renew their slot lease before the
+  original TTL expires, and verifies released/expired ledger rows.
 - `torque-agent nats heartbeat --worker-slots <n> --worker-in-use <n>` now
   publishes explicit target-local worker capacity as `workerSlots`. Stack
   `runner.fanout.targetConcurrency` can require available target capacity,
   cap local concurrency with `maxPerTarget`, reserve/release durable slot
   leases through `targetConcurrency.ledger` (`file`/SQLite locally, `etcd` in
-  fleet control plane mode), and attach a proven slot lease to each NATS
-  assignment. Workers echo the lease in receipts, and `host-command-fanout.json`
-  preserves target capacity, lease, ledger, assignment, and receipt metadata.
+  fleet control plane mode), renew leases with `ledger.renewInterval`, and
+  attach a proven slot lease to each NATS assignment. Workers reject expired or
+  wrong-target slot leases before command execution, echo the lease decision in
+  receipts, and `host-command-fanout.json` preserves target capacity, lease,
+  ledger, assignment, and receipt metadata.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
@@ -545,6 +548,7 @@ metadata:
   "slotLeaseTargetId": "host/mysql-01",
   "slotLeaseIndex": "1",
   "slotLeaseSlots": "1",
+  "slotLeaseDecision": "accepted",
   "capabilityDigest": "sha256:...",
   "requiredCapability": "host.command.run",
   "assignmentTargetId": "host/mysql-01",
@@ -569,8 +573,10 @@ The stack-side fan-out artifact also records the target slot ledger decision:
     "ledgerStoreKey": "/torque/target-slot-ledger/...",
     "ledgerTokenDigest": "sha256:...",
     "acquiredAt": "2026-05-27T10:00:00Z",
-    "expiresAt": "2026-05-27T10:00:30Z",
-    "releasedAt": "2026-05-27T10:00:02Z"
+    "expiresAt": "2026-05-27T10:00:45Z",
+    "renewedAt": "2026-05-27T10:00:15Z",
+    "renewals": 1,
+    "releasedAt": "2026-05-27T10:00:46Z"
   }
 }
 ```

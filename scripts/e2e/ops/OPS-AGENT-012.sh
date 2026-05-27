@@ -19,9 +19,10 @@ Options:
 OPS-AGENT-012 proves target-local worker pools and durable slot leases: two
 JetStream workers share one target subject, one queue/durable consumer, and one
 assignment ledger. The heartbeat advertises workerSlots, stack fan-out reserves
-a durable target slot, receipts carry slot lease metadata, and the slot ledger
-must block a concurrent reservation, reclaim an expired reservation, and record
-released leases. The first stack apply records which worker executed the
+a durable target slot, renews it while a command outlives the original TTL,
+receipts carry slot lease metadata, and the slot ledger must block a concurrent
+reservation, reclaim an expired reservation, and record released leases. The
+first stack apply records which worker executed the
 assignment. That worker is then stopped, and a second stack apply must succeed
 through the surviving worker without using NATS queue groups as fleet broadcast.
 EOF
@@ -207,18 +208,19 @@ runner:
       enabled: true
       requireAvailable: true
       maxPerTarget: 2
-      leaseTTL: 20s
+      leaseTTL: 2s
       ledger:
         enabled: true
         store: file
         storePath: "${slot_ledger_path}"
+        renewInterval: 500ms
 nodes:
   - kind: host.command.run
     name: write-target-local-pool-marker
     host:
       transport: nats
       timeout: 8s
-      command: "printf 'target-local-pool\\n' >> ${marker}"
+      command: "sleep 3; printf 'target-local-pool\\n' >> ${marker}"
 YAML
 }
 
@@ -535,6 +537,9 @@ def fanout_result(audit):
     results = fanout.get("results") or []
     return fanout, results[0] if results else {}
 
+def duration_matches(value, text, ns):
+    return value == text or value == ns
+
 audit_first = load("verification/audit-first.json")
 audit_second = load("verification/audit-second.json")
 audit_blocked = load("verification/audit-blocked.json")
@@ -574,6 +579,11 @@ for label, fanout in [("first", fanout_first), ("second", fanout_second), ("recl
         errors.append(f"{label} fanout must enable targetConcurrency: {policy}")
     if target_concurrency.get("maxPerTarget") != 2:
         errors.append(f"{label} maxPerTarget mismatch: {target_concurrency}")
+    if not duration_matches(target_concurrency.get("leaseTTL"), "2s", 2000000000):
+        errors.append(f"{label} leaseTTL mismatch: {target_concurrency}")
+    ledger_policy = target_concurrency.get("ledger") or {}
+    if not duration_matches(ledger_policy.get("renewInterval"), "500ms", 500000000):
+        errors.append(f"{label} renewInterval mismatch: {ledger_policy}")
     if summary.get("slotLeases") != 1:
         errors.append(f"{label} summary slotLeases mismatch: {summary}")
     if summary.get("workerSlotsTotal") != 2 or summary.get("workerSlotsAvailable") != 1:
@@ -592,6 +602,8 @@ for label, fanout in [("first", fanout_first), ("second", fanout_second), ("recl
             errors.append(f"{label} target slotLease mismatch: {target}")
         if lease.get("status") != "released" or not lease.get("releasedAt"):
             errors.append(f"{label} target slotLease must be released: {lease}")
+        if lease.get("renewals", 0) < 1 or not lease.get("renewedAt"):
+            errors.append(f"{label} target slotLease must prove renewal: {lease}")
         if lease.get("ledgerStore") != "file" or not lease.get("ledgerTokenDigest"):
             errors.append(f"{label} target slotLedger evidence missing: {lease}")
         if label == "reclaim" and lease.get("reclaimed") != 1:
@@ -636,6 +648,8 @@ for label, result, receipt, metadata, expected_worker in [
         errors.append(f"{label} missing result slotLease: {result}")
     if lease.get("status") != "released" or not lease.get("releasedAt"):
         errors.append(f"{label} result slotLease must be released: {lease}")
+    if lease.get("renewals", 0) < 1 or not lease.get("renewedAt"):
+        errors.append(f"{label} result slotLease must prove renewal: {lease}")
     if label == "reclaim" and lease.get("reclaimed") != 1:
         errors.append(f"{label} result slotLease must prove one reclaimed lease: {lease}")
     if assignment.get("slotLeaseId") != lease.get("id"):
@@ -646,6 +660,8 @@ for label, result, receipt, metadata, expected_worker in [
         errors.append(f"{label} receipt slotLeaseTargetId mismatch: {metadata}")
     if metadata.get("slotLeaseIndex") != "1" or metadata.get("slotLeaseSlots") != "1":
         errors.append(f"{label} receipt slot lease cardinality mismatch: {metadata}")
+    if metadata.get("slotLeaseDecision") != "accepted":
+        errors.append(f"{label} receipt must prove worker accepted slot lease: {metadata}")
 
 if not slot_ledger_path.exists():
     errors.append(f"slot ledger not found: {slot_ledger_path}")
@@ -718,7 +734,7 @@ metadata_doc = {
     "reclaimWorkerId": reclaim_worker_id,
     "survivorWorkerId": survivor_worker_id,
     "queue": worker_queue,
-    "targetConcurrency": {"enabled": True, "maxPerTarget": 2, "leaseTTL": "20s", "ledger": {"enabled": True, "store": "file"}},
+    "targetConcurrency": {"enabled": True, "maxPerTarget": 2, "leaseTTL": "2s", "ledger": {"enabled": True, "store": "file", "renewInterval": "500ms"}},
     "markerCount": marker_count,
 }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 if errors:

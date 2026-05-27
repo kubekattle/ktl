@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -147,6 +148,145 @@ func TestHandleAssignmentBlocksMissingRequiredCapability(t *testing.T) {
 		"nodeId":             "host.command.run/write-marker",
 		"workerDecision":     "blocked",
 	})
+}
+
+func TestHandleAssignmentRunsWithValidSlotLease(t *testing.T) {
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("lease-ok\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.lab.assign.mysql",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-worker-slot",
+		Tenant:                     "lab",
+		TargetID:                   "host/mysql-slot",
+		Hostname:                   "mysql-slot",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf lease-ok", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/mysql-slot",
+		ExpectedAgentID:    "agent-worker-slot",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-slot",
+		NodeID:             "host.command.run/slot",
+		SlotLeaseID:        "lease-slot",
+		SlotLeaseTargetID:  "host/mysql-slot",
+		SlotLeaseIndex:     1,
+		SlotLeaseSlots:     1,
+		SlotLeaseTTL:       "30s",
+		SlotLeaseExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
+	})
+	result := worker.HandleAssignment(context.Background(), assignment)
+	if result.Status != "succeeded" {
+		t.Fatalf("result = %#v, want succeeded", result)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("runner calls = %#v, want one call", runner.calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"slotLeaseId":        "lease-slot",
+		"slotLeaseTargetId":  "host/mysql-slot",
+		"slotLeaseIndex":     "1",
+		"slotLeaseSlots":     "1",
+		"slotLeaseTtl":       "30s",
+		"slotLeaseDecision":  "accepted",
+		"workerDecision":     "executed",
+		"assignmentTargetId": "host/mysql-slot",
+	})
+}
+
+func TestHandleAssignmentBlocksInvalidSlotLease(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata natstransport.CommandAssignmentMetadata
+		wantErr  string
+	}{
+		{
+			name: "expired",
+			metadata: natstransport.CommandAssignmentMetadata{
+				SlotLeaseID:        "lease-expired",
+				SlotLeaseTargetID:  "host/mysql-slot",
+				SlotLeaseIndex:     1,
+				SlotLeaseSlots:     1,
+				SlotLeaseExpiresAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano),
+			},
+			wantErr: "expired",
+		},
+		{
+			name: "wrong lease target",
+			metadata: natstransport.CommandAssignmentMetadata{
+				SlotLeaseID:        "lease-wrong-target",
+				SlotLeaseTargetID:  "host/other",
+				SlotLeaseIndex:     1,
+				SlotLeaseSlots:     1,
+				SlotLeaseExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
+			},
+			wantErr: "does not match worker targetId",
+		},
+		{
+			name: "missing lease id",
+			metadata: natstransport.CommandAssignmentMetadata{
+				SlotLeaseTargetID:  "host/mysql-slot",
+				SlotLeaseIndex:     1,
+				SlotLeaseSlots:     1,
+				SlotLeaseExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
+			},
+			wantErr: "slot lease id is required",
+		},
+		{
+			name: "missing expiry",
+			metadata: natstransport.CommandAssignmentMetadata{
+				SlotLeaseID:       "lease-no-expiry",
+				SlotLeaseTargetID: "host/mysql-slot",
+				SlotLeaseIndex:    1,
+				SlotLeaseSlots:    1,
+			},
+			wantErr: "slot lease expiresAt is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &recordingRunner{
+				output: transport.RunOutput{Stdout: []byte("should-not-run\n"), ExitCode: 0},
+			}
+			worker, err := New(Config{
+				Subject:                    "torque.lab.assign.mysql",
+				Capabilities:               []string{"host.command.run"},
+				DisableCapabilityDiscovery: true,
+				AgentID:                    "agent-worker-slot",
+				Tenant:                     "lab",
+				TargetID:                   "host/mysql-slot",
+				Hostname:                   "mysql-slot",
+				Runner:                     runner,
+			})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			tt.metadata.TargetID = "host/mysql-slot"
+			tt.metadata.ExpectedAgentID = "agent-worker-slot"
+			tt.metadata.RequiredCapability = "host.command.run"
+			assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf should-not-run", time.Now(), tt.metadata)
+			result := worker.HandleAssignment(context.Background(), assignment)
+			if result.Status != "blocked" || !strings.Contains(result.Error, tt.wantErr) {
+				t.Fatalf("result = %#v, want blocked containing %q", result, tt.wantErr)
+			}
+			if len(runner.calls) != 0 {
+				t.Fatalf("runner was called despite invalid slot lease: %#v", runner.calls)
+			}
+			assertMetadata(t, result.Metadata, map[string]string{
+				"slotLeaseDecision": "blocked",
+				"workerDecision":    "blocked",
+			})
+			if !strings.Contains(result.Metadata["slotLeaseReason"], tt.wantErr) {
+				t.Fatalf("slotLeaseReason = %q, want %q in %#v", result.Metadata["slotLeaseReason"], tt.wantErr, result.Metadata)
+			}
+		})
+	}
 }
 
 func TestHandleAssignmentBlocksUnexpectedAgentIdentity(t *testing.T) {
@@ -411,6 +551,96 @@ func TestWorkerExecutesCommandOverLocalNATSServer(t *testing.T) {
 	if result.Metadata["agentId"] != "agent-nats-test" || result.Metadata["workerDecision"] != "executed" {
 		cancel()
 		t.Fatalf("metadata = %#v", result.Metadata)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
+func TestWorkerRejectsExpiredSlotLeaseOverLocalNATSServer(t *testing.T) {
+	serverURL := startLocalNATSServer(t)
+	subject := "torque.test.assign.worker-slot-expired"
+	marker := t.TempDir() + "/should-not-run.txt"
+	ready := make(chan struct{})
+	worker, err := New(Config{
+		Server:                     serverURL,
+		Subject:                    subject,
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-nats-slot",
+		Tenant:                     "lab",
+		TargetID:                   "host/nats-slot",
+		Hostname:                   "nats-slot",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(ctx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("worker did not become ready")
+	}
+	conn, err := natsgo.Connect(serverURL, natsgo.Name("torque-worker-slot-test"), natsgo.Timeout(time.Second))
+	if err != nil {
+		cancel()
+		t.Fatalf("connect test client: %v", err)
+	}
+	defer conn.Close()
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", subject, "printf should-not-run >> "+marker, time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/nats-slot",
+		ExpectedAgentID:    "agent-nats-slot",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-slot-expired",
+		NodeID:             "host.command.run/expired-slot",
+		SlotLeaseID:        "lease-expired",
+		SlotLeaseTargetID:  "host/nats-slot",
+		SlotLeaseIndex:     1,
+		SlotLeaseSlots:     1,
+		SlotLeaseExpiresAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano),
+	})
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		cancel()
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	reqCtx, reqCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer reqCancel()
+	msg, err := conn.RequestWithContext(reqCtx, subject, raw)
+	if err != nil {
+		cancel()
+		t.Fatalf("request worker: %v", err)
+	}
+	var result transport.OperationResult
+	if err := json.Unmarshal(msg.Data, &result); err != nil {
+		cancel()
+		t.Fatalf("parse response: %v", err)
+	}
+	if result.Status != "blocked" || !strings.Contains(result.Error, "expired") {
+		cancel()
+		t.Fatalf("result = %#v, want expired slot lease block", result)
+	}
+	if result.Metadata["slotLeaseDecision"] != "blocked" || !strings.Contains(result.Metadata["slotLeaseReason"], "expired") {
+		cancel()
+		t.Fatalf("slot lease metadata = %#v", result.Metadata)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		cancel()
+		t.Fatalf("marker stat err = %v, want not exist", err)
 	}
 	cancel()
 	select {

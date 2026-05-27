@@ -4371,18 +4371,19 @@ runner:
       enabled: true
       requireAvailable: true
       maxPerTarget: 2
-      leaseTTL: 20s
+      leaseTTL: 2s
       ledger:
         enabled: true
         store: file
         storePath: %q
+        renewInterval: 500ms
 nodes:
   - kind: host.command.run
     name: write-slot-marker
     host:
       transport: nats
       timeout: 8s
-      command: "printf 'slot-hit\n' >> %s"
+      command: "sleep 3; printf 'slot-hit\n' >> %s"
 `, registryPath, slotLedgerPath, marker)
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack: %v", err)
@@ -4406,7 +4407,7 @@ nodes:
 		Durable:                    "stack-js-slot-worker",
 		LedgerPath:                 filepath.Join(root, "agent-assignments.sqlite"),
 		Ready:                      ready,
-		Timeout:                    2 * time.Second,
+		Timeout:                    6 * time.Second,
 		Capabilities:               []string{NodeKindHostCommandRun},
 		DisableCapabilityDiscovery: true,
 		AgentID:                    agentID,
@@ -4458,6 +4459,9 @@ nodes:
 	if fanout.Targets[0].SlotLease.Status != "released" || fanout.Targets[0].SlotLease.LedgerStore != "file" || fanout.Targets[0].SlotLease.LedgerTokenDigest == "" {
 		t.Fatalf("fanout target ledger evidence = %#v", fanout.Targets[0].SlotLease)
 	}
+	if fanout.Targets[0].SlotLease.Renewals < 1 || fanout.Targets[0].SlotLease.RenewedAt == "" || fanout.Policy.TargetConcurrency.Ledger.RenewInterval != 500*time.Millisecond {
+		t.Fatalf("fanout target lease renewal evidence = %#v policy=%#v", fanout.Targets[0].SlotLease, fanout.Policy.TargetConcurrency)
+	}
 	if len(fanout.Results) != 1 {
 		t.Fatalf("fanout results = %#v", fanout.Results)
 	}
@@ -4468,9 +4472,15 @@ nodes:
 	if result.SlotLease.Status != "released" || result.SlotLease.ReleasedAt == "" {
 		t.Fatalf("result slot lease was not released: %#v", result.SlotLease)
 	}
+	if result.SlotLease.Renewals < 1 || result.SlotLease.RenewedAt == "" {
+		t.Fatalf("result slot lease was not renewed: %#v", result.SlotLease)
+	}
 	metadata := result.Receipt.Metadata
 	if metadata["slotLeaseId"] != result.SlotLease.ID || metadata["slotLeaseTargetId"] != agentID || metadata["slotLeaseIndex"] != "1" || metadata["slotLeaseSlots"] != "1" {
 		t.Fatalf("receipt slot lease metadata = %#v, lease=%#v", metadata, result.SlotLease)
+	}
+	if metadata["slotLeaseDecision"] != "accepted" {
+		t.Fatalf("receipt slot lease decision metadata = %#v", metadata)
 	}
 	workerCancel()
 	select {

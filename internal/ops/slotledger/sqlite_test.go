@@ -56,12 +56,27 @@ func TestSQLiteStoreReserveBlocksReleasesAndReclaims(t *testing.T) {
 		t.Fatalf("blocked reserve = %#v", blocked)
 	}
 
+	renewed, err := store.Renew(ctx, RenewRequest{
+		Tenant:   "lab",
+		TargetID: "host-141",
+		LeaseID:  "lease-a",
+		Token:    "token-a",
+		TTL:      2 * time.Minute,
+		Now:      now.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatalf("Renew: %v", err)
+	}
+	if renewed.Status != StatusHeld || renewed.ExpiresAt <= first.Lease.ExpiresAt || renewed.UpdatedAt == first.Lease.UpdatedAt {
+		t.Fatalf("renewed = %#v first=%#v", renewed, first.Lease)
+	}
+
 	released, err := store.Release(ctx, ReleaseRequest{
 		Tenant:   "lab",
 		TargetID: "host-141",
 		LeaseID:  "lease-a",
 		Token:    "token-a",
-		Now:      now.Add(2 * time.Second),
+		Now:      now.Add(3 * time.Second),
 	})
 	if err != nil {
 		t.Fatalf("Release: %v", err)
@@ -79,7 +94,7 @@ func TestSQLiteStoreReserveBlocksReleasesAndReclaims(t *testing.T) {
 		LeaseID:  "lease-b",
 		MaxSlots: 1,
 		TTL:      time.Minute,
-		Now:      now.Add(3 * time.Second),
+		Now:      now.Add(4 * time.Second),
 		Token:    "token-b",
 	})
 	if err != nil {
@@ -126,5 +141,17 @@ func TestSQLiteStoreReserveBlocksReleasesAndReclaims(t *testing.T) {
 	}
 	if reclaimed.Decision != "acquired" || len(reclaimed.Reclaimed) != 1 || reclaimed.Reclaimed[0].Status != StatusExpired {
 		t.Fatalf("reclaimed reserve = %#v", reclaimed)
+	}
+
+	_, err = expiredStore.Renew(ctx, RenewRequest{
+		Tenant:   "lab",
+		TargetID: "host-141",
+		LeaseID:  "lease-new",
+		Token:    "token-new",
+		TTL:      time.Minute,
+		Now:      now.Add(2*time.Minute + time.Second),
+	})
+	if err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("Renew expired err = %v, want expired", err)
 	}
 }

@@ -70,9 +70,9 @@ without hiding the important decisions in CI logs or a control-plane database.
   targets, Fleet execution, and deterministic 100-node provider tests.
 - Agent-backed NATS command execution, targeted fleet fan-out, durable
   JetStream assignments/receipts, worker idempotency ledgers, capability
-  reporting, worker-side capability enforcement, and identity receipts for
-  stack nodes that need outbound worker fan-out without changing stack
-  semantics.
+  reporting, worker-side capability and slot-lease enforcement, renewable
+  target slot ledgers, and identity receipts for stack nodes that need outbound
+  worker fan-out without changing stack semantics.
 - Optional fleet control-plane design for Kubernetes, dedicated etcd inventory,
   NATS JetStream assignment/receipt streams, readiness/capability gates, and
   10,000-host durable agents.

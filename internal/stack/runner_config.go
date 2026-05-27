@@ -282,6 +282,9 @@ func mergeRunnerFanoutTargetSlotLedger(dst *RunnerFanoutTargetSlotLedger, src Ru
 	if strings.TrimSpace(src.EtcdPrefix) != "" {
 		dst.EtcdPrefix = src.EtcdPrefix
 	}
+	if src.RenewInterval != nil {
+		dst.RenewInterval = src.RenewInterval
+	}
 }
 
 func mergeRunnerFanoutRetry(dst *RunnerFanoutRetry, src RunnerFanoutRetry) {
@@ -413,6 +416,9 @@ func applyRunnerFanoutTargetSlotLedgerResolved(dst *RunnerFanoutTargetSlotLedger
 	if strings.TrimSpace(cfg.EtcdPrefix) != "" {
 		dst.EtcdPrefix = strings.TrimSpace(cfg.EtcdPrefix)
 	}
+	if cfg.RenewInterval != nil {
+		dst.RenewInterval = *cfg.RenewInterval
+	}
 }
 
 func applyRunnerFanoutRetryResolved(dst *RunnerFanoutRetryResolved, cfg RunnerFanoutRetry) {
@@ -529,6 +535,9 @@ func ValidateRunnerResolved(r RunnerResolved) error {
 	}
 	if ledgerStore != slotledger.StoreFile && ledgerStore != slotledger.StoreEtcd {
 		return fmt.Errorf("runner.fanout.targetConcurrency.ledger.store must be file or etcd (got %q)", r.Fanout.TargetConcurrency.Ledger.Store)
+	}
+	if r.Fanout.TargetConcurrency.Ledger.RenewInterval < 0 {
+		return fmt.Errorf("runner.fanout.targetConcurrency.ledger.renewInterval must be >= 0")
 	}
 	if r.Fanout.Retry.MaxDeliver < 1 {
 		return fmt.Errorf("runner.fanout.retry.maxDeliver must be >= 1 (got %d)", r.Fanout.Retry.MaxDeliver)

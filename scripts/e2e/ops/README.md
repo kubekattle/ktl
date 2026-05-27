@@ -563,12 +563,13 @@ starts two `torque-agent nats worker --delivery jetstream` processes on the
 same target subject, queue/durable consumer, and assignment ledger, publishes a
 heartbeat with `workerSlots`, runs stack apply with
 `runner.fanout.targetConcurrency.ledger`, and verifies each successful fan-out
-reserves then releases a SQLite-backed target slot lease. It stops the worker
-named in the first receipt, proves the second run succeeds through the
-surviving worker, injects a held target slot lease to prove a concurrent apply
-blocks before assignment, expires that lease, and proves the next run reclaims
-it. Receipts must include `workerId`, `queue`, `assignmentConsumer`, and slot
-lease metadata.
+reserves, renews, then releases a SQLite-backed target slot lease while the
+command runs longer than the original TTL. It stops the worker named in the
+first receipt, proves the second run succeeds through the surviving worker,
+injects a held target slot lease to prove a concurrent apply blocks before
+assignment, expires that lease, and proves the next run reclaims it. Receipts
+must include `workerId`, `queue`, `assignmentConsumer`, slot lease metadata,
+and `slotLeaseDecision`.
 
 ```bash
 scripts/e2e/ops/OPS-AGENT-012.sh \

@@ -593,9 +593,23 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	if assignmentTargetID := strings.TrimSpace(assignment.TargetID); assignmentTargetID != "" && assignmentTargetID != strings.TrimSpace(w.targetID) {
 		return w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("assignment targetId %s does not match worker targetId %s", assignmentTargetID, strings.TrimSpace(w.targetID)))
 	}
+	slotLeaseMetadata := map[string]string{}
+	if commandAssignmentHasSlotLease(assignment) {
+		if err := w.validateSlotLeaseAssignment(assignment); err != nil {
+			result := w.blockedResultWithReason(operation, target, assignment, err.Error())
+			result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+				"slotLeaseDecision": "blocked",
+				"slotLeaseReason":   err.Error(),
+			})
+			return result
+		}
+		slotLeaseMetadata["slotLeaseDecision"] = "accepted"
+	}
 	requiredCapability := strings.TrimSpace(assignment.RequiredCapability)
 	if requiredCapability != "" && !w.hasCapability(requiredCapability) {
-		return w.blockedResult(operation, target, assignment)
+		result := w.blockedResult(operation, target, assignment)
+		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+		return result
 	}
 	client, err := localtransport.New(localtransport.Config{
 		Target:       "local://" + w.subject,
@@ -605,7 +619,9 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 		Runner:       w.runner,
 	})
 	if err != nil {
-		return w.errorResultForAssignment(operation, target, assignment, err, false)
+		result := w.errorResultForAssignment(operation, target, assignment, err, false)
+		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+		return result
 	}
 	var result transport.OperationResult
 	switch operation {
@@ -613,11 +629,15 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 		result = client.Connect(ctx)
 	case "run":
 		if strings.TrimSpace(assignment.Command) == "" {
-			return w.blockedResultWithReason(operation, target, assignment, "run assignment command is required")
+			result := w.blockedResultWithReason(operation, target, assignment, "run assignment command is required")
+			result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+			return result
 		}
 		result = client.Run(ctx, assignment.Command)
 	default:
-		return w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("unsupported assignment operation %q", operation))
+		result := w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("unsupported assignment operation %q", operation))
+		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+		return result
 	}
 	result.Operation = operation
 	result.TargetDigest = natstransport.TargetDigest(target)
@@ -626,7 +646,56 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	result.Error = w.redactor.RedactString(result.Error)
 	result.Command = w.redactor.RedactArgs(result.Command)
 	result.Metadata = mergeMetadata(result.Metadata, w.receiptMetadata(assignment, "executed"))
+	result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
 	return result
+}
+
+func commandAssignmentHasSlotLease(assignment natstransport.CommandAssignment) bool {
+	return strings.TrimSpace(assignment.SlotLeaseID) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseTargetID) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseTTL) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseExpiresAt) != "" ||
+		assignment.SlotLeaseIndex > 0 ||
+		assignment.SlotLeaseSlots > 0
+}
+
+func (w *Worker) validateSlotLeaseAssignment(assignment natstransport.CommandAssignment) error {
+	leaseID := strings.TrimSpace(assignment.SlotLeaseID)
+	if leaseID == "" {
+		return fmt.Errorf("slot lease id is required")
+	}
+	leaseTargetID := strings.TrimSpace(assignment.SlotLeaseTargetID)
+	if leaseTargetID == "" {
+		return fmt.Errorf("slot lease targetId is required")
+	}
+	workerTargetID := strings.TrimSpace(w.targetID)
+	if workerTargetID == "" {
+		return fmt.Errorf("worker targetId is required for slot lease %s", leaseID)
+	}
+	if leaseTargetID != workerTargetID {
+		return fmt.Errorf("slot lease targetId %s does not match worker targetId %s", leaseTargetID, workerTargetID)
+	}
+	if assignmentTargetID := strings.TrimSpace(assignment.TargetID); assignmentTargetID != "" && leaseTargetID != assignmentTargetID {
+		return fmt.Errorf("slot lease targetId %s does not match assignment targetId %s", leaseTargetID, assignmentTargetID)
+	}
+	if assignment.SlotLeaseIndex < 1 {
+		return fmt.Errorf("slot lease index must be >= 1")
+	}
+	if assignment.SlotLeaseSlots < 1 {
+		return fmt.Errorf("slot lease slots must be >= 1")
+	}
+	expiresAtRaw := strings.TrimSpace(assignment.SlotLeaseExpiresAt)
+	if expiresAtRaw == "" {
+		return fmt.Errorf("slot lease expiresAt is required")
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, expiresAtRaw)
+	if err != nil {
+		return fmt.Errorf("parse slot lease expiresAt: %w", err)
+	}
+	if !time.Now().UTC().Before(expiresAt.UTC()) {
+		return fmt.Errorf("slot lease %s expired at %s", leaseID, expiresAtRaw)
+	}
+	return nil
 }
 
 func (w *Worker) errorResult(operation string, target string, err error, timedOut bool) transport.OperationResult {

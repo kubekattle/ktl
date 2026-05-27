@@ -253,11 +253,12 @@ type RunnerFanoutTargetConcurrency struct {
 }
 
 type RunnerFanoutTargetSlotLedger struct {
-	Enabled       *bool    `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	Store         string   `yaml:"store,omitempty" json:"store,omitempty"`
-	StorePath     string   `yaml:"storePath,omitempty" json:"storePath,omitempty"`
-	EtcdEndpoints []string `yaml:"etcdEndpoints,omitempty" json:"etcdEndpoints,omitempty"`
-	EtcdPrefix    string   `yaml:"etcdPrefix,omitempty" json:"etcdPrefix,omitempty"`
+	Enabled       *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Store         string         `yaml:"store,omitempty" json:"store,omitempty"`
+	StorePath     string         `yaml:"storePath,omitempty" json:"storePath,omitempty"`
+	EtcdEndpoints []string       `yaml:"etcdEndpoints,omitempty" json:"etcdEndpoints,omitempty"`
+	EtcdPrefix    string         `yaml:"etcdPrefix,omitempty" json:"etcdPrefix,omitempty"`
+	RenewInterval *time.Duration `yaml:"renewInterval,omitempty" json:"renewInterval,omitempty"`
 }
 
 type RunnerLimits struct {
@@ -329,11 +330,12 @@ type RunnerFanoutTargetConcurrencyResolved struct {
 }
 
 type RunnerFanoutTargetSlotLedgerResolved struct {
-	Enabled       bool     `json:"enabled,omitempty"`
-	Store         string   `json:"store,omitempty"`
-	StorePath     string   `json:"storePath,omitempty"`
-	EtcdEndpoints []string `json:"etcdEndpoints,omitempty"`
-	EtcdPrefix    string   `json:"etcdPrefix,omitempty"`
+	Enabled       bool          `json:"enabled,omitempty"`
+	Store         string        `json:"store,omitempty"`
+	StorePath     string        `json:"storePath,omitempty"`
+	EtcdEndpoints []string      `json:"etcdEndpoints,omitempty"`
+	EtcdPrefix    string        `json:"etcdPrefix,omitempty"`
+	RenewInterval time.Duration `json:"renewInterval,omitempty"`
 }
 
 type RunnerLimitsResolved struct {

@@ -265,9 +265,11 @@ the exact `workerId` that executed or blocked the work. Add
 per-target local concurrency, and reserve/release a durable slot lease for each
 assignment and receipt. Use the SQLite `file` ledger for local/shared-disk
 labs, or the `etcd` ledger in fleet control plane mode so concurrent
-controllers cannot overbook one target. Add `runner.fanout.retry` to bound
-transient failures and force dead-letter evidence when the retry budget is
-exhausted. Set
+controllers cannot overbook one target. Set `ledger.renewInterval` so long
+assignments keep their slot alive until release; workers also reject expired or
+wrong-target slot leases before command execution and record the lease decision
+in receipts. Add `runner.fanout.retry` to bound transient failures and force
+dead-letter evidence when the retry budget is exhausted. Set
 `TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` for stack-side JetStream signing, then run
 workers with `--verify-assignments --trusted-issuer-key` so agents reject
 unsigned or mismatched broker messages before execution. Stack apply also
@@ -312,6 +314,7 @@ runner:
         etcdEndpoints:
           - http://127.0.0.1:2379
         etcdPrefix: /torque
+        renewInterval: 10s
     retry:
       maxDeliver: 3
       ackWait: 30s

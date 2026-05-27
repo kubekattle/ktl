@@ -29,6 +29,7 @@ const (
 
 type Store interface {
 	Reserve(ctx context.Context, req ReserveRequest) (ReserveResult, error)
+	Renew(ctx context.Context, req RenewRequest) (LeaseRecord, error)
 	Release(ctx context.Context, req ReleaseRequest) (LeaseRecord, error)
 	List(ctx context.Context, req ListRequest) ([]LeaseRecord, error)
 	Close() error
@@ -58,6 +59,15 @@ type ReleaseRequest struct {
 	TargetID string
 	LeaseID  string
 	Token    string
+	Now      time.Time
+}
+
+type RenewRequest struct {
+	Tenant   string
+	TargetID string
+	LeaseID  string
+	Token    string
+	TTL      time.Duration
 	Now      time.Time
 }
 
@@ -166,6 +176,31 @@ func (r ReleaseRequest) normalized(now time.Time) (ReleaseRequest, error) {
 	}
 	if r.Token == "" {
 		return ReleaseRequest{}, fmt.Errorf("lease token is required")
+	}
+	if r.Now.IsZero() {
+		r.Now = now.UTC()
+	} else {
+		r.Now = r.Now.UTC()
+	}
+	return r, nil
+}
+
+func (r RenewRequest) normalized(now time.Time) (RenewRequest, error) {
+	r.Tenant = NormalizeTenant(r.Tenant)
+	r.TargetID = strings.TrimSpace(r.TargetID)
+	r.LeaseID = strings.TrimSpace(r.LeaseID)
+	r.Token = strings.TrimSpace(r.Token)
+	if r.TargetID == "" {
+		return RenewRequest{}, fmt.Errorf("targetId is required")
+	}
+	if r.LeaseID == "" {
+		return RenewRequest{}, fmt.Errorf("leaseId is required")
+	}
+	if r.Token == "" {
+		return RenewRequest{}, fmt.Errorf("lease token is required")
+	}
+	if r.TTL <= 0 {
+		return RenewRequest{}, fmt.Errorf("ttl must be > 0")
 	}
 	if r.Now.IsZero() {
 		r.Now = now.UTC()

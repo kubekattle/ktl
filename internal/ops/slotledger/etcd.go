@@ -194,6 +194,89 @@ func (s *EtcdStore) Release(ctx context.Context, req ReleaseRequest) (LeaseRecor
 	return record, nil
 }
 
+func (s *EtcdStore) Renew(ctx context.Context, req RenewRequest) (LeaseRecord, error) {
+	if s == nil || s.client == nil {
+		return LeaseRecord{}, fmt.Errorf("etcd slot ledger is not connected")
+	}
+	normalized, err := req.normalized(time.Now())
+	if err != nil {
+		return LeaseRecord{}, err
+	}
+	historyKey := s.historyKey(normalized.Tenant, normalized.TargetID, normalized.LeaseID)
+	resp, err := s.client.Get(ctx, historyKey)
+	if err != nil {
+		return LeaseRecord{}, err
+	}
+	if len(resp.Kvs) == 0 {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q was not found", normalized.LeaseID)
+	}
+	var record LeaseRecord
+	if err := json.Unmarshal(resp.Kvs[0].Value, &record); err != nil {
+		return LeaseRecord{}, fmt.Errorf("parse slot lease %s: %w", historyKey, err)
+	}
+	if record.Tenant != normalized.Tenant || record.TargetID != normalized.TargetID {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q target mismatch", normalized.LeaseID)
+	}
+	if record.TokenDigest != TokenDigest(normalized.Token) {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q token mismatch", normalized.LeaseID)
+	}
+	if record.Status != StatusHeld {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q is %s, not held", normalized.LeaseID, record.Status)
+	}
+	activeKey := s.activeKey(record.Tenant, record.TargetID, record.SlotIndex)
+	heldValue := string(resp.Kvs[0].Value)
+	now := normalized.Now.UTC()
+	nowString := now.Format(time.RFC3339Nano)
+	if Expired(record, now) {
+		record.Status = StatusExpired
+		record.UpdatedAt = nowString
+		raw, err := json.Marshal(record)
+		if err != nil {
+			return LeaseRecord{}, err
+		}
+		txnResp, err := s.client.Txn(ctx).
+			If(
+				clientv3.Compare(clientv3.ModRevision(historyKey), "=", resp.Kvs[0].ModRevision),
+				clientv3.Compare(clientv3.Value(activeKey), "=", heldValue),
+			).
+			Then(
+				clientv3.OpPut(historyKey, string(raw)),
+				clientv3.OpDelete(activeKey),
+			).
+			Commit()
+		if err != nil {
+			return LeaseRecord{}, err
+		}
+		if !txnResp.Succeeded {
+			return LeaseRecord{}, fmt.Errorf("slot lease %q changed during renew", normalized.LeaseID)
+		}
+		return LeaseRecord{}, fmt.Errorf("slot lease %q expired at %s", normalized.LeaseID, record.ExpiresAt)
+	}
+	record.ExpiresAt = now.Add(normalized.TTL).Format(time.RFC3339Nano)
+	record.UpdatedAt = nowString
+	raw, err := json.Marshal(record)
+	if err != nil {
+		return LeaseRecord{}, err
+	}
+	txnResp, err := s.client.Txn(ctx).
+		If(
+			clientv3.Compare(clientv3.ModRevision(historyKey), "=", resp.Kvs[0].ModRevision),
+			clientv3.Compare(clientv3.Value(activeKey), "=", heldValue),
+		).
+		Then(
+			clientv3.OpPut(historyKey, string(raw)),
+			clientv3.OpPut(activeKey, string(raw)),
+		).
+		Commit()
+	if err != nil {
+		return LeaseRecord{}, err
+	}
+	if !txnResp.Succeeded {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q changed during renew", normalized.LeaseID)
+	}
+	return record, nil
+}
+
 func (s *EtcdStore) List(ctx context.Context, req ListRequest) ([]LeaseRecord, error) {
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("etcd slot ledger is not connected")

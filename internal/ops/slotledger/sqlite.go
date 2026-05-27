@@ -272,6 +272,70 @@ WHERE lease_id = ?`, StatusReleased, now, now, normalized.LeaseID); err != nil {
 	return record, nil
 }
 
+func (s *SQLiteStore) Renew(ctx context.Context, req RenewRequest) (LeaseRecord, error) {
+	if s == nil || s.db == nil {
+		return LeaseRecord{}, fmt.Errorf("slot ledger is not open")
+	}
+	normalized, err := req.normalized(time.Now())
+	if err != nil {
+		return LeaseRecord{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return LeaseRecord{}, err
+	}
+	defer func() {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	record, found, err := sqliteGetByLeaseID(ctx, tx, normalized.LeaseID)
+	if err != nil {
+		return LeaseRecord{}, err
+	}
+	if !found {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q was not found", normalized.LeaseID)
+	}
+	if record.Tenant != normalized.Tenant || record.TargetID != normalized.TargetID {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q target mismatch", normalized.LeaseID)
+	}
+	if record.TokenDigest != TokenDigest(normalized.Token) {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q token mismatch", normalized.LeaseID)
+	}
+	if record.Status != StatusHeld {
+		return LeaseRecord{}, fmt.Errorf("slot lease %q is %s, not held", normalized.LeaseID, record.Status)
+	}
+	now := normalized.Now.UTC()
+	nowString := now.Format(time.RFC3339Nano)
+	if Expired(record, now) {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE target_slot_leases
+SET status = ?, updated_at = ?
+WHERE lease_id = ?`, StatusExpired, nowString, normalized.LeaseID); err != nil {
+			return LeaseRecord{}, fmt.Errorf("expire slot lease during renew: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return LeaseRecord{}, err
+		}
+		tx = nil
+		return LeaseRecord{}, fmt.Errorf("slot lease %q expired at %s", normalized.LeaseID, record.ExpiresAt)
+	}
+	expiresAt := now.Add(normalized.TTL).Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `
+UPDATE target_slot_leases
+SET expires_at = ?, updated_at = ?
+WHERE lease_id = ? AND status = ?`, expiresAt, nowString, normalized.LeaseID, StatusHeld); err != nil {
+		return LeaseRecord{}, fmt.Errorf("renew slot lease: %w", err)
+	}
+	record.ExpiresAt = expiresAt
+	record.UpdatedAt = nowString
+	if err := tx.Commit(); err != nil {
+		return LeaseRecord{}, err
+	}
+	tx = nil
+	return record, nil
+}
+
 func (s *SQLiteStore) List(ctx context.Context, req ListRequest) ([]LeaseRecord, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("slot ledger is not open")
