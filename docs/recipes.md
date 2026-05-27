@@ -739,6 +739,21 @@ TORQUE_OPS_E2E_CONFIRM=1 scripts/e2e/ops/OPS-TR-008.sh \
   --evidence-root /tmp/torque-ops-e2e
 ```
 
+For a database-shaped NATS workflow, run the five-node PostgreSQL/PgBouncer
+Firecracker proof. The harness boots one primary and four streaming replicas,
+starts a NATS assignment worker inside every VM, applies PostgreSQL and
+PgBouncer configuration through `host.command.run` nodes with `transport:
+nats`, reapplies for idempotence, writes a replicated probe through PgBouncer,
+audits/exports the run, and deletes the stack before VM cleanup:
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH=ssh://root@141.105.65.227 \
+scripts/e2e/ops/STACK-FC-POSTGRES-001.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## Stack: Terraform providers as modules
 
 Use `torque terraform-adapter` when a stack needs a resource from the

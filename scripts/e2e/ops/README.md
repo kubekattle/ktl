@@ -85,6 +85,23 @@ scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
   --cleanup
 ```
 
+## STACK-FC-POSTGRES-001
+
+`STACK-FC-POSTGRES-001.sh` proves a NATS-transport database workflow on the
+real Firecracker lab host. It boots five Firecracker VMs, starts a
+`torque-agent nats worker` inside each VM, generates a stack whose PostgreSQL
+primary, four streaming replicas, PgBouncer setup, replicated probe, reapply,
+audit/export, and delete phases all run through NATS assignment subjects, then
+collects proof artifacts and cleans up the VM resources.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-POSTGRES-001.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-HOST-001
 
 `OPS-HOST-001.sh` proves the first guarded host adapter on the real
