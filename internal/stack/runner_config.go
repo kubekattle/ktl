@@ -25,6 +25,9 @@ const (
 
 	RunnerFanoutDeliveryRequestReply = "requestReply"
 	RunnerFanoutDeliveryJetStream    = "jetstream"
+
+	RunnerFanoutRetryOnBlock    = "block"
+	RunnerFanoutRetryOnContinue = "continue"
 )
 
 func ResolveRunnerConfig(u *Universe, profile string) (RunnerResolved, error) {
@@ -48,6 +51,11 @@ func ResolveRunnerConfig(u *Universe, profile string) (RunnerResolved, error) {
 			MinSucceededPercent: 100,
 			OnPartialFailure:    RunnerFanoutOnBlock,
 			Delivery:            RunnerFanoutDeliveryRequestReply,
+			Retry: RunnerFanoutRetryResolved{
+				MaxDeliver:  3,
+				AckWait:     30 * time.Second,
+				OnExhausted: RunnerFanoutRetryOnBlock,
+			},
 		},
 		Limits: RunnerLimitsResolved{
 			ParallelismGroupLimit: 1,
@@ -225,6 +233,25 @@ func mergeRunnerFanout(dst *RunnerFanout, src RunnerFanout) {
 	if strings.TrimSpace(src.Delivery) != "" {
 		dst.Delivery = src.Delivery
 	}
+	mergeRunnerFanoutRetry(&dst.Retry, src.Retry)
+}
+
+func mergeRunnerFanoutRetry(dst *RunnerFanoutRetry, src RunnerFanoutRetry) {
+	if dst == nil {
+		return
+	}
+	if src.MaxDeliver != nil {
+		dst.MaxDeliver = src.MaxDeliver
+	}
+	if src.AckWait != nil {
+		dst.AckWait = src.AckWait
+	}
+	if src.Backoff != nil {
+		dst.Backoff = append([]time.Duration(nil), src.Backoff...)
+	}
+	if strings.TrimSpace(src.OnExhausted) != "" {
+		dst.OnExhausted = src.OnExhausted
+	}
 }
 
 func applyRunnerResolved(dst *RunnerResolved, cfg RunnerConfig) {
@@ -295,6 +322,25 @@ func applyRunnerFanoutResolved(dst *RunnerResolved, cfg RunnerFanout) {
 	}
 	if strings.TrimSpace(cfg.Delivery) != "" {
 		dst.Fanout.Delivery = normalizeRunnerFanoutDelivery(cfg.Delivery)
+	}
+	applyRunnerFanoutRetryResolved(&dst.Fanout.Retry, cfg.Retry)
+}
+
+func applyRunnerFanoutRetryResolved(dst *RunnerFanoutRetryResolved, cfg RunnerFanoutRetry) {
+	if dst == nil {
+		return
+	}
+	if cfg.MaxDeliver != nil {
+		dst.MaxDeliver = *cfg.MaxDeliver
+	}
+	if cfg.AckWait != nil {
+		dst.AckWait = *cfg.AckWait
+	}
+	if cfg.Backoff != nil {
+		dst.Backoff = append([]time.Duration(nil), cfg.Backoff...)
+	}
+	if strings.TrimSpace(cfg.OnExhausted) != "" {
+		dst.OnExhausted = normalizeRunnerFanoutRetryOnExhausted(cfg.OnExhausted)
 	}
 }
 
@@ -382,6 +428,24 @@ func ValidateRunnerResolved(r RunnerResolved) error {
 	if delivery != RunnerFanoutDeliveryRequestReply && delivery != RunnerFanoutDeliveryJetStream {
 		return fmt.Errorf("runner.fanout.delivery must be requestReply or jetstream (got %q)", r.Fanout.Delivery)
 	}
+	if r.Fanout.Retry.MaxDeliver < 1 {
+		return fmt.Errorf("runner.fanout.retry.maxDeliver must be >= 1 (got %d)", r.Fanout.Retry.MaxDeliver)
+	}
+	if r.Fanout.Retry.AckWait <= 0 {
+		return fmt.Errorf("runner.fanout.retry.ackWait must be > 0")
+	}
+	for idx, backoff := range r.Fanout.Retry.Backoff {
+		if backoff <= 0 {
+			return fmt.Errorf("runner.fanout.retry.backoff[%d] must be > 0", idx)
+		}
+	}
+	onExhausted := normalizeRunnerFanoutRetryOnExhausted(r.Fanout.Retry.OnExhausted)
+	if onExhausted == "" {
+		onExhausted = RunnerFanoutRetryOnBlock
+	}
+	if onExhausted != RunnerFanoutRetryOnBlock && onExhausted != RunnerFanoutRetryOnContinue {
+		return fmt.Errorf("runner.fanout.retry.onExhausted must be block or continue (got %q)", r.Fanout.Retry.OnExhausted)
+	}
 	if r.Limits.MaxParallelPerNamespace < 0 {
 		return fmt.Errorf("runner.limits.maxParallelPerNamespace must be >= 0 (got %d)", r.Limits.MaxParallelPerNamespace)
 	}
@@ -425,6 +489,17 @@ func normalizeRunnerFanoutDelivery(raw string) string {
 		return RunnerFanoutDeliveryRequestReply
 	case "jetstream", "jet-stream", "jet_stream", "jet.stream":
 		return RunnerFanoutDeliveryJetStream
+	default:
+		return strings.TrimSpace(raw)
+	}
+}
+
+func normalizeRunnerFanoutRetryOnExhausted(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "block":
+		return RunnerFanoutRetryOnBlock
+	case "continue":
+		return RunnerFanoutRetryOnContinue
 	default:
 		return strings.TrimSpace(raw)
 	}

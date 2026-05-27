@@ -23,6 +23,11 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 		"TORQUE_NATS_ASSIGNMENT_STREAM":  "TORQUE_ASSIGNMENTS_TEST",
 		"TORQUE_NATS_RECEIPT_STREAM":     "TORQUE_RECEIPTS_TEST",
 		"TORQUE_AGENT_ASSIGNMENT_LEDGER": "/tmp/torque-agent-ledger.sqlite",
+		"TORQUE_NATS_MAX_DELIVER":        "5",
+		"TORQUE_NATS_ACK_WAIT":           "11s",
+		"TORQUE_NATS_BACKOFF":            "1s,2s",
+		"TORQUE_NATS_NAK_DELAY":          "250ms",
+		"TORQUE_NATS_ON_EXHAUSTED":       "block",
 		"TORQUE_AGENT_ID":                "agent-mysql-01",
 		"TORQUE_AGENT_TENANT":            "lab",
 		"TORQUE_AGENT_TARGET_ID":         "host/mysql-01",
@@ -46,11 +51,42 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 	if config.LedgerPath != "/tmp/torque-agent-ledger.sqlite" {
 		t.Fatalf("LedgerPath = %q", config.LedgerPath)
 	}
+	if config.MaxDeliver != 5 || config.AckWait != 11*time.Second || config.NakDelay != 250*time.Millisecond || config.OnExhausted != "block" {
+		t.Fatalf("retry config not parsed: %#v", config)
+	}
+	if len(config.Backoff) != 2 || config.Backoff[0] != time.Second || config.Backoff[1] != 2*time.Second {
+		t.Fatalf("Backoff = %#v", config.Backoff)
+	}
 	if config.AgentID != "agent-mysql-01" || config.Tenant != "lab" || config.TargetID != "host/mysql-01" || config.Hostname != "mysql-01" {
 		t.Fatalf("identity not parsed: %#v", config)
 	}
 	if config.DisableCapabilityDiscovery {
 		t.Fatalf("DisableCapabilityDiscovery = true, want default discovery enabled")
+	}
+}
+
+func TestParseNATSWorkerConfigRetryFlags(t *testing.T) {
+	env := map[string]string{
+		"TORQUE_NATS_SUBJECT": "torque.lab.assign.mysql",
+	}
+	config, err := parseNATSWorkerConfig([]string{
+		"--max-deliver", "2",
+		"--ack-wait", "150ms",
+		"--backoff", "50ms",
+		"--backoff", "100ms",
+		"--nak-delay", "25ms",
+		"--on-exhausted", "continue",
+	}, func(key string) string {
+		return env[key]
+	})
+	if err != nil {
+		t.Fatalf("parseNATSWorkerConfig: %v", err)
+	}
+	if config.MaxDeliver != 2 || config.AckWait != 150*time.Millisecond || config.NakDelay != 25*time.Millisecond || config.OnExhausted != "continue" {
+		t.Fatalf("retry flags not parsed: %#v", config)
+	}
+	if len(config.Backoff) != 2 || config.Backoff[0] != 50*time.Millisecond || config.Backoff[1] != 100*time.Millisecond {
+		t.Fatalf("Backoff = %#v", config.Backoff)
 	}
 }
 

@@ -74,6 +74,19 @@ Implemented local slice:
   worker later, verifying execution and JetStream offsets in the run artifacts,
   then republishing the same assignment and proving the ledger prevents a second
   command execution.
+- `runner.fanout.retry` makes durable assignment retry policy explicit instead
+  of inheriting JetStream defaults. Stack policy can set `maxDeliver`,
+  `ackWait`, `backoff`, and `onExhausted`; workers configure the durable
+  consumer with the same bounds and preserve `assignmentId`, `ledgerAttempt`,
+  `numDelivered`, `maxDeliver`, `retryPolicy`, and `deadLetter` metadata in
+  receipts. Transient execution failures are NAKed for redelivery, deterministic
+  blocks are ACKed with a blocked receipt, and exhausted retries publish a
+  dead-letter receipt.
+- `scripts/e2e/ops/OPS-AGENT-009.sh` proves the retry policy end to end: one
+  stack command fails twice and succeeds on the third delivery, a second command
+  always fails and produces a blocked dead-letter receipt after the retry budget,
+  and a duplicate successful assignment still replays from the idempotency
+  ledger without executing again.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and

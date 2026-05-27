@@ -1,11 +1,16 @@
 package stack
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func pint(v int) *int         { return &v }
 func pbool(v bool) *bool      { return &v }
 func pf32(v float32) *float32 { return &v }
 func pf64(v float64) *float64 { return &v }
+
+func pduration(v time.Duration) *time.Duration { return &v }
 
 func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 	root := "/tmp/torque-root"
@@ -33,6 +38,12 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 						MinSucceededPercent: pint(90),
 						OnPartialFailure:    RunnerFanoutOnContinue,
 						Delivery:            RunnerFanoutDeliveryJetStream,
+						Retry: RunnerFanoutRetry{
+							MaxDeliver:  pint(4),
+							AckWait:     pduration(15 * time.Second),
+							Backoff:     []time.Duration{time.Second, 5 * time.Second},
+							OnExhausted: RunnerFanoutRetryOnBlock,
+						},
 					},
 					Adaptive: RunnerAdaptive{
 						Mode: "conservative",
@@ -78,6 +89,9 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 	}
 	if got.Fanout.MaxParallel != 12 || got.Fanout.MaxFailed != 2 || got.Fanout.MinSucceededPercent != 90 || got.Fanout.OnPartialFailure != RunnerFanoutOnContinue || got.Fanout.Delivery != RunnerFanoutDeliveryJetStream {
 		t.Fatalf("fanout = %#v", got.Fanout)
+	}
+	if got.Fanout.Retry.MaxDeliver != 4 || got.Fanout.Retry.AckWait != 15*time.Second || len(got.Fanout.Retry.Backoff) != 2 || got.Fanout.Retry.OnExhausted != RunnerFanoutRetryOnBlock {
+		t.Fatalf("fanout retry = %#v", got.Fanout.Retry)
 	}
 	if got.KubeQPS != 25 || got.KubeBurst != 50 {
 		t.Fatalf("expected kubeQPS=25 kubeBurst=50, got kubeQPS=%v kubeBurst=%v", got.KubeQPS, got.KubeBurst)

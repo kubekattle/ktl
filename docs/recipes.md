@@ -252,7 +252,8 @@ offline worker; the worker consumes from `TORQUE_ASSIGNMENTS` and writes
 receipts to `TORQUE_RECEIPTS` before ACKing the assignment. Durable workers also
 keep a local SQLite assignment ledger, keyed by stable `assignmentId`, so a
 redelivered assignment replays the stored receipt instead of running the command
-again.
+again. Add `runner.fanout.retry` to bound transient failures and force
+dead-letter evidence when the retry budget is exhausted.
 
 ```yaml
 apiVersion: torque.dev/v1
@@ -279,6 +280,14 @@ runner:
     maxFailed: 5
     minSucceededPercent: 95
     onPartialFailure: block
+    retry:
+      maxDeliver: 3
+      ackWait: 30s
+      backoff:
+        - 1s
+        - 5s
+        - 30s
+      onExhausted: block
 nodes:
   - name: mysql-check
     kind: host.command.run
@@ -303,7 +312,10 @@ torque-agent nats worker \
   --agent-id agent-mysql-01 \
   --tenant lab \
   --target-id host/mysql-01 \
-  --capability host.command.run
+  --capability host.command.run \
+  --max-deliver 3 \
+  --ack-wait 30s \
+  --nak-delay 1s
 ```
 
 ## Durable Linux agent host

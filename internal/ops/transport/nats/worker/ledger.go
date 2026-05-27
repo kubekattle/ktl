@@ -19,6 +19,7 @@ import (
 const (
 	ledgerStatusReceived         = "received"
 	ledgerStatusRunning          = "running"
+	ledgerStatusRetrying         = "retrying"
 	ledgerStatusSucceeded        = "succeeded"
 	ledgerStatusFailed           = "failed"
 	ledgerStatusBlocked          = "blocked"
@@ -190,6 +191,25 @@ SET status = ?, result_status = ?, receipt_json = ?, updated_at = ?, last_error 
 WHERE assignment_id = ?`, status, strings.TrimSpace(receipt.Status), string(rawReceipt), now, strings.TrimSpace(receipt.Error), assignmentID)
 	if err != nil {
 		return fmt.Errorf("save assignment receipt to ledger: %w", err)
+	}
+	return nil
+}
+
+func (l *assignmentLedger) MarkRetry(ctx context.Context, assignmentID string, receipt transport.OperationResult) error {
+	if l == nil || l.db == nil {
+		return nil
+	}
+	assignmentID = strings.TrimSpace(assignmentID)
+	if assignmentID == "" {
+		return fmt.Errorf("assignmentId is required for ledger retry mark")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := l.db.ExecContext(ctx, `
+UPDATE nats_assignment_ledger
+SET status = ?, result_status = ?, receipt_json = NULL, updated_at = ?, last_error = ?
+WHERE assignment_id = ?`, ledgerStatusRetrying, strings.TrimSpace(receipt.Status), now, strings.TrimSpace(receipt.Error), assignmentID)
+	if err != nil {
+		return fmt.Errorf("mark assignment retry in ledger: %w", err)
 	}
 	return nil
 }

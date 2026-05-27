@@ -512,6 +512,21 @@ scripts/e2e/ops/OPS-AGENT-008.sh \
   --cleanup
 ```
 
+## OPS-AGENT-009
+
+`OPS-AGENT-009.sh` proves durable assignment retry and dead-letter policy. It
+starts a JetStream worker with `--max-deliver`, `--ack-wait`, `--backoff`, and
+`--nak-delay`, runs a stack command that fails twice and succeeds on the third
+delivery, republishes the successful assignment to prove ledger dedupe, then
+runs an always-failing stack command and verifies the blocked dead-letter
+receipt includes retry metadata.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-009.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or

@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ingresslabs/torque/internal/stack"
 	"github.com/spf13/cobra"
@@ -40,6 +41,11 @@ func TestResolveRunnerFromFlags_NoChanges(t *testing.T) {
 			MinSucceededPercent: 100,
 			OnPartialFailure:    stack.RunnerFanoutOnBlock,
 			Delivery:            stack.RunnerFanoutDeliveryRequestReply,
+			Retry: stack.RunnerFanoutRetryResolved{
+				MaxDeliver:  3,
+				AckWait:     30 * time.Second,
+				OnExhausted: stack.RunnerFanoutRetryOnBlock,
+			},
 		},
 		Adaptive: stack.RunnerAdaptiveResolved{
 			Min:                1,
@@ -98,6 +104,11 @@ func TestResolveRunnerFromFlags_Overrides(t *testing.T) {
 			MinSucceededPercent: 100,
 			OnPartialFailure:    stack.RunnerFanoutOnBlock,
 			Delivery:            stack.RunnerFanoutDeliveryRequestReply,
+			Retry: stack.RunnerFanoutRetryResolved{
+				MaxDeliver:  3,
+				AckWait:     30 * time.Second,
+				OnExhausted: stack.RunnerFanoutRetryOnBlock,
+			},
 		},
 		Adaptive: stack.RunnerAdaptiveResolved{
 			Min:                1,

@@ -41,11 +41,12 @@ type fleetNATSFanoutReceipt struct {
 }
 
 type fleetNATSFanoutPolicy struct {
-	MaxParallel         int    `json:"maxParallel"`
-	MaxFailed           int    `json:"maxFailed"`
-	MinSucceededPercent int    `json:"minSucceededPercent"`
-	OnPartialFailure    string `json:"onPartialFailure"`
-	Delivery            string `json:"delivery"`
+	MaxParallel         int                       `json:"maxParallel"`
+	MaxFailed           int                       `json:"maxFailed"`
+	MinSucceededPercent int                       `json:"minSucceededPercent"`
+	OnPartialFailure    string                    `json:"onPartialFailure"`
+	Delivery            string                    `json:"delivery"`
+	Retry               RunnerFanoutRetryResolved `json:"retry,omitempty"`
 }
 
 type fleetNATSFanoutSummary struct {
@@ -406,6 +407,11 @@ func (e *customNodeExecutor) fleetNATSFanoutPolicy() fleetNATSFanoutPolicy {
 		MinSucceededPercent: 100,
 		OnPartialFailure:    RunnerFanoutOnBlock,
 		Delivery:            RunnerFanoutDeliveryRequestReply,
+		Retry: RunnerFanoutRetryResolved{
+			MaxDeliver:  3,
+			AckWait:     30 * time.Second,
+			OnExhausted: RunnerFanoutRetryOnBlock,
+		},
 	}
 	if e == nil || e.run == nil || e.run.Plan == nil {
 		return policy
@@ -431,6 +437,18 @@ func (e *customNodeExecutor) fleetNATSFanoutPolicy() fleetNATSFanoutPolicy {
 	}
 	if policy.Delivery != RunnerFanoutDeliveryJetStream {
 		policy.Delivery = RunnerFanoutDeliveryRequestReply
+	}
+	if resolved.Retry.MaxDeliver > 0 {
+		policy.Retry.MaxDeliver = resolved.Retry.MaxDeliver
+	}
+	if resolved.Retry.AckWait > 0 {
+		policy.Retry.AckWait = resolved.Retry.AckWait
+	}
+	if resolved.Retry.Backoff != nil {
+		policy.Retry.Backoff = append([]time.Duration(nil), resolved.Retry.Backoff...)
+	}
+	if strings.TrimSpace(resolved.Retry.OnExhausted) != "" {
+		policy.Retry.OnExhausted = normalizeRunnerFanoutRetryOnExhausted(resolved.Retry.OnExhausted)
 	}
 	return policy
 }
@@ -557,6 +575,12 @@ func (e *customNodeExecutor) fleetNATSFanoutOperationResult(started time.Time, r
 		"maxFailed":           strconv.Itoa(receipt.Policy.MaxFailed),
 		"onPartialFailure":    receipt.Policy.OnPartialFailure,
 		"delivery":            receipt.Policy.Delivery,
+		"retryMaxDeliver":     strconv.Itoa(receipt.Policy.Retry.MaxDeliver),
+		"retryAckWait":        receipt.Policy.Retry.AckWait.String(),
+		"retryOnExhausted":    receipt.Policy.Retry.OnExhausted,
+	}
+	if len(receipt.Policy.Retry.Backoff) > 0 {
+		metadata["retryBackoff"] = joinDurations(receipt.Policy.Retry.Backoff)
 	}
 	errorMessage := ""
 	if !nodeStepSucceeded(status) {
@@ -660,4 +684,14 @@ func boolToExitCode(failed bool) int {
 		return 1
 	}
 	return 0
+}
+
+func joinDurations(values []time.Duration) string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value > 0 {
+			out = append(out, value.String())
+		}
+	}
+	return strings.Join(out, ",")
 }

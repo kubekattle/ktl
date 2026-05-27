@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -196,8 +197,8 @@ func TestHandleAssignmentRejectsTargetMismatch(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 	result := worker.HandleAssignment(context.Background(), natstransport.NewCommandAssignment("run", "torque.lab.assign.other", "true", time.Now()))
-	if result.Status != "failed" || !strings.Contains(result.Error, "does not match") {
-		t.Fatalf("result = %#v, want target mismatch failure", result)
+	if result.Status != "blocked" || !strings.Contains(result.Error, "does not match") {
+		t.Fatalf("result = %#v, want target mismatch block", result)
 	}
 }
 
@@ -560,6 +561,256 @@ func TestWorkerDedupesRepeatedDurableJetStreamAssignment(t *testing.T) {
 	}
 }
 
+func TestWorkerRetriesDurableAssignmentUntilSuccess(t *testing.T) {
+	serverURL := startLocalNATSJetStreamServer(t)
+	subject := "torque.assign.lab.host_js-retry"
+	assignmentStream := "TORQUE_ASSIGNMENTS_RETRY_TEST"
+	receiptStream := "TORQUE_RECEIPTS_RETRY_TEST"
+	runner := &flakyRunner{
+		failures: 2,
+		output:   transport.RunOutput{Stdout: []byte("retry-ok\n"), ExitCode: 0},
+	}
+	conn, err := natsgo.Connect(serverURL, natsgo.Name("torque-worker-js-retry-test"), natsgo.Timeout(time.Second))
+	if err != nil {
+		t.Fatalf("connect test client: %v", err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(2 * time.Second))
+	if err != nil {
+		t.Fatalf("open JetStream: %v", err)
+	}
+	ctx := context.Background()
+	if err := natstransport.EnsureStream(ctx, js, assignmentStream, []string{natstransport.DefaultAssignmentStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure assignment stream: %v", err)
+	}
+	if err := natstransport.EnsureStream(ctx, js, receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure receipt stream: %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", subject, "printf retry-ok", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/js-retry",
+		ExpectedAgentID:    "agent-js-retry",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-js-retry",
+		NodeID:             "host.command.run/retry-marker",
+	})
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+		t.Fatalf("publish assignment: %v", err)
+	}
+
+	ready := make(chan struct{})
+	worker, err := New(Config{
+		Server:                     serverURL,
+		Subject:                    subject,
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "worker-js-retry",
+		LedgerPath:                 t.TempDir() + "/assignments.sqlite",
+		MaxDeliver:                 3,
+		AckWait:                    200 * time.Millisecond,
+		NakDelay:                   20 * time.Millisecond,
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-js-retry",
+		Tenant:                     "lab",
+		TargetID:                   "host/js-retry",
+		Hostname:                   "js-retry",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("worker did not become ready")
+	}
+
+	receiptSubject := natstransport.ReceiptSubject("lab", "run-js-retry", "host/js-retry")
+	sub, err := js.PullSubscribe(receiptSubject, "worker-js-retry-receipts", natsgo.BindStream(receiptStream), natsgo.DeliverAll(), natsgo.AckExplicit(), natsgo.ManualAck())
+	if err != nil {
+		cancel()
+		t.Fatalf("subscribe receipt stream: %v", err)
+	}
+	msgs := fetchNATSReceipts(t, sub, 1, 8*time.Second)
+	if len(msgs) != 1 {
+		cancel()
+		t.Fatalf("receipts = %d, want one", len(msgs))
+	}
+	var result transport.OperationResult
+	if err := json.Unmarshal(msgs[0].Data, &result); err != nil {
+		cancel()
+		t.Fatalf("parse receipt: %v", err)
+	}
+	_ = msgs[0].Ack()
+	if result.Status != "succeeded" || !strings.Contains(result.Stdout, "retry-ok") {
+		cancel()
+		t.Fatalf("result = %#v, want retry success", result)
+	}
+	if calls := runner.Calls(); calls != 3 {
+		cancel()
+		t.Fatalf("runner calls = %d, want 3", calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"assignmentId":   assignment.AssignmentID,
+		"workerDecision": "executed",
+		"numDelivered":   "3",
+		"maxDeliver":     "3",
+		"ledgerAttempt":  "3",
+	})
+	if !strings.Contains(result.Metadata["retryPolicy"], "maxDeliver=3") {
+		cancel()
+		t.Fatalf("retryPolicy metadata = %#v", result.Metadata)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
+func TestWorkerDeadLettersDurableAssignmentAfterRetryBudget(t *testing.T) {
+	serverURL := startLocalNATSJetStreamServer(t)
+	subject := "torque.assign.lab.host_js-deadletter"
+	assignmentStream := "TORQUE_ASSIGNMENTS_DEADLETTER_TEST"
+	receiptStream := "TORQUE_RECEIPTS_DEADLETTER_TEST"
+	runner := &flakyRunner{
+		failures: 99,
+		output:   transport.RunOutput{Stdout: []byte("unused\n"), ExitCode: 0},
+	}
+	conn, err := natsgo.Connect(serverURL, natsgo.Name("torque-worker-js-deadletter-test"), natsgo.Timeout(time.Second))
+	if err != nil {
+		t.Fatalf("connect test client: %v", err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(2 * time.Second))
+	if err != nil {
+		t.Fatalf("open JetStream: %v", err)
+	}
+	ctx := context.Background()
+	if err := natstransport.EnsureStream(ctx, js, assignmentStream, []string{natstransport.DefaultAssignmentStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure assignment stream: %v", err)
+	}
+	if err := natstransport.EnsureStream(ctx, js, receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure receipt stream: %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", subject, "printf never", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/js-deadletter",
+		ExpectedAgentID:    "agent-js-deadletter",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-js-deadletter",
+		NodeID:             "host.command.run/deadletter",
+	})
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+		t.Fatalf("publish assignment: %v", err)
+	}
+
+	ready := make(chan struct{})
+	worker, err := New(Config{
+		Server:                     serverURL,
+		Subject:                    subject,
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "worker-js-deadletter",
+		LedgerPath:                 t.TempDir() + "/assignments.sqlite",
+		MaxDeliver:                 2,
+		AckWait:                    200 * time.Millisecond,
+		NakDelay:                   20 * time.Millisecond,
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-js-deadletter",
+		Tenant:                     "lab",
+		TargetID:                   "host/js-deadletter",
+		Hostname:                   "js-deadletter",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("worker did not become ready")
+	}
+
+	receiptSubject := natstransport.ReceiptSubject("lab", "run-js-deadletter", "host/js-deadletter")
+	sub, err := js.PullSubscribe(receiptSubject, "worker-js-deadletter-receipts", natsgo.BindStream(receiptStream), natsgo.DeliverAll(), natsgo.AckExplicit(), natsgo.ManualAck())
+	if err != nil {
+		cancel()
+		t.Fatalf("subscribe receipt stream: %v", err)
+	}
+	msgs := fetchNATSReceipts(t, sub, 1, 8*time.Second)
+	if len(msgs) != 1 {
+		cancel()
+		t.Fatalf("receipts = %d, want one", len(msgs))
+	}
+	var result transport.OperationResult
+	if err := json.Unmarshal(msgs[0].Data, &result); err != nil {
+		cancel()
+		t.Fatalf("parse receipt: %v", err)
+	}
+	_ = msgs[0].Ack()
+	if result.Status != "blocked" || !strings.Contains(result.Error, "retry budget exhausted") {
+		cancel()
+		t.Fatalf("result = %#v, want blocked dead-letter", result)
+	}
+	if calls := runner.Calls(); calls != 2 {
+		cancel()
+		t.Fatalf("runner calls = %d, want 2", calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"assignmentId":   assignment.AssignmentID,
+		"workerDecision": "dead-letter",
+		"deadLetter":     "true",
+		"retryExhausted": "true",
+		"numDelivered":   "2",
+		"maxDeliver":     "2",
+		"ledgerAttempt":  "2",
+	})
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
 func assertMetadata(t *testing.T, got map[string]string, want map[string]string) {
 	t.Helper()
 	for key, value := range want {
@@ -583,6 +834,29 @@ type recordedCall struct {
 func (r *recordingRunner) Run(ctx context.Context, name string, args []string) (transport.RunOutput, error) {
 	r.calls = append(r.calls, recordedCall{name: name, args: append([]string(nil), args...)})
 	return r.output, r.err
+}
+
+type flakyRunner struct {
+	mu       sync.Mutex
+	failures int
+	calls    int
+	output   transport.RunOutput
+}
+
+func (r *flakyRunner) Run(ctx context.Context, name string, args []string) (transport.RunOutput, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls++
+	if r.calls <= r.failures {
+		return transport.RunOutput{Stderr: []byte("transient failure\n"), ExitCode: 42}, fmt.Errorf("transient failure %d", r.calls)
+	}
+	return r.output, nil
+}
+
+func (r *flakyRunner) Calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls
 }
 
 func startLocalNATSServer(t *testing.T) string {

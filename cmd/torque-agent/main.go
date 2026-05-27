@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -214,6 +215,35 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		}
 		defaultTimeout = parsed
 	}
+	defaultMaxDeliver := 3
+	if raw := firstNonEmptyAgent(getenv("TORQUE_NATS_MAX_DELIVER"), getenv("TORQUE_NATS_WORKER_MAX_DELIVER")); raw != "" {
+		parsed, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return natsworker.Config{}, fmt.Errorf("parse NATS worker max deliver env: %w", err)
+		}
+		defaultMaxDeliver = parsed
+	}
+	defaultAckWait := 30 * time.Second
+	if raw := firstNonEmptyAgent(getenv("TORQUE_NATS_ACK_WAIT"), getenv("TORQUE_NATS_WORKER_ACK_WAIT")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return natsworker.Config{}, fmt.Errorf("parse NATS worker ack wait env: %w", err)
+		}
+		defaultAckWait = parsed
+	}
+	defaultNakDelay := time.Duration(0)
+	if raw := firstNonEmptyAgent(getenv("TORQUE_NATS_NAK_DELAY"), getenv("TORQUE_NATS_WORKER_NAK_DELAY")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return natsworker.Config{}, fmt.Errorf("parse NATS worker nak delay env: %w", err)
+		}
+		defaultNakDelay = parsed
+	}
+	defaultBackoff, err := parseDurationCSV(firstNonEmptyAgent(getenv("TORQUE_NATS_BACKOFF"), getenv("TORQUE_NATS_WORKER_BACKOFF")))
+	if err != nil {
+		return natsworker.Config{}, fmt.Errorf("parse NATS worker backoff env: %w", err)
+	}
+	defaultOnExhausted := firstNonEmptyAgent(getenv("TORQUE_NATS_ON_EXHAUSTED"), getenv("TORQUE_NATS_WORKER_ON_EXHAUSTED"), "block")
 	fs := flag.NewFlagSet("torque-agent nats worker", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	server := fs.String("nats-url", defaultServer, "NATS server URL (also TORQUE_NATS_URL or TORQUE_NATS_SERVER)")
@@ -224,6 +254,10 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	receiptStream := fs.String("receipt-stream", defaultReceiptStream, "JetStream receipt stream for durable delivery (also TORQUE_NATS_RECEIPT_STREAM)")
 	durable := fs.String("durable", defaultDurable, "JetStream durable consumer name (also TORQUE_NATS_DURABLE or TORQUE_NATS_WORKER_DURABLE)")
 	ledgerPath := fs.String("ledger-path", defaultLedgerPath, "SQLite assignment idempotency ledger path (also TORQUE_AGENT_ASSIGNMENT_LEDGER)")
+	maxDeliver := fs.Int("max-deliver", defaultMaxDeliver, "JetStream maximum deliveries before dead-letter receipt (also TORQUE_NATS_MAX_DELIVER)")
+	ackWait := fs.Duration("ack-wait", defaultAckWait, "JetStream ack wait for assignment redelivery (also TORQUE_NATS_ACK_WAIT)")
+	nakDelay := fs.Duration("nak-delay", defaultNakDelay, "Delay before redelivering a retryable failed assignment (also TORQUE_NATS_NAK_DELAY)")
+	onExhausted := fs.String("on-exhausted", defaultOnExhausted, "Retry exhaustion behavior: block or continue (also TORQUE_NATS_ON_EXHAUSTED)")
 	creds := fs.String("creds", strings.TrimSpace(getenv("TORQUE_NATS_CREDS")), "NATS user credentials file (also TORQUE_NATS_CREDS)")
 	nkey := fs.String("nkey", strings.TrimSpace(getenv("TORQUE_NATS_NKEY")), "NATS NKey seed file (also TORQUE_NATS_NKEY)")
 	timeout := fs.Duration("timeout", defaultTimeout, "Per-assignment execution timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_WORKER_TIMEOUT)")
@@ -234,6 +268,18 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	hostnameFlag := fs.String("hostname", defaultHostname, "Hostname to include in worker receipts (also TORQUE_AGENT_HOSTNAME)")
 	discoverCapabilities := fs.Bool("discover-capabilities", defaultDiscoverCapabilities, "Discover local worker capabilities before accepting assignments (also TORQUE_AGENT_DISCOVER_CAPABILITIES)")
 	capabilities := append([]string(nil), defaultCapabilities...)
+	backoff := append([]time.Duration(nil), defaultBackoff...)
+	fs.Func("backoff", "JetStream retry backoff duration (repeatable; also TORQUE_NATS_BACKOFF comma list)", func(raw string) error {
+		parsed, err := time.ParseDuration(strings.TrimSpace(raw))
+		if err != nil {
+			return err
+		}
+		if parsed <= 0 {
+			return fmt.Errorf("backoff must be greater than zero")
+		}
+		backoff = append(backoff, parsed)
+		return nil
+	})
 	fs.Func("capability", "Worker capability string (repeatable; also TORQUE_AGENT_CAPABILITIES)", func(raw string) error {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -259,6 +305,20 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	if *timeout <= 0 {
 		return natsworker.Config{}, fmt.Errorf("--timeout must be greater than zero")
 	}
+	if *maxDeliver < 1 {
+		return natsworker.Config{}, fmt.Errorf("--max-deliver must be >= 1")
+	}
+	if *ackWait <= 0 {
+		return natsworker.Config{}, fmt.Errorf("--ack-wait must be greater than zero")
+	}
+	if *nakDelay < 0 {
+		return natsworker.Config{}, fmt.Errorf("--nak-delay must be >= 0")
+	}
+	switch strings.ToLower(strings.TrimSpace(*onExhausted)) {
+	case "block", "continue":
+	default:
+		return natsworker.Config{}, fmt.Errorf("--on-exhausted must be block or continue")
+	}
 	return natsworker.Config{
 		Server:                     strings.TrimSpace(*server),
 		Subject:                    strings.TrimSpace(*subject),
@@ -268,6 +328,11 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		ReceiptStream:              strings.TrimSpace(*receiptStream),
 		Durable:                    strings.TrimSpace(*durable),
 		LedgerPath:                 strings.TrimSpace(*ledgerPath),
+		MaxDeliver:                 *maxDeliver,
+		AckWait:                    *ackWait,
+		Backoff:                    backoff,
+		NakDelay:                   *nakDelay,
+		OnExhausted:                strings.ToLower(strings.TrimSpace(*onExhausted)),
 		Creds:                      strings.TrimSpace(*creds),
 		NKey:                       strings.TrimSpace(*nkey),
 		Timeout:                    *timeout,
@@ -292,7 +357,7 @@ func printNATSUsage(out *os.File) {
 
 func printNATSWorkerUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--ledger-path .torque/agent/assignments.sqlite] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--ledger-path .torque/agent/assignments.sqlite] [--max-deliver 3] [--ack-wait 30s] [--nak-delay 1s] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
 }
 
 func flagWasSet(name string) bool {
@@ -322,4 +387,23 @@ func firstNonEmptyAgent(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseDurationCSV(raw string) ([]time.Duration, error) {
+	parts := parseCSV(raw)
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	out := make([]time.Duration, 0, len(parts))
+	for _, part := range parts {
+		parsed, err := time.ParseDuration(part)
+		if err != nil {
+			return nil, err
+		}
+		if parsed <= 0 {
+			return nil, fmt.Errorf("duration %q must be greater than zero", part)
+		}
+		out = append(out, parsed)
+	}
+	return out, nil
 }

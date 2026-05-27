@@ -30,6 +30,11 @@ type Config struct {
 	Durable                    string
 	LedgerPath                 string
 	StreamMaxAge               time.Duration
+	MaxDeliver                 int
+	AckWait                    time.Duration
+	Backoff                    []time.Duration
+	NakDelay                   time.Duration
+	OnExhausted                string
 	Creds                      string
 	NKey                       string
 	Timeout                    time.Duration
@@ -57,6 +62,11 @@ type Worker struct {
 	durable          string
 	ledgerPath       string
 	streamMaxAge     time.Duration
+	maxDeliver       int
+	ackWait          time.Duration
+	backoff          []time.Duration
+	nakDelay         time.Duration
+	onExhausted      string
 	creds            string
 	nkey             string
 	timeout          time.Duration
@@ -109,6 +119,26 @@ func New(config Config) (*Worker, error) {
 	if streamMaxAge <= 0 {
 		streamMaxAge = 24 * time.Hour
 	}
+	maxDeliver := config.MaxDeliver
+	if maxDeliver <= 0 {
+		maxDeliver = 3
+	}
+	ackWait := config.AckWait
+	if ackWait <= 0 {
+		ackWait = 30 * time.Second
+	}
+	nakDelay := config.NakDelay
+	if nakDelay < 0 {
+		return nil, fmt.Errorf("nats worker nakDelay must be >= 0")
+	}
+	onExhausted := normalizeOnExhausted(config.OnExhausted)
+	if onExhausted == "" {
+		onExhausted = "block"
+	}
+	if onExhausted != "block" && onExhausted != "continue" {
+		return nil, fmt.Errorf("nats worker onExhausted must be block or continue")
+	}
+	backoff := normalizeDurations(config.Backoff)
 	redactValues := append([]string(nil), config.RedactValues...)
 	redactValues = append(redactValues, subject, server, creds, nkey, assignmentStream, receiptStream)
 	capabilities, capabilityDigest := workerCapabilities(config)
@@ -123,6 +153,11 @@ func New(config Config) (*Worker, error) {
 		durable:          durable,
 		ledgerPath:       defaultLedgerPath(config.LedgerPath),
 		streamMaxAge:     streamMaxAge,
+		maxDeliver:       maxDeliver,
+		ackWait:          ackWait,
+		backoff:          backoff,
+		nakDelay:         nakDelay,
+		onExhausted:      onExhausted,
 		creds:            creds,
 		nkey:             nkey,
 		timeout:          timeout,
@@ -225,14 +260,22 @@ func (w *Worker) runJetStream(ctx context.Context) error {
 		return err
 	}
 	defer func() { _ = ledger.Close() }()
-	sub, err := js.PullSubscribe(
-		w.subject,
-		w.durable,
+	subOpts := []natsgo.SubOpt{
 		natsgo.BindStream(w.assignmentStream),
 		natsgo.DeliverAll(),
 		natsgo.AckExplicit(),
+		natsgo.AckWait(w.ackWait),
+		natsgo.MaxDeliver(w.maxDeliver),
 		natsgo.ManualAck(),
 		natsgo.PullMaxWaiting(128),
+	}
+	if len(w.backoff) > 0 {
+		subOpts = append(subOpts, natsgo.BackOff(append([]time.Duration(nil), w.backoff...)))
+	}
+	sub, err := js.PullSubscribe(
+		w.subject,
+		w.durable,
+		subOpts...,
 	)
 	if err != nil {
 		return err
@@ -317,6 +360,20 @@ func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStream
 
 	result := w.HandleAssignment(ctx, assignment)
 	result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, decision)
+	if w.retryableResult(result) {
+		if w.retryBudgetExhausted(assignmentOffset) {
+			result = w.deadLetterResult(result, assignment, assignmentOffset)
+		} else {
+			result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+				"workerDecision": "retrying",
+				"retrying":       "true",
+			})
+			if err := ledger.MarkRetry(ctx, assignment.AssignmentID, result); err != nil {
+				return err
+			}
+			return w.nakJetStreamAssignment(ctx, msg)
+		}
+	}
 	if err := ledger.SaveReceipt(ctx, assignment.AssignmentID, result); err != nil {
 		return err
 	}
@@ -324,6 +381,65 @@ func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStream
 		return err
 	}
 	return w.ackJetStreamAssignment(ctx, msg, ledger, assignment.AssignmentID)
+}
+
+func (w *Worker) retryableResult(result transport.OperationResult) bool {
+	switch strings.ToLower(strings.TrimSpace(result.Status)) {
+	case "failed", "timeout":
+		return true
+	default:
+		return false
+	}
+}
+
+func (w *Worker) retryBudgetExhausted(offset *natstransport.StreamOffset) bool {
+	if w.maxDeliver <= 0 {
+		return false
+	}
+	delivered := uint64(1)
+	if offset != nil && offset.NumDelivered > 0 {
+		delivered = offset.NumDelivered
+	}
+	return delivered >= uint64(w.maxDeliver)
+}
+
+func (w *Worker) nakJetStreamAssignment(ctx context.Context, msg *natsgo.Msg) error {
+	if w.nakDelay > 0 {
+		if err := msg.NakWithDelay(w.nakDelay, natsgo.Context(ctx)); err != nil {
+			return fmt.Errorf("nak assignment with delay: %w", err)
+		}
+		return nil
+	}
+	if err := msg.Nak(natsgo.Context(ctx)); err != nil {
+		return fmt.Errorf("nak assignment: %w", err)
+	}
+	return nil
+}
+
+func (w *Worker) deadLetterResult(result transport.OperationResult, assignment natstransport.CommandAssignment, offset *natstransport.StreamOffset) transport.OperationResult {
+	delivered := uint64(1)
+	if offset != nil && offset.NumDelivered > 0 {
+		delivered = offset.NumDelivered
+	}
+	result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+		"workerDecision": "dead-letter",
+		"deadLetter":     "true",
+		"retryExhausted": "true",
+	})
+	result.Metadata = mergeMetadata(result.Metadata, w.retryMetadata(delivered))
+	previousError := strings.TrimSpace(result.Error)
+	if strings.ToLower(strings.TrimSpace(w.onExhausted)) == "block" {
+		result.Status = "blocked"
+		result.ExitCode = 1
+	}
+	result.Error = w.redactor.RedactString(fmt.Sprintf("assignment retry budget exhausted after %d deliveries: %s", delivered, previousError))
+	if previousError == "" {
+		result.Error = fmt.Sprintf("assignment retry budget exhausted after %d deliveries", delivered)
+	}
+	if strings.TrimSpace(result.Operation) == "" {
+		result.Operation = firstNonEmptyWorker(assignment.Operation, "run")
+	}
+	return result
 }
 
 func (w *Worker) publishJetStreamReceipt(ctx context.Context, js natsgo.JetStreamContext, result transport.OperationResult) error {
@@ -360,6 +476,10 @@ func (w *Worker) ackJetStreamAssignment(ctx context.Context, msg *natsgo.Msg, le
 
 func (w *Worker) jetStreamReceiptMetadata(base map[string]string, assignmentOffset *natstransport.StreamOffset, decision ledgerDecision) map[string]string {
 	metadata := mergeMetadata(base, streamOffsetMetadata("assignment", assignmentOffset))
+	delivered := uint64(1)
+	if assignmentOffset != nil && assignmentOffset.NumDelivered > 0 {
+		delivered = assignmentOffset.NumDelivered
+	}
 	metadata = mergeMetadata(metadata, map[string]string{
 		"delivery":                natstransport.DeliveryJetStream,
 		"assignmentStream":        strings.TrimSpace(w.assignmentStream),
@@ -367,11 +487,31 @@ func (w *Worker) jetStreamReceiptMetadata(base map[string]string, assignmentOffs
 		"assignmentConsumer":      strings.TrimSpace(w.durable),
 		"assignmentStreamSubject": firstNonEmptyWorker(assignmentOffsetSubject(assignmentOffset), w.subject),
 	})
+	metadata = mergeMetadata(metadata, w.retryMetadata(delivered))
 	if decision.Attempt > 0 {
 		metadata = mergeMetadata(metadata, map[string]string{"ledgerAttempt": strconv.Itoa(decision.Attempt)})
 	}
 	if strings.TrimSpace(decision.Status) != "" {
 		metadata = mergeMetadata(metadata, map[string]string{"ledgerStatus": strings.TrimSpace(decision.Status)})
+	}
+	return metadata
+}
+
+func (w *Worker) retryMetadata(numDelivered uint64) map[string]string {
+	if numDelivered == 0 {
+		numDelivered = 1
+	}
+	metadata := map[string]string{
+		"numDelivered": strconv.FormatUint(numDelivered, 10),
+		"maxDeliver":   strconv.Itoa(w.maxDeliver),
+		"ackWait":      w.ackWait.String(),
+		"nakDelay":     w.nakDelay.String(),
+		"onExhausted":  strings.TrimSpace(w.onExhausted),
+		"retryPolicy":  fmt.Sprintf("maxDeliver=%d,ackWait=%s,nakDelay=%s,onExhausted=%s", w.maxDeliver, w.ackWait, w.nakDelay, strings.TrimSpace(w.onExhausted)),
+	}
+	if len(w.backoff) > 0 {
+		metadata["backoff"] = joinWorkerDurations(w.backoff)
+		metadata["retryPolicy"] += ",backoff=" + metadata["backoff"]
 	}
 	return metadata
 }
@@ -388,7 +528,7 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	operation := strings.TrimSpace(assignment.Operation)
 	target := natstransport.NormalizeTarget(assignment.Target)
 	if target != w.subject {
-		return w.errorResultForAssignment(operation, target, assignment, fmt.Errorf("assignment target %q does not match worker subject %q", target, w.subject), false)
+		return w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("assignment target %q does not match worker subject %q", target, w.subject))
 	}
 	if expectedAgentID := strings.TrimSpace(assignment.ExpectedAgentID); expectedAgentID != "" && expectedAgentID != strings.TrimSpace(w.agentID) {
 		return w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("assignment expected agentId %s but worker agentId is %s", expectedAgentID, strings.TrimSpace(w.agentID)))
@@ -416,11 +556,11 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 		result = client.Connect(ctx)
 	case "run":
 		if strings.TrimSpace(assignment.Command) == "" {
-			return w.errorResultForAssignment(operation, target, assignment, fmt.Errorf("run assignment command is required"), false)
+			return w.blockedResultWithReason(operation, target, assignment, "run assignment command is required")
 		}
 		result = client.Run(ctx, assignment.Command)
 	default:
-		return w.errorResultForAssignment(operation, target, assignment, fmt.Errorf("unsupported assignment operation %q", operation), false)
+		return w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("unsupported assignment operation %q", operation))
 	}
 	result.Operation = operation
 	result.TargetDigest = natstransport.TargetDigest(target)
@@ -569,6 +709,37 @@ func capabilityNamesDigest(names []string) string {
 	raw, _ := json.Marshal(normalizeCapabilityNames(names))
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func normalizeDurations(values []time.Duration) []time.Duration {
+	out := make([]time.Duration, 0, len(values))
+	for _, value := range values {
+		if value > 0 {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func normalizeOnExhausted(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "block":
+		return "block"
+	case "continue":
+		return "continue"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func joinWorkerDurations(values []time.Duration) string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value > 0 {
+			out = append(out, value.String())
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, decision string) map[string]string {
