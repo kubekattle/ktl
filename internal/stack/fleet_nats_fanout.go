@@ -33,6 +33,8 @@ type fleetNATSFanoutReceipt struct {
 	Status             string                      `json:"status"`
 	Reason             string                      `json:"reason,omitempty"`
 	RunID              string                      `json:"runId"`
+	ReceiptRunID       string                      `json:"receiptRunId,omitempty"`
+	ResumeFromRunID    string                      `json:"resumeFromRunId,omitempty"`
 	RequiredCapability string                      `json:"requiredCapability,omitempty"`
 	GeneratedAt        string                      `json:"generatedAt"`
 	Policy             fleetNATSFanoutPolicy       `json:"policy"`
@@ -271,16 +273,41 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 	if e != nil && e.run != nil && e.run.Plan != nil {
 		tenant = normalizeFleetReadiness(e.run.Plan.Runner.Readiness).Tenant
 	}
-	receiptSubject := natstransport.ReceiptSubjectWildcard(tenant, spec.RunID)
-	durable := natstransport.DefaultReceiptConsumer + "-" + natstransport.NormalizeSubjectToken(spec.RunID+"-"+spec.NodeID, "run")
-	sub, err := js.PullSubscribe(
-		receiptSubject,
-		durable,
+	assignmentRunID := e.fleetNATSAssignmentRunID(ctx, spec)
+	resumeFromRunID := ""
+	if e != nil && e.run != nil {
+		resumeFromRunID = strings.TrimSpace(e.run.ResumeFromRunID)
+	}
+	receipt.ReceiptRunID = assignmentRunID
+	if resumeFromRunID != "" {
+		receipt.ResumeFromRunID = resumeFromRunID
+	}
+	receiptSubject := natstransport.ReceiptSubjectWildcard(tenant, assignmentRunID)
+	durable := natstransport.DefaultReceiptConsumer + "-" + natstransport.NormalizeSubjectToken(assignmentRunID+"-"+spec.NodeID, "run")
+	storedCheckpoints, err := e.loadFleetNATSReceiptCheckpoints(ctx, assignmentRunID, spec.NodeID)
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("load receipt offsets: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	lastStoredSequence := maxFleetNATSReceiptSequence(storedCheckpoints, receiptStream)
+	subOpts := []natsgo.SubOpt{
 		natsgo.BindStream(receiptStream),
-		natsgo.DeliverAll(),
 		natsgo.AckExplicit(),
 		natsgo.ManualAck(),
 		natsgo.PullMaxWaiting(128),
+	}
+	if _, err := js.ConsumerInfo(receiptStream, durable, natsgo.Context(ctx)); err == nil {
+		// Existing durable consumers resume from their server-side ACK cursor.
+	} else if lastStoredSequence > 0 {
+		subOpts = append(subOpts, natsgo.StartSequence(lastStoredSequence+1))
+	} else {
+		subOpts = append(subOpts, natsgo.DeliverAll())
+	}
+	sub, err := js.PullSubscribe(
+		receiptSubject,
+		durable,
+		subOpts...,
 	)
 	if err != nil {
 		receipt.Status = "failed"
@@ -293,6 +320,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 	envelopes := make([]*natstransport.CommandAssignmentEnvelope, len(targets))
 	assignmentOffsets := make([]*natstransport.StreamOffset, len(targets))
 	targetIndex := make(map[string]int, len(targets))
+	seenReceipts := make(map[string]struct{}, len(targets))
 	signer, err := e.fleetNATSAssignmentSigner(timeout, tenant)
 	if err != nil {
 		receipt.Status = "failed"
@@ -306,11 +334,29 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			ExpectedAgentID:    target.agentID,
 			RequiredCapability: strings.TrimSpace(spec.RequiredCap),
 			NodeKind:           strings.TrimSpace(spec.NodeKind),
-			RunID:              strings.TrimSpace(spec.RunID),
+			RunID:              assignmentRunID,
 			NodeID:             strings.TrimSpace(spec.NodeID),
 			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
 		})
 		assignments[idx] = assignment
+		if stored, ok := storedCheckpoints[assignment.AssignmentID]; ok {
+			op := stored.Receipt
+			op.Metadata = mergeStringMap(op.Metadata, map[string]string{
+				"receiptOffsetResumed": "true",
+				"resumeFromRunId":      resumeFromRunID,
+				"receiptRunId":         assignmentRunID,
+			})
+			if e != nil && e.run != nil && strings.TrimSpace(e.run.RunID) != "" && strings.TrimSpace(e.run.RunID) != assignmentRunID {
+				if err := e.storeFleetNATSReceiptCheckpointForRunIDs(ctx, []string{strings.TrimSpace(e.run.RunID)}, assignmentRunID, spec.NodeID, target, assignment, stored.Offset, op); err != nil {
+					receipt.Status = "failed"
+					receipt.Reason = fmt.Sprintf("store resumed JetStream receipt offset: %v", err)
+					return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+				}
+			}
+			results[idx] = target.resultWithEvidence(op, assignment, nil, nil, stored.Offset)
+			seenReceipts[fleetNATSReceiptDedupeKey(op, assignment)] = struct{}{}
+			continue
+		}
 		var raw []byte
 		if signer != nil {
 			envelope, err := signer.sign(assignment)
@@ -365,6 +411,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 				"receiptSubject":     receiptSubject,
 				"assignmentTargetId": target.targetID,
 				"expectedAgentId":    target.agentID,
+				"receiptRunId":       assignmentRunID,
 			},
 		}, assignment, envelopes[idx], assignmentOffsets[idx], nil)
 	}
@@ -415,6 +462,19 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 				continue
 			}
 			receiptOffset := natstransport.OffsetFromMessage(msg, receiptStream, durable)
+			key := fleetNATSReceiptDedupeKey(op, assignments[idx])
+			if _, seen := seenReceipts[key]; seen && results[idx].Status != "timeout" {
+				_ = msg.Ack(natsgo.Context(ctx))
+				continue
+			}
+			if err := e.storeFleetNATSReceiptCheckpoint(ctx, assignmentRunID, spec.NodeID, targets[idx], assignments[idx], receiptOffset, op); err != nil {
+				receipt.Status = "failed"
+				receipt.Reason = fmt.Sprintf("store JetStream receipt offset: %v", err)
+				receipt.Results = results
+				e.finalizeFleetNATSFanoutReceipt(&receipt)
+				return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+			}
+			seenReceipts[key] = struct{}{}
 			if results[idx].Status == "timeout" {
 				pending--
 			}
@@ -588,6 +648,129 @@ func (s *fleetNATSAssignmentSigner) sign(assignment natstransport.CommandAssignm
 		IssuedAt:     issuedAt,
 		ExpiresAt:    issuedAt.Add(s.ttl),
 	})
+}
+
+func (e *customNodeExecutor) fleetNATSAssignmentRunID(ctx context.Context, spec HostCommandSpec) string {
+	runID := strings.TrimSpace(spec.RunID)
+	resumeFromRunID := ""
+	if e != nil && e.run != nil {
+		resumeFromRunID = strings.TrimSpace(e.run.ResumeFromRunID)
+	}
+	if resumeFromRunID == "" {
+		return runID
+	}
+	if e != nil && e.run != nil && e.run.store != nil {
+		checkpoints, err := e.run.store.ListReceiptOffsets(ctx, resumeFromRunID, spec.NodeID)
+		if err == nil {
+			for _, checkpoint := range checkpoints {
+				if strings.TrimSpace(checkpoint.ReceiptRunID) != "" {
+					return strings.TrimSpace(checkpoint.ReceiptRunID)
+				}
+			}
+		}
+	}
+	return resumeFromRunID
+}
+
+func (e *customNodeExecutor) loadFleetNATSReceiptCheckpoints(ctx context.Context, runID string, nodeID string) (map[string]StackReceiptOffsetCheckpoint, error) {
+	out := map[string]StackReceiptOffsetCheckpoint{}
+	if e == nil || e.run == nil || e.run.store == nil || strings.TrimSpace(runID) == "" {
+		return out, nil
+	}
+	checkpoints, err := e.run.store.ListReceiptOffsets(ctx, runID, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	for _, checkpoint := range checkpoints {
+		assignmentID := strings.TrimSpace(checkpoint.AssignmentID)
+		if assignmentID == "" {
+			continue
+		}
+		out[assignmentID] = checkpoint
+	}
+	return out, nil
+}
+
+func (e *customNodeExecutor) storeFleetNATSReceiptCheckpoint(ctx context.Context, assignmentRunID string, nodeID string, target fleetNATSFanoutTarget, assignment natstransport.CommandAssignment, offset *natstransport.StreamOffset, receipt transport.OperationResult) error {
+	if e == nil || e.run == nil || e.run.store == nil {
+		return nil
+	}
+	runIDs := []string{strings.TrimSpace(assignmentRunID)}
+	currentRunID := strings.TrimSpace(e.run.RunID)
+	if currentRunID != "" && currentRunID != strings.TrimSpace(assignmentRunID) {
+		runIDs = append(runIDs, currentRunID)
+	}
+	return e.storeFleetNATSReceiptCheckpointForRunIDs(ctx, runIDs, assignmentRunID, nodeID, target, assignment, offset, receipt)
+}
+
+func (e *customNodeExecutor) storeFleetNATSReceiptCheckpointForRunIDs(ctx context.Context, runIDs []string, assignmentRunID string, nodeID string, target fleetNATSFanoutTarget, assignment natstransport.CommandAssignment, offset *natstransport.StreamOffset, receipt transport.OperationResult) error {
+	if e == nil || e.run == nil || e.run.store == nil {
+		return nil
+	}
+	targetID := firstNonEmptyString(receipt.Metadata["assignmentTargetId"], receipt.Metadata["targetId"], target.targetID, assignment.TargetID)
+	checkpoint := StackReceiptOffsetCheckpoint{
+		ReceiptRunID:  strings.TrimSpace(assignmentRunID),
+		NodeID:        strings.TrimSpace(nodeID),
+		TargetID:      strings.TrimSpace(targetID),
+		AssignmentID:  firstNonEmptyString(receipt.Metadata["assignmentId"], assignment.AssignmentID),
+		AgentID:       firstNonEmptyString(receipt.Metadata["agentId"], target.agentID),
+		WorkerSubject: firstNonEmptyString(receipt.Metadata["workerSubject"], target.workerSubject),
+		Offset:        offset,
+		LastSeenAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		Receipt:       receipt,
+	}
+	for _, runID := range runIDs {
+		if runID == "" {
+			continue
+		}
+		checkpoint.RunID = runID
+		if err := e.run.store.UpsertReceiptOffset(ctx, checkpoint); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func maxFleetNATSReceiptSequence(checkpoints map[string]StackReceiptOffsetCheckpoint, receiptStream string) uint64 {
+	var maxSeq uint64
+	for _, checkpoint := range checkpoints {
+		if checkpoint.Offset == nil {
+			continue
+		}
+		if strings.TrimSpace(receiptStream) != "" && strings.TrimSpace(checkpoint.Offset.Stream) != "" && strings.TrimSpace(checkpoint.Offset.Stream) != strings.TrimSpace(receiptStream) {
+			continue
+		}
+		if checkpoint.Offset.Sequence > maxSeq {
+			maxSeq = checkpoint.Offset.Sequence
+		}
+	}
+	return maxSeq
+}
+
+func fleetNATSReceiptDedupeKey(receipt transport.OperationResult, assignment natstransport.CommandAssignment) string {
+	return strings.Join([]string{
+		firstNonEmptyString(receipt.Metadata["assignmentId"], assignment.AssignmentID),
+		firstNonEmptyString(receipt.Metadata["assignmentTargetId"], receipt.Metadata["targetId"], assignment.TargetID),
+		firstNonEmptyString(receipt.Metadata["agentId"], assignment.ExpectedAgentID),
+	}, "\x00")
+}
+
+func mergeStringMap(base map[string]string, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overlay))
+	for k, v := range base {
+		if strings.TrimSpace(v) != "" {
+			out[k] = v
+		}
+	}
+	for k, v := range overlay {
+		if strings.TrimSpace(v) != "" {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func (e *customNodeExecutor) finalizeFleetNATSFanoutReceipt(receipt *fleetNATSFanoutReceipt) {

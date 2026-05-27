@@ -256,7 +256,11 @@ again. Add `runner.fanout.retry` to bound transient failures and force
 dead-letter evidence when the retry budget is exhausted. Set
 `TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` for stack-side JetStream signing, then run
 workers with `--verify-assignments --trusted-issuer-key` so agents reject
-unsigned or mismatched broker messages before execution.
+unsigned or mismatched broker messages before execution. Stack apply also
+checkpoints each consumed JetStream receipt offset into
+`.torque/stack/state.sqlite` before ACKing it; `torque stack apply --resume
+--run-id <run-id>` can then hydrate completed target receipts from SQLite and
+continue waiting only for missing targets.
 
 ```yaml
 apiVersion: torque.dev/v1

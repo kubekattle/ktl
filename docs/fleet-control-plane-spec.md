@@ -3,7 +3,8 @@
 Status: design draft; local NATS heartbeat/status, agent capability reporting,
 durable registry compaction, stack fleet readiness/capability gate slices,
 worker-side capability enforcement, worker identity receipts, and targeted NATS
-fleet fan-out with JetStream durable assignments implemented.
+fleet fan-out with JetStream durable assignments and receipt offset resume
+implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -99,6 +100,18 @@ Implemented local slice:
   to end: a valid signed stack assignment executes, while unsigned, expired,
   wrong-policy, and wrong-target messages are blocked without running their
   commands.
+- Stack JetStream fan-out checkpoints each consumed `TORQUE_RECEIPTS` message
+  into `.torque/stack/state.sqlite` before ACKing it. The checkpoint stores the
+  stack run ID, receipt run ID, node ID, target ID, assignment ID, agent ID,
+  worker subject, stream, subject, consumer, sequence, receipt digest, and
+  receipt body. When `torque stack apply --resume --run-id <run>` re-enters the
+  same fleet node, Torque reuses the original assignment run ID, hydrates any
+  completed target result from the checkpoint, and only waits/publishes for
+  missing target receipts.
+- `scripts/e2e/ops/OPS-AGENT-011.sh` proves durable receipt offset resume end
+  to end: it runs a JetStream fleet stack once, stops the worker, marks the run
+  interrupted, resumes from the first run, and verifies the second apply
+  succeeds from stored receipt offsets without writing the marker again.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and

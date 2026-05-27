@@ -4336,6 +4336,188 @@ nodes:
 	}
 }
 
+func TestRun_HostCommandFleetModeJetStreamFanoutResumesReceiptOffset(t *testing.T) {
+	root := t.TempDir()
+	serverURL := startStackTestNATSJetStreamServer(t)
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	marker := filepath.Join(root, "fanout-jetstream-resume-marker.txt")
+	assignmentStream := "TORQUE_ASSIGNMENTS_RESUME_TEST"
+	receiptStream := "TORQUE_RECEIPTS_RESUME_TEST"
+	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-jetstream-resume
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: %q
+    tenant: lab
+    selector:
+      role: mysql
+    requireAgents: true
+    minReadyPercent: 100
+    failureBudget: 0
+    staleAfter: 45s
+    onInsufficientReady: block
+  fanout:
+    delivery: jetstream
+    maxParallel: 1
+    maxFailed: 0
+    minSucceededPercent: 100
+    onPartialFailure: block
+nodes:
+  - kind: host.command.run
+    name: write-marker
+    host:
+      transport: nats
+      timeout: 8s
+      command: "printf 'resume-hit\n' >> %s"
+`, registryPath, marker)
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack: %v", err)
+	}
+	agentID := "agent-js-resume"
+	writeFleetReadinessAgent(t, registryPath, agentID, heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
+	t.Setenv("TORQUE_NATS_URL", serverURL)
+	t.Setenv("TORQUE_NATS_ASSIGNMENT_STREAM", assignmentStream)
+	t.Setenv("TORQUE_NATS_RECEIPT_STREAM", receiptStream)
+
+	p := compileFleetReadinessStack(t, root)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	ready := make(chan struct{})
+	worker, err := natsworker.New(natsworker.Config{
+		Server:                     serverURL,
+		Subject:                    fleetNATSAssignmentSubject("lab", agentID),
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "stack-js-resume-worker",
+		LedgerPath:                 filepath.Join(root, "agent-assignments.sqlite"),
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{NodeKindHostCommandRun},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    agentID,
+		Tenant:                     "lab",
+		TargetID:                   agentID,
+		Hostname:                   agentID + ".test",
+	})
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	workerErr := make(chan error, 1)
+	go func() {
+		workerErr <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		workerCancel()
+		t.Fatal("worker did not become ready")
+	}
+
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		workerCancel()
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	workerCancel()
+	select {
+	case err := <-workerErr:
+		if err != nil {
+			t.Fatalf("worker error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+	if got := countFileSubstring(t, marker, "resume-hit"); got != 1 {
+		t.Fatalf("marker hits after first run = %d, want 1", got)
+	}
+	firstRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	nodeID := "host.command.run/write-marker"
+	store, err := openStackStateStore(root, false)
+	if err != nil {
+		t.Fatalf("open state: %v", err)
+	}
+	checkpoints, err := store.ListReceiptOffsets(context.Background(), firstRunID, nodeID)
+	if err != nil {
+		_ = store.Close()
+		t.Fatalf("ListReceiptOffsets: %v", err)
+	}
+	if len(checkpoints) != 1 || checkpoints[0].Offset == nil || checkpoints[0].Offset.Sequence == 0 {
+		_ = store.Close()
+		t.Fatalf("receipt checkpoints = %#v", checkpoints)
+	}
+	if _, err := store.db.ExecContext(context.Background(), `UPDATE torque_stack_nodes SET status = 'failed', error = 'simulated controller restart' WHERE run_id = ? AND node_id = ?`, firstRunID, nodeID); err != nil {
+		_ = store.Close()
+		t.Fatalf("mark node failed: %v", err)
+	}
+	if _, err := store.db.ExecContext(context.Background(), `UPDATE torque_stack_runs SET status = 'failed' WHERE run_id = ?`, firstRunID); err != nil {
+		_ = store.Close()
+		t.Fatalf("mark run failed: %v", err)
+	}
+	_ = store.Close()
+	beforeAssignments := stackTestStreamMessageCount(t, serverURL, assignmentStream)
+
+	loaded, err := LoadRun(root, firstRunID)
+	if err != nil {
+		t.Fatalf("LoadRun: %v", err)
+	}
+	stepsByID, err := LoadRunNodeSteps(root, firstRunID)
+	if err != nil {
+		t.Fatalf("LoadRunNodeSteps: %v", err)
+	}
+	out.Reset()
+	errOut.Reset()
+	if err := Run(context.Background(), RunOptions{
+		Command:           "apply",
+		Plan:              loaded.Plan,
+		Concurrency:       1,
+		Lock:              false,
+		ResumeFromRunID:   firstRunID,
+		ResumeStatusByID:  loaded.StatusByID,
+		ResumeAttemptByID: loaded.AttemptByID,
+		ResumeStepsByID:   stepsByID,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run resume: %v\nstderr=%s", err, errOut.String())
+	}
+	if got := countFileSubstring(t, marker, "resume-hit"); got != 1 {
+		t.Fatalf("marker hits after resume = %d, want 1", got)
+	}
+	afterAssignments := stackTestStreamMessageCount(t, serverURL, assignmentStream)
+	if afterAssignments != beforeAssignments {
+		t.Fatalf("resume published assignment messages: before=%d after=%d", beforeAssignments, afterAssignments)
+	}
+	audit := fleetReadinessAudit(t, root)
+	var fanout fleetNATSFanoutReceipt
+	for _, artifact := range audit.Artifacts {
+		if artifact.Name == "host-command-fanout.json" {
+			if err := json.Unmarshal([]byte(artifact.Body), &fanout); err != nil {
+				t.Fatalf("parse fanout artifact: %v\n%s", err, artifact.Body)
+			}
+		}
+	}
+	if fanout.Status != "succeeded" || fanout.ReceiptRunID != firstRunID || fanout.ResumeFromRunID != firstRunID || len(fanout.Results) != 1 {
+		t.Fatalf("resume fanout artifact = %#v", fanout)
+	}
+	result := fanout.Results[0]
+	if result.ReceiptOffset == nil || result.ReceiptOffset.Sequence != checkpoints[0].Offset.Sequence {
+		t.Fatalf("resume receipt offset = %#v want %#v", result.ReceiptOffset, checkpoints[0].Offset)
+	}
+	if result.Receipt.Metadata["receiptOffsetResumed"] != "true" || result.Receipt.Metadata["resumeFromRunId"] != firstRunID {
+		t.Fatalf("resume metadata = %#v", result.Receipt.Metadata)
+	}
+}
+
 func TestRun_KubernetesLifecycleSummaryArtifact(t *testing.T) {
 	root := t.TempDir()
 	statePath := filepath.Join(root, "cert-renewal-state.json")
@@ -5631,6 +5813,36 @@ func waitForStackTestStreamMessages(t *testing.T, serverURL string, stream strin
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("stream %s messages = %d, want at least %d", stream, lastState, want)
+}
+
+func stackTestStreamMessageCount(t *testing.T, serverURL string, stream string) uint64 {
+	t.Helper()
+	conn, err := natsgo.Connect(serverURL, natsgo.NoReconnect(), natsgo.Timeout(time.Second))
+	if err != nil {
+		t.Fatalf("connect NATS for stream count: %v", err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(time.Second))
+	if err != nil {
+		t.Fatalf("open JetStream for stream count: %v", err)
+	}
+	info, err := js.StreamInfo(stream)
+	if err != nil {
+		t.Fatalf("stream info %s: %v", stream, err)
+	}
+	if info == nil {
+		return 0
+	}
+	return info.State.Msgs
+}
+
+func countFileSubstring(t *testing.T, path string, needle string) int {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return strings.Count(string(raw), needle)
 }
 
 func providerMatrixJSONCommand(raw string) string {

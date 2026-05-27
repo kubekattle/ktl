@@ -289,6 +289,30 @@ CREATE TABLE IF NOT EXISTS torque_stack_verify_cache (
   PRIMARY KEY (cluster_key, namespace, release_name)
 );`,
 		`CREATE INDEX IF NOT EXISTS idx_torque_stack_verify_cache_lookup ON torque_stack_verify_cache(cluster_key, namespace, release_name);`,
+		`
+CREATE TABLE IF NOT EXISTS torque_stack_receipt_offsets (
+  run_id TEXT NOT NULL,
+  receipt_run_id TEXT NOT NULL DEFAULT '',
+  node_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  assignment_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL DEFAULT '',
+  worker_subject TEXT NOT NULL DEFAULT '',
+  receipt_stream TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  consumer TEXT NOT NULL DEFAULT '',
+  sequence INTEGER NOT NULL DEFAULT 0,
+  num_delivered INTEGER NOT NULL DEFAULT 0,
+  num_pending INTEGER NOT NULL DEFAULT 0,
+  received_at_ns INTEGER NOT NULL DEFAULT 0,
+  last_seen_at_ns INTEGER NOT NULL DEFAULT 0,
+  receipt_json TEXT NOT NULL DEFAULT '',
+  receipt_sha256 TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (run_id, node_id, target_id, assignment_id),
+  FOREIGN KEY (run_id) REFERENCES torque_stack_runs(run_id) ON DELETE CASCADE
+);`,
+		`CREATE INDEX IF NOT EXISTS idx_torque_stack_receipt_offsets_run_node ON torque_stack_receipt_offsets(run_id, node_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_torque_stack_receipt_offsets_stream_seq ON torque_stack_receipt_offsets(receipt_stream, sequence);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -306,6 +330,37 @@ CREATE TABLE IF NOT EXISTS torque_stack_verify_cache (
 	}
 	if err := s.ensureVerifyCacheColumns(ctx); err != nil {
 		return err
+	}
+	if err := s.ensureReceiptOffsetColumns(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *stackStateStore) ensureReceiptOffsetColumns(ctx context.Context) error {
+	cols, err := s.tableColumns(ctx, "torque_stack_receipt_offsets")
+	if err != nil {
+		return err
+	}
+	want := map[string]string{
+		"receipt_run_id":  "TEXT NOT NULL DEFAULT ''",
+		"agent_id":        "TEXT NOT NULL DEFAULT ''",
+		"worker_subject":  "TEXT NOT NULL DEFAULT ''",
+		"consumer":        "TEXT NOT NULL DEFAULT ''",
+		"num_delivered":   "INTEGER NOT NULL DEFAULT 0",
+		"num_pending":     "INTEGER NOT NULL DEFAULT 0",
+		"received_at_ns":  "INTEGER NOT NULL DEFAULT 0",
+		"last_seen_at_ns": "INTEGER NOT NULL DEFAULT 0",
+		"receipt_json":    "TEXT NOT NULL DEFAULT ''",
+		"receipt_sha256":  "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, ddl := range want {
+		if _, ok := cols[name]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE torque_stack_receipt_offsets ADD COLUMN %s %s;", name, ddl)); err != nil {
+			return fmt.Errorf("add column torque_stack_receipt_offsets.%s: %w", name, err)
+		}
 	}
 	return nil
 }

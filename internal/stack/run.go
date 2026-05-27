@@ -106,6 +106,7 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	}
 	run.Selector = opts.Selector
 	run.PolicyOverride = opts.PolicyOverride
+	run.ResumeFromRunID = strings.TrimSpace(opts.ResumeFromRunID)
 	if opts.InitialAttempts != nil {
 		for _, n := range run.Nodes {
 			if a, ok := opts.InitialAttempts[n.ID]; ok {
@@ -827,15 +828,16 @@ type runState struct {
 	RunID string
 	store *stackStateStore
 
-	Plan           *Plan
-	Command        string
-	Nodes          []*runNode
-	Concurrency    int
-	FailMode       string
-	Selector       RunSelector
-	Kubeconfig     string
-	KubeContext    string
-	PolicyOverride bool
+	Plan            *Plan
+	Command         string
+	Nodes           []*runNode
+	Concurrency     int
+	FailMode        string
+	Selector        RunSelector
+	Kubeconfig      string
+	KubeContext     string
+	PolicyOverride  bool
+	ResumeFromRunID string
 
 	mu sync.Mutex
 

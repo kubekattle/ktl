@@ -410,6 +410,7 @@ var curatedExamples = map[string][]string{
 	"torque stack apply": {
 		"# Apply the selected stack nodes (DAG order)\ntorque stack apply --config ./stacks/prod --yes",
 		"# Capture a stack run evidence bundle\ntorque stack apply --config ./stacks/prod --yes --capture ./stack.sqlite",
+		"# Resume a fleet run from durable receipt offsets\ntorque stack apply --config ./stacks/prod --yes --resume --run-id <run-id>",
 		"# Apply a sealed ops plan only after the ops preflight gate passes\ntorque stack apply --from-bundle ./stack-plan.tgz --yes",
 		"# Replay an approved ops plan and re-check frozen evidence before mutation\ntorque stack apply --from-bundle ./host-command-plan.tgz --yes",
 		"# Execute a guarded host.command.run from a sealed ops plan\ntorque stack apply --from-bundle ./host-command-plan.tgz --yes",

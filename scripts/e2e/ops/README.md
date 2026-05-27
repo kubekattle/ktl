@@ -541,6 +541,21 @@ scripts/e2e/ops/OPS-AGENT-010.sh \
   --cleanup
 ```
 
+## OPS-AGENT-011
+
+`OPS-AGENT-011.sh` proves durable receipt offset resume. It runs a
+JetStream-backed fleet stack once, verifies the receipt offset checkpoint in
+`.torque/stack/state.sqlite`, stops the worker, marks the first run as
+interrupted, then runs `torque stack apply --resume --run-id <first-run>`.
+The resumed apply must succeed from the stored receipt offset without writing
+the marker a second time.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-011.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or
@@ -548,7 +563,7 @@ connects to NATS, starts `torque-agent nats worker`, applies a stack with
 `mysql.replication.verify` using `transport: nats-mesh`, audits the resulting
 stack artifacts for replicated-node and `nats.request` evidence, and exports a
 redacted run bundle. Durable JetStream retries, signed assignments, and
-evidence-offset resume remain follow-up hardening.
+fleet control-plane hardening build on top of that bridge.
 
 ```bash
 scripts/e2e/ops/OPS-TR-007.sh \
