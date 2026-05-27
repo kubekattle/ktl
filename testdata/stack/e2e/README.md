@@ -23,6 +23,11 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
   collection by applying `host.file.ensure` through a NATS assignment worker,
   then verifying the same module receipt shape that SSH-backed execution will
   use.
+- `25-firecracker-postgres-pgbouncer-nats` is the full NATS stackfile used by
+  `scripts/e2e/ops/STACK-FC-POSTGRES-001.sh`: one PostgreSQL primary, four
+  streaming replicas, PgBouncer on every VM, a replicated write probe, reapply,
+  audit/export, and delete through `host.command.run` nodes dispatched to
+  Firecracker-local `torque-agent nats worker` subjects.
 - `19-firecracker-gitlab-hybrid` is a real-lab GitLab hybrid stack that
   creates Firecracker VMs for a 3-node k3s service tier and 4-node
   PostgreSQL/Redis/MinIO stateful tier, deploys GitLab with external services,

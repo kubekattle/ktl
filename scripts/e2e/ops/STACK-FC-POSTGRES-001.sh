@@ -76,6 +76,8 @@ ops_require_cmd ssh
 ops_require_cmd tar
 
 repo_root="$(ops_repo_root)"
+static_stack="${repo_root}/testdata/stack/e2e/25-firecracker-postgres-pgbouncer-nats/stack.yaml"
+[[ -f "${static_stack}" ]] || ops_fail "missing static stack fixture: ${static_stack}"
 ops_init_run "STACK-FC-POSTGRES-001"
 started_at="$(ops_utc_now)"
 scratch_root="$(mktemp -d "${TMPDIR:-/tmp}/torque-fc-postgres.XXXXXX")"
@@ -234,8 +236,9 @@ mkdir -p "${nats_build_dir}"
 
 ops_log "install remote PostgreSQL/PgBouncer NATS runner"
 ops_set_ssh_base_args
-ssh "${OPS_SSH_ARGS[@]}" "$(ops_ssh_target "${TORQUE_LAB_SSH}")" "mkdir -p '${remote_root}/bin'"
+ssh "${OPS_SSH_ARGS[@]}" "$(ops_ssh_target "${TORQUE_LAB_SSH}")" "mkdir -p '${remote_root}/bin' '${remote_root}/stack'"
 scp "${scratch_root}/bin/torque" "${scratch_root}/bin/torque-agent" "${scratch_root}/bin/nats-server" "$(ops_ssh_target "${TORQUE_LAB_SSH}"):${remote_root}/bin/" >/dev/null
+scp "${static_stack}" "$(ops_ssh_target "${TORQUE_LAB_SSH}"):${remote_root}/stack/stack.yaml" >/dev/null
 
 ssh "${OPS_SSH_ARGS[@]}" "$(ops_ssh_target "${TORQUE_LAB_SSH}")" "cat > '${remote_script}' && chmod +x '${remote_script}'" <<'REMOTE'
 #!/usr/bin/env bash
@@ -541,298 +544,17 @@ for i in $(seq 0 "$((NODE_COUNT - 1))"); do
   }
 done
 
-generate_stack() {
-  python3 - "${STACK_ROOT}" "${RUN_ID}" "${GATEWAY}" "${NATS_PORT}" "${NODE_COUNT}" <<'PY'
-from pathlib import Path
-import sys
-
-stack_root = Path(sys.argv[1])
-run_id, gateway, nats_port, node_count = sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
-net_prefix = ".".join(gateway.split(".")[:3])
-primary_ip = f"{net_prefix}.10"
-
-def subject(i: int) -> str:
-    safe = "".join(ch for ch in run_id if ch.isalnum())
-    return f"torque.pg.{safe}.postgres-{i:02d}"
-
-def node_ip(i: int) -> str:
-    return f"{net_prefix}.{10 + i}"
-
-def block(lines: list[str], text: str) -> None:
-    for raw in text.strip("\n").splitlines():
-        lines.append("        " + raw)
-
-def add_node(lines: list[str], name: str, target: str, command: str, needs: list[str] | None = None, timeout: str = "20m", delete_command: str = "") -> None:
-    lines.extend([
-        f"  - name: {name}",
-        "    kind: host.command.run",
-    ])
-    if needs:
-        lines.append("    needs: [" + ", ".join(needs) + "]")
-    lines.extend([
-        "    host:",
-        "      transport: nats",
-        f"      target: {target}",
-        f"      timeout: {timeout}",
-        "      command: |",
-    ])
-    block(lines, command)
-    if delete_command.strip():
-        lines.append("      deleteCommand: |")
-        block(lines, delete_command)
-
-common_functions = r'''
-pg_version() {
-  pg_lsclusters --no-header | awk 'NR==1 {print $1}'
-}
-
-set_setting() {
-  local file="$1" key="$2" value="$3"
-  if grep -Eq "^[#[:space:]]*${key}[[:space:]]*=" "${file}"; then
-    sed -ri "s|^[#[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "${file}"
-  else
-    printf '%s = %s\n' "${key}" "${value}" >>"${file}"
-  fi
-}
-
-ensure_hba() {
-  local hba="$1"
-  if ! grep -q 'torque-postgres-pgbouncer-e2e' "${hba}"; then
-    cp "${hba}" "${hba}.torque-bak"
-    {
-      echo '# torque-postgres-pgbouncer-e2e begin'
-      echo 'local all all trust'
-      echo 'host all all 127.0.0.1/32 trust'
-      echo 'host all all 172.31.239.0/24 trust'
-      echo 'host replication replicator 172.31.239.0/24 trust'
-      echo '# torque-postgres-pgbouncer-e2e end'
-      cat "${hba}.torque-bak"
-    } >"${hba}"
-  fi
-}
-
-configure_postgres_common() {
-  local ver conf hba
-  ver="$(pg_version)"
-  conf="/etc/postgresql/${ver}/main/postgresql.conf"
-  hba="/etc/postgresql/${ver}/main/pg_hba.conf"
-  set_setting "${conf}" "listen_addresses" "'*'"
-  set_setting "${conf}" "wal_level" "replica"
-  set_setting "${conf}" "max_wal_senders" "16"
-  set_setting "${conf}" "max_replication_slots" "16"
-  set_setting "${conf}" "hot_standby" "on"
-  ensure_hba "${hba}"
-}
-
-ensure_pgbouncer() {
-  install -d -m 0755 -o postgres -g postgres /run/pgbouncer /var/log/pgbouncer
-  cat >/etc/pgbouncer/pgbouncer.ini <<'EOF'
-[databases]
-torque = host=127.0.0.1 port=5432 dbname=torque
-
-[pgbouncer]
-listen_addr = 0.0.0.0
-listen_port = 6432
-user = postgres
-auth_type = trust
-auth_file = /etc/pgbouncer/userlist.txt
-pool_mode = transaction
-max_client_conn = 100
-default_pool_size = 20
-ignore_startup_parameters = extra_float_digits
-pidfile = /run/pgbouncer/pgbouncer.pid
-logfile = /var/log/pgbouncer/pgbouncer.log
-admin_users = postgres, torque_app
-EOF
-  cat >/etc/pgbouncer/userlist.txt <<'EOF'
-"postgres" ""
-"torque_app" ""
-EOF
-  chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
-  chmod 0640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
-  if [[ -f /etc/default/pgbouncer ]]; then
-    sed -ri 's/^START=.*/START=1/' /etc/default/pgbouncer
-    grep -q '^START=' /etc/default/pgbouncer || echo 'START=1' >>/etc/default/pgbouncer
-  fi
-  systemctl enable pgbouncer >/dev/null 2>&1 || true
-  if ! systemctl restart pgbouncer; then
-    systemctl status pgbouncer --no-pager || true
-    journalctl -u pgbouncer -n 80 --no-pager || true
-    return 1
-  fi
-}
-'''
-
-primary_command = common_functions + f'''
-set -euo pipefail
-PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
-mkdir -p "${{PROOF_DIR}}"
-
-configure_postgres_common
-systemctl restart postgresql
-for _ in $(seq 1 90); do
-  if runuser -u postgres -- psql -tAc 'select 1' >/dev/null 2>&1; then
-    break
-  fi
-  sleep 2
-done
-runuser -u postgres -- psql -v ON_ERROR_STOP=1 <<'SQL'
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
-    CREATE ROLE replicator WITH REPLICATION LOGIN;
-  END IF;
-END$$;
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'torque_app') THEN
-    CREATE ROLE torque_app WITH LOGIN;
-  END IF;
-END$$;
-SELECT 'CREATE DATABASE torque OWNER torque_app' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'torque')\\gexec
-\\c torque
-CREATE TABLE IF NOT EXISTS torque_probe (
-  id text PRIMARY KEY,
-  payload text NOT NULL,
-  observed_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE torque_probe OWNER TO torque_app;
-GRANT ALL ON TABLE torque_probe TO torque_app;
-SQL
-ensure_pgbouncer
-pg_isready -h 127.0.0.1 -p 5432
-pg_isready -h 127.0.0.1 -p 6432
-cat >"${{PROOF_DIR}}/primary.json" <<EOF
-{{"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresPrimaryReceipt","status":"succeeded","node":"postgres-00","ip":"{primary_ip}","pgbouncerPort":6432}}
-EOF
-cat "${{PROOF_DIR}}/primary.json"
-'''
-
-primary_delete = r'''
-set -euo pipefail
-systemctl stop pgbouncer postgresql 2>/dev/null || true
-'''
-
-def replica_command(i: int) -> str:
-    ip = node_ip(i)
-    return common_functions + f'''
-set -euo pipefail
-PRIMARY="{primary_ip}"
-PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
-mkdir -p "${{PROOF_DIR}}"
-
-configure_postgres_common
-ver="$(pg_version)"
-data_dir="/var/lib/postgresql/${{ver}}/main"
-if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
-  systemctl restart postgresql
-else
-  systemctl stop postgresql pgbouncer 2>/dev/null || true
-  rm -rf "${{data_dir}}"
-  install -d -m 0700 -o postgres -g postgres "${{data_dir}}"
-  runuser -u postgres -- pg_basebackup -h "${{PRIMARY}}" -D "${{data_dir}}" -U replicator -Fp -Xs -P -R -w
-  chown -R postgres:postgres "${{data_dir}}"
-  systemctl start postgresql
-fi
-for _ in $(seq 1 120); do
-  if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
-    break
-  fi
-  sleep 2
-done
-runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" | grep -q t
-ensure_pgbouncer
-pg_isready -h 127.0.0.1 -p 5432
-pg_isready -h 127.0.0.1 -p 6432
-cat >"${{PROOF_DIR}}/replica-{i:02d}.json" <<EOF
-{{"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresReplicaReceipt","status":"succeeded","node":"postgres-{i:02d}","ip":"{ip}","primary":"{primary_ip}","pgbouncerPort":6432}}
-EOF
-cat "${{PROOF_DIR}}/replica-{i:02d}.json"
-'''
-
-replica_delete = r'''
-set -euo pipefail
-systemctl stop pgbouncer postgresql 2>/dev/null || true
-'''
-
-verify_command = common_functions + f'''
-set -euo pipefail
-PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
-mkdir -p "${{PROOF_DIR}}"
-probe_id="probe-${{HOSTNAME}}-{run_id}"
-psql_primary() {{
-  PGPASSWORD= psql -h 127.0.0.1 -p 6432 -U torque_app -d torque -v ON_ERROR_STOP=1 "$@"
-}}
-psql_primary -c "INSERT INTO torque_probe(id, payload) VALUES ('${{probe_id}}', 'nats pgbouncer proof') ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, observed_at = now();"
-
-replication_state="0"
-for _ in $(seq 1 120); do
-  replication_state="$(runuser -u postgres -- psql -tAc "select count(*) from pg_stat_replication where state = 'streaming';" | tr -d '[:space:]')"
-  [[ "${{replication_state}}" == "4" ]] && break
-  sleep 2
-done
-
-ready_nodes=0
-replicated_nodes=0
-pgbouncer_nodes=0
-: >"${{PROOF_DIR}}/cluster-status.txt"
-for node in 0 1 2 3 4; do
-  ip="{net_prefix}.$((10 + node))"
-  if pg_isready -h "${{ip}}" -p 5432 >/dev/null 2>&1; then
-    ready_nodes=$((ready_nodes + 1))
-  fi
-  if pg_isready -h "${{ip}}" -p 6432 >/dev/null 2>&1; then
-    pgbouncer_nodes=$((pgbouncer_nodes + 1))
-  fi
-  count="$(PGPASSWORD= psql -h "${{ip}}" -p 6432 -U torque_app -d torque -tAc "select count(*) from torque_probe where id='${{probe_id}}';" 2>/dev/null | tr -d '[:space:]' || true)"
-  in_recovery="$(PGPASSWORD= psql -h "${{ip}}" -p 5432 -U postgres -d postgres -tAc "select pg_is_in_recovery();" 2>/dev/null | tr -d '[:space:]' || true)"
-  printf 'node=postgres-%02d ip=%s postgresReady=%s pgbouncerReady=%s replicatedCount=%s inRecovery=%s\n' "${{node}}" "${{ip}}" "$(pg_isready -h "${{ip}}" -p 5432 >/dev/null 2>&1 && echo true || echo false)" "$(pg_isready -h "${{ip}}" -p 6432 >/dev/null 2>&1 && echo true || echo false)" "${{count:-0}}" "${{in_recovery}}" >>"${{PROOF_DIR}}/cluster-status.txt"
-  [[ "${{count}}" == "1" ]] && replicated_nodes=$((replicated_nodes + 1))
-done
-cat "${{PROOF_DIR}}/cluster-status.txt"
-status="succeeded"
-if [[ "${{ready_nodes}}" != "5" || "${{pgbouncer_nodes}}" != "5" || "${{replicated_nodes}}" != "5" || "${{replication_state}}" != "4" ]]; then
-  status="failed"
-fi
-cat >"${{PROOF_DIR}}/receipt.json" <<EOF
-{{"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresPgBouncerClusterReceipt","status":"${{status}}","runId":"{run_id}","nodeCount":5,"primaryIP":"{primary_ip}","replicaCount":4,"streamingReplicas":${{replication_state:-0}},"postgresReady":${{ready_nodes}},"pgbouncerReady":${{pgbouncer_nodes}},"replicatedNodes":${{replicated_nodes}},"probeId":"${{probe_id}}","transport":"nats"}}
-EOF
-cat "${{PROOF_DIR}}/receipt.json"
-[[ "${{status}}" == "succeeded" ]]
-'''
-
-lines = [
-    "apiVersion: torque.dev/v1",
-    "kind: Stack",
-    "name: firecracker-postgres-pgbouncer-nats",
-    "runner:",
-    "  concurrency: 2",
-    "cli:",
-    "  inferDeps: false",
-    "nodes:",
-]
-add_node(lines, "postgres-primary", subject(0), primary_command, timeout="20m", delete_command=primary_delete)
-for i in range(1, node_count):
-    add_node(lines, f"postgres-replica-{i:02d}", subject(i), replica_command(i), needs=["postgres-primary"], timeout="20m", delete_command=replica_delete)
-add_node(
-    lines,
-    "postgres-pgbouncer-verify",
-    subject(0),
-    verify_command,
-    needs=[f"postgres-replica-{i:02d}" for i in range(1, node_count)],
-    timeout="15m",
-)
-stack_root.mkdir(parents=True, exist_ok=True)
-stack_root.joinpath("stack.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
-PY
-}
-
 latest_run_id() {
   "${TORQUE_BIN}" stack runs --config "${STACK_ROOT}" --output json --limit 1 |
     python3 -c 'import json,sys; doc=json.load(sys.stdin); print((doc[0].get("runId") if doc else "") or "")'
 }
 
-generate_stack
+[[ -s "${STACK_ROOT}/stack.yaml" ]] || { echo "missing static stack.yaml in ${STACK_ROOT}" >&2; exit 2; }
+export TORQUE_PG_NATS_POSTGRES_00_SUBJECT="$(subject_for 0)"
+export TORQUE_PG_NATS_POSTGRES_01_SUBJECT="$(subject_for 1)"
+export TORQUE_PG_NATS_POSTGRES_02_SUBJECT="$(subject_for 2)"
+export TORQUE_PG_NATS_POSTGRES_03_SUBJECT="$(subject_for 3)"
+export TORQUE_PG_NATS_POSTGRES_04_SUBJECT="$(subject_for 4)"
 cp "${STACK_ROOT}/stack.yaml" "${EVIDENCE_DIR}/stack.yaml"
 
 ops_run_stack() {

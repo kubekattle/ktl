@@ -89,7 +89,8 @@ scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
 
 `STACK-FC-POSTGRES-001.sh` proves a NATS-transport database workflow on the
 real Firecracker lab host. It boots five Firecracker VMs, starts a
-`torque-agent nats worker` inside each VM, generates a stack whose PostgreSQL
+`torque-agent nats worker` inside each VM, applies the full stackfile at
+`testdata/stack/e2e/25-firecracker-postgres-pgbouncer-nats` whose PostgreSQL
 primary, four streaming replicas, PgBouncer setup, replicated probe, reapply,
 audit/export, and delete phases all run through NATS assignment subjects, then
 collects proof artifacts and cleans up the VM resources.

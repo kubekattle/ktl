@@ -746,6 +746,11 @@ PgBouncer configuration through `host.command.run` nodes with `transport:
 nats`, reapplies for idempotence, writes a replicated probe through PgBouncer,
 audits/exports the run, and deletes the stack before VM cleanup:
 
+The full stack implementation is checked in at
+`testdata/stack/e2e/25-firecracker-postgres-pgbouncer-nats/stack.yaml`; the
+runner only supplies Firecracker bootstrapping, the local NATS server, and the
+five worker subject environment variables consumed by that stack.
+
 ```bash
 TORQUE_OPS_E2E_CONFIRM=1 \
 TORQUE_LAB_SSH=ssh://root@141.105.65.227 \
