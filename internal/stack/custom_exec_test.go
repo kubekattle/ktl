@@ -18,6 +18,7 @@ import (
 
 	"github.com/ingresslabs/torque/internal/ops/agent/heartbeat"
 	"github.com/ingresslabs/torque/internal/ops/locks"
+	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
 	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
 	natsgo "github.com/nats-io/nats.go"
 	_ "modernc.org/sqlite"
@@ -4198,6 +4199,142 @@ nodes:
 	}
 }
 
+func TestRun_HostCommandFleetModeJetStreamFanoutDeliversOfflineAssignment(t *testing.T) {
+	root := t.TempDir()
+	serverURL := startStackTestNATSJetStreamServer(t)
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	marker := filepath.Join(root, "fanout-jetstream-marker.txt")
+	assignmentStream := "TORQUE_ASSIGNMENTS_TEST"
+	receiptStream := "TORQUE_RECEIPTS_TEST"
+	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-jetstream-fanout
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: %q
+    tenant: lab
+    selector:
+      role: mysql
+    requireAgents: true
+    minReadyPercent: 100
+    failureBudget: 0
+    staleAfter: 45s
+    onInsufficientReady: block
+  fanout:
+    delivery: jetstream
+    maxParallel: 1
+    maxFailed: 0
+    minSucceededPercent: 100
+    onPartialFailure: block
+nodes:
+  - kind: host.command.run
+    name: write-marker
+    host:
+      transport: nats
+      timeout: 8s
+      command: "printf 'jetstream-hit\n' >> %s"
+`, registryPath, marker)
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack: %v", err)
+	}
+	agentID := "agent-js-fanout"
+	writeFleetReadinessAgent(t, registryPath, agentID, heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
+	t.Setenv("TORQUE_NATS_URL", serverURL)
+	t.Setenv("TORQUE_NATS_ASSIGNMENT_STREAM", assignmentStream)
+	t.Setenv("TORQUE_NATS_RECEIPT_STREAM", receiptStream)
+
+	p := compileFleetReadinessStack(t, root)
+	var out, errOut bytes.Buffer
+	applyErr := make(chan error, 1)
+	go func() {
+		applyErr <- Run(context.Background(), RunOptions{
+			Command:     "apply",
+			Plan:        p,
+			Concurrency: 1,
+			Lock:        true,
+		}, &out, &errOut)
+	}()
+	waitForStackTestStreamMessages(t, serverURL, assignmentStream, 1)
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	ready := make(chan struct{})
+	worker, err := natsworker.New(natsworker.Config{
+		Server:                     serverURL,
+		Subject:                    fleetNATSAssignmentSubject("lab", agentID),
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "stack-js-fanout-worker",
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{NodeKindHostCommandRun},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    agentID,
+		Tenant:                     "lab",
+		TargetID:                   agentID,
+		Hostname:                   agentID + ".test",
+	})
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	workerErr := make(chan error, 1)
+	go func() {
+		workerErr <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not become ready")
+	}
+	select {
+	case err := <-applyErr:
+		if err != nil {
+			t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("stack apply did not finish")
+	}
+	rawMarker, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read marker: %v", err)
+	}
+	if got := strings.Count(string(rawMarker), "jetstream-hit"); got != 1 {
+		t.Fatalf("marker hits = %d, want 1: %q", got, string(rawMarker))
+	}
+	audit := fleetReadinessAudit(t, root)
+	var fanout fleetNATSFanoutReceipt
+	for _, artifact := range audit.Artifacts {
+		if artifact.Name == "host-command-fanout.json" {
+			if err := json.Unmarshal([]byte(artifact.Body), &fanout); err != nil {
+				t.Fatalf("parse fanout artifact: %v\n%s", err, artifact.Body)
+			}
+		}
+	}
+	if fanout.Status != "succeeded" || fanout.Policy.Delivery != RunnerFanoutDeliveryJetStream || fanout.Summary.Succeeded != 1 || len(fanout.Results) != 1 {
+		t.Fatalf("fanout artifact = %#v", fanout)
+	}
+	result := fanout.Results[0]
+	if result.Assignment == nil || result.AssignmentOffset == nil || result.AssignmentOffset.Sequence == 0 || result.ReceiptOffset == nil || result.ReceiptOffset.Sequence == 0 {
+		t.Fatalf("missing JetStream assignment/receipt offsets: %#v", result)
+	}
+	if result.Receipt.Metadata["delivery"] != natstransport.DeliveryJetStream || result.Receipt.Metadata["workerDecision"] != "executed" {
+		t.Fatalf("unexpected receipt metadata: %#v", result.Receipt.Metadata)
+	}
+	workerCancel()
+	select {
+	case err := <-workerErr:
+		if err != nil {
+			t.Fatalf("worker error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
 func TestRun_KubernetesLifecycleSummaryArtifact(t *testing.T) {
 	root := t.TempDir()
 	statePath := filepath.Join(root, "cert-renewal-state.json")
@@ -5416,6 +5553,16 @@ func writeExecutableForTest(t *testing.T, path string, body string) {
 
 func startStackTestNATSServer(t *testing.T) string {
 	t.Helper()
+	return startStackTestNATSServerWithArgs(t, nil)
+}
+
+func startStackTestNATSJetStreamServer(t *testing.T) string {
+	t.Helper()
+	return startStackTestNATSServerWithArgs(t, []string{"-js", "-sd", t.TempDir()})
+}
+
+func startStackTestNATSServerWithArgs(t *testing.T, extraArgs []string) string {
+	t.Helper()
 	binary, err := exec.LookPath("nats-server")
 	if err != nil {
 		t.Skip("nats-server binary not found")
@@ -5428,7 +5575,9 @@ func startStackTestNATSServer(t *testing.T) string {
 	if err := listener.Close(); err != nil {
 		t.Fatalf("close reserved nats port: %v", err)
 	}
-	cmd := exec.Command(binary, "-a", "127.0.0.1", "-p", strconv.Itoa(port))
+	args := []string{"-a", "127.0.0.1", "-p", strconv.Itoa(port)}
+	args = append(args, extraArgs...)
+	cmd := exec.Command(binary, args...)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start nats-server: %v", err)
 	}
@@ -5455,6 +5604,32 @@ func startStackTestNATSServer(t *testing.T) string {
 	}
 	t.Fatalf("wait for nats-server: %v", lastErr)
 	return ""
+}
+
+func waitForStackTestStreamMessages(t *testing.T, serverURL string, stream string, want uint64) {
+	t.Helper()
+	conn, err := natsgo.Connect(serverURL, natsgo.NoReconnect(), natsgo.Timeout(time.Second))
+	if err != nil {
+		t.Fatalf("connect NATS for stream wait: %v", err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(time.Second))
+	if err != nil {
+		t.Fatalf("open JetStream for stream wait: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var lastState uint64
+	for time.Now().Before(deadline) {
+		info, err := js.StreamInfo(stream)
+		if err == nil && info != nil {
+			lastState = info.State.Msgs
+			if lastState >= want {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("stream %s messages = %d, want at least %d", stream, lastState, want)
 }
 
 func providerMatrixJSONCommand(raw string) string {

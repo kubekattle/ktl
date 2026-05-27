@@ -39,6 +39,7 @@ func TestResolveRunnerFromFlags_NoChanges(t *testing.T) {
 			MaxFailed:           0,
 			MinSucceededPercent: 100,
 			OnPartialFailure:    stack.RunnerFanoutOnBlock,
+			Delivery:            stack.RunnerFanoutDeliveryRequestReply,
 		},
 		Adaptive: stack.RunnerAdaptiveResolved{
 			Min:                1,
@@ -96,6 +97,7 @@ func TestResolveRunnerFromFlags_Overrides(t *testing.T) {
 			MaxFailed:           0,
 			MinSucceededPercent: 100,
 			OnPartialFailure:    stack.RunnerFanoutOnBlock,
+			Delivery:            stack.RunnerFanoutDeliveryRequestReply,
 		},
 		Adaptive: stack.RunnerAdaptiveResolved{
 			Min:                1,

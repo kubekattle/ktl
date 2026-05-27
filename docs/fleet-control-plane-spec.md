@@ -3,7 +3,7 @@
 Status: design draft; local NATS heartbeat/status, agent capability reporting,
 durable registry compaction, stack fleet readiness/capability gate slices,
 worker-side capability enforcement, worker identity receipts, and targeted NATS
-fleet fan-out implemented.
+fleet fan-out with JetStream durable assignments implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -57,6 +57,16 @@ Implemented local slice:
   assignment per target subject, aggregates per-agent receipts into
   `host-command-fanout.json`, and blocks when a selected target has no worker
   receipt.
+- `runner.fanout.delivery: jetstream` switches targeted fan-out from NATS
+  request/reply to durable JetStream delivery. Stack apply writes typed
+  `CommandAssignment` messages to `TORQUE_ASSIGNMENTS`, workers publish
+  `OperationResult` receipts to `TORQUE_RECEIPTS`, and workers ACK assignments
+  only after the receipt publish succeeds. The stack audit preserves assignment
+  and receipt stream offsets in `host-command-fanout.json`.
+- `scripts/e2e/ops/OPS-AGENT-008.sh` proves durable assignment delivery end to
+  end by starting stack apply while the target worker is offline, starting the
+  worker later, then verifying execution and JetStream offsets in the run
+  artifacts.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and

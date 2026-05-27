@@ -22,6 +22,9 @@ const (
 
 	RunnerFanoutOnBlock    = "block"
 	RunnerFanoutOnContinue = "continue"
+
+	RunnerFanoutDeliveryRequestReply = "requestReply"
+	RunnerFanoutDeliveryJetStream    = "jetstream"
 )
 
 func ResolveRunnerConfig(u *Universe, profile string) (RunnerResolved, error) {
@@ -44,6 +47,7 @@ func ResolveRunnerConfig(u *Universe, profile string) (RunnerResolved, error) {
 			MaxFailed:           0,
 			MinSucceededPercent: 100,
 			OnPartialFailure:    RunnerFanoutOnBlock,
+			Delivery:            RunnerFanoutDeliveryRequestReply,
 		},
 		Limits: RunnerLimitsResolved{
 			ParallelismGroupLimit: 1,
@@ -218,6 +222,9 @@ func mergeRunnerFanout(dst *RunnerFanout, src RunnerFanout) {
 	if strings.TrimSpace(src.OnPartialFailure) != "" {
 		dst.OnPartialFailure = src.OnPartialFailure
 	}
+	if strings.TrimSpace(src.Delivery) != "" {
+		dst.Delivery = src.Delivery
+	}
 }
 
 func applyRunnerResolved(dst *RunnerResolved, cfg RunnerConfig) {
@@ -285,6 +292,9 @@ func applyRunnerFanoutResolved(dst *RunnerResolved, cfg RunnerFanout) {
 	}
 	if strings.TrimSpace(cfg.OnPartialFailure) != "" {
 		dst.Fanout.OnPartialFailure = strings.ToLower(strings.TrimSpace(cfg.OnPartialFailure))
+	}
+	if strings.TrimSpace(cfg.Delivery) != "" {
+		dst.Fanout.Delivery = normalizeRunnerFanoutDelivery(cfg.Delivery)
 	}
 }
 
@@ -365,6 +375,13 @@ func ValidateRunnerResolved(r RunnerResolved) error {
 	if onPartial != RunnerFanoutOnBlock && onPartial != RunnerFanoutOnContinue {
 		return fmt.Errorf("runner.fanout.onPartialFailure must be block or continue (got %q)", r.Fanout.OnPartialFailure)
 	}
+	delivery := normalizeRunnerFanoutDelivery(r.Fanout.Delivery)
+	if delivery == "" {
+		delivery = RunnerFanoutDeliveryRequestReply
+	}
+	if delivery != RunnerFanoutDeliveryRequestReply && delivery != RunnerFanoutDeliveryJetStream {
+		return fmt.Errorf("runner.fanout.delivery must be requestReply or jetstream (got %q)", r.Fanout.Delivery)
+	}
 	if r.Limits.MaxParallelPerNamespace < 0 {
 		return fmt.Errorf("runner.limits.maxParallelPerNamespace must be >= 0 (got %d)", r.Limits.MaxParallelPerNamespace)
 	}
@@ -400,6 +417,17 @@ func ValidateRunnerResolved(r RunnerResolved) error {
 		}
 	}
 	return nil
+}
+
+func normalizeRunnerFanoutDelivery(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "requestreply", "request-reply", "request_reply", "request.reply":
+		return RunnerFanoutDeliveryRequestReply
+	case "jetstream", "jet-stream", "jet_stream", "jet.stream":
+		return RunnerFanoutDeliveryJetStream
+	default:
+		return strings.TrimSpace(raw)
+	}
 }
 
 func validateRunnerReadinessResolved(mode string, readiness RunnerReadinessResolved) error {

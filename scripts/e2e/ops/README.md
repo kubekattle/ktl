@@ -496,6 +496,20 @@ scripts/e2e/ops/OPS-AGENT-007.sh \
   --cleanup
 ```
 
+## OPS-AGENT-008
+
+`OPS-AGENT-008.sh` proves JetStream durable assignments. It publishes and
+compacts one ready agent, starts `torque stack apply` with
+`runner.fanout.delivery: jetstream` while the target worker is offline, starts a
+`torque-agent nats worker --delivery jetstream` afterward, and verifies the
+marker plus assignment and receipt offsets in `host-command-fanout.json`.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-008.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or

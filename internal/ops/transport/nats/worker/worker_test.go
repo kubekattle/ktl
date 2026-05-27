@@ -276,6 +276,146 @@ func TestWorkerExecutesCommandOverLocalNATSServer(t *testing.T) {
 	}
 }
 
+func TestWorkerConsumesDurableJetStreamAssignment(t *testing.T) {
+	serverURL := startLocalNATSJetStreamServer(t)
+	subject := "torque.assign.lab.host_js-1"
+	assignmentStream := "TORQUE_ASSIGNMENTS_TEST"
+	receiptStream := "TORQUE_RECEIPTS_TEST"
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("durable-ok\n"), ExitCode: 0},
+	}
+
+	conn, err := natsgo.Connect(serverURL, natsgo.Name("torque-worker-js-test"), natsgo.Timeout(time.Second))
+	if err != nil {
+		t.Fatalf("connect test client: %v", err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(2 * time.Second))
+	if err != nil {
+		t.Fatalf("open JetStream: %v", err)
+	}
+	ctx := context.Background()
+	if err := natstransport.EnsureStream(ctx, js, assignmentStream, []string{natstransport.DefaultAssignmentStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure assignment stream: %v", err)
+	}
+	if err := natstransport.EnsureStream(ctx, js, receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure receipt stream: %v", err)
+	}
+
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", subject, "printf durable-ok", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/js-1",
+		ExpectedAgentID:    "agent-js-1",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-js-1",
+		NodeID:             "host.command.run/write-marker",
+	})
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+		t.Fatalf("publish offline assignment: %v", err)
+	}
+
+	ready := make(chan struct{})
+	worker, err := New(Config{
+		Server:                     serverURL,
+		Subject:                    subject,
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "worker-js-1",
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-js-1",
+		Tenant:                     "lab",
+		TargetID:                   "host/js-1",
+		Hostname:                   "js-1",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("worker did not become ready")
+	}
+
+	receiptSubject := natstransport.ReceiptSubject("lab", "run-js-1", "host/js-1")
+	sub, err := js.PullSubscribe(
+		receiptSubject,
+		"worker-js-receipt-test",
+		natsgo.BindStream(receiptStream),
+		natsgo.DeliverAll(),
+		natsgo.AckExplicit(),
+		natsgo.ManualAck(),
+	)
+	if err != nil {
+		cancel()
+		t.Fatalf("subscribe receipt stream: %v", err)
+	}
+	msgs, err := sub.Fetch(1, natsgo.MaxWait(5*time.Second))
+	if err != nil {
+		cancel()
+		t.Fatalf("fetch receipt: %v", err)
+	}
+	if len(msgs) != 1 {
+		cancel()
+		t.Fatalf("receipts = %d, want one", len(msgs))
+	}
+	var result transport.OperationResult
+	if err := json.Unmarshal(msgs[0].Data, &result); err != nil {
+		cancel()
+		t.Fatalf("parse receipt: %v", err)
+	}
+	_ = msgs[0].Ack()
+	if result.Status != "succeeded" || !strings.Contains(result.Stdout, "durable-ok") {
+		cancel()
+		t.Fatalf("result = %#v, want durable success", result)
+	}
+	if len(runner.calls) != 1 {
+		cancel()
+		t.Fatalf("runner calls = %#v, want one call", runner.calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"agentId":            "agent-js-1",
+		"targetId":           "host/js-1",
+		"assignmentTargetId": "host/js-1",
+		"expectedAgentId":    "agent-js-1",
+		"delivery":           natstransport.DeliveryJetStream,
+		"assignmentStream":   assignmentStream,
+		"receiptStream":      receiptStream,
+		"assignmentConsumer": "worker-js-1",
+		"assignmentSubject":  subject,
+		"requiredCapability": "host.command.run",
+		"workerDecision":     "executed",
+	})
+	if result.Metadata["assignmentSequence"] == "" {
+		cancel()
+		t.Fatalf("missing assignmentSequence in metadata: %#v", result.Metadata)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("worker Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
 func assertMetadata(t *testing.T, got map[string]string, want map[string]string) {
 	t.Helper()
 	for key, value := range want {
@@ -303,6 +443,16 @@ func (r *recordingRunner) Run(ctx context.Context, name string, args []string) (
 
 func startLocalNATSServer(t *testing.T) string {
 	t.Helper()
+	return startLocalNATSServerWithArgs(t, nil)
+}
+
+func startLocalNATSJetStreamServer(t *testing.T) string {
+	t.Helper()
+	return startLocalNATSServerWithArgs(t, []string{"-js", "-sd", t.TempDir()})
+}
+
+func startLocalNATSServerWithArgs(t *testing.T, extraArgs []string) string {
+	t.Helper()
 	binary, err := exec.LookPath("nats-server")
 	if err != nil {
 		t.Skip("nats-server binary not found")
@@ -315,7 +465,9 @@ func startLocalNATSServer(t *testing.T) string {
 	if err := listener.Close(); err != nil {
 		t.Fatalf("close reserved nats port: %v", err)
 	}
-	cmd := exec.Command(binary, "-a", "127.0.0.1", "-p", strconv.Itoa(port))
+	args := []string{"-a", "127.0.0.1", "-p", strconv.Itoa(port)}
+	args = append(args, extraArgs...)
+	cmd := exec.Command(binary, args...)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start nats-server: %v", err)
 	}

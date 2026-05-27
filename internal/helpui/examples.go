@@ -7,7 +7,7 @@ var curatedExamples = map[string][]string{
 		"# Launch the built-in interactive help UI\ntorque --help --ui",
 		"# Run the MCP bridge over stdio for an agent host\ntorque-mcp --stdio",
 		"# Bridge MCP calls to a remote torque-agent over gRPC\ntorque-mcp --stdio --remote-agent 127.0.0.1:7443 --remote-token \"$TORQUE_REMOTE_TOKEN\"",
-		"# Start a targeted NATS assignment worker with identity receipts\ntorque-agent nats worker --nats-url nats://127.0.0.1:4222 --subject torque.assign.lab.host_mysql-01 --agent-id agent-mysql-01 --tenant lab --target-id host/mysql-01 --queue mysql-workers --capability host.command.run",
+		"# Start a durable JetStream NATS assignment worker with identity receipts\ntorque-agent nats worker --nats-url nats://127.0.0.1:4222 --delivery jetstream --subject torque.assign.lab.host_mysql-01 --agent-id agent-mysql-01 --tenant lab --target-id host/mysql-01 --capability host.command.run",
 		"# Report discovered local agent capabilities\ntorque-agent capabilities report --format json",
 		"# Publish and inspect NATS agent heartbeats with discovered capabilities\ntorque-agent nats heartbeat --nats-url nats://127.0.0.1:4222 --tenant lab --agent-id host-141 --label role=mysql",
 		"# Compact durable JetStream heartbeats into etcd\ntorque ops agent registry compact --nats-url nats://127.0.0.1:4222 --store etcd --etcd-endpoints http://127.0.0.1:2379 --tenant lab",

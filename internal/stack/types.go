@@ -232,6 +232,7 @@ type RunnerFanout struct {
 	MaxFailed           *int   `yaml:"maxFailed,omitempty" json:"maxFailed,omitempty"`
 	MinSucceededPercent *int   `yaml:"minSucceededPercent,omitempty" json:"minSucceededPercent,omitempty"`
 	OnPartialFailure    string `yaml:"onPartialFailure,omitempty" json:"onPartialFailure,omitempty"`
+	Delivery            string `yaml:"delivery,omitempty" json:"delivery,omitempty"`
 }
 
 type RunnerLimits struct {
@@ -282,6 +283,7 @@ type RunnerFanoutResolved struct {
 	MaxFailed           int    `json:"maxFailed,omitempty"`
 	MinSucceededPercent int    `json:"minSucceededPercent,omitempty"`
 	OnPartialFailure    string `json:"onPartialFailure,omitempty"`
+	Delivery            string `json:"delivery,omitempty"`
 }
 
 type RunnerLimitsResolved struct {

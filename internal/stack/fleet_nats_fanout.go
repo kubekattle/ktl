@@ -2,6 +2,8 @@ package stack
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -13,6 +15,7 @@ import (
 	"github.com/ingresslabs/torque/internal/ops/agent/heartbeat"
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
+	natsgo "github.com/nats-io/nats.go"
 )
 
 const (
@@ -42,6 +45,7 @@ type fleetNATSFanoutPolicy struct {
 	MaxFailed           int    `json:"maxFailed"`
 	MinSucceededPercent int    `json:"minSucceededPercent"`
 	OnPartialFailure    string `json:"onPartialFailure"`
+	Delivery            string `json:"delivery"`
 }
 
 type fleetNATSFanoutSummary struct {
@@ -66,13 +70,16 @@ type fleetNATSFanoutTargetView struct {
 }
 
 type fleetNATSFanoutResult struct {
-	AgentID       string                    `json:"agentId"`
-	TargetID      string                    `json:"targetId"`
-	Hostname      string                    `json:"hostname,omitempty"`
-	WorkerSubject string                    `json:"workerSubject"`
-	Status        string                    `json:"status"`
-	Error         string                    `json:"error,omitempty"`
-	Receipt       transport.OperationResult `json:"receipt"`
+	AgentID          string                           `json:"agentId"`
+	TargetID         string                           `json:"targetId"`
+	Hostname         string                           `json:"hostname,omitempty"`
+	WorkerSubject    string                           `json:"workerSubject"`
+	Status           string                           `json:"status"`
+	Error            string                           `json:"error,omitempty"`
+	Assignment       *natstransport.CommandAssignment `json:"assignment,omitempty"`
+	AssignmentOffset *natstransport.StreamOffset      `json:"assignmentOffset,omitempty"`
+	ReceiptOffset    *natstransport.StreamOffset      `json:"receiptOffset,omitempty"`
+	Receipt          transport.OperationResult        `json:"receipt"`
 }
 
 type fleetNATSFanoutTarget struct {
@@ -136,6 +143,9 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 	server := firstNonEmptyString(os.Getenv("TORQUE_NATS_URL"), os.Getenv("TORQUE_NATS_SERVER"))
 	creds := strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS"))
 	nkey := strings.TrimSpace(os.Getenv("TORQUE_NATS_NKEY"))
+	if policy.Delivery == RunnerFanoutDeliveryJetStream {
+		return e.runHostCommandFleetNATSJetStreamFanout(ctx, started, receipt, targets, spec, command, timeout, server, creds, nkey)
+	}
 	requester, err := natstransport.DialRequester(ctx, natstransport.DialConfig{
 		Server:  server,
 		Creds:   creds,
@@ -207,12 +217,195 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 	return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
 }
 
+func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.Context, started time.Time, receipt fleetNATSFanoutReceipt, targets []fleetNATSFanoutTarget, spec HostCommandSpec, command string, timeout time.Duration, server string, creds string, nkey string) (fleetNATSFanoutReceipt, transport.OperationResult) {
+	opts, err := natstransport.ConnectOptions(natstransport.DialConfig{
+		Server:  server,
+		Creds:   creds,
+		NKey:    nkey,
+		Timeout: timeout,
+		Name:    "torque-stack-fleet-jetstream-fanout",
+	})
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("connect NATS fleet JetStream options: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	conn, err := natsgo.Connect(natstransport.ServerOrDefault(server), opts...)
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("connect NATS fleet JetStream: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(timeout))
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("open NATS JetStream context: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	assignmentStream := natstransport.AssignmentStreamName(os.Getenv("TORQUE_NATS_ASSIGNMENT_STREAM"))
+	receiptStream := natstransport.ReceiptStreamName(os.Getenv("TORQUE_NATS_RECEIPT_STREAM"))
+	if err := natstransport.EnsureStream(ctx, js, assignmentStream, []string{natstransport.DefaultAssignmentStreamSubject}, 24*time.Hour); err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("ensure assignment stream: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	if err := natstransport.EnsureStream(ctx, js, receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, 24*time.Hour); err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("ensure receipt stream: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+
+	tenant := "default"
+	if e != nil && e.run != nil && e.run.Plan != nil {
+		tenant = normalizeFleetReadiness(e.run.Plan.Runner.Readiness).Tenant
+	}
+	receiptSubject := natstransport.ReceiptSubjectWildcard(tenant, spec.RunID)
+	durable := natstransport.DefaultReceiptConsumer + "-" + natstransport.NormalizeSubjectToken(spec.RunID+"-"+spec.NodeID, "run")
+	sub, err := js.PullSubscribe(
+		receiptSubject,
+		durable,
+		natsgo.BindStream(receiptStream),
+		natsgo.DeliverAll(),
+		natsgo.AckExplicit(),
+		natsgo.ManualAck(),
+		natsgo.PullMaxWaiting(128),
+	)
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("subscribe receipt stream: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+
+	results := make([]fleetNATSFanoutResult, len(targets))
+	assignments := make([]natstransport.CommandAssignment, len(targets))
+	assignmentOffsets := make([]*natstransport.StreamOffset, len(targets))
+	targetIndex := make(map[string]int, len(targets))
+	for idx, target := range targets {
+		targetIndex[target.targetID] = idx
+		assignment := natstransport.NewCommandAssignmentWithMetadata("run", target.workerSubject, command, time.Now(), natstransport.CommandAssignmentMetadata{
+			TargetID:           target.targetID,
+			ExpectedAgentID:    target.agentID,
+			RequiredCapability: strings.TrimSpace(spec.RequiredCap),
+			NodeKind:           strings.TrimSpace(spec.NodeKind),
+			RunID:              strings.TrimSpace(spec.RunID),
+			NodeID:             strings.TrimSpace(spec.NodeID),
+			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
+		})
+		assignments[idx] = assignment
+		raw, err := json.Marshal(assignment)
+		if err != nil {
+			results[idx] = target.resultWithEvidence(transport.OperationResult{
+				Operation:    "run",
+				Status:       "failed",
+				TargetDigest: natstransport.TargetDigest(target.workerSubject),
+				ExitCode:     1,
+				Error:        fmt.Sprintf("marshal JetStream assignment: %v", err),
+			}, assignment, nil, nil)
+			continue
+		}
+		ack, err := js.Publish(target.workerSubject, raw, natsgo.Context(ctx))
+		if err != nil {
+			results[idx] = target.resultWithEvidence(transport.OperationResult{
+				Operation:    "run",
+				Status:       "failed",
+				TargetDigest: natstransport.TargetDigest(target.workerSubject),
+				ExitCode:     1,
+				Error:        fmt.Sprintf("publish JetStream assignment: %v", err),
+			}, assignment, nil, nil)
+			continue
+		}
+		assignmentOffsets[idx] = natstransport.OffsetFromPublish(target.workerSubject, ack)
+		results[idx] = target.resultWithEvidence(transport.OperationResult{
+			Operation:    "run",
+			Status:       "timeout",
+			TargetDigest: natstransport.TargetDigest(target.workerSubject),
+			ExitCode:     1,
+			TimedOut:     true,
+			Error:        "missing JetStream receipt for target " + target.targetID,
+			Metadata: map[string]string{
+				"delivery":           natstransport.DeliveryJetStream,
+				"assignmentStream":   assignmentStream,
+				"receiptStream":      receiptStream,
+				"receiptSubject":     receiptSubject,
+				"assignmentTargetId": target.targetID,
+				"expectedAgentId":    target.agentID,
+			},
+		}, assignment, assignmentOffsets[idx], nil)
+	}
+
+	pending := 0
+	for idx := range results {
+		if results[idx].Status == "timeout" {
+			pending++
+		}
+	}
+	deadline := time.Now().Add(timeout)
+	for pending > 0 && time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			break
+		}
+		wait := time.Until(deadline)
+		if wait > 500*time.Millisecond {
+			wait = 500 * time.Millisecond
+		}
+		if wait <= 0 {
+			break
+		}
+		msgs, err := sub.Fetch(1, natsgo.MaxWait(wait))
+		if err != nil {
+			if errors.Is(err, natsgo.ErrTimeout) {
+				continue
+			}
+			receipt.Status = "failed"
+			receipt.Reason = fmt.Sprintf("fetch JetStream receipt: %v", err)
+			receipt.Results = results
+			e.finalizeFleetNATSFanoutReceipt(&receipt)
+			return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+		}
+		for _, msg := range msgs {
+			var op transport.OperationResult
+			if err := json.Unmarshal(msg.Data, &op); err != nil {
+				_ = msg.Nak(natsgo.Context(ctx))
+				receipt.Status = "failed"
+				receipt.Reason = fmt.Sprintf("parse JetStream receipt: %v", err)
+				receipt.Results = results
+				e.finalizeFleetNATSFanoutReceipt(&receipt)
+				return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+			}
+			targetID := firstNonEmptyString(op.Metadata["assignmentTargetId"], op.Metadata["targetId"])
+			idx, ok := targetIndex[targetID]
+			if !ok {
+				_ = msg.Ack(natsgo.Context(ctx))
+				continue
+			}
+			receiptOffset := natstransport.OffsetFromMessage(msg, receiptStream, durable)
+			if results[idx].Status == "timeout" {
+				pending--
+			}
+			results[idx] = targets[idx].resultWithEvidence(op, assignments[idx], assignmentOffsets[idx], receiptOffset)
+			if err := msg.Ack(natsgo.Context(ctx)); err != nil {
+				receipt.Status = "failed"
+				receipt.Reason = fmt.Sprintf("ack JetStream receipt: %v", err)
+				receipt.Results = results
+				e.finalizeFleetNATSFanoutReceipt(&receipt)
+				return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+			}
+		}
+	}
+
+	receipt.Results = results
+	e.finalizeFleetNATSFanoutReceipt(&receipt)
+	return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+}
+
 func (e *customNodeExecutor) fleetNATSFanoutPolicy() fleetNATSFanoutPolicy {
 	policy := fleetNATSFanoutPolicy{
 		MaxParallel:         64,
 		MaxFailed:           0,
 		MinSucceededPercent: 100,
 		OnPartialFailure:    RunnerFanoutOnBlock,
+		Delivery:            RunnerFanoutDeliveryRequestReply,
 	}
 	if e == nil || e.run == nil || e.run.Plan == nil {
 		return policy
@@ -232,6 +425,12 @@ func (e *customNodeExecutor) fleetNATSFanoutPolicy() fleetNATSFanoutPolicy {
 	}
 	if policy.OnPartialFailure != RunnerFanoutOnContinue {
 		policy.OnPartialFailure = RunnerFanoutOnBlock
+	}
+	if strings.TrimSpace(resolved.Delivery) != "" {
+		policy.Delivery = normalizeRunnerFanoutDelivery(resolved.Delivery)
+	}
+	if policy.Delivery != RunnerFanoutDeliveryJetStream {
+		policy.Delivery = RunnerFanoutDeliveryRequestReply
 	}
 	return policy
 }
@@ -357,6 +556,7 @@ func (e *customNodeExecutor) fleetNATSFanoutOperationResult(started time.Time, r
 		"minSucceededPercent": strconv.Itoa(receipt.Policy.MinSucceededPercent),
 		"maxFailed":           strconv.Itoa(receipt.Policy.MaxFailed),
 		"onPartialFailure":    receipt.Policy.OnPartialFailure,
+		"delivery":            receipt.Policy.Delivery,
 	}
 	errorMessage := ""
 	if !nodeStepSucceeded(status) {
@@ -366,7 +566,7 @@ func (e *customNodeExecutor) fleetNATSFanoutOperationResult(started time.Time, r
 		Operation:      "run",
 		Status:         status,
 		TargetDigest:   digestStringSlice(targets),
-		Command:        []string{"nats.fanout", "--targets", strconv.Itoa(receipt.Summary.TargetCount), "--max-parallel", strconv.Itoa(receipt.Policy.MaxParallel)},
+		Command:        []string{"nats.fanout", "--delivery", receipt.Policy.Delivery, "--targets", strconv.Itoa(receipt.Summary.TargetCount), "--max-parallel", strconv.Itoa(receipt.Policy.MaxParallel)},
 		ExitCode:       boolToExitCode(status != "succeeded"),
 		DurationMillis: time.Since(started).Milliseconds(),
 		Error:          errorMessage,
@@ -428,19 +628,31 @@ func (t fleetNATSFanoutTarget) view() fleetNATSFanoutTargetView {
 }
 
 func (t fleetNATSFanoutTarget) result(receipt transport.OperationResult) fleetNATSFanoutResult {
+	return t.resultWithEvidence(receipt, natstransport.CommandAssignment{}, nil, nil)
+}
+
+func (t fleetNATSFanoutTarget) resultWithEvidence(receipt transport.OperationResult, assignment natstransport.CommandAssignment, assignmentOffset *natstransport.StreamOffset, receiptOffset *natstransport.StreamOffset) fleetNATSFanoutResult {
+	var assignmentPtr *natstransport.CommandAssignment
+	if strings.TrimSpace(assignment.Target) != "" {
+		copy := assignment
+		assignmentPtr = &copy
+	}
 	return fleetNATSFanoutResult{
-		AgentID:       strings.TrimSpace(t.agentID),
-		TargetID:      strings.TrimSpace(t.targetID),
-		Hostname:      strings.TrimSpace(t.hostname),
-		WorkerSubject: strings.TrimSpace(t.workerSubject),
-		Status:        strings.TrimSpace(receipt.Status),
-		Error:         strings.TrimSpace(receipt.Error),
-		Receipt:       receipt,
+		AgentID:          strings.TrimSpace(t.agentID),
+		TargetID:         strings.TrimSpace(t.targetID),
+		Hostname:         strings.TrimSpace(t.hostname),
+		WorkerSubject:    strings.TrimSpace(t.workerSubject),
+		Status:           strings.TrimSpace(receipt.Status),
+		Error:            strings.TrimSpace(receipt.Error),
+		Assignment:       assignmentPtr,
+		AssignmentOffset: assignmentOffset,
+		ReceiptOffset:    receiptOffset,
+		Receipt:          receipt,
 	}
 }
 
 func fleetNATSAssignmentSubject(tenant string, targetID string) string {
-	return "torque.assign." + heartbeat.NormalizeTenant(tenant) + "." + heartbeat.NormalizeSubjectToken(targetID, "target")
+	return natstransport.AssignmentSubject(tenant, targetID)
 }
 
 func boolToExitCode(failed bool) int {

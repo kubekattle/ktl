@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,11 @@ type Config struct {
 	Server                     string
 	Subject                    string
 	Queue                      string
+	Delivery                   string
+	AssignmentStream           string
+	ReceiptStream              string
+	Durable                    string
+	StreamMaxAge               time.Duration
 	Creds                      string
 	NKey                       string
 	Timeout                    time.Duration
@@ -44,6 +50,11 @@ type Worker struct {
 	server           string
 	subject          string
 	queue            string
+	delivery         string
+	assignmentStream string
+	receiptStream    string
+	durable          string
+	streamMaxAge     time.Duration
 	creds            string
 	nkey             string
 	timeout          time.Duration
@@ -76,16 +87,39 @@ func New(config Config) (*Worker, error) {
 		runner = transport.ExecRunner{}
 	}
 	server := natstransport.ServerOrDefault(config.Server)
+	delivery := natstransport.NormalizeDelivery(config.Delivery)
+	if delivery != natstransport.DeliveryRequestReply && delivery != natstransport.DeliveryJetStream {
+		return nil, fmt.Errorf("unsupported NATS worker delivery %q", config.Delivery)
+	}
 	creds := strings.TrimSpace(config.Creds)
 	nkey := strings.TrimSpace(config.NKey)
+	assignmentStream := natstransport.AssignmentStreamName(config.AssignmentStream)
+	receiptStream := natstransport.ReceiptStreamName(config.ReceiptStream)
+	durable := strings.TrimSpace(config.Durable)
+	if durable == "" {
+		durable = strings.TrimSpace(config.Queue)
+	}
+	if durable == "" {
+		durable = natstransport.DefaultAssignmentConsumer + "-" + natstransport.NormalizeSubjectToken(firstNonEmptyWorker(config.TargetID, config.AgentID, subject), "target")
+	}
+	durable = natstransport.NormalizeSubjectToken(durable, natstransport.DefaultAssignmentConsumer)
+	streamMaxAge := config.StreamMaxAge
+	if streamMaxAge <= 0 {
+		streamMaxAge = 24 * time.Hour
+	}
 	redactValues := append([]string(nil), config.RedactValues...)
-	redactValues = append(redactValues, subject, server, creds, nkey)
+	redactValues = append(redactValues, subject, server, creds, nkey, assignmentStream, receiptStream)
 	capabilities, capabilityDigest := workerCapabilities(config)
 	identity := workerIdentity(config)
 	return &Worker{
 		server:           server,
 		subject:          subject,
 		queue:            strings.TrimSpace(config.Queue),
+		delivery:         delivery,
+		assignmentStream: assignmentStream,
+		receiptStream:    receiptStream,
+		durable:          durable,
+		streamMaxAge:     streamMaxAge,
 		creds:            creds,
 		nkey:             nkey,
 		timeout:          timeout,
@@ -103,6 +137,13 @@ func New(config Config) (*Worker, error) {
 }
 
 func (w *Worker) Run(ctx context.Context) error {
+	if w.delivery == natstransport.DeliveryJetStream {
+		return w.runJetStream(ctx)
+	}
+	return w.runRequestReply(ctx)
+}
+
+func (w *Worker) runRequestReply(ctx context.Context) error {
 	opts, err := natstransport.ConnectOptions(natstransport.DialConfig{
 		Server:  w.server,
 		Creds:   w.creds,
@@ -146,6 +187,111 @@ func (w *Worker) Run(ctx context.Context) error {
 	<-ctx.Done()
 	if err := conn.Drain(); err != nil && !errors.Is(ctx.Err(), context.Canceled) {
 		return err
+	}
+	return nil
+}
+
+func (w *Worker) runJetStream(ctx context.Context) error {
+	opts, err := natstransport.ConnectOptions(natstransport.DialConfig{
+		Server:  w.server,
+		Creds:   w.creds,
+		NKey:    w.nkey,
+		Timeout: w.timeout,
+		Name:    "torque-agent-nats-worker-jetstream",
+	})
+	if err != nil {
+		return err
+	}
+	conn, err := natsgo.Connect(w.server, opts...)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(w.timeout))
+	if err != nil {
+		return err
+	}
+	if err := natstransport.EnsureStream(ctx, js, w.assignmentStream, []string{natstransport.DefaultAssignmentStreamSubject}, w.streamMaxAge); err != nil {
+		return fmt.Errorf("ensure assignment stream: %w", err)
+	}
+	if err := natstransport.EnsureStream(ctx, js, w.receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, w.streamMaxAge); err != nil {
+		return fmt.Errorf("ensure receipt stream: %w", err)
+	}
+	sub, err := js.PullSubscribe(
+		w.subject,
+		w.durable,
+		natsgo.BindStream(w.assignmentStream),
+		natsgo.DeliverAll(),
+		natsgo.AckExplicit(),
+		natsgo.ManualAck(),
+		natsgo.PullMaxWaiting(128),
+	)
+	if err != nil {
+		return err
+	}
+	if w.ready != nil {
+		close(w.ready)
+	}
+	fetchWait := 500 * time.Millisecond
+	if w.timeout > 0 && w.timeout < fetchWait {
+		fetchWait = w.timeout
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil
+		}
+		msgs, err := sub.Fetch(1, natsgo.MaxWait(fetchWait))
+		if err != nil {
+			if errors.Is(err, natsgo.ErrTimeout) {
+				continue
+			}
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		for _, msg := range msgs {
+			if err := w.handleJetStreamMessage(ctx, js, msg); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				_ = msg.Nak(natsgo.Context(ctx))
+				return err
+			}
+		}
+	}
+}
+
+func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStreamContext, msg *natsgo.Msg) error {
+	result := w.HandleMessage(ctx, msg.Data)
+	assignmentOffset := natstransport.OffsetFromMessage(msg, w.assignmentStream, w.durable)
+	result.Metadata = mergeMetadata(result.Metadata, streamOffsetMetadata("assignment", assignmentOffset))
+	result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+		"delivery":                natstransport.DeliveryJetStream,
+		"assignmentStream":        strings.TrimSpace(w.assignmentStream),
+		"receiptStream":           strings.TrimSpace(w.receiptStream),
+		"assignmentConsumer":      strings.TrimSpace(w.durable),
+		"assignmentStreamSubject": strings.TrimSpace(msg.Subject),
+	})
+	subject := natstransport.ReceiptSubject(
+		w.tenant,
+		firstNonEmptyWorker(result.Metadata["runId"], "run"),
+		firstNonEmptyWorker(result.Metadata["assignmentTargetId"], result.Metadata["targetId"], w.targetID),
+	)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		result = w.errorResult("run", "", fmt.Errorf("marshal operation result: %w", err), false)
+		result.Metadata = mergeMetadata(result.Metadata, streamOffsetMetadata("assignment", assignmentOffset))
+		raw, err = json.Marshal(result)
+		if err != nil {
+			return err
+		}
+	}
+	if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+		return fmt.Errorf("publish receipt: %w", err)
+	}
+	if err := msg.Ack(natsgo.Context(ctx)); err != nil {
+		return fmt.Errorf("ack assignment: %w", err)
 	}
 	return nil
 }
@@ -392,4 +538,43 @@ func mergeMetadata(base map[string]string, overlay map[string]string) map[string
 		}
 	}
 	return out
+}
+
+func streamOffsetMetadata(prefix string, offset *natstransport.StreamOffset) map[string]string {
+	if offset == nil {
+		return nil
+	}
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "stream"
+	}
+	out := map[string]string{
+		prefix + "Stream":   strings.TrimSpace(offset.Stream),
+		prefix + "Consumer": strings.TrimSpace(offset.Consumer),
+		prefix + "Subject":  strings.TrimSpace(offset.Subject),
+	}
+	if offset.Sequence > 0 {
+		out[prefix+"Sequence"] = strconv.FormatUint(offset.Sequence, 10)
+	}
+	if offset.NumDelivered > 0 {
+		out[prefix+"NumDelivered"] = strconv.FormatUint(offset.NumDelivered, 10)
+	}
+	if offset.NumPending > 0 {
+		out[prefix+"NumPending"] = strconv.FormatUint(offset.NumPending, 10)
+	}
+	for key, value := range out {
+		if strings.TrimSpace(value) == "" {
+			delete(out, key)
+		}
+	}
+	return out
+}
+
+func firstNonEmptyWorker(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

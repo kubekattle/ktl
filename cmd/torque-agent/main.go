@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ingresslabs/torque/internal/agent"
+	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
 	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
 	"github.com/ingresslabs/torque/internal/workflows/buildsvc"
 )
@@ -187,6 +188,10 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	defaultServer := firstNonEmptyAgent(getenv("TORQUE_NATS_URL"), getenv("TORQUE_NATS_SERVER"))
 	defaultSubject := firstNonEmptyAgent(getenv("TORQUE_NATS_SUBJECT"), getenv("TORQUE_NATS_WORKER_SUBJECT"))
 	defaultQueue := firstNonEmptyAgent(getenv("TORQUE_NATS_QUEUE"), getenv("TORQUE_NATS_WORKER_QUEUE"))
+	defaultDelivery := firstNonEmptyAgent(getenv("TORQUE_NATS_DELIVERY"), getenv("TORQUE_NATS_WORKER_DELIVERY"), natstransport.DeliveryRequestReply)
+	defaultAssignmentStream := firstNonEmptyAgent(getenv("TORQUE_NATS_ASSIGNMENT_STREAM"), natstransport.DefaultAssignmentStream)
+	defaultReceiptStream := firstNonEmptyAgent(getenv("TORQUE_NATS_RECEIPT_STREAM"), natstransport.DefaultReceiptStream)
+	defaultDurable := firstNonEmptyAgent(getenv("TORQUE_NATS_DURABLE"), getenv("TORQUE_NATS_WORKER_DURABLE"))
 	defaultAgentID := firstNonEmptyAgent(getenv("TORQUE_AGENT_ID"), hostname)
 	defaultTenant := firstNonEmptyAgent(getenv("TORQUE_AGENT_TENANT"), "default")
 	defaultTargetID := firstNonEmptyAgent(getenv("TORQUE_AGENT_TARGET_ID"), defaultAgentID)
@@ -213,6 +218,10 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	server := fs.String("nats-url", defaultServer, "NATS server URL (also TORQUE_NATS_URL or TORQUE_NATS_SERVER)")
 	subject := fs.String("subject", defaultSubject, "NATS assignment subject to serve (also TORQUE_NATS_SUBJECT or TORQUE_NATS_WORKER_SUBJECT)")
 	queue := fs.String("queue", defaultQueue, "Optional NATS queue group (also TORQUE_NATS_QUEUE or TORQUE_NATS_WORKER_QUEUE)")
+	delivery := fs.String("delivery", defaultDelivery, "Assignment delivery mode: requestReply or jetstream (also TORQUE_NATS_DELIVERY)")
+	assignmentStream := fs.String("assignment-stream", defaultAssignmentStream, "JetStream assignment stream for durable delivery (also TORQUE_NATS_ASSIGNMENT_STREAM)")
+	receiptStream := fs.String("receipt-stream", defaultReceiptStream, "JetStream receipt stream for durable delivery (also TORQUE_NATS_RECEIPT_STREAM)")
+	durable := fs.String("durable", defaultDurable, "JetStream durable consumer name (also TORQUE_NATS_DURABLE or TORQUE_NATS_WORKER_DURABLE)")
 	creds := fs.String("creds", strings.TrimSpace(getenv("TORQUE_NATS_CREDS")), "NATS user credentials file (also TORQUE_NATS_CREDS)")
 	nkey := fs.String("nkey", strings.TrimSpace(getenv("TORQUE_NATS_NKEY")), "NATS NKey seed file (also TORQUE_NATS_NKEY)")
 	timeout := fs.Duration("timeout", defaultTimeout, "Per-assignment execution timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_WORKER_TIMEOUT)")
@@ -240,6 +249,11 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	if strings.TrimSpace(*subject) == "" {
 		return natsworker.Config{}, fmt.Errorf("--subject is required")
 	}
+	if normalized := natstransport.NormalizeDelivery(*delivery); normalized != natstransport.DeliveryRequestReply && normalized != natstransport.DeliveryJetStream {
+		return natsworker.Config{}, fmt.Errorf("--delivery must be requestReply or jetstream")
+	} else {
+		*delivery = normalized
+	}
 	if *timeout <= 0 {
 		return natsworker.Config{}, fmt.Errorf("--timeout must be greater than zero")
 	}
@@ -247,6 +261,10 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		Server:                     strings.TrimSpace(*server),
 		Subject:                    strings.TrimSpace(*subject),
 		Queue:                      strings.TrimSpace(*queue),
+		Delivery:                   strings.TrimSpace(*delivery),
+		AssignmentStream:           strings.TrimSpace(*assignmentStream),
+		ReceiptStream:              strings.TrimSpace(*receiptStream),
+		Durable:                    strings.TrimSpace(*durable),
 		Creds:                      strings.TrimSpace(*creds),
 		NKey:                       strings.TrimSpace(*nkey),
 		Timeout:                    *timeout,
@@ -271,7 +289,7 @@ func printNATSUsage(out *os.File) {
 
 func printNATSWorkerUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
 }
 
 func flagWasSet(name string) bool {

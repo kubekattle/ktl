@@ -246,7 +246,10 @@ the worker enforces the contract again locally before command execution and
 returns identity metadata in the execution receipt. When a fleet NATS node omits
 `host.target`, Torque resolves the readiness selector into ready capable agents
 and sends one assignment per target subject. Queue groups remain for HA workers
-on the same target, not for broadcasting one message to many hosts.
+on the same target, not for broadcasting one message to many hosts. Set
+`runner.fanout.delivery: jetstream` when assignments must survive a temporarily
+offline worker; the worker consumes from `TORQUE_ASSIGNMENTS` and writes
+receipts to `TORQUE_RECEIPTS` before ACKing the assignment.
 
 ```yaml
 apiVersion: torque.dev/v1
@@ -268,6 +271,7 @@ runner:
     staleAfter: 45s
     onInsufficientReady: block
   fanout:
+    delivery: jetstream
     maxParallel: 64
     maxFailed: 5
     minSucceededPercent: 95
@@ -282,7 +286,20 @@ nodes:
 
 ```bash
 TORQUE_NATS_URL=nats://127.0.0.1:4222 \
+TORQUE_NATS_ASSIGNMENT_STREAM=TORQUE_ASSIGNMENTS \
+TORQUE_NATS_RECEIPT_STREAM=TORQUE_RECEIPTS \
   torque stack apply --config ./stacks/mysql-fleet --yes
+```
+
+```bash
+torque-agent nats worker \
+  --nats-url nats://127.0.0.1:4222 \
+  --delivery jetstream \
+  --subject torque.assign.lab.host_mysql-01 \
+  --agent-id agent-mysql-01 \
+  --tenant lab \
+  --target-id host/mysql-01 \
+  --capability host.command.run
 ```
 
 ## Durable Linux agent host
