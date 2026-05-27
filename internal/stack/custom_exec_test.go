@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ingresslabs/torque/internal/ops/agent/heartbeat"
 	"github.com/ingresslabs/torque/internal/ops/locks"
 	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
 	natsgo "github.com/nats-io/nats.go"
@@ -4054,6 +4055,146 @@ esac
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("nats worker did not stop")
+	}
+}
+
+func TestRun_HostCommandFleetModeFansOutToReadyNATSAgents(t *testing.T) {
+	root := t.TempDir()
+	serverURL := startStackTestNATSServer(t)
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	marker := filepath.Join(root, "fanout-marker.txt")
+	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-fanout
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: %q
+    tenant: lab
+    selector:
+      role: mysql
+    requireAgents: true
+    minReadyPercent: 100
+    failureBudget: 0
+    staleAfter: 45s
+    onInsufficientReady: block
+  fanout:
+    maxParallel: 3
+    maxFailed: 0
+    minSucceededPercent: 100
+    onPartialFailure: block
+nodes:
+  - kind: host.command.run
+    name: write-marker
+    host:
+      transport: nats
+      command: "printf 'fanout-hit\n' >> %s"
+`, registryPath, marker)
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack: %v", err)
+	}
+	now := time.Now().UTC()
+	agentIDs := []string{"agent-a", "agent-b", "agent-c"}
+	for _, agentID := range agentIDs {
+		writeFleetReadinessAgent(t, registryPath, agentID, heartbeat.StateReady, now, NodeKindHostCommandRun)
+	}
+	t.Setenv("TORQUE_NATS_URL", serverURL)
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	errCh := make(chan error, len(agentIDs))
+	for _, agentID := range agentIDs {
+		ready := make(chan struct{})
+		worker, err := natsworker.New(natsworker.Config{
+			Server:                     serverURL,
+			Subject:                    fleetNATSAssignmentSubject("lab", agentID),
+			Ready:                      ready,
+			Timeout:                    2 * time.Second,
+			Capabilities:               []string{NodeKindHostCommandRun},
+			DisableCapabilityDiscovery: true,
+			AgentID:                    agentID,
+			Tenant:                     "lab",
+			TargetID:                   agentID,
+			Hostname:                   agentID + ".test",
+		})
+		if err != nil {
+			t.Fatalf("new worker %s: %v", agentID, err)
+		}
+		go func() {
+			errCh <- worker.Run(workerCtx)
+		}()
+		select {
+		case <-ready:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("worker %s did not become ready", agentID)
+		}
+	}
+
+	p := compileFleetReadinessStack(t, root)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	rawMarker, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read marker: %v", err)
+	}
+	if got := strings.Count(string(rawMarker), "fanout-hit"); got != 3 {
+		t.Fatalf("marker hits = %d, want 3: %q", got, string(rawMarker))
+	}
+	runID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	audit, err := GetRunAudit(context.Background(), RunAuditOptions{
+		RootDir:          root,
+		RunID:            runID,
+		Verify:           true,
+		IncludeArtifacts: true,
+	})
+	if err != nil {
+		t.Fatalf("GetRunAudit: %v", err)
+	}
+	var fanout fleetNATSFanoutReceipt
+	for _, artifact := range audit.Artifacts {
+		if artifact.Name == "host-command-fanout.json" {
+			if err := json.Unmarshal([]byte(artifact.Body), &fanout); err != nil {
+				t.Fatalf("parse fanout artifact: %v\n%s", err, artifact.Body)
+			}
+		}
+	}
+	if fanout.Status != "succeeded" || fanout.Summary.TargetCount != 3 || fanout.Summary.Succeeded != 3 || len(fanout.Results) != 3 {
+		t.Fatalf("fanout artifact = %#v", fanout)
+	}
+	gotAgents := map[string]bool{}
+	for _, result := range fanout.Results {
+		gotAgents[result.Receipt.Metadata["agentId"]] = true
+		if result.Receipt.Metadata["assignmentTargetId"] != result.TargetID || result.Receipt.Metadata["expectedAgentId"] != result.AgentID {
+			t.Fatalf("assignment metadata mismatch for result %#v", result)
+		}
+	}
+	for _, agentID := range agentIDs {
+		if !gotAgents[agentID] {
+			t.Fatalf("missing receipt for %s in %#v", agentID, fanout.Results)
+		}
+	}
+	workerCancel()
+	for range agentIDs {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("worker error: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("worker did not stop")
+		}
 	}
 }
 

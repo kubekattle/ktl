@@ -205,6 +205,7 @@ type RunnerConfig struct {
 	KubeQPS                *float32        `yaml:"kubeQPS,omitempty" json:"kubeQPS,omitempty"`
 	KubeBurst              *int            `yaml:"kubeBurst,omitempty" json:"kubeBurst,omitempty"`
 	Readiness              RunnerReadiness `yaml:"readiness,omitempty" json:"readiness,omitempty"`
+	Fanout                 RunnerFanout    `yaml:"fanout,omitempty" json:"fanout,omitempty"`
 	Limits                 RunnerLimits    `yaml:"limits,omitempty" json:"limits,omitempty"`
 	Adaptive               RunnerAdaptive  `yaml:"adaptive,omitempty" json:"adaptive,omitempty"`
 	Extra                  map[string]any  `yaml:",inline" json:"-"`
@@ -224,6 +225,13 @@ type RunnerReadiness struct {
 	FailureBudget       *int              `yaml:"failureBudget,omitempty" json:"failureBudget,omitempty"`
 	StaleAfter          *time.Duration    `yaml:"staleAfter,omitempty" json:"staleAfter,omitempty"`
 	OnInsufficientReady string            `yaml:"onInsufficientReady,omitempty" json:"onInsufficientReady,omitempty"`
+}
+
+type RunnerFanout struct {
+	MaxParallel         *int   `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
+	MaxFailed           *int   `yaml:"maxFailed,omitempty" json:"maxFailed,omitempty"`
+	MinSucceededPercent *int   `yaml:"minSucceededPercent,omitempty" json:"minSucceededPercent,omitempty"`
+	OnPartialFailure    string `yaml:"onPartialFailure,omitempty" json:"onPartialFailure,omitempty"`
 }
 
 type RunnerLimits struct {
@@ -248,6 +256,7 @@ type RunnerResolved struct {
 	KubeQPS                float32                 `json:"kubeQPS,omitempty"`
 	KubeBurst              int                     `json:"kubeBurst,omitempty"`
 	Readiness              RunnerReadinessResolved `json:"readiness,omitempty"`
+	Fanout                 RunnerFanoutResolved    `json:"fanout,omitempty"`
 	Limits                 RunnerLimitsResolved    `json:"limits,omitempty"`
 	Adaptive               RunnerAdaptiveResolved  `json:"adaptive,omitempty"`
 }
@@ -266,6 +275,13 @@ type RunnerReadinessResolved struct {
 	FailureBudget       int               `json:"failureBudget,omitempty"`
 	StaleAfter          time.Duration     `json:"staleAfter,omitempty"`
 	OnInsufficientReady string            `json:"onInsufficientReady,omitempty"`
+}
+
+type RunnerFanoutResolved struct {
+	MaxParallel         int    `json:"maxParallel,omitempty"`
+	MaxFailed           int    `json:"maxFailed,omitempty"`
+	MinSucceededPercent int    `json:"minSucceededPercent,omitempty"`
+	OnPartialFailure    string `json:"onPartialFailure,omitempty"`
 }
 
 type RunnerLimitsResolved struct {

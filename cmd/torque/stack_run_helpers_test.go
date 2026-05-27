@@ -34,6 +34,12 @@ func TestResolveRunnerFromFlags_NoChanges(t *testing.T) {
 			MaxParallelKind:         map[string]int{"Deployment": 1},
 			ParallelismGroupLimit:   5,
 		},
+		Fanout: stack.RunnerFanoutResolved{
+			MaxParallel:         64,
+			MaxFailed:           0,
+			MinSucceededPercent: 100,
+			OnPartialFailure:    stack.RunnerFanoutOnBlock,
+		},
 		Adaptive: stack.RunnerAdaptiveResolved{
 			Min:                1,
 			Window:             20,
@@ -84,6 +90,12 @@ func TestResolveRunnerFromFlags_Overrides(t *testing.T) {
 		ProgressiveConcurrency: false,
 		Limits: stack.RunnerLimitsResolved{
 			ParallelismGroupLimit: 1,
+		},
+		Fanout: stack.RunnerFanoutResolved{
+			MaxParallel:         64,
+			MaxFailed:           0,
+			MinSucceededPercent: 100,
+			OnPartialFailure:    stack.RunnerFanoutOnBlock,
 		},
 		Adaptive: stack.RunnerAdaptiveResolved{
 			Min:                1,

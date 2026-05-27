@@ -19,6 +19,8 @@ type Config struct {
 	NKey               string
 	Timeout            time.Duration
 	RedactValues       []string
+	TargetID           string
+	ExpectedAgentID    string
 	RequiredCapability string
 	NodeKind           string
 	RunID              string
@@ -82,6 +84,8 @@ func New(config Config) (*Client, error) {
 		nkey:    nkey,
 		timeout: timeout,
 		metadata: CommandAssignmentMetadata{
+			TargetID:           strings.TrimSpace(config.TargetID),
+			ExpectedAgentID:    strings.TrimSpace(config.ExpectedAgentID),
 			RequiredCapability: strings.TrimSpace(config.RequiredCapability),
 			NodeKind:           strings.TrimSpace(config.NodeKind),
 			RunID:              strings.TrimSpace(config.RunID),
@@ -254,6 +258,10 @@ type natsRequester struct {
 }
 
 func defaultRequestDialer(ctx context.Context, config DialConfig) (Requester, error) {
+	return DialRequester(ctx, config)
+}
+
+func DialRequester(ctx context.Context, config DialConfig) (Requester, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

@@ -163,7 +163,10 @@ with the standard redacted `OperationResult`. Workers discover local
 capabilities at startup and reject assignments whose `requiredCapability` is
 not available, returning a `blocked` receipt without executing the command.
 Receipts include the worker identity, subject, capability digest, and matching
-assignment `runId`/`nodeId` metadata.
+assignment `runId`/`nodeId` metadata. In fleet fan-out mode workers normally
+subscribe to deterministic per-target subjects such as
+`torque.assign.lab.host_mysql-01`; explicit stack targets can still use a
+single custom subject.
 
 ```bash
 torque-agent nats worker \
@@ -240,7 +243,10 @@ ready. The same receipt also derives required capabilities from the stack node
 kinds and requires every ready matching agent to advertise those capabilities.
 NATS assignments carry the same required capability and node/run identifiers;
 the worker enforces the contract again locally before command execution and
-returns identity metadata in the execution receipt.
+returns identity metadata in the execution receipt. When a fleet NATS node omits
+`host.target`, Torque resolves the readiness selector into ready capable agents
+and sends one assignment per target subject. Queue groups remain for HA workers
+on the same target, not for broadcasting one message to many hosts.
 
 ```yaml
 apiVersion: torque.dev/v1
@@ -261,12 +267,16 @@ runner:
     failureBudget: 5
     staleAfter: 45s
     onInsufficientReady: block
+  fanout:
+    maxParallel: 64
+    maxFailed: 5
+    minSucceededPercent: 95
+    onPartialFailure: block
 nodes:
   - name: mysql-check
     kind: host.command.run
     host:
       transport: nats
-      target: torque.lab.assign.mysql
       command: mysqladmin ping
 ```
 

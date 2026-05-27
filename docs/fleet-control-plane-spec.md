@@ -2,7 +2,8 @@
 
 Status: design draft; local NATS heartbeat/status, agent capability reporting,
 durable registry compaction, stack fleet readiness/capability gate slices,
-worker-side capability enforcement, and worker identity receipts implemented.
+worker-side capability enforcement, worker identity receipts, and targeted NATS
+fleet fan-out implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -51,6 +52,11 @@ Implemented local slice:
   incapable worker returns a local `blocked` receipt without executing an
   assignment that escaped the controller-side gate, and worker receipts carry
   identity plus assignment metadata.
+- `scripts/e2e/ops/OPS-AGENT-007.sh` proves targeted NATS fleet fan-out:
+  one stack node resolves ready capable agents from the registry, publishes one
+  assignment per target subject, aggregates per-agent receipts into
+  `host-command-fanout.json`, and blocks when a selected target has no worker
+  receipt.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
@@ -399,6 +405,7 @@ TORQUE_AGENT_EVENTS
 
 TORQUE_ASSIGNMENTS
   subjects:
+    torque.assign.<tenant>.<target-id>
     torque.v1.assign.<tenant>.<shard>.<agent-id>
     torque.v1.assign.<tenant>.<shard>.capability.<capability>
 
@@ -417,12 +424,21 @@ TORQUE_AUDIT
 
 Assignment envelopes include the node/run context the worker must enforce:
 
+In local request/reply mode, targeted fan-out uses one deterministic subject per
+selected target: `torque.assign.<tenant>.<normalized-target-id>`. The stack
+runner resolves `runner.readiness.selector` through the compact registry and
+publishes one assignment to each ready capable target. NATS queue groups are
+only for HA workers representing the same target; they are not used as a
+broadcast primitive.
+
 ```json
 {
   "apiVersion": "torque.dev/nats-assignment/v1",
   "kind": "CommandAssignment",
   "operation": "run",
-  "target": "torque.lab.assign.mysql",
+  "target": "torque.assign.lab.host_mysql-01",
+  "targetId": "host/mysql-01",
+  "expectedAgentId": "agent-mysql-01",
   "requiredCapability": "host.command.run",
   "nodeKind": "host.command.run",
   "runId": "2026-05-27T10-00-00.000000000Z",
@@ -442,9 +458,11 @@ metadata:
   "tenant": "lab",
   "targetId": "host/mysql-01",
   "hostname": "mysql-01",
-  "workerSubject": "torque.lab.assign.mysql",
+  "workerSubject": "torque.assign.lab.host_mysql-01",
   "capabilityDigest": "sha256:...",
   "requiredCapability": "host.command.run",
+  "assignmentTargetId": "host/mysql-01",
+  "expectedAgentId": "agent-mysql-01",
   "runId": "2026-05-27T10-00-00.000000000Z",
   "nodeId": "host.command.run/mysql-check",
   "workerDecision": "executed"

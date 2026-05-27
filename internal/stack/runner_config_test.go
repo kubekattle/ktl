@@ -27,6 +27,12 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 						MinReadyPercent: pint(95),
 						FailureBudget:   pint(5),
 					},
+					Fanout: RunnerFanout{
+						MaxParallel:         pint(12),
+						MaxFailed:           pint(2),
+						MinSucceededPercent: pint(90),
+						OnPartialFailure:    RunnerFanoutOnContinue,
+					},
 					Adaptive: RunnerAdaptive{
 						Mode: "conservative",
 					},
@@ -68,6 +74,9 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 	}
 	if got.Readiness.Tenant != "lab" || got.Readiness.Selector["role"] != "db" || got.Readiness.MinReadyPercent != 95 || got.Readiness.FailureBudget != 5 {
 		t.Fatalf("readiness override/defaults = %#v", got.Readiness)
+	}
+	if got.Fanout.MaxParallel != 12 || got.Fanout.MaxFailed != 2 || got.Fanout.MinSucceededPercent != 90 || got.Fanout.OnPartialFailure != RunnerFanoutOnContinue {
+		t.Fatalf("fanout = %#v", got.Fanout)
 	}
 	if got.KubeQPS != 25 || got.KubeBurst != 50 {
 		t.Fatalf("expected kubeQPS=25 kubeBurst=50, got kubeQPS=%v kubeBurst=%v", got.KubeQPS, got.KubeBurst)

@@ -147,7 +147,7 @@ func Definitions() []Capability {
 			CheckMode:         "bounded",
 			DiffQuality:       "unsupported",
 			SupportedPhases:   []string{"observe", "plan", "apply", "verify", "delete", "export"},
-			EvidenceArtifacts: []string{"host-command-observe.json", "host-command-plan.json", "host-command-execute.json", "host-command-verify.json", "host-command.json", "decision.json"},
+			EvidenceArtifacts: []string{"host-command-observe.json", "host-command-plan.json", "host-command-execute.json", "host-command-fanout.json", "host-command-verify.json", "host-command.json", "decision.json"},
 			RequiredPolicy:    []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
 			Touches:           []string{"processes", "files and services reachable from command"},
 			SecretInputs:      []string{"secret refs redacted when emitted by transport"},

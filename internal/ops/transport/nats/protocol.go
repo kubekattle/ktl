@@ -20,6 +20,8 @@ type CommandAssignment struct {
 	Operation          string `json:"operation"`
 	Target             string `json:"target"`
 	Command            string `json:"command,omitempty"`
+	TargetID           string `json:"targetId,omitempty"`
+	ExpectedAgentID    string `json:"expectedAgentId,omitempty"`
 	RequiredCapability string `json:"requiredCapability,omitempty"`
 	NodeKind           string `json:"nodeKind,omitempty"`
 	RunID              string `json:"runId,omitempty"`
@@ -29,6 +31,8 @@ type CommandAssignment struct {
 }
 
 type CommandAssignmentMetadata struct {
+	TargetID           string
+	ExpectedAgentID    string
 	RequiredCapability string
 	NodeKind           string
 	RunID              string
@@ -47,6 +51,8 @@ func NewCommandAssignmentWithMetadata(operation string, target string, command s
 		Operation:          strings.TrimSpace(operation),
 		Target:             NormalizeTarget(target),
 		Command:            command,
+		TargetID:           strings.TrimSpace(metadata.TargetID),
+		ExpectedAgentID:    strings.TrimSpace(metadata.ExpectedAgentID),
 		RequiredCapability: strings.TrimSpace(metadata.RequiredCapability),
 		NodeKind:           strings.TrimSpace(metadata.NodeKind),
 		RunID:              strings.TrimSpace(metadata.RunID),
@@ -65,6 +71,8 @@ func ParseCommandAssignment(raw []byte) (CommandAssignment, error) {
 	assignment.Kind = strings.TrimSpace(assignment.Kind)
 	assignment.Operation = strings.TrimSpace(assignment.Operation)
 	assignment.Target = NormalizeTarget(assignment.Target)
+	assignment.TargetID = strings.TrimSpace(assignment.TargetID)
+	assignment.ExpectedAgentID = strings.TrimSpace(assignment.ExpectedAgentID)
 	assignment.RequiredCapability = strings.TrimSpace(assignment.RequiredCapability)
 	assignment.NodeKind = strings.TrimSpace(assignment.NodeKind)
 	assignment.RunID = strings.TrimSpace(assignment.RunID)

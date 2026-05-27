@@ -164,6 +164,12 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	if target != w.subject {
 		return w.errorResultForAssignment(operation, target, assignment, fmt.Errorf("assignment target %q does not match worker subject %q", target, w.subject), false)
 	}
+	if expectedAgentID := strings.TrimSpace(assignment.ExpectedAgentID); expectedAgentID != "" && expectedAgentID != strings.TrimSpace(w.agentID) {
+		return w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("assignment expected agentId %s but worker agentId is %s", expectedAgentID, strings.TrimSpace(w.agentID)))
+	}
+	if assignmentTargetID := strings.TrimSpace(assignment.TargetID); assignmentTargetID != "" && assignmentTargetID != strings.TrimSpace(w.targetID) {
+		return w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("assignment targetId %s does not match worker targetId %s", assignmentTargetID, strings.TrimSpace(w.targetID)))
+	}
 	requiredCapability := strings.TrimSpace(assignment.RequiredCapability)
 	if requiredCapability != "" && !w.hasCapability(requiredCapability) {
 		return w.blockedResult(operation, target, assignment)
@@ -228,13 +234,17 @@ func (w *Worker) errorResultForAssignment(operation string, target string, assig
 }
 
 func (w *Worker) blockedResult(operation string, target string, assignment natstransport.CommandAssignment) transport.OperationResult {
+	msg := fmt.Sprintf("missing required capability %s", strings.TrimSpace(assignment.RequiredCapability))
+	return w.blockedResultWithReason(operation, target, assignment, msg)
+}
+
+func (w *Worker) blockedResultWithReason(operation string, target string, assignment natstransport.CommandAssignment, msg string) transport.OperationResult {
 	if strings.TrimSpace(operation) == "" {
 		operation = "run"
 	}
 	if strings.TrimSpace(target) == "" {
 		target = w.subject
 	}
-	msg := fmt.Sprintf("missing required capability %s", strings.TrimSpace(assignment.RequiredCapability))
 	return transport.OperationResult{
 		Operation:    strings.TrimSpace(operation),
 		Status:       "blocked",
@@ -356,6 +366,8 @@ func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, dec
 	addMetadata("runId", assignment.RunID)
 	addMetadata("nodeId", assignment.NodeID)
 	addMetadata("planDigest", assignment.PlanDigest)
+	addMetadata("assignmentTargetId", assignment.TargetID)
+	addMetadata("expectedAgentId", assignment.ExpectedAgentID)
 	for key, value := range metadata {
 		if strings.TrimSpace(value) == "" {
 			delete(metadata, key)

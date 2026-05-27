@@ -58,6 +58,8 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 		RunID:              "run-123",
 		NodeID:             "mysql.replication.verify/mysql",
 		PlanDigest:         "sha256:plan",
+		TargetID:           "host/mysql-01",
+		ExpectedAgentID:    "agent-mysql-01",
 		Requester:          requester,
 	})
 	if err != nil {
@@ -98,7 +100,7 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	if assignment.Kind != AssignmentKind || assignment.Operation != "run" || assignment.Target != "torque.lab.assign.agent.mysql" {
 		t.Fatalf("assignment = %#v", assignment)
 	}
-	if assignment.RequiredCapability != "mysql.replication.verify" || assignment.NodeKind != "mysql.replication.verify" || assignment.RunID != "run-123" || assignment.NodeID != "mysql.replication.verify/mysql" || assignment.PlanDigest != "sha256:plan" {
+	if assignment.TargetID != "host/mysql-01" || assignment.ExpectedAgentID != "agent-mysql-01" || assignment.RequiredCapability != "mysql.replication.verify" || assignment.NodeKind != "mysql.replication.verify" || assignment.RunID != "run-123" || assignment.NodeID != "mysql.replication.verify/mysql" || assignment.PlanDigest != "sha256:plan" {
 		t.Fatalf("assignment metadata = %#v", assignment)
 	}
 }

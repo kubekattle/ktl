@@ -1,0 +1,451 @@
+package stack
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ingresslabs/torque/internal/ops/agent/heartbeat"
+	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
+	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
+)
+
+const (
+	FleetNATSFanoutAPIVersion = "torque.dev/stack/fleet-nats-fanout/v1alpha1"
+	FleetNATSFanoutKind       = "FleetNATSFanout"
+)
+
+type fleetNATSFanoutReceipt struct {
+	APIVersion         string                      `json:"apiVersion"`
+	Kind               string                      `json:"kind"`
+	NodeID             string                      `json:"nodeId"`
+	NodeKind           string                      `json:"nodeKind"`
+	Phase              string                      `json:"phase"`
+	Status             string                      `json:"status"`
+	Reason             string                      `json:"reason,omitempty"`
+	RunID              string                      `json:"runId"`
+	RequiredCapability string                      `json:"requiredCapability,omitempty"`
+	GeneratedAt        string                      `json:"generatedAt"`
+	Policy             fleetNATSFanoutPolicy       `json:"policy"`
+	Summary            fleetNATSFanoutSummary      `json:"summary"`
+	Targets            []fleetNATSFanoutTargetView `json:"targets,omitempty"`
+	Results            []fleetNATSFanoutResult     `json:"results,omitempty"`
+}
+
+type fleetNATSFanoutPolicy struct {
+	MaxParallel         int    `json:"maxParallel"`
+	MaxFailed           int    `json:"maxFailed"`
+	MinSucceededPercent int    `json:"minSucceededPercent"`
+	OnPartialFailure    string `json:"onPartialFailure"`
+}
+
+type fleetNATSFanoutSummary struct {
+	TargetCount      int `json:"targetCount"`
+	Succeeded        int `json:"succeeded"`
+	Failed           int `json:"failed,omitempty"`
+	Blocked          int `json:"blocked,omitempty"`
+	TimedOut         int `json:"timedOut,omitempty"`
+	MissingReceipts  int `json:"missingReceipts,omitempty"`
+	SucceededPercent int `json:"succeededPercent"`
+	NonSucceeded     int `json:"nonSucceeded,omitempty"`
+	PolicyViolations int `json:"policyViolations,omitempty"`
+}
+
+type fleetNATSFanoutTargetView struct {
+	AgentID          string            `json:"agentId"`
+	TargetID         string            `json:"targetId"`
+	Hostname         string            `json:"hostname,omitempty"`
+	WorkerSubject    string            `json:"workerSubject"`
+	CapabilityDigest string            `json:"capabilityDigest,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+}
+
+type fleetNATSFanoutResult struct {
+	AgentID       string                    `json:"agentId"`
+	TargetID      string                    `json:"targetId"`
+	Hostname      string                    `json:"hostname,omitempty"`
+	WorkerSubject string                    `json:"workerSubject"`
+	Status        string                    `json:"status"`
+	Error         string                    `json:"error,omitempty"`
+	Receipt       transport.OperationResult `json:"receipt"`
+}
+
+type fleetNATSFanoutTarget struct {
+	agentID          string
+	targetID         string
+	hostname         string
+	workerSubject    string
+	capabilityDigest string
+	labels           map[string]string
+}
+
+func (e *customNodeExecutor) shouldUseFleetNATSFanout(spec HostCommandSpec) bool {
+	if e == nil || e.run == nil || e.run.Plan == nil {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(e.run.Plan.Runner.Mode)) != RunnerModeFleet {
+		return false
+	}
+	if strings.TrimSpace(spec.Target) != "" || strings.TrimSpace(spec.TargetEnv) != "" {
+		return false
+	}
+	return transportIsNATS(spec.Transport)
+}
+
+func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, node *runNode, phase string, spec HostCommandSpec, command string) (fleetNATSFanoutReceipt, transport.OperationResult) {
+	started := time.Now()
+	policy := e.fleetNATSFanoutPolicy()
+	receipt := fleetNATSFanoutReceipt{
+		APIVersion:         FleetNATSFanoutAPIVersion,
+		Kind:               FleetNATSFanoutKind,
+		NodeID:             strings.TrimSpace(node.ID),
+		NodeKind:           normalizeNodeKind(node.Kind),
+		Phase:              strings.TrimSpace(phase),
+		Status:             "checking",
+		RunID:              strings.TrimSpace(e.run.RunID),
+		RequiredCapability: strings.TrimSpace(spec.RequiredCap),
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+		Policy:             policy,
+	}
+	targets, err := e.fleetNATSFanoutTargets(ctx, spec.RequiredCap)
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = err.Error()
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	receipt.Targets = make([]fleetNATSFanoutTargetView, 0, len(targets))
+	for _, target := range targets {
+		receipt.Targets = append(receipt.Targets, target.view())
+	}
+	receipt.Summary.TargetCount = len(targets)
+	if guardErr := e.validateFleetNATSFanoutOpsGuard(node, targets, spec.RequiredCap); guardErr != nil {
+		receipt.Status = "blocked"
+		receipt.Reason = guardErr.Error()
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+
+	timeout := 30 * time.Second
+	if spec.Timeout != nil && *spec.Timeout > 0 {
+		timeout = *spec.Timeout
+	}
+	server := firstNonEmptyString(os.Getenv("TORQUE_NATS_URL"), os.Getenv("TORQUE_NATS_SERVER"))
+	creds := strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS"))
+	nkey := strings.TrimSpace(os.Getenv("TORQUE_NATS_NKEY"))
+	requester, err := natstransport.DialRequester(ctx, natstransport.DialConfig{
+		Server:  server,
+		Creds:   creds,
+		NKey:    nkey,
+		Timeout: timeout,
+		Name:    "torque-stack-fleet-fanout",
+	})
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = fmt.Sprintf("connect NATS fleet fan-out requester: %v", err)
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	defer requester.Close()
+
+	results := make([]fleetNATSFanoutResult, len(targets))
+	limit := policy.MaxParallel
+	if limit > len(targets) {
+		limit = len(targets)
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for i := 0; i < limit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				target := targets[idx]
+				client, clientErr := natstransport.New(natstransport.Config{
+					Target:             target.workerSubject,
+					Server:             server,
+					Creds:              creds,
+					NKey:               nkey,
+					Timeout:            timeout,
+					RedactValues:       []string{target.workerSubject, server},
+					TargetID:           target.targetID,
+					ExpectedAgentID:    target.agentID,
+					RequiredCapability: strings.TrimSpace(spec.RequiredCap),
+					NodeKind:           strings.TrimSpace(spec.NodeKind),
+					RunID:              strings.TrimSpace(spec.RunID),
+					NodeID:             strings.TrimSpace(spec.NodeID),
+					PlanDigest:         strings.TrimSpace(spec.PlanDigest),
+					Requester:          requester,
+				})
+				if clientErr != nil {
+					results[idx] = target.result(transport.OperationResult{
+						Operation:    "run",
+						Status:       "failed",
+						TargetDigest: natstransport.TargetDigest(target.workerSubject),
+						ExitCode:     1,
+						Error:        clientErr.Error(),
+					})
+					continue
+				}
+				results[idx] = target.result(client.Run(ctx, command))
+			}
+		}()
+	}
+	for i := range targets {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	receipt.Results = results
+	e.finalizeFleetNATSFanoutReceipt(&receipt)
+	return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+}
+
+func (e *customNodeExecutor) fleetNATSFanoutPolicy() fleetNATSFanoutPolicy {
+	policy := fleetNATSFanoutPolicy{
+		MaxParallel:         64,
+		MaxFailed:           0,
+		MinSucceededPercent: 100,
+		OnPartialFailure:    RunnerFanoutOnBlock,
+	}
+	if e == nil || e.run == nil || e.run.Plan == nil {
+		return policy
+	}
+	resolved := e.run.Plan.Runner.Fanout
+	if resolved.MaxParallel > 0 {
+		policy.MaxParallel = resolved.MaxParallel
+	}
+	if resolved.MaxFailed >= 0 {
+		policy.MaxFailed = resolved.MaxFailed
+	}
+	if resolved.MinSucceededPercent >= 0 && resolved.MinSucceededPercent <= 100 {
+		policy.MinSucceededPercent = resolved.MinSucceededPercent
+	}
+	if strings.TrimSpace(resolved.OnPartialFailure) != "" {
+		policy.OnPartialFailure = strings.ToLower(strings.TrimSpace(resolved.OnPartialFailure))
+	}
+	if policy.OnPartialFailure != RunnerFanoutOnContinue {
+		policy.OnPartialFailure = RunnerFanoutOnBlock
+	}
+	return policy
+}
+
+func (e *customNodeExecutor) fleetNATSFanoutTargets(ctx context.Context, requiredCapability string) ([]fleetNATSFanoutTarget, error) {
+	if e == nil || e.run == nil || e.run.Plan == nil {
+		return nil, fmt.Errorf("fleet fan-out requires stack run context")
+	}
+	readiness := normalizeFleetReadiness(e.run.Plan.Runner.Readiness)
+	store, err := openFleetReadinessStore(ctx, readiness)
+	if err != nil {
+		return nil, fmt.Errorf("read agent registry: %w", err)
+	}
+	defer store.Close()
+	snapshot, err := heartbeat.SnapshotFromStore(ctx, store, heartbeat.SnapshotRequest{
+		Tenant:     readiness.Tenant,
+		Selector:   readiness.Selector,
+		StaleAfter: readiness.StaleAfter,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read agent registry snapshot: %w", err)
+	}
+	var out []fleetNATSFanoutTarget
+	for _, agent := range snapshot.Agents {
+		if !strings.EqualFold(strings.TrimSpace(agent.Health), "ready") {
+			continue
+		}
+		if !agentHasCapability(agent, requiredCapability) {
+			continue
+		}
+		agentID := strings.TrimSpace(agent.AgentID)
+		targetID := firstNonEmptyString(agent.TargetID, agent.AgentID)
+		if agentID == "" || targetID == "" {
+			continue
+		}
+		out = append(out, fleetNATSFanoutTarget{
+			agentID:          agentID,
+			targetID:         targetID,
+			hostname:         strings.TrimSpace(agent.Hostname),
+			workerSubject:    fleetNATSAssignmentSubject(readiness.Tenant, targetID),
+			capabilityDigest: strings.TrimSpace(agent.CapabilityDigest),
+			labels:           cloneStringMap(agent.Labels),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].targetID != out[j].targetID {
+			return out[i].targetID < out[j].targetID
+		}
+		return out[i].agentID < out[j].agentID
+	})
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no ready capable agents matched runner.readiness.selector")
+	}
+	return out, nil
+}
+
+func (e *customNodeExecutor) finalizeFleetNATSFanoutReceipt(receipt *fleetNATSFanoutReceipt) {
+	if receipt == nil {
+		return
+	}
+	for _, result := range receipt.Results {
+		status := strings.ToLower(strings.TrimSpace(result.Status))
+		if nodeStepSucceeded(status) {
+			receipt.Summary.Succeeded++
+			continue
+		}
+		receipt.Summary.NonSucceeded++
+		switch status {
+		case "blocked":
+			receipt.Summary.Blocked++
+		case "timeout":
+			receipt.Summary.TimedOut++
+		default:
+			receipt.Summary.Failed++
+		}
+		if strings.TrimSpace(result.Receipt.Metadata["agentId"]) == "" {
+			receipt.Summary.MissingReceipts++
+		}
+	}
+	if receipt.Summary.TargetCount > 0 {
+		receipt.Summary.SucceededPercent = (receipt.Summary.Succeeded * 100) / receipt.Summary.TargetCount
+	}
+	if receipt.Summary.NonSucceeded > receipt.Policy.MaxFailed {
+		receipt.Summary.PolicyViolations++
+	}
+	if receipt.Summary.SucceededPercent < receipt.Policy.MinSucceededPercent {
+		receipt.Summary.PolicyViolations++
+	}
+	switch {
+	case receipt.Summary.PolicyViolations == 0 && receipt.Summary.NonSucceeded == 0:
+		receipt.Status = "succeeded"
+		receipt.Reason = "all targeted NATS agents succeeded"
+	case receipt.Summary.PolicyViolations == 0:
+		receipt.Status = "partial"
+		receipt.Reason = "targeted NATS fan-out completed within execution budget"
+	case receipt.Policy.OnPartialFailure == RunnerFanoutOnContinue:
+		receipt.Status = "partial"
+		receipt.Reason = "targeted NATS fan-out exceeded execution budget; continuing by policy"
+	default:
+		receipt.Status = "failed"
+		receipt.Reason = "targeted NATS fan-out exceeded execution budget"
+	}
+}
+
+func (e *customNodeExecutor) fleetNATSFanoutOperationResult(started time.Time, receipt fleetNATSFanoutReceipt) transport.OperationResult {
+	status := "succeeded"
+	switch strings.ToLower(strings.TrimSpace(receipt.Status)) {
+	case "blocked":
+		status = "blocked"
+	case "failed", "timeout":
+		status = "failed"
+	}
+	targets := make([]string, 0, len(receipt.Targets))
+	for _, target := range receipt.Targets {
+		targets = append(targets, target.WorkerSubject)
+	}
+	metadata := map[string]string{
+		"fanout":              "targeted-nats",
+		"targetCount":         strconv.Itoa(receipt.Summary.TargetCount),
+		"succeeded":           strconv.Itoa(receipt.Summary.Succeeded),
+		"nonSucceeded":        strconv.Itoa(receipt.Summary.NonSucceeded),
+		"missingReceipts":     strconv.Itoa(receipt.Summary.MissingReceipts),
+		"minSucceededPercent": strconv.Itoa(receipt.Policy.MinSucceededPercent),
+		"maxFailed":           strconv.Itoa(receipt.Policy.MaxFailed),
+		"onPartialFailure":    receipt.Policy.OnPartialFailure,
+	}
+	errorMessage := ""
+	if !nodeStepSucceeded(status) {
+		errorMessage = strings.TrimSpace(receipt.Reason)
+	}
+	return transport.OperationResult{
+		Operation:      "run",
+		Status:         status,
+		TargetDigest:   digestStringSlice(targets),
+		Command:        []string{"nats.fanout", "--targets", strconv.Itoa(receipt.Summary.TargetCount), "--max-parallel", strconv.Itoa(receipt.Policy.MaxParallel)},
+		ExitCode:       boolToExitCode(status != "succeeded"),
+		DurationMillis: time.Since(started).Milliseconds(),
+		Error:          errorMessage,
+		Metadata:       metadata,
+	}
+}
+
+func (e *customNodeExecutor) validateFleetNATSFanoutOpsGuard(node *runNode, targets []fleetNATSFanoutTarget, operation string) error {
+	if e == nil || e.run == nil || e.run.Plan == nil || e.run.Plan.Ops == nil {
+		return nil
+	}
+	for _, target := range targets {
+		if err := e.validateHostAdapterOpsGuard(node, target.targetID, operation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *customNodeExecutor) recordHostCommandFanoutReceipts(node *runNode, phase string, status string, reason string, observe hostCommandObserveReceipt, plan hostCommandPlanReceipt, fanout fleetNATSFanoutReceipt, execute transport.OperationResult, verify hostCommandVerifyReceipt) {
+	payload := map[string]any{
+		"apiVersion":   "torque.dev/host-command-node/v1",
+		"kind":         "HostCommandNodeArtifact",
+		"nodeId":       node.ID,
+		"nodeKind":     normalizeNodeKind(node.Kind),
+		"phase":        phase,
+		"status":       strings.TrimSpace(status),
+		"targetId":     strings.TrimSpace(plan.TargetID),
+		"guardMode":    strings.TrimSpace(plan.GuardMode),
+		"targetDigest": execute.TargetDigest,
+		"observe":      observe,
+		"plan":         plan,
+		"receipt":      execute,
+		"execute":      execute,
+		"fanout":       fanout,
+		"verify":       verify,
+	}
+	if strings.TrimSpace(reason) != "" {
+		payload["reason"] = strings.TrimSpace(reason)
+	}
+	e.run.RecordJSONArtifact(node.ID, "host-command-observe.json", observe)
+	e.run.RecordJSONArtifact(node.ID, "host-command-plan.json", plan)
+	e.run.RecordJSONArtifact(node.ID, "host-command-execute.json", execute)
+	e.run.RecordJSONArtifact(node.ID, "host-command-fanout.json", fanout)
+	e.run.RecordJSONArtifact(node.ID, "host-command-verify.json", verify)
+	e.run.RecordJSONArtifact(node.ID, phase+".json", payload)
+	e.run.RecordJSONArtifact(node.ID, "decision.json", payload)
+}
+
+func (t fleetNATSFanoutTarget) view() fleetNATSFanoutTargetView {
+	return fleetNATSFanoutTargetView{
+		AgentID:          strings.TrimSpace(t.agentID),
+		TargetID:         strings.TrimSpace(t.targetID),
+		Hostname:         strings.TrimSpace(t.hostname),
+		WorkerSubject:    strings.TrimSpace(t.workerSubject),
+		CapabilityDigest: strings.TrimSpace(t.capabilityDigest),
+		Labels:           cloneStringMap(t.labels),
+	}
+}
+
+func (t fleetNATSFanoutTarget) result(receipt transport.OperationResult) fleetNATSFanoutResult {
+	return fleetNATSFanoutResult{
+		AgentID:       strings.TrimSpace(t.agentID),
+		TargetID:      strings.TrimSpace(t.targetID),
+		Hostname:      strings.TrimSpace(t.hostname),
+		WorkerSubject: strings.TrimSpace(t.workerSubject),
+		Status:        strings.TrimSpace(receipt.Status),
+		Error:         strings.TrimSpace(receipt.Error),
+		Receipt:       receipt,
+	}
+}
+
+func fleetNATSAssignmentSubject(tenant string, targetID string) string {
+	return "torque.assign." + heartbeat.NormalizeTenant(tenant) + "." + heartbeat.NormalizeSubjectToken(targetID, "target")
+}
+
+func boolToExitCode(failed bool) int {
+	if failed {
+		return 1
+	}
+	return 0
+}

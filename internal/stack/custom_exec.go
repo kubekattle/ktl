@@ -250,6 +250,34 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 		return nil
 	}
 
+	if e.shouldUseFleetNATSFanout(spec) {
+		observe := e.hostCommandObserveReceipt(node, phase, "")
+		plan := e.hostCommandPlanReceipt(node, phase, remoteCommand, "planned", "eligible")
+		fanout, receipt := e.runHostCommandFleetNATSFanout(ctx, node, phase, spec, remoteCommand)
+		observe.TargetDigest = receipt.TargetDigest
+		verify := e.hostCommandVerifyReceipt(node, phase, plan.TargetID, receipt)
+		e.recordHostCommandFanoutReceipts(node, phase, fanout.Status, strings.TrimSpace(fanout.Reason), observe, plan, fanout, receipt, verify)
+		if !nodeStepSucceeded(receipt.Status) {
+			msg := firstNonEmptyString(receipt.Error, receipt.Stderr, fmt.Sprintf("host command status %s", receipt.Status))
+			runErr := &RunError{Class: "HOST_COMMAND_FAILED", Message: msg, Digest: computeRunErrorDigest("HOST_COMMAND_FAILED", msg)}
+			e.run.emitEvent(node.ID, PhaseCompleted, node.Attempt, msg, map[string]any{
+				"phase":   phase,
+				"status":  "failure",
+				"cursor":  cursor,
+				"receipt": receipt,
+				"fanout":  fanout.Summary,
+			}, runErr, true)
+			return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("host command phase %s: %s", phase, msg))
+		}
+		e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, firstNonEmptyString(fanout.Reason, "success"), map[string]any{
+			"phase":   phase,
+			"status":  "success",
+			"cursor":  cursor,
+			"receipt": receipt,
+			"fanout":  fanout.Summary,
+		}, nil)
+		return nil
+	}
 	transportClient, err := hostCommandTransport(spec)
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)

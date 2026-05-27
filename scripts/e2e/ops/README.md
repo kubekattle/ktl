@@ -481,6 +481,21 @@ scripts/e2e/ops/OPS-AGENT-006.sh \
   --cleanup
 ```
 
+## OPS-AGENT-007
+
+`OPS-AGENT-007.sh` proves targeted NATS fleet fan-out. It starts three
+per-target `torque-agent nats worker` processes, publishes and compacts three
+ready heartbeats, applies one `runner.mode: fleet` `host.command.run` node with
+`transport: nats` and no explicit `host.target`, then proves all three workers
+executed. It stops one worker and proves the next stack apply blocks with a
+missing receipt.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-007.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or

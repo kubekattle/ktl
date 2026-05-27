@@ -19,6 +19,9 @@ const (
 
 	RunnerReadinessOnBlock = "block"
 	RunnerReadinessOnWarn  = "warn"
+
+	RunnerFanoutOnBlock    = "block"
+	RunnerFanoutOnContinue = "continue"
 )
 
 func ResolveRunnerConfig(u *Universe, profile string) (RunnerResolved, error) {
@@ -35,6 +38,12 @@ func ResolveRunnerConfig(u *Universe, profile string) (RunnerResolved, error) {
 			FailureBudget:       0,
 			StaleAfter:          45 * time.Second,
 			OnInsufficientReady: RunnerReadinessOnBlock,
+		},
+		Fanout: RunnerFanoutResolved{
+			MaxParallel:         64,
+			MaxFailed:           0,
+			MinSucceededPercent: 100,
+			OnPartialFailure:    RunnerFanoutOnBlock,
 		},
 		Limits: RunnerLimitsResolved{
 			ParallelismGroupLimit: 1,
@@ -118,6 +127,7 @@ func mergeRunner(dst *RunnerConfig, src RunnerConfig) {
 		dst.KubeBurst = src.KubeBurst
 	}
 	mergeRunnerReadiness(&dst.Readiness, src.Readiness)
+	mergeRunnerFanout(&dst.Fanout, src.Fanout)
 	if src.Limits.MaxParallelPerNamespace != nil {
 		dst.Limits.MaxParallelPerNamespace = src.Limits.MaxParallelPerNamespace
 	}
@@ -192,6 +202,24 @@ func mergeRunnerReadiness(dst *RunnerReadiness, src RunnerReadiness) {
 	}
 }
 
+func mergeRunnerFanout(dst *RunnerFanout, src RunnerFanout) {
+	if dst == nil {
+		return
+	}
+	if src.MaxParallel != nil {
+		dst.MaxParallel = src.MaxParallel
+	}
+	if src.MaxFailed != nil {
+		dst.MaxFailed = src.MaxFailed
+	}
+	if src.MinSucceededPercent != nil {
+		dst.MinSucceededPercent = src.MinSucceededPercent
+	}
+	if strings.TrimSpace(src.OnPartialFailure) != "" {
+		dst.OnPartialFailure = src.OnPartialFailure
+	}
+}
+
 func applyRunnerResolved(dst *RunnerResolved, cfg RunnerConfig) {
 	if dst == nil {
 		return
@@ -212,6 +240,7 @@ func applyRunnerResolved(dst *RunnerResolved, cfg RunnerConfig) {
 		dst.KubeBurst = *cfg.KubeBurst
 	}
 	applyRunnerReadinessResolved(dst, cfg.Readiness)
+	applyRunnerFanoutResolved(dst, cfg.Fanout)
 	if cfg.Limits.MaxParallelPerNamespace != nil {
 		dst.Limits.MaxParallelPerNamespace = *cfg.Limits.MaxParallelPerNamespace
 	}
@@ -238,6 +267,24 @@ func applyRunnerResolved(dst *RunnerResolved, cfg RunnerConfig) {
 	}
 	if strings.TrimSpace(cfg.Adaptive.Mode) != "" {
 		dst.Adaptive.Mode = strings.ToLower(strings.TrimSpace(cfg.Adaptive.Mode))
+	}
+}
+
+func applyRunnerFanoutResolved(dst *RunnerResolved, cfg RunnerFanout) {
+	if dst == nil {
+		return
+	}
+	if cfg.MaxParallel != nil {
+		dst.Fanout.MaxParallel = *cfg.MaxParallel
+	}
+	if cfg.MaxFailed != nil {
+		dst.Fanout.MaxFailed = *cfg.MaxFailed
+	}
+	if cfg.MinSucceededPercent != nil {
+		dst.Fanout.MinSucceededPercent = *cfg.MinSucceededPercent
+	}
+	if strings.TrimSpace(cfg.OnPartialFailure) != "" {
+		dst.Fanout.OnPartialFailure = strings.ToLower(strings.TrimSpace(cfg.OnPartialFailure))
 	}
 }
 
@@ -301,6 +348,22 @@ func ValidateRunnerResolved(r RunnerResolved) error {
 	}
 	if r.Limits.ParallelismGroupLimit < 1 {
 		return fmt.Errorf("runner.limits.parallelismGroupLimit must be >= 1 (got %d)", r.Limits.ParallelismGroupLimit)
+	}
+	if r.Fanout.MaxParallel < 1 {
+		return fmt.Errorf("runner.fanout.maxParallel must be >= 1 (got %d)", r.Fanout.MaxParallel)
+	}
+	if r.Fanout.MaxFailed < 0 {
+		return fmt.Errorf("runner.fanout.maxFailed must be >= 0 (got %d)", r.Fanout.MaxFailed)
+	}
+	if r.Fanout.MinSucceededPercent < 0 || r.Fanout.MinSucceededPercent > 100 {
+		return fmt.Errorf("runner.fanout.minSucceededPercent must be in [0,100] (got %d)", r.Fanout.MinSucceededPercent)
+	}
+	onPartial := strings.ToLower(strings.TrimSpace(r.Fanout.OnPartialFailure))
+	if onPartial == "" {
+		onPartial = RunnerFanoutOnBlock
+	}
+	if onPartial != RunnerFanoutOnBlock && onPartial != RunnerFanoutOnContinue {
+		return fmt.Errorf("runner.fanout.onPartialFailure must be block or continue (got %q)", r.Fanout.OnPartialFailure)
 	}
 	if r.Limits.MaxParallelPerNamespace < 0 {
 		return fmt.Errorf("runner.limits.maxParallelPerNamespace must be >= 0 (got %d)", r.Limits.MaxParallelPerNamespace)

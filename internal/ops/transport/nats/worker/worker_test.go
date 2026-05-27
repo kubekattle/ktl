@@ -70,6 +70,8 @@ func TestHandleAssignmentRunsWhenRequiredCapabilityIsAvailable(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf ok", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/mysql-01",
+		ExpectedAgentID:    "agent-worker-01",
 		RequiredCapability: "host.command.run",
 		NodeKind:           "host.command.run",
 		RunID:              "run-123",
@@ -93,6 +95,8 @@ func TestHandleAssignmentRunsWhenRequiredCapabilityIsAvailable(t *testing.T) {
 		"runId":              "run-123",
 		"nodeId":             "host.command.run/write-marker",
 		"workerDecision":     "executed",
+		"assignmentTargetId": "host/mysql-01",
+		"expectedAgentId":    "agent-worker-01",
 	})
 	if !strings.HasPrefix(result.Metadata["capabilityDigest"], "sha256:") {
 		t.Fatalf("capabilityDigest = %q", result.Metadata["capabilityDigest"])
@@ -140,6 +144,49 @@ func TestHandleAssignmentBlocksMissingRequiredCapability(t *testing.T) {
 		"runId":              "run-123",
 		"nodeId":             "host.command.run/write-marker",
 		"workerDecision":     "blocked",
+	})
+}
+
+func TestHandleAssignmentBlocksUnexpectedAgentIdentity(t *testing.T) {
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("ok\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Server:                     "nats://127.0.0.1:4222",
+		Subject:                    "torque.lab.assign.mysql",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-worker-02",
+		Tenant:                     "lab",
+		TargetID:                   "host/mysql-02",
+		Hostname:                   "mysql-02",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf should-not-run", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/mysql-01",
+		ExpectedAgentID:    "agent-worker-01",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-123",
+		NodeID:             "host.command.run/write-marker",
+	})
+	result := worker.HandleAssignment(context.Background(), assignment)
+	if result.Status != "blocked" {
+		t.Fatalf("status = %q, want blocked: %#v", result.Status, result)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("runner was called despite identity mismatch: %#v", runner.calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"agentId":            "agent-worker-02",
+		"targetId":           "host/mysql-02",
+		"workerDecision":     "blocked",
+		"assignmentTargetId": "host/mysql-01",
+		"expectedAgentId":    "agent-worker-01",
+		"requiredCapability": "host.command.run",
 	})
 }
 
