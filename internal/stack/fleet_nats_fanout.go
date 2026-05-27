@@ -129,8 +129,15 @@ type fleetNATSSlotLease struct {
 	RenewedAt            string `json:"renewedAt,omitempty"`
 	Renewals             int    `json:"renewals,omitempty"`
 	RenewalError         string `json:"renewalError,omitempty"`
+	RenewalOwner         string `json:"renewalOwner,omitempty"`
+	ControllerRenewedAt  string `json:"controllerRenewedAt,omitempty"`
+	ControllerRenewals   int    `json:"controllerRenewals,omitempty"`
+	WorkerRenewedAt      string `json:"workerRenewedAt,omitempty"`
+	WorkerRenewals       int    `json:"workerRenewals,omitempty"`
 	ReleasedAt           string `json:"releasedAt,omitempty"`
 	ReleaseError         string `json:"releaseError,omitempty"`
+	ReleaseOwner         string `json:"releaseOwner,omitempty"`
+	WorkerReleasedAt     string `json:"workerReleasedAt,omitempty"`
 	Reclaimed            int    `json:"reclaimed,omitempty"`
 	Escrowed             bool   `json:"escrowed,omitempty"`
 	Recovered            bool   `json:"leaseRecovered,omitempty"`
@@ -219,9 +226,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 	creds := strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS"))
 	nkey := strings.TrimSpace(os.Getenv("TORQUE_NATS_NKEY"))
 	if policy.Delivery == RunnerFanoutDeliveryJetStream {
-		stopRenewal := e.startFleetNATSSlotLeaseRenewal(ctx, leaseStore, policy, targets)
-		jetReceipt, _ := e.runHostCommandFleetNATSJetStreamFanout(ctx, started, receipt, targets, spec, command, timeout, server, creds, nkey)
-		stopRenewal()
+		jetReceipt, _ := e.runHostCommandFleetNATSJetStreamFanout(ctx, started, receipt, targets, spec, command, timeout, server, creds, nkey, leaseStore)
 		e.releaseFleetNATSSlotLeases(ctx, leaseStore, targets, &jetReceipt)
 		return jetReceipt, e.fleetNATSFanoutOperationResult(started, jetReceipt)
 	}
@@ -239,7 +244,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
 	}
 	defer requester.Close()
-	stopRenewal := e.startFleetNATSSlotLeaseRenewal(ctx, leaseStore, policy, targets)
+	e.renewFleetNATSSlotLeases(ctx, leaseStore, policy, targets)
 
 	results := make([]fleetNATSFanoutResult, len(targets))
 	limit := policy.MaxParallel
@@ -306,15 +311,24 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 	}
 	close(jobs)
 	wg.Wait()
-	stopRenewal()
 
 	receipt.Results = results
+	e.reconcileFleetNATSSlotLeasesFromReceipts(ctx, targets, &receipt)
 	e.finalizeFleetNATSFanoutReceipt(&receipt)
 	e.releaseFleetNATSSlotLeases(ctx, leaseStore, targets, &receipt)
 	return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
 }
 
-func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.Context, started time.Time, receipt fleetNATSFanoutReceipt, targets []fleetNATSFanoutTarget, spec HostCommandSpec, command string, timeout time.Duration, server string, creds string, nkey string) (fleetNATSFanoutReceipt, transport.OperationResult) {
+func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.Context, started time.Time, receipt fleetNATSFanoutReceipt, targets []fleetNATSFanoutTarget, spec HostCommandSpec, command string, timeout time.Duration, server string, creds string, nkey string, leaseStore slotledger.Store) (fleetNATSFanoutReceipt, transport.OperationResult) {
+	stopLeaseBackupRenewal := e.startFleetNATSSlotLeaseBackupRenewal(ctx, leaseStore, receipt.Policy, targets)
+	leaseBackupActive := true
+	stopLeaseBackup := func() {
+		if leaseBackupActive {
+			stopLeaseBackupRenewal()
+			leaseBackupActive = false
+		}
+	}
+	defer stopLeaseBackup()
 	opts, err := natstransport.ConnectOptions(natstransport.DialConfig{
 		Server:  server,
 		Creds:   creds,
@@ -411,6 +425,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 		receipt.Reason = err.Error()
 		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
 	}
+	e.renewFleetNATSSlotLeases(ctx, leaseStore, receipt.Policy, targets)
 	for idx, target := range targets {
 		targetIndex[target.targetID] = idx
 		assignment := natstransport.NewCommandAssignmentWithMetadata("run", target.workerSubject, command, time.Now(), natstransport.CommandAssignmentMetadata{
@@ -513,6 +528,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			},
 		}, assignment, envelopes[idx], assignmentOffsets[idx], nil)
 	}
+	stopLeaseBackup()
 
 	pending := 0
 	for idx := range results {
@@ -588,6 +604,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 	}
 
 	receipt.Results = results
+	e.reconcileFleetNATSSlotLeasesFromReceipts(ctx, targets, &receipt)
 	e.finalizeFleetNATSFanoutReceipt(&receipt)
 	return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
 }
@@ -913,7 +930,7 @@ func (e *customNodeExecutor) openFleetNATSSlotLedger(ctx context.Context, policy
 	}
 }
 
-func (e *customNodeExecutor) startFleetNATSSlotLeaseRenewal(ctx context.Context, store slotledger.Store, policy fleetNATSFanoutPolicy, targets []fleetNATSFanoutTarget) func() {
+func (e *customNodeExecutor) startFleetNATSSlotLeaseBackupRenewal(ctx context.Context, store slotledger.Store, policy fleetNATSFanoutPolicy, targets []fleetNATSFanoutTarget) func() {
 	if store == nil || !policy.TargetConcurrency.Enabled || !policy.TargetConcurrency.Ledger.Enabled || len(targets) == 0 {
 		return func() {}
 	}
@@ -1007,6 +1024,10 @@ func (e *customNodeExecutor) releaseFleetNATSSlotLeases(ctx context.Context, sto
 		if lease == nil || lease.releaseTokenValue() == "" {
 			continue
 		}
+		if lease.status() == slotledger.StatusReleased {
+			_ = e.storeFleetNATSSlotLeaseToken(ctx, *lease)
+			continue
+		}
 		released, err := store.Release(ctx, slotledger.ReleaseRequest{
 			Tenant:   e.fleetNATSTenant(),
 			TargetID: targets[idx].targetID,
@@ -1024,6 +1045,45 @@ func (e *customNodeExecutor) releaseFleetNATSSlotLeases(ctx context.Context, sto
 		}
 		lease.markReleased(released)
 		_ = e.storeFleetNATSSlotLeaseToken(ctx, *lease)
+	}
+	e.refreshFleetNATSSlotLeases(receipt, targets)
+}
+
+func (e *customNodeExecutor) reconcileFleetNATSSlotLeasesFromReceipts(ctx context.Context, targets []fleetNATSFanoutTarget, receipt *fleetNATSFanoutReceipt) {
+	if receipt == nil || len(receipt.Results) == 0 {
+		return
+	}
+	leases := map[string]*fleetNATSSlotLease{}
+	targetLeases := map[string]*fleetNATSSlotLease{}
+	for _, target := range targets {
+		if target.slotLease == nil {
+			continue
+		}
+		if id := strings.TrimSpace(target.slotLease.ID); id != "" {
+			leases[id] = target.slotLease
+		}
+		if targetID := strings.TrimSpace(target.targetID); targetID != "" {
+			targetLeases[targetID] = target.slotLease
+		}
+	}
+	for idx := range receipt.Results {
+		result := &receipt.Results[idx]
+		metadata := result.Receipt.Metadata
+		if len(metadata) == 0 {
+			continue
+		}
+		leaseID := firstNonEmptyString(metadata["slotLeaseId"], result.slotLeaseID())
+		lease := leases[leaseID]
+		if lease == nil {
+			targetID := firstNonEmptyString(metadata["slotLeaseTargetId"], metadata["assignmentTargetId"], result.TargetID)
+			lease = targetLeases[targetID]
+		}
+		if lease == nil {
+			continue
+		}
+		if lease.applyWorkerReceiptMetadata(metadata) {
+			_ = e.storeFleetNATSSlotLeaseToken(ctx, *lease)
+		}
 	}
 	e.refreshFleetNATSSlotLeases(receipt, targets)
 }
@@ -1509,6 +1569,16 @@ func (t fleetNATSFanoutTarget) resultWithEvidence(receipt transport.OperationRes
 	}
 }
 
+func (r fleetNATSFanoutResult) slotLeaseID() string {
+	if r.SlotLease != nil {
+		return strings.TrimSpace(r.SlotLease.ID)
+	}
+	if r.Assignment != nil {
+		return strings.TrimSpace(r.Assignment.SlotLeaseID)
+	}
+	return ""
+}
+
 func (t fleetNATSFanoutTarget) slotLeaseCopy() *fleetNATSSlotLease {
 	return copyFleetNATSSlotLease(t.slotLease)
 }
@@ -1549,6 +1619,17 @@ func (l *fleetNATSSlotLease) releaseTokenValue() string {
 	return strings.TrimSpace(l.releaseToken)
 }
 
+func (l *fleetNATSSlotLease) status() string {
+	if l == nil {
+		return ""
+	}
+	if l.renewalMu != nil {
+		l.renewalMu.Lock()
+		defer l.renewalMu.Unlock()
+	}
+	return strings.TrimSpace(l.Status)
+}
+
 func (l *fleetNATSSlotLease) markRenewed(record slotledger.LeaseRecord) {
 	if l == nil {
 		return
@@ -1559,8 +1640,13 @@ func (l *fleetNATSSlotLease) markRenewed(record slotledger.LeaseRecord) {
 	}
 	l.Status = strings.TrimSpace(record.Status)
 	l.ExpiresAt = strings.TrimSpace(record.ExpiresAt)
-	l.RenewedAt = strings.TrimSpace(record.UpdatedAt)
-	l.Renewals++
+	l.ControllerRenewedAt = strings.TrimSpace(record.UpdatedAt)
+	l.ControllerRenewals++
+	if strings.TrimSpace(l.RenewalOwner) != "worker" {
+		l.RenewedAt = strings.TrimSpace(record.UpdatedAt)
+		l.Renewals = l.ControllerRenewals
+		l.RenewalOwner = "controller-backup"
+	}
 	l.RenewalError = ""
 }
 
@@ -1586,6 +1672,9 @@ func (l *fleetNATSSlotLease) markReleased(record slotledger.LeaseRecord) {
 	l.Status = strings.TrimSpace(record.Status)
 	l.ReleasedAt = strings.TrimSpace(record.ReleasedAt)
 	l.ReleaseError = ""
+	if strings.TrimSpace(l.ReleaseOwner) == "" {
+		l.ReleaseOwner = "controller"
+	}
 	l.releaseToken = ""
 }
 
@@ -1599,6 +1688,56 @@ func (l *fleetNATSSlotLease) markReleaseError(err error) {
 	}
 	l.Status = "release_failed"
 	l.ReleaseError = err.Error()
+}
+
+func (l *fleetNATSSlotLease) applyWorkerReceiptMetadata(metadata map[string]string) bool {
+	if l == nil || len(metadata) == 0 {
+		return false
+	}
+	if l.renewalMu != nil {
+		l.renewalMu.Lock()
+		defer l.renewalMu.Unlock()
+	}
+	changed := false
+	if strings.TrimSpace(metadata["slotLeaseRenewedBy"]) == "worker" {
+		renewals, _ := strconv.Atoi(strings.TrimSpace(metadata["slotLeaseWorkerRenewals"]))
+		renewedAt := strings.TrimSpace(metadata["slotLeaseWorkerRenewedAt"])
+		if renewals > 0 {
+			l.WorkerRenewals = renewals
+			l.Renewals = renewals
+			changed = true
+		}
+		if renewedAt != "" {
+			l.WorkerRenewedAt = renewedAt
+			l.RenewedAt = renewedAt
+			changed = true
+		}
+		if errText := strings.TrimSpace(metadata["slotLeaseWorkerRenewalError"]); errText != "" {
+			l.RenewalError = errText
+			changed = true
+		} else {
+			l.RenewalError = ""
+		}
+		l.RenewalOwner = "worker"
+		changed = true
+	}
+	if strings.TrimSpace(metadata["slotLeaseWorkerReleased"]) == "true" {
+		releasedAt := strings.TrimSpace(metadata["slotLeaseWorkerReleasedAt"])
+		l.Status = slotledger.StatusReleased
+		if releasedAt != "" {
+			l.WorkerReleasedAt = releasedAt
+			l.ReleasedAt = releasedAt
+		}
+		if errText := strings.TrimSpace(metadata["slotLeaseWorkerReleaseError"]); errText != "" {
+			l.ReleaseError = errText
+		} else {
+			l.ReleaseError = ""
+		}
+		l.ReleaseOwner = "worker"
+		l.releaseToken = ""
+		changed = true
+	}
+	return changed
 }
 
 func (t fleetNATSFanoutTarget) slotLeaseID() string {

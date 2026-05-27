@@ -142,6 +142,12 @@ Implemented local slice:
   local mutation returns, echo the lease decision in receipts, and
   `host-command-fanout.json` preserves target capacity, lease, ledger,
   assignment, and receipt metadata.
+- Controller-side lease renewal is backup-only. Stack apply can refresh a lease
+  during reserve, resume, and assignment dispatch windows, but after the
+  assignment is published or sent, the selected worker is the primary lease
+  owner. Final fan-out evidence is reconciled from worker receipt metadata, so
+  `renewalOwner` and `releaseOwner` should be `worker` for successful
+  mutation-time execution.
 - Stack state stores raw slot lease release tokens in a private local escrow
   table keyed by `runId`, `nodeId`, `targetId`, and `leaseId`. Resume reloads
   held escrow records, renews the original lease, reuses it for the resumed
@@ -591,7 +597,12 @@ The stack-side fan-out artifact also records the target slot ledger decision:
     "expiresAt": "2026-05-27T10:00:45Z",
     "renewedAt": "2026-05-27T10:00:15Z",
     "renewals": 1,
-    "releasedAt": "2026-05-27T10:00:46Z"
+    "renewalOwner": "worker",
+    "controllerRenewals": 1,
+    "workerRenewals": 1,
+    "releasedAt": "2026-05-27T10:00:46Z",
+    "releaseOwner": "worker",
+    "workerReleasedAt": "2026-05-27T10:00:46Z"
   }
 }
 ```

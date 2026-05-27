@@ -612,6 +612,10 @@ for label, fanout in [("first", fanout_first), ("second", fanout_second), ("recl
             errors.append(f"{label} target slotLease must be released: {lease}")
         if lease.get("renewals", 0) < 1 or not lease.get("renewedAt"):
             errors.append(f"{label} target slotLease must prove renewal: {lease}")
+        if lease.get("renewalOwner") != "worker" or lease.get("releaseOwner") != "worker":
+            errors.append(f"{label} target slotLease must prove worker-owned final lease evidence: {lease}")
+        if lease.get("workerRenewals", 0) != lease.get("renewals", 0) or not lease.get("workerReleasedAt"):
+            errors.append(f"{label} target slotLease worker evidence mismatch: {lease}")
         if lease.get("ledgerStore") != "file" or not lease.get("ledgerTokenDigest"):
             errors.append(f"{label} target slotLedger evidence missing: {lease}")
         if label == "reclaim" and lease.get("reclaimed") != 1:
@@ -658,6 +662,10 @@ for label, result, receipt, metadata, expected_worker in [
         errors.append(f"{label} result slotLease must be released: {lease}")
     if lease.get("renewals", 0) < 1 or not lease.get("renewedAt"):
         errors.append(f"{label} result slotLease must prove renewal: {lease}")
+    if lease.get("renewalOwner") != "worker" or lease.get("releaseOwner") != "worker":
+        errors.append(f"{label} result slotLease must prove worker-owned final lease evidence: {lease}")
+    if lease.get("workerRenewals", 0) != lease.get("renewals", 0) or not lease.get("workerReleasedAt"):
+        errors.append(f"{label} result slotLease worker evidence mismatch: {lease}")
     if label == "reclaim" and lease.get("reclaimed") != 1:
         errors.append(f"{label} result slotLease must prove one reclaimed lease: {lease}")
     if assignment.get("slotLeaseId") != lease.get("id"):
