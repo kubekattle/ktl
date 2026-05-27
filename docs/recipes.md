@@ -268,8 +268,11 @@ labs, or the `etcd` ledger in fleet control plane mode so concurrent
 controllers cannot overbook one target. Set `ledger.renewInterval` so long
 assignments keep their slot alive until release; workers also reject expired or
 wrong-target slot leases before command execution and record the lease decision
-in receipts. Add `runner.fanout.retry` to bound transient failures and force
-dead-letter evidence when the retry budget is exhausted. Set
+in receipts. If stack apply resumes after a controller restart, Torque reloads
+the private slot lease token escrow from `.torque/stack/state.sqlite`, renews
+the held lease, and releases it after receipt collection without exposing the
+raw token in audit artifacts. Add `runner.fanout.retry` to bound transient
+failures and force dead-letter evidence when the retry budget is exhausted. Set
 `TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` for stack-side JetStream signing, then run
 workers with `--verify-assignments --trusted-issuer-key` so agents reject
 unsigned or mismatched broker messages before execution. Stack apply also

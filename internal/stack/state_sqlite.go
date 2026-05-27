@@ -313,6 +313,27 @@ CREATE TABLE IF NOT EXISTS torque_stack_receipt_offsets (
 );`,
 		`CREATE INDEX IF NOT EXISTS idx_torque_stack_receipt_offsets_run_node ON torque_stack_receipt_offsets(run_id, node_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_torque_stack_receipt_offsets_stream_seq ON torque_stack_receipt_offsets(receipt_stream, sequence);`,
+		`
+CREATE TABLE IF NOT EXISTS torque_stack_slot_lease_tokens (
+  run_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  lease_id TEXT NOT NULL,
+  tenant TEXT NOT NULL DEFAULT '',
+  token TEXT NOT NULL DEFAULT '',
+  token_digest TEXT NOT NULL DEFAULT '',
+  ledger_store TEXT NOT NULL DEFAULT '',
+  ledger_store_key TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT '',
+  acquired_at_ns INTEGER NOT NULL DEFAULT 0,
+  expires_at_ns INTEGER NOT NULL DEFAULT 0,
+  released_at_ns INTEGER NOT NULL DEFAULT 0,
+  updated_at_ns INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (run_id, node_id, target_id, lease_id),
+  FOREIGN KEY (run_id) REFERENCES torque_stack_runs(run_id) ON DELETE CASCADE
+);`,
+		`CREATE INDEX IF NOT EXISTS idx_torque_stack_slot_lease_tokens_run_node ON torque_stack_slot_lease_tokens(run_id, node_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_torque_stack_slot_lease_tokens_status ON torque_stack_slot_lease_tokens(status, expires_at_ns);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
@@ -333,6 +354,37 @@ CREATE TABLE IF NOT EXISTS torque_stack_receipt_offsets (
 	}
 	if err := s.ensureReceiptOffsetColumns(ctx); err != nil {
 		return err
+	}
+	if err := s.ensureSlotLeaseTokenColumns(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *stackStateStore) ensureSlotLeaseTokenColumns(ctx context.Context) error {
+	cols, err := s.tableColumns(ctx, "torque_stack_slot_lease_tokens")
+	if err != nil {
+		return err
+	}
+	want := map[string]string{
+		"tenant":           "TEXT NOT NULL DEFAULT ''",
+		"token":            "TEXT NOT NULL DEFAULT ''",
+		"token_digest":     "TEXT NOT NULL DEFAULT ''",
+		"ledger_store":     "TEXT NOT NULL DEFAULT ''",
+		"ledger_store_key": "TEXT NOT NULL DEFAULT ''",
+		"status":           "TEXT NOT NULL DEFAULT ''",
+		"acquired_at_ns":   "INTEGER NOT NULL DEFAULT 0",
+		"expires_at_ns":    "INTEGER NOT NULL DEFAULT 0",
+		"released_at_ns":   "INTEGER NOT NULL DEFAULT 0",
+		"updated_at_ns":    "INTEGER NOT NULL DEFAULT 0",
+	}
+	for name, ddl := range want {
+		if _, ok := cols[name]; ok {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE torque_stack_slot_lease_tokens ADD COLUMN %s %s;", name, ddl)); err != nil {
+			return fmt.Errorf("add column torque_stack_slot_lease_tokens.%s: %w", name, err)
+		}
 	}
 	return nil
 }

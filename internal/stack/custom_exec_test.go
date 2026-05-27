@@ -18,6 +18,7 @@ import (
 
 	"github.com/ingresslabs/torque/internal/ops/agent/heartbeat"
 	"github.com/ingresslabs/torque/internal/ops/locks"
+	"github.com/ingresslabs/torque/internal/ops/slotledger"
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
 	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
 	natsgo "github.com/nats-io/nats.go"
@@ -4490,6 +4491,266 @@ nodes:
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker did not stop")
+	}
+}
+
+func TestRun_HostCommandFleetModeJetStreamFanoutRecoversSlotLeaseTokenOnResume(t *testing.T) {
+	root := t.TempDir()
+	serverURL := startStackTestNATSJetStreamServer(t)
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	slotLedgerPath := filepath.Join(root, ".torque", "fleet", "target-slot-ledger.sqlite")
+	marker := filepath.Join(root, "fanout-jetstream-slot-recover-marker.txt")
+	assignmentStream := "TORQUE_ASSIGNMENTS_SLOT_RECOVER_TEST"
+	receiptStream := "TORQUE_RECEIPTS_SLOT_RECOVER_TEST"
+	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-jetstream-slot-lease-recover
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: %q
+    tenant: lab
+    selector:
+      role: mysql
+    requireAgents: true
+    minReadyPercent: 100
+    failureBudget: 0
+    staleAfter: 45s
+    onInsufficientReady: block
+  fanout:
+    delivery: jetstream
+    maxParallel: 1
+    maxFailed: 0
+    minSucceededPercent: 100
+    onPartialFailure: block
+    targetConcurrency:
+      enabled: true
+      requireAvailable: true
+      maxPerTarget: 2
+      leaseTTL: 10s
+      ledger:
+        enabled: true
+        store: file
+        storePath: %q
+        renewInterval: 2s
+nodes:
+  - kind: host.command.run
+    name: write-recovered-slot-marker
+    host:
+      transport: nats
+      timeout: 8s
+      command: "printf 'slot-recover\n' >> %s"
+`, registryPath, slotLedgerPath, marker)
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack: %v", err)
+	}
+	agentID := "agent-js-slot-recover"
+	nodeID := "host.command.run/write-recovered-slot-marker"
+	oldRunID := "run-slot-recover"
+	leaseID := fleetNATSSlotLeaseID(oldRunID, nodeID, agentID)
+	leaseToken := "recover-token"
+	writeFleetReadinessAgentWithWorkerSlots(t, registryPath, agentID, heartbeat.StateReady, time.Now().UTC(), heartbeat.Slots{Total: 2, InUse: 1}, NodeKindHostCommandRun)
+	t.Setenv("TORQUE_NATS_URL", serverURL)
+	t.Setenv("TORQUE_NATS_ASSIGNMENT_STREAM", assignmentStream)
+	t.Setenv("TORQUE_NATS_RECEIPT_STREAM", receiptStream)
+
+	p := compileFleetReadinessStack(t, root)
+	stateStore, err := openStackStateStore(root, false)
+	if err != nil {
+		t.Fatalf("open state: %v", err)
+	}
+	oldRun := &runState{RunID: oldRunID, Plan: p, Command: "apply", Nodes: wrapRunNodes(p.Nodes), Concurrency: 1, FailMode: "fail-fast"}
+	if err := stateStore.CreateRun(context.Background(), oldRun, p); err != nil {
+		_ = stateStore.Close()
+		t.Fatalf("CreateRun old: %v", err)
+	}
+	ledgerStore, err := slotledger.NewSQLiteStore(context.Background(), slotLedgerPath)
+	if err != nil {
+		_ = stateStore.Close()
+		t.Fatalf("open slot ledger: %v", err)
+	}
+	now := time.Now().UTC()
+	reservation, err := ledgerStore.Reserve(context.Background(), slotledger.ReserveRequest{
+		Tenant:   "lab",
+		TargetID: agentID,
+		Holder:   oldRunID,
+		RunID:    oldRunID,
+		NodeID:   nodeID,
+		LeaseID:  leaseID,
+		MaxSlots: 1,
+		Slots:    1,
+		TTL:      time.Minute,
+		Now:      now,
+		Token:    leaseToken,
+	})
+	if err != nil || reservation.Decision != "acquired" || reservation.Lease == nil {
+		_ = ledgerStore.Close()
+		_ = stateStore.Close()
+		t.Fatalf("reserve held lease = %#v err=%v", reservation, err)
+	}
+	if err := stateStore.UpsertSlotLeaseToken(context.Background(), StackSlotLeaseToken{
+		RunID:          oldRunID,
+		NodeID:         nodeID,
+		TargetID:       agentID,
+		LeaseID:        leaseID,
+		Tenant:         "lab",
+		Token:          leaseToken,
+		TokenDigest:    slotledger.TokenDigest(leaseToken),
+		LedgerStore:    "file",
+		LedgerStoreKey: reservation.Lease.StoreKey,
+		Status:         slotledger.StatusHeld,
+		AcquiredAt:     reservation.Lease.AcquiredAt,
+		ExpiresAt:      reservation.Lease.ExpiresAt,
+		UpdatedAt:      reservation.Lease.UpdatedAt,
+	}); err != nil {
+		_ = ledgerStore.Close()
+		_ = stateStore.Close()
+		t.Fatalf("store slot lease token: %v", err)
+	}
+	_ = stateStore.Close()
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	ready := make(chan struct{})
+	worker, err := natsworker.New(natsworker.Config{
+		Server:                     serverURL,
+		Subject:                    fleetNATSAssignmentSubject("lab", agentID),
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "stack-js-slot-recover-worker",
+		LedgerPath:                 filepath.Join(root, "agent-assignments-recover.sqlite"),
+		Ready:                      ready,
+		Timeout:                    3 * time.Second,
+		Capabilities:               []string{NodeKindHostCommandRun},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    agentID,
+		WorkerID:                   "slot-recover-worker",
+		Tenant:                     "lab",
+		TargetID:                   agentID,
+		Hostname:                   agentID + ".test",
+	})
+	if err != nil {
+		_ = ledgerStore.Close()
+		t.Fatalf("new worker: %v", err)
+	}
+	workerErr := make(chan error, 1)
+	go func() {
+		workerErr <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		_ = ledgerStore.Close()
+		t.Fatal("worker did not become ready")
+	}
+
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:         "apply",
+		Plan:            p,
+		Concurrency:     1,
+		Lock:            true,
+		ResumeFromRunID: oldRunID,
+	}, &out, &errOut); err != nil {
+		_ = ledgerStore.Close()
+		t.Fatalf("Run apply resume slot lease: %v\nstderr=%s", err, errOut.String())
+	}
+	workerCancel()
+	select {
+	case err := <-workerErr:
+		if err != nil {
+			_ = ledgerStore.Close()
+			t.Fatalf("worker error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		_ = ledgerStore.Close()
+		t.Fatal("worker did not stop")
+	}
+	if got := countFileSubstring(t, marker, "slot-recover"); got != 1 {
+		_ = ledgerStore.Close()
+		t.Fatalf("marker hits = %d, want 1", got)
+	}
+	audit := fleetReadinessAudit(t, root)
+	var fanout fleetNATSFanoutReceipt
+	for _, artifact := range audit.Artifacts {
+		if strings.Contains(artifact.Body, leaseToken) {
+			_ = ledgerStore.Close()
+			t.Fatalf("audit artifact %s leaked raw slot lease token", artifact.Name)
+		}
+		if artifact.Name == "host-command-fanout.json" {
+			if err := json.Unmarshal([]byte(artifact.Body), &fanout); err != nil {
+				_ = ledgerStore.Close()
+				t.Fatalf("parse fanout artifact: %v\n%s", err, artifact.Body)
+			}
+		}
+	}
+	if fanout.Status != "succeeded" || fanout.ReceiptRunID != oldRunID || fanout.ResumeFromRunID != oldRunID || len(fanout.Results) != 1 {
+		_ = ledgerStore.Close()
+		t.Fatalf("resume fanout artifact = %#v", fanout)
+	}
+	result := fanout.Results[0]
+	if result.Assignment == nil || result.Assignment.RunID != oldRunID || result.Assignment.SlotLeaseID != leaseID {
+		_ = ledgerStore.Close()
+		t.Fatalf("assignment did not reuse recovered lease: %#v", result.Assignment)
+	}
+	if result.SlotLease == nil || !result.SlotLease.Recovered || !result.SlotLease.Escrowed || result.SlotLease.ID != leaseID || result.SlotLease.Status != "released" {
+		_ = ledgerStore.Close()
+		t.Fatalf("result slot lease recovery evidence = %#v", result.SlotLease)
+	}
+	if result.Receipt.Metadata["slotLeaseDecision"] != "accepted" {
+		_ = ledgerStore.Close()
+		t.Fatalf("receipt metadata = %#v", result.Receipt.Metadata)
+	}
+	records, err := ledgerStore.List(context.Background(), slotledger.ListRequest{Tenant: "lab", TargetID: agentID, Include: "all"})
+	if err != nil {
+		_ = ledgerStore.Close()
+		t.Fatalf("list slot ledger: %v", err)
+	}
+	_ = ledgerStore.Close()
+	if len(records) != 1 || records[0].LeaseID != leaseID || records[0].Status != slotledger.StatusReleased {
+		t.Fatalf("slot ledger records = %#v", records)
+	}
+	newRunID, err := LoadMostRecentRun(root)
+	if err != nil {
+		t.Fatalf("LoadMostRecentRun: %v", err)
+	}
+	stateStore, err = openStackStateStore(root, false)
+	if err != nil {
+		t.Fatalf("reopen state: %v", err)
+	}
+	defer stateStore.Close()
+	for _, runID := range []string{oldRunID, newRunID} {
+		tokens, err := stateStore.ListSlotLeaseTokens(context.Background(), runID, nodeID)
+		if err != nil {
+			t.Fatalf("ListSlotLeaseTokens %s: %v", runID, err)
+		}
+		if len(tokens) != 1 || tokens[0].LeaseID != leaseID || tokens[0].Status != slotledger.StatusReleased || tokens[0].Token != "" {
+			t.Fatalf("slot lease token state for %s = %#v", runID, tokens)
+		}
+	}
+	bundlePath, err := ExportRunBundle(context.Background(), root, newRunID, filepath.Join(root, "slot-recover-export.tgz"))
+	if err != nil {
+		t.Fatalf("ExportRunBundle: %v", err)
+	}
+	extracted, err := ExtractBundleToTempDir(bundlePath)
+	if err != nil {
+		t.Fatalf("ExtractBundleToTempDir: %v", err)
+	}
+	defer os.RemoveAll(extracted)
+	exportDB, err := sql.Open("sqlite", filepath.Join(extracted, "state.sqlite"))
+	if err != nil {
+		t.Fatalf("open exported sqlite: %v", err)
+	}
+	defer exportDB.Close()
+	var exportedTokens int
+	if err := exportDB.QueryRow(`SELECT COUNT(*) FROM torque_stack_slot_lease_tokens WHERE token != ''`).Scan(&exportedTokens); err != nil {
+		t.Fatalf("query exported slot lease tokens: %v", err)
+	}
+	if exportedTokens != 0 {
+		t.Fatalf("exported bundle leaked %d raw slot lease tokens", exportedTokens)
 	}
 }
 

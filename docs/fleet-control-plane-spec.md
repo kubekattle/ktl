@@ -139,6 +139,11 @@ Implemented local slice:
   wrong-target slot leases before command execution, echo the lease decision in
   receipts, and `host-command-fanout.json` preserves target capacity, lease,
   ledger, assignment, and receipt metadata.
+- Stack state stores raw slot lease release tokens in a private local escrow
+  table keyed by `runId`, `nodeId`, `targetId`, and `leaseId`. Resume reloads
+  held escrow records, renews the original lease, reuses it for the resumed
+  assignment run, and clears the raw token after release. Audit artifacts and
+  exported bundles carry only digests plus `leaseRecovered: true`.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
