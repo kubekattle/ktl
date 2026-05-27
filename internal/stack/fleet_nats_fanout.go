@@ -2,6 +2,7 @@ package stack
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,16 +72,17 @@ type fleetNATSFanoutTargetView struct {
 }
 
 type fleetNATSFanoutResult struct {
-	AgentID          string                           `json:"agentId"`
-	TargetID         string                           `json:"targetId"`
-	Hostname         string                           `json:"hostname,omitempty"`
-	WorkerSubject    string                           `json:"workerSubject"`
-	Status           string                           `json:"status"`
-	Error            string                           `json:"error,omitempty"`
-	Assignment       *natstransport.CommandAssignment `json:"assignment,omitempty"`
-	AssignmentOffset *natstransport.StreamOffset      `json:"assignmentOffset,omitempty"`
-	ReceiptOffset    *natstransport.StreamOffset      `json:"receiptOffset,omitempty"`
-	Receipt          transport.OperationResult        `json:"receipt"`
+	AgentID            string                                   `json:"agentId"`
+	TargetID           string                                   `json:"targetId"`
+	Hostname           string                                   `json:"hostname,omitempty"`
+	WorkerSubject      string                                   `json:"workerSubject"`
+	Status             string                                   `json:"status"`
+	Error              string                                   `json:"error,omitempty"`
+	Assignment         *natstransport.CommandAssignment         `json:"assignment,omitempty"`
+	AssignmentEnvelope *natstransport.CommandAssignmentEnvelope `json:"assignmentEnvelope,omitempty"`
+	AssignmentOffset   *natstransport.StreamOffset              `json:"assignmentOffset,omitempty"`
+	ReceiptOffset      *natstransport.StreamOffset              `json:"receiptOffset,omitempty"`
+	Receipt            transport.OperationResult                `json:"receipt"`
 }
 
 type fleetNATSFanoutTarget struct {
@@ -90,6 +92,14 @@ type fleetNATSFanoutTarget struct {
 	workerSubject    string
 	capabilityDigest string
 	labels           map[string]string
+}
+
+type fleetNATSAssignmentSigner struct {
+	privateKey   ed25519.PrivateKey
+	issuer       string
+	tenant       string
+	ttl          time.Duration
+	policyDigest string
 }
 
 func (e *customNodeExecutor) shouldUseFleetNATSFanout(spec HostCommandSpec) bool {
@@ -280,8 +290,15 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 
 	results := make([]fleetNATSFanoutResult, len(targets))
 	assignments := make([]natstransport.CommandAssignment, len(targets))
+	envelopes := make([]*natstransport.CommandAssignmentEnvelope, len(targets))
 	assignmentOffsets := make([]*natstransport.StreamOffset, len(targets))
 	targetIndex := make(map[string]int, len(targets))
+	signer, err := e.fleetNATSAssignmentSigner(timeout, tenant)
+	if err != nil {
+		receipt.Status = "failed"
+		receipt.Reason = err.Error()
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
 	for idx, target := range targets {
 		targetIndex[target.targetID] = idx
 		assignment := natstransport.NewCommandAssignmentWithMetadata("run", target.workerSubject, command, time.Now(), natstransport.CommandAssignmentMetadata{
@@ -294,7 +311,24 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
 		})
 		assignments[idx] = assignment
-		raw, err := json.Marshal(assignment)
+		var raw []byte
+		if signer != nil {
+			envelope, err := signer.sign(assignment)
+			if err != nil {
+				results[idx] = target.resultWithEvidence(transport.OperationResult{
+					Operation:    "run",
+					Status:       "failed",
+					TargetDigest: natstransport.TargetDigest(target.workerSubject),
+					ExitCode:     1,
+					Error:        fmt.Sprintf("sign JetStream assignment: %v", err),
+				}, assignment, nil, nil, nil)
+				continue
+			}
+			envelopes[idx] = &envelope
+			raw, err = json.Marshal(envelope)
+		} else {
+			raw, err = json.Marshal(assignment)
+		}
 		if err != nil {
 			results[idx] = target.resultWithEvidence(transport.OperationResult{
 				Operation:    "run",
@@ -302,7 +336,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 				TargetDigest: natstransport.TargetDigest(target.workerSubject),
 				ExitCode:     1,
 				Error:        fmt.Sprintf("marshal JetStream assignment: %v", err),
-			}, assignment, nil, nil)
+			}, assignment, envelopes[idx], nil, nil)
 			continue
 		}
 		ack, err := js.Publish(target.workerSubject, raw, natsgo.Context(ctx))
@@ -313,7 +347,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 				TargetDigest: natstransport.TargetDigest(target.workerSubject),
 				ExitCode:     1,
 				Error:        fmt.Sprintf("publish JetStream assignment: %v", err),
-			}, assignment, nil, nil)
+			}, assignment, envelopes[idx], nil, nil)
 			continue
 		}
 		assignmentOffsets[idx] = natstransport.OffsetFromPublish(target.workerSubject, ack)
@@ -332,7 +366,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 				"assignmentTargetId": target.targetID,
 				"expectedAgentId":    target.agentID,
 			},
-		}, assignment, assignmentOffsets[idx], nil)
+		}, assignment, envelopes[idx], assignmentOffsets[idx], nil)
 	}
 
 	pending := 0
@@ -384,7 +418,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			if results[idx].Status == "timeout" {
 				pending--
 			}
-			results[idx] = targets[idx].resultWithEvidence(op, assignments[idx], assignmentOffsets[idx], receiptOffset)
+			results[idx] = targets[idx].resultWithEvidence(op, assignments[idx], envelopes[idx], assignmentOffsets[idx], receiptOffset)
 			if err := msg.Ack(natsgo.Context(ctx)); err != nil {
 				receipt.Status = "failed"
 				receipt.Reason = fmt.Sprintf("ack JetStream receipt: %v", err)
@@ -503,6 +537,57 @@ func (e *customNodeExecutor) fleetNATSFanoutTargets(ctx context.Context, require
 		return nil, fmt.Errorf("no ready capable agents matched runner.readiness.selector")
 	}
 	return out, nil
+}
+
+func (e *customNodeExecutor) fleetNATSAssignmentSigner(timeout time.Duration, tenant string) (*fleetNATSAssignmentSigner, error) {
+	keyPath := strings.TrimSpace(os.Getenv("TORQUE_NATS_ASSIGNMENT_SIGNING_KEY"))
+	if keyPath == "" {
+		return nil, nil
+	}
+	_, _, privateKey, err := LoadBundleKey(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("load assignment signing key: %w", err)
+	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("assignment signing key must contain an ed25519 private key")
+	}
+	ttl := 5 * time.Minute
+	if timeout > 0 && timeout+time.Minute > ttl {
+		ttl = timeout + time.Minute
+	}
+	if raw := strings.TrimSpace(os.Getenv("TORQUE_NATS_ASSIGNMENT_TTL")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse TORQUE_NATS_ASSIGNMENT_TTL: %w", err)
+		}
+		if parsed <= 0 {
+			return nil, fmt.Errorf("TORQUE_NATS_ASSIGNMENT_TTL must be > 0")
+		}
+		ttl = parsed
+	}
+	return &fleetNATSAssignmentSigner{
+		privateKey:   privateKey,
+		issuer:       firstNonEmptyString(os.Getenv("TORQUE_NATS_ASSIGNMENT_ISSUER"), "torque-stack"),
+		tenant:       firstNonEmptyString(tenant, os.Getenv("TORQUE_NATS_ASSIGNMENT_TENANT"), natstransport.DefaultTenant),
+		ttl:          ttl,
+		policyDigest: strings.TrimSpace(os.Getenv("TORQUE_NATS_ASSIGNMENT_POLICY_DIGEST")),
+	}, nil
+}
+
+func (s *fleetNATSAssignmentSigner) sign(assignment natstransport.CommandAssignment) (natstransport.CommandAssignmentEnvelope, error) {
+	if s == nil {
+		return natstransport.CommandAssignmentEnvelope{}, fmt.Errorf("assignment signer is nil")
+	}
+	issuedAt := time.Now().UTC()
+	policyDigest := firstNonEmptyString(s.policyDigest, assignment.PlanDigest)
+	return natstransport.SignCommandAssignmentEnvelope(assignment, natstransport.CommandAssignmentEnvelopeOptions{
+		PrivateKey:   s.privateKey,
+		Issuer:       s.issuer,
+		Tenant:       s.tenant,
+		PolicyDigest: policyDigest,
+		IssuedAt:     issuedAt,
+		ExpiresAt:    issuedAt.Add(s.ttl),
+	})
 }
 
 func (e *customNodeExecutor) finalizeFleetNATSFanoutReceipt(receipt *fleetNATSFanoutReceipt) {
@@ -652,26 +737,32 @@ func (t fleetNATSFanoutTarget) view() fleetNATSFanoutTargetView {
 }
 
 func (t fleetNATSFanoutTarget) result(receipt transport.OperationResult) fleetNATSFanoutResult {
-	return t.resultWithEvidence(receipt, natstransport.CommandAssignment{}, nil, nil)
+	return t.resultWithEvidence(receipt, natstransport.CommandAssignment{}, nil, nil, nil)
 }
 
-func (t fleetNATSFanoutTarget) resultWithEvidence(receipt transport.OperationResult, assignment natstransport.CommandAssignment, assignmentOffset *natstransport.StreamOffset, receiptOffset *natstransport.StreamOffset) fleetNATSFanoutResult {
+func (t fleetNATSFanoutTarget) resultWithEvidence(receipt transport.OperationResult, assignment natstransport.CommandAssignment, envelope *natstransport.CommandAssignmentEnvelope, assignmentOffset *natstransport.StreamOffset, receiptOffset *natstransport.StreamOffset) fleetNATSFanoutResult {
 	var assignmentPtr *natstransport.CommandAssignment
 	if strings.TrimSpace(assignment.Target) != "" {
 		copy := assignment
 		assignmentPtr = &copy
 	}
+	var envelopePtr *natstransport.CommandAssignmentEnvelope
+	if envelope != nil && strings.TrimSpace(envelope.Kind) != "" {
+		copy := *envelope
+		envelopePtr = &copy
+	}
 	return fleetNATSFanoutResult{
-		AgentID:          strings.TrimSpace(t.agentID),
-		TargetID:         strings.TrimSpace(t.targetID),
-		Hostname:         strings.TrimSpace(t.hostname),
-		WorkerSubject:    strings.TrimSpace(t.workerSubject),
-		Status:           strings.TrimSpace(receipt.Status),
-		Error:            strings.TrimSpace(receipt.Error),
-		Assignment:       assignmentPtr,
-		AssignmentOffset: assignmentOffset,
-		ReceiptOffset:    receiptOffset,
-		Receipt:          receipt,
+		AgentID:            strings.TrimSpace(t.agentID),
+		TargetID:           strings.TrimSpace(t.targetID),
+		Hostname:           strings.TrimSpace(t.hostname),
+		WorkerSubject:      strings.TrimSpace(t.workerSubject),
+		Status:             strings.TrimSpace(receipt.Status),
+		Error:              strings.TrimSpace(receipt.Error),
+		Assignment:         assignmentPtr,
+		AssignmentEnvelope: envelopePtr,
+		AssignmentOffset:   assignmentOffset,
+		ReceiptOffset:      receiptOffset,
+		Receipt:            receipt,
 	}
 }
 

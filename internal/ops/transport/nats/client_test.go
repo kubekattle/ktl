@@ -2,6 +2,7 @@ package natstransport
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -155,6 +156,96 @@ func TestNormalizeTargetAndDigest(t *testing.T) {
 	want := "sha256:" + hex.EncodeToString(sum[:])
 	if got := TargetDigest("nats-mesh://torque.lab.assign"); got != want {
 		t.Fatalf("TargetDigest() = %q, want %q", got, want)
+	}
+}
+
+func TestSignedCommandAssignmentEnvelopeVerifies(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	assignment := NewCommandAssignmentWithMetadata("run", "torque.assign.lab.host_1", "printf ok", time.Unix(100, 0), CommandAssignmentMetadata{
+		TargetID:           "host/1",
+		ExpectedAgentID:    "agent-1",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-1",
+		NodeID:             "host.command.run/test",
+		PlanDigest:         "sha256:plan",
+	})
+	envelope, err := SignCommandAssignmentEnvelope(assignment, CommandAssignmentEnvelopeOptions{
+		PrivateKey:   priv,
+		Issuer:       "torque-stack",
+		Tenant:       "lab",
+		PolicyDigest: "sha256:policy",
+		IssuedAt:     time.Unix(100, 0),
+		ExpiresAt:    time.Unix(200, 0),
+	})
+	if err != nil {
+		t.Fatalf("sign envelope: %v", err)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	got, verification, err := VerifyCommandAssignmentMessage(raw, CommandAssignmentVerifyOptions{
+		RequireSignature:     true,
+		TrustedPublicKey:     pub,
+		ExpectedTenant:       "lab",
+		ExpectedPolicyDigest: "sha256:policy",
+		ExpectedTarget:       "torque.assign.lab.host_1",
+		ExpectedTargetID:     "host/1",
+		Now:                  time.Unix(150, 0),
+	})
+	if err != nil {
+		t.Fatalf("verify envelope: %v", err)
+	}
+	if got.AssignmentID != assignment.AssignmentID || !verification.EnvelopePresent || !verification.Verified {
+		t.Fatalf("assignment=%#v verification=%#v", got, verification)
+	}
+	metadata := CommandAssignmentVerificationMetadata(verification)
+	if metadata["signatureVerified"] != "true" || metadata["assignmentIssuer"] != "torque-stack" || metadata["policyDigest"] != "sha256:policy" {
+		t.Fatalf("metadata = %#v", metadata)
+	}
+}
+
+func TestSignedCommandAssignmentEnvelopeRejectsExpiredAndWrongPolicy(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	assignment := NewCommandAssignmentWithMetadata("run", "torque.assign.lab.host_1", "printf ok", time.Unix(100, 0), CommandAssignmentMetadata{TargetID: "host/1"})
+	envelope, err := SignCommandAssignmentEnvelope(assignment, CommandAssignmentEnvelopeOptions{
+		PrivateKey:   priv,
+		Issuer:       "torque-stack",
+		Tenant:       "lab",
+		PolicyDigest: "sha256:policy-a",
+		IssuedAt:     time.Unix(100, 0),
+		ExpiresAt:    time.Unix(120, 0),
+	})
+	if err != nil {
+		t.Fatalf("sign envelope: %v", err)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if _, _, err := VerifyCommandAssignmentMessage(raw, CommandAssignmentVerifyOptions{RequireSignature: true, TrustedPublicKey: pub, ExpectedTenant: "lab", Now: time.Unix(121, 0)}); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expected expired envelope error, got %v", err)
+	}
+	if _, _, err := VerifyCommandAssignmentMessage(raw, CommandAssignmentVerifyOptions{RequireSignature: true, TrustedPublicKey: pub, ExpectedTenant: "lab", ExpectedPolicyDigest: "sha256:policy-b", Now: time.Unix(110, 0)}); err == nil || !strings.Contains(err.Error(), "policyDigest") {
+		t.Fatalf("expected policy digest error, got %v", err)
+	}
+}
+
+func TestVerifyCommandAssignmentMessageRequiresEnvelope(t *testing.T) {
+	raw, err := json.Marshal(NewCommandAssignment("run", "torque.assign.lab.host_1", "printf ok", time.Now()))
+	if err != nil {
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	assignment, verification, err := VerifyCommandAssignmentMessage(raw, CommandAssignmentVerifyOptions{RequireSignature: true})
+	if err == nil || !strings.Contains(err.Error(), "signed assignment envelope is required") {
+		t.Fatalf("expected unsigned error, got assignment=%#v verification=%#v err=%v", assignment, verification, err)
 	}
 }
 

@@ -253,7 +253,10 @@ receipts to `TORQUE_RECEIPTS` before ACKing the assignment. Durable workers also
 keep a local SQLite assignment ledger, keyed by stable `assignmentId`, so a
 redelivered assignment replays the stored receipt instead of running the command
 again. Add `runner.fanout.retry` to bound transient failures and force
-dead-letter evidence when the retry budget is exhausted.
+dead-letter evidence when the retry budget is exhausted. Set
+`TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` for stack-side JetStream signing, then run
+workers with `--verify-assignments --trusted-issuer-key` so agents reject
+unsigned or mismatched broker messages before execution.
 
 ```yaml
 apiVersion: torque.dev/v1
@@ -300,6 +303,9 @@ nodes:
 TORQUE_NATS_URL=nats://127.0.0.1:4222 \
 TORQUE_NATS_ASSIGNMENT_STREAM=TORQUE_ASSIGNMENTS \
 TORQUE_NATS_RECEIPT_STREAM=TORQUE_RECEIPTS \
+TORQUE_NATS_ASSIGNMENT_SIGNING_KEY=./assignment-key.json \
+TORQUE_NATS_ASSIGNMENT_ISSUER=torque-stack \
+TORQUE_NATS_ASSIGNMENT_POLICY_DIGEST=sha256:approved-policy \
   torque stack apply --config ./stacks/mysql-fleet --yes
 ```
 
@@ -313,6 +319,9 @@ torque-agent nats worker \
   --tenant lab \
   --target-id host/mysql-01 \
   --capability host.command.run \
+  --verify-assignments \
+  --trusted-issuer-key ./assignment-pub.json \
+  --policy-digest sha256:approved-policy \
   --max-deliver 3 \
   --ack-wait 30s \
   --nak-delay 1s

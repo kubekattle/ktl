@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -199,6 +200,151 @@ func TestHandleAssignmentRejectsTargetMismatch(t *testing.T) {
 	result := worker.HandleAssignment(context.Background(), natstransport.NewCommandAssignment("run", "torque.lab.assign.other", "true", time.Now()))
 	if result.Status != "blocked" || !strings.Contains(result.Error, "does not match") {
 		t.Fatalf("result = %#v, want target mismatch block", result)
+	}
+}
+
+func TestHandleMessageRunsSignedAssignmentEnvelope(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("signed-ok\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.assign.lab.host_signed",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-signed",
+		Tenant:                     "lab",
+		TargetID:                   "host/signed",
+		Hostname:                   "signed",
+		Runner:                     runner,
+		VerifyAssignments:          true,
+		TrustedIssuerPublicKey:     pub,
+		AssignmentPolicyDigest:     "sha256:policy",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.assign.lab.host_signed", "printf signed-ok", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/signed",
+		ExpectedAgentID:    "agent-signed",
+		RequiredCapability: "host.command.run",
+		NodeKind:           "host.command.run",
+		RunID:              "run-signed",
+		NodeID:             "host.command.run/signed",
+		PlanDigest:         "sha256:plan",
+	})
+	envelope, err := natstransport.SignCommandAssignmentEnvelope(assignment, natstransport.CommandAssignmentEnvelopeOptions{
+		PrivateKey:   priv,
+		Issuer:       "torque-stack",
+		Tenant:       "lab",
+		PolicyDigest: "sha256:policy",
+		TTL:          time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("sign envelope: %v", err)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	result := worker.HandleMessage(context.Background(), raw)
+	if result.Status != "succeeded" || !strings.Contains(result.Stdout, "signed-ok") {
+		t.Fatalf("result = %#v, want signed success", result)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("runner calls = %#v, want one", runner.calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"assignmentEnvelope":       "true",
+		"signatureVerified":        "true",
+		"assignmentIssuer":         "torque-stack",
+		"assignmentEnvelopeTenant": "lab",
+		"policyDigest":             "sha256:policy",
+		"workerDecision":           "executed",
+	})
+}
+
+func TestHandleMessageBlocksUnsignedAssignmentWhenVerificationRequired(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("should-not-run\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.assign.lab.host_signed",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		Tenant:                     "lab",
+		TargetID:                   "host/signed",
+		Runner:                     runner,
+		VerifyAssignments:          true,
+		TrustedIssuerPublicKey:     pub,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.assign.lab.host_signed", "printf should-not-run", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID: "host/signed",
+	})
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	result := worker.HandleMessage(context.Background(), raw)
+	if result.Status != "blocked" || !strings.Contains(result.Error, "signed assignment envelope is required") {
+		t.Fatalf("result = %#v, want unsigned block", result)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("runner was called for unsigned assignment: %#v", runner.calls)
+	}
+	if result.Metadata["workerDecision"] != "signature-blocked" {
+		t.Fatalf("metadata = %#v", result.Metadata)
+	}
+}
+
+func TestHandleMessageBlocksExpiredSignedEnvelope(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.assign.lab.host_signed",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		Tenant:                     "lab",
+		TargetID:                   "host/signed",
+		VerifyAssignments:          true,
+		TrustedIssuerPublicKey:     pub,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.assign.lab.host_signed", "printf should-not-run", time.Now(), natstransport.CommandAssignmentMetadata{TargetID: "host/signed"})
+	envelope, err := natstransport.SignCommandAssignmentEnvelope(assignment, natstransport.CommandAssignmentEnvelopeOptions{
+		PrivateKey: priv,
+		Issuer:     "torque-stack",
+		Tenant:     "lab",
+		IssuedAt:   time.Now().Add(-2 * time.Minute),
+		ExpiresAt:  time.Now().Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("sign envelope: %v", err)
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	result := worker.HandleMessage(context.Background(), raw)
+	if result.Status != "blocked" || !strings.Contains(result.Error, "expired") {
+		t.Fatalf("result = %#v, want expired block", result)
+	}
+	if result.Metadata["assignmentEnvelope"] != "true" || result.Metadata["signatureVerified"] != "true" {
+		t.Fatalf("metadata = %#v", result.Metadata)
 	}
 }
 

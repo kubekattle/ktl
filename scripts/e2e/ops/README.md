@@ -527,6 +527,20 @@ scripts/e2e/ops/OPS-AGENT-009.sh \
   --cleanup
 ```
 
+## OPS-AGENT-010
+
+`OPS-AGENT-010.sh` proves signed assignment envelopes. It generates an
+ed25519 assignment key, starts a verified JetStream worker with
+`--verify-assignments --trusted-issuer-key`, runs one signed stack assignment,
+then injects unsigned, expired, wrong-policy, and wrong-target assignments and
+verifies they are blocked without command execution.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-010.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or

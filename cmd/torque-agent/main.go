@@ -244,6 +244,16 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		return natsworker.Config{}, fmt.Errorf("parse NATS worker backoff env: %w", err)
 	}
 	defaultOnExhausted := firstNonEmptyAgent(getenv("TORQUE_NATS_ON_EXHAUSTED"), getenv("TORQUE_NATS_WORKER_ON_EXHAUSTED"), "block")
+	defaultVerifyAssignments := false
+	if raw := firstNonEmptyAgent(getenv("TORQUE_NATS_VERIFY_ASSIGNMENTS"), getenv("TORQUE_NATS_WORKER_VERIFY_ASSIGNMENTS")); raw != "" {
+		parsed, err := parseBoolDefault(raw, false)
+		if err != nil {
+			return natsworker.Config{}, fmt.Errorf("parse NATS worker assignment verification env: %w", err)
+		}
+		defaultVerifyAssignments = parsed
+	}
+	defaultTrustedIssuerKey := firstNonEmptyAgent(getenv("TORQUE_NATS_TRUSTED_ISSUER_KEY"), getenv("TORQUE_NATS_ASSIGNMENT_TRUSTED_ISSUER_KEY"))
+	defaultAssignmentPolicyDigest := strings.TrimSpace(getenv("TORQUE_NATS_ASSIGNMENT_POLICY_DIGEST"))
 	fs := flag.NewFlagSet("torque-agent nats worker", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	server := fs.String("nats-url", defaultServer, "NATS server URL (also TORQUE_NATS_URL or TORQUE_NATS_SERVER)")
@@ -258,6 +268,9 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	ackWait := fs.Duration("ack-wait", defaultAckWait, "JetStream ack wait for assignment redelivery (also TORQUE_NATS_ACK_WAIT)")
 	nakDelay := fs.Duration("nak-delay", defaultNakDelay, "Delay before redelivering a retryable failed assignment (also TORQUE_NATS_NAK_DELAY)")
 	onExhausted := fs.String("on-exhausted", defaultOnExhausted, "Retry exhaustion behavior: block or continue (also TORQUE_NATS_ON_EXHAUSTED)")
+	verifyAssignments := fs.Bool("verify-assignments", defaultVerifyAssignments, "Require signed assignment envelopes before execution (also TORQUE_NATS_VERIFY_ASSIGNMENTS)")
+	trustedIssuerKey := fs.String("trusted-issuer-key", defaultTrustedIssuerKey, "Trusted ed25519 public key file for signed assignment envelopes (also TORQUE_NATS_TRUSTED_ISSUER_KEY)")
+	assignmentPolicyDigest := fs.String("policy-digest", defaultAssignmentPolicyDigest, "Expected signed assignment policy digest (also TORQUE_NATS_ASSIGNMENT_POLICY_DIGEST)")
 	creds := fs.String("creds", strings.TrimSpace(getenv("TORQUE_NATS_CREDS")), "NATS user credentials file (also TORQUE_NATS_CREDS)")
 	nkey := fs.String("nkey", strings.TrimSpace(getenv("TORQUE_NATS_NKEY")), "NATS NKey seed file (also TORQUE_NATS_NKEY)")
 	timeout := fs.Duration("timeout", defaultTimeout, "Per-assignment execution timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_WORKER_TIMEOUT)")
@@ -319,6 +332,9 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	default:
 		return natsworker.Config{}, fmt.Errorf("--on-exhausted must be block or continue")
 	}
+	if *verifyAssignments && strings.TrimSpace(*trustedIssuerKey) == "" {
+		return natsworker.Config{}, fmt.Errorf("--trusted-issuer-key is required when --verify-assignments is set")
+	}
 	return natsworker.Config{
 		Server:                     strings.TrimSpace(*server),
 		Subject:                    strings.TrimSpace(*subject),
@@ -333,6 +349,9 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		Backoff:                    backoff,
 		NakDelay:                   *nakDelay,
 		OnExhausted:                strings.ToLower(strings.TrimSpace(*onExhausted)),
+		VerifyAssignments:          *verifyAssignments,
+		TrustedIssuerKey:           strings.TrimSpace(*trustedIssuerKey),
+		AssignmentPolicyDigest:     strings.TrimSpace(*assignmentPolicyDigest),
 		Creds:                      strings.TrimSpace(*creds),
 		NKey:                       strings.TrimSpace(*nkey),
 		Timeout:                    *timeout,
@@ -357,7 +376,7 @@ func printNATSUsage(out *os.File) {
 
 func printNATSWorkerUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--ledger-path .torque/agent/assignments.sqlite] [--max-deliver 3] [--ack-wait 30s] [--nak-delay 1s] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--ledger-path .torque/agent/assignments.sqlite] [--verify-assignments --trusted-issuer-key ./assignment-pub.json] [--max-deliver 3] [--ack-wait 30s] [--nak-delay 1s] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
 }
 
 func flagWasSet(name string) bool {

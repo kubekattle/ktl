@@ -13,25 +13,28 @@ import (
 
 func TestParseNATSWorkerConfig(t *testing.T) {
 	env := map[string]string{
-		"TORQUE_NATS_URL":                "nats://127.0.0.1:4222",
-		"TORQUE_NATS_WORKER_SUBJECT":     "torque.lab.assign.mysql",
-		"TORQUE_NATS_WORKER_QUEUE":       "mysql-workers",
-		"TORQUE_NATS_CREDS":              "/tmp/nats.creds",
-		"TORQUE_NATS_WORKER_TIMEOUT":     "9s",
-		"TORQUE_NATS_DELIVERY":           "jetstream",
-		"TORQUE_NATS_DURABLE":            "mysql-targets",
-		"TORQUE_NATS_ASSIGNMENT_STREAM":  "TORQUE_ASSIGNMENTS_TEST",
-		"TORQUE_NATS_RECEIPT_STREAM":     "TORQUE_RECEIPTS_TEST",
-		"TORQUE_AGENT_ASSIGNMENT_LEDGER": "/tmp/torque-agent-ledger.sqlite",
-		"TORQUE_NATS_MAX_DELIVER":        "5",
-		"TORQUE_NATS_ACK_WAIT":           "11s",
-		"TORQUE_NATS_BACKOFF":            "1s,2s",
-		"TORQUE_NATS_NAK_DELAY":          "250ms",
-		"TORQUE_NATS_ON_EXHAUSTED":       "block",
-		"TORQUE_AGENT_ID":                "agent-mysql-01",
-		"TORQUE_AGENT_TENANT":            "lab",
-		"TORQUE_AGENT_TARGET_ID":         "host/mysql-01",
-		"TORQUE_AGENT_HOSTNAME":          "mysql-01",
+		"TORQUE_NATS_URL":                      "nats://127.0.0.1:4222",
+		"TORQUE_NATS_WORKER_SUBJECT":           "torque.lab.assign.mysql",
+		"TORQUE_NATS_WORKER_QUEUE":             "mysql-workers",
+		"TORQUE_NATS_CREDS":                    "/tmp/nats.creds",
+		"TORQUE_NATS_WORKER_TIMEOUT":           "9s",
+		"TORQUE_NATS_DELIVERY":                 "jetstream",
+		"TORQUE_NATS_DURABLE":                  "mysql-targets",
+		"TORQUE_NATS_ASSIGNMENT_STREAM":        "TORQUE_ASSIGNMENTS_TEST",
+		"TORQUE_NATS_RECEIPT_STREAM":           "TORQUE_RECEIPTS_TEST",
+		"TORQUE_AGENT_ASSIGNMENT_LEDGER":       "/tmp/torque-agent-ledger.sqlite",
+		"TORQUE_NATS_MAX_DELIVER":              "5",
+		"TORQUE_NATS_ACK_WAIT":                 "11s",
+		"TORQUE_NATS_BACKOFF":                  "1s,2s",
+		"TORQUE_NATS_NAK_DELAY":                "250ms",
+		"TORQUE_NATS_ON_EXHAUSTED":             "block",
+		"TORQUE_NATS_VERIFY_ASSIGNMENTS":       "true",
+		"TORQUE_NATS_TRUSTED_ISSUER_KEY":       "/tmp/assignment-pub.json",
+		"TORQUE_NATS_ASSIGNMENT_POLICY_DIGEST": "sha256:policy",
+		"TORQUE_AGENT_ID":                      "agent-mysql-01",
+		"TORQUE_AGENT_TENANT":                  "lab",
+		"TORQUE_AGENT_TARGET_ID":               "host/mysql-01",
+		"TORQUE_AGENT_HOSTNAME":                "mysql-01",
 	}
 	config, err := parseNATSWorkerConfig([]string{"--timeout", "3s"}, func(key string) string {
 		return env[key]
@@ -54,6 +57,9 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 	if config.MaxDeliver != 5 || config.AckWait != 11*time.Second || config.NakDelay != 250*time.Millisecond || config.OnExhausted != "block" {
 		t.Fatalf("retry config not parsed: %#v", config)
 	}
+	if !config.VerifyAssignments || config.TrustedIssuerKey != "/tmp/assignment-pub.json" || config.AssignmentPolicyDigest != "sha256:policy" {
+		t.Fatalf("assignment verification config not parsed: %#v", config)
+	}
 	if len(config.Backoff) != 2 || config.Backoff[0] != time.Second || config.Backoff[1] != 2*time.Second {
 		t.Fatalf("Backoff = %#v", config.Backoff)
 	}
@@ -62,6 +68,18 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 	}
 	if config.DisableCapabilityDiscovery {
 		t.Fatalf("DisableCapabilityDiscovery = true, want default discovery enabled")
+	}
+}
+
+func TestParseNATSWorkerConfigRequiresTrustedIssuerKeyWhenVerifying(t *testing.T) {
+	env := map[string]string{
+		"TORQUE_NATS_SUBJECT": "torque.lab.assign.mysql",
+	}
+	_, err := parseNATSWorkerConfig([]string{"--verify-assignments"}, func(key string) string {
+		return env[key]
+	})
+	if err == nil || !strings.Contains(err.Error(), "--trusted-issuer-key is required") {
+		t.Fatalf("expected trusted issuer key error, got %v", err)
 	}
 }
 

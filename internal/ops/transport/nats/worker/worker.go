@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -35,6 +36,10 @@ type Config struct {
 	Backoff                    []time.Duration
 	NakDelay                   time.Duration
 	OnExhausted                string
+	VerifyAssignments          bool
+	TrustedIssuerKey           string
+	TrustedIssuerPublicKey     ed25519.PublicKey
+	AssignmentPolicyDigest     string
 	Creds                      string
 	NKey                       string
 	Timeout                    time.Duration
@@ -53,33 +58,36 @@ type Config struct {
 // Worker subscribes to one NATS assignment subject and executes supported
 // command assignments through the local transport contract.
 type Worker struct {
-	server           string
-	subject          string
-	queue            string
-	delivery         string
-	assignmentStream string
-	receiptStream    string
-	durable          string
-	ledgerPath       string
-	streamMaxAge     time.Duration
-	maxDeliver       int
-	ackWait          time.Duration
-	backoff          []time.Duration
-	nakDelay         time.Duration
-	onExhausted      string
-	creds            string
-	nkey             string
-	timeout          time.Duration
-	shell            string
-	redactor         transport.Redactor
-	capabilities     map[string]struct{}
-	capabilityDigest string
-	agentID          string
-	tenant           string
-	targetID         string
-	hostname         string
-	runner           transport.Runner
-	ready            chan<- struct{}
+	server                 string
+	subject                string
+	queue                  string
+	delivery               string
+	assignmentStream       string
+	receiptStream          string
+	durable                string
+	ledgerPath             string
+	streamMaxAge           time.Duration
+	maxDeliver             int
+	ackWait                time.Duration
+	backoff                []time.Duration
+	nakDelay               time.Duration
+	onExhausted            string
+	verifyAssignments      bool
+	trustedIssuerKey       ed25519.PublicKey
+	assignmentPolicyDigest string
+	creds                  string
+	nkey                   string
+	timeout                time.Duration
+	shell                  string
+	redactor               transport.Redactor
+	capabilities           map[string]struct{}
+	capabilityDigest       string
+	agentID                string
+	tenant                 string
+	targetID               string
+	hostname               string
+	runner                 transport.Runner
+	ready                  chan<- struct{}
 }
 
 func New(config Config) (*Worker, error) {
@@ -139,38 +147,52 @@ func New(config Config) (*Worker, error) {
 		return nil, fmt.Errorf("nats worker onExhausted must be block or continue")
 	}
 	backoff := normalizeDurations(config.Backoff)
+	trustedIssuerKey := append(ed25519.PublicKey(nil), config.TrustedIssuerPublicKey...)
+	if len(trustedIssuerKey) == 0 && strings.TrimSpace(config.TrustedIssuerKey) != "" {
+		loaded, err := natstransport.LoadEd25519PublicKeyFile(config.TrustedIssuerKey)
+		if err != nil {
+			return nil, fmt.Errorf("load trusted assignment issuer key: %w", err)
+		}
+		trustedIssuerKey = loaded
+	}
+	if config.VerifyAssignments && len(trustedIssuerKey) == 0 {
+		return nil, fmt.Errorf("trusted assignment issuer key is required when assignment verification is enabled")
+	}
 	redactValues := append([]string(nil), config.RedactValues...)
 	redactValues = append(redactValues, subject, server, creds, nkey, assignmentStream, receiptStream)
 	capabilities, capabilityDigest := workerCapabilities(config)
 	identity := workerIdentity(config)
 	return &Worker{
-		server:           server,
-		subject:          subject,
-		queue:            strings.TrimSpace(config.Queue),
-		delivery:         delivery,
-		assignmentStream: assignmentStream,
-		receiptStream:    receiptStream,
-		durable:          durable,
-		ledgerPath:       defaultLedgerPath(config.LedgerPath),
-		streamMaxAge:     streamMaxAge,
-		maxDeliver:       maxDeliver,
-		ackWait:          ackWait,
-		backoff:          backoff,
-		nakDelay:         nakDelay,
-		onExhausted:      onExhausted,
-		creds:            creds,
-		nkey:             nkey,
-		timeout:          timeout,
-		shell:            strings.TrimSpace(config.ShellBinary),
-		redactor:         transport.NewRedactor(redactValues),
-		capabilities:     capabilities,
-		capabilityDigest: capabilityDigest,
-		agentID:          identity.agentID,
-		tenant:           identity.tenant,
-		targetID:         identity.targetID,
-		hostname:         identity.hostname,
-		runner:           runner,
-		ready:            config.Ready,
+		server:                 server,
+		subject:                subject,
+		queue:                  strings.TrimSpace(config.Queue),
+		delivery:               delivery,
+		assignmentStream:       assignmentStream,
+		receiptStream:          receiptStream,
+		durable:                durable,
+		ledgerPath:             defaultLedgerPath(config.LedgerPath),
+		streamMaxAge:           streamMaxAge,
+		maxDeliver:             maxDeliver,
+		ackWait:                ackWait,
+		backoff:                backoff,
+		nakDelay:               nakDelay,
+		onExhausted:            onExhausted,
+		verifyAssignments:      config.VerifyAssignments,
+		trustedIssuerKey:       trustedIssuerKey,
+		assignmentPolicyDigest: strings.TrimSpace(config.AssignmentPolicyDigest),
+		creds:                  creds,
+		nkey:                   nkey,
+		timeout:                timeout,
+		shell:                  strings.TrimSpace(config.ShellBinary),
+		redactor:               transport.NewRedactor(redactValues),
+		capabilities:           capabilities,
+		capabilityDigest:       capabilityDigest,
+		agentID:                identity.agentID,
+		tenant:                 identity.tenant,
+		targetID:               identity.targetID,
+		hostname:               identity.hostname,
+		runner:                 runner,
+		ready:                  config.Ready,
 	}, nil
 }
 
@@ -315,10 +337,12 @@ func (w *Worker) runJetStream(ctx context.Context) error {
 
 func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStreamContext, ledger *assignmentLedger, msg *natsgo.Msg) error {
 	assignmentOffset := natstransport.OffsetFromMessage(msg, w.assignmentStream, w.durable)
-	assignment, err := natstransport.ParseCommandAssignment(msg.Data)
+	assignment, verification, err := w.parseAssignmentMessage(msg.Data)
+	signatureMetadata := natstransport.CommandAssignmentVerificationMetadata(verification)
 	if err != nil {
-		result := w.errorResult("run", "", err, false)
+		result := w.assignmentDecodeErrorResult(assignment, verification, err)
 		result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, ledgerDecision{})
+		result.Metadata = mergeMetadata(result.Metadata, signatureMetadata)
 		if err := w.publishJetStreamReceipt(ctx, js, result); err != nil {
 			return err
 		}
@@ -331,6 +355,7 @@ func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStream
 	if decision.Replay {
 		result := decision.Receipt
 		result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, decision)
+		result.Metadata = mergeMetadata(result.Metadata, signatureMetadata)
 		result.Metadata = mergeMetadata(result.Metadata, map[string]string{
 			"deduped":         "true",
 			"replayedReceipt": "true",
@@ -345,6 +370,7 @@ func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStream
 	if decision.UnsafeReplay {
 		result := w.blockedResultWithReason("run", assignment.Target, assignment, "assignment already has a running ledger entry without a stored receipt; refusing duplicate execution")
 		result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, decision)
+		result.Metadata = mergeMetadata(result.Metadata, signatureMetadata)
 		result.Metadata = mergeMetadata(result.Metadata, map[string]string{
 			"ledgerUnsafeReplay": "true",
 			"workerDecision":     "blocked",
@@ -360,6 +386,7 @@ func (w *Worker) handleJetStreamMessage(ctx context.Context, js natsgo.JetStream
 
 	result := w.HandleAssignment(ctx, assignment)
 	result.Metadata = w.jetStreamReceiptMetadata(result.Metadata, assignmentOffset, decision)
+	result.Metadata = mergeMetadata(result.Metadata, signatureMetadata)
 	if w.retryableResult(result) {
 		if w.retryBudgetExhausted(assignmentOffset) {
 			result = w.deadLetterResult(result, assignment, assignmentOffset)
@@ -517,11 +544,38 @@ func (w *Worker) retryMetadata(numDelivered uint64) map[string]string {
 }
 
 func (w *Worker) HandleMessage(ctx context.Context, raw []byte) transport.OperationResult {
-	assignment, err := natstransport.ParseCommandAssignment(raw)
+	assignment, verification, err := w.parseAssignmentMessage(raw)
+	signatureMetadata := natstransport.CommandAssignmentVerificationMetadata(verification)
 	if err != nil {
-		return w.errorResult("run", "", err, false)
+		result := w.assignmentDecodeErrorResult(assignment, verification, err)
+		result.Metadata = mergeMetadata(result.Metadata, signatureMetadata)
+		return result
 	}
-	return w.HandleAssignment(ctx, assignment)
+	result := w.HandleAssignment(ctx, assignment)
+	result.Metadata = mergeMetadata(result.Metadata, signatureMetadata)
+	return result
+}
+
+func (w *Worker) parseAssignmentMessage(raw []byte) (natstransport.CommandAssignment, natstransport.CommandAssignmentVerification, error) {
+	return natstransport.VerifyCommandAssignmentMessage(raw, natstransport.CommandAssignmentVerifyOptions{
+		RequireSignature:     w.verifyAssignments,
+		TrustedPublicKey:     append(ed25519.PublicKey(nil), w.trustedIssuerKey...),
+		ExpectedTenant:       w.tenant,
+		ExpectedPolicyDigest: w.assignmentPolicyDigest,
+		ExpectedTarget:       w.subject,
+		ExpectedTargetID:     w.targetID,
+	})
+}
+
+func (w *Worker) assignmentDecodeErrorResult(assignment natstransport.CommandAssignment, verification natstransport.CommandAssignmentVerification, err error) transport.OperationResult {
+	operation := firstNonEmptyWorker(assignment.Operation, "run")
+	target := firstNonEmptyWorker(assignment.Target, w.subject)
+	if verification.EnvelopePresent || strings.TrimSpace(assignment.Target) != "" || w.verifyAssignments {
+		result := w.blockedResultWithReason(operation, target, assignment, err.Error())
+		result.Metadata = mergeMetadata(result.Metadata, map[string]string{"workerDecision": "signature-blocked"})
+		return result
+	}
+	return w.errorResultForAssignment(operation, target, assignment, err, false)
 }
 
 func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.CommandAssignment) transport.OperationResult {

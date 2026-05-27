@@ -87,6 +87,18 @@ Implemented local slice:
   always fails and produces a blocked dead-letter receipt after the retry budget,
   and a duplicate successful assignment still replays from the idempotency
   ledger without executing again.
+- Signed assignment envelopes wrap `CommandAssignment` payloads with `issuer`,
+  `tenant`, `issuedAt`, `expiresAt`, `policyDigest`, and an ed25519 signature.
+  Stack JetStream fan-out signs assignments when
+  `TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` is set. Workers started with
+  `--verify-assignments --trusted-issuer-key <public-key>` reject unsigned,
+  expired, wrong-policy, wrong-tenant, and wrong-target assignments before
+  capability checks or local execution, ACK the rejected assignment, and publish
+  a blocked receipt with signature metadata.
+- `scripts/e2e/ops/OPS-AGENT-010.sh` proves signed assignment enforcement end
+  to end: a valid signed stack assignment executes, while unsigned, expired,
+  wrong-policy, and wrong-target messages are blocked without running their
+  commands.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
