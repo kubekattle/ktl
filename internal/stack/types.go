@@ -228,12 +228,13 @@ type RunnerReadiness struct {
 }
 
 type RunnerFanout struct {
-	MaxParallel         *int              `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
-	MaxFailed           *int              `yaml:"maxFailed,omitempty" json:"maxFailed,omitempty"`
-	MinSucceededPercent *int              `yaml:"minSucceededPercent,omitempty" json:"minSucceededPercent,omitempty"`
-	OnPartialFailure    string            `yaml:"onPartialFailure,omitempty" json:"onPartialFailure,omitempty"`
-	Delivery            string            `yaml:"delivery,omitempty" json:"delivery,omitempty"`
-	Retry               RunnerFanoutRetry `yaml:"retry,omitempty" json:"retry,omitempty"`
+	MaxParallel         *int                          `yaml:"maxParallel,omitempty" json:"maxParallel,omitempty"`
+	MaxFailed           *int                          `yaml:"maxFailed,omitempty" json:"maxFailed,omitempty"`
+	MinSucceededPercent *int                          `yaml:"minSucceededPercent,omitempty" json:"minSucceededPercent,omitempty"`
+	OnPartialFailure    string                        `yaml:"onPartialFailure,omitempty" json:"onPartialFailure,omitempty"`
+	Delivery            string                        `yaml:"delivery,omitempty" json:"delivery,omitempty"`
+	TargetConcurrency   RunnerFanoutTargetConcurrency `yaml:"targetConcurrency,omitempty" json:"targetConcurrency,omitempty"`
+	Retry               RunnerFanoutRetry             `yaml:"retry,omitempty" json:"retry,omitempty"`
 }
 
 type RunnerFanoutRetry struct {
@@ -241,6 +242,13 @@ type RunnerFanoutRetry struct {
 	AckWait     *time.Duration  `yaml:"ackWait,omitempty" json:"ackWait,omitempty"`
 	Backoff     []time.Duration `yaml:"backoff,omitempty" json:"backoff,omitempty"`
 	OnExhausted string          `yaml:"onExhausted,omitempty" json:"onExhausted,omitempty"`
+}
+
+type RunnerFanoutTargetConcurrency struct {
+	Enabled          *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	RequireAvailable *bool          `yaml:"requireAvailable,omitempty" json:"requireAvailable,omitempty"`
+	MaxPerTarget     *int           `yaml:"maxPerTarget,omitempty" json:"maxPerTarget,omitempty"`
+	LeaseTTL         *time.Duration `yaml:"leaseTTL,omitempty" json:"leaseTTL,omitempty"`
 }
 
 type RunnerLimits struct {
@@ -287,12 +295,13 @@ type RunnerReadinessResolved struct {
 }
 
 type RunnerFanoutResolved struct {
-	MaxParallel         int                       `json:"maxParallel,omitempty"`
-	MaxFailed           int                       `json:"maxFailed,omitempty"`
-	MinSucceededPercent int                       `json:"minSucceededPercent,omitempty"`
-	OnPartialFailure    string                    `json:"onPartialFailure,omitempty"`
-	Delivery            string                    `json:"delivery,omitempty"`
-	Retry               RunnerFanoutRetryResolved `json:"retry,omitempty"`
+	MaxParallel         int                                   `json:"maxParallel,omitempty"`
+	MaxFailed           int                                   `json:"maxFailed,omitempty"`
+	MinSucceededPercent int                                   `json:"minSucceededPercent,omitempty"`
+	OnPartialFailure    string                                `json:"onPartialFailure,omitempty"`
+	Delivery            string                                `json:"delivery,omitempty"`
+	TargetConcurrency   RunnerFanoutTargetConcurrencyResolved `json:"targetConcurrency,omitempty"`
+	Retry               RunnerFanoutRetryResolved             `json:"retry,omitempty"`
 }
 
 type RunnerFanoutRetryResolved struct {
@@ -300,6 +309,13 @@ type RunnerFanoutRetryResolved struct {
 	AckWait     time.Duration   `json:"ackWait,omitempty"`
 	Backoff     []time.Duration `json:"backoff,omitempty"`
 	OnExhausted string          `json:"onExhausted,omitempty"`
+}
+
+type RunnerFanoutTargetConcurrencyResolved struct {
+	Enabled          bool          `json:"enabled,omitempty"`
+	RequireAvailable bool          `json:"requireAvailable,omitempty"`
+	MaxPerTarget     int           `json:"maxPerTarget,omitempty"`
+	LeaseTTL         time.Duration `json:"leaseTTL,omitempty"`
 }
 
 type RunnerLimitsResolved struct {

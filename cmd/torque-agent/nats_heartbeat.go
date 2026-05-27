@@ -76,6 +76,30 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 		}
 		defaultSlots = parsed
 	}
+	defaultInUse := 0
+	if raw := strings.TrimSpace(getenv("TORQUE_AGENT_IN_USE")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_AGENT_IN_USE: %w", err)
+		}
+		defaultInUse = parsed
+	}
+	defaultWorkerSlots := defaultSlots
+	if raw := strings.TrimSpace(getenv("TORQUE_AGENT_WORKER_SLOTS")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_AGENT_WORKER_SLOTS: %w", err)
+		}
+		defaultWorkerSlots = parsed
+	}
+	defaultWorkerInUse := defaultInUse
+	if raw := strings.TrimSpace(getenv("TORQUE_AGENT_WORKER_IN_USE")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return natsHeartbeatConfig{}, fmt.Errorf("parse TORQUE_AGENT_WORKER_IN_USE: %w", err)
+		}
+		defaultWorkerInUse = parsed
+	}
 
 	fs := flag.NewFlagSet("torque-agent nats heartbeat", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -96,7 +120,9 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 	once := fs.Bool("once", false, "Publish one heartbeat and exit")
 	shards := fs.Int("shards", heartbeat.DefaultShardCount, "Heartbeat subject shard count")
 	slots := fs.Int("slots", defaultSlots, "Total local job slots to advertise")
-	inUse := fs.Int("in-use", 0, "Currently used local job slots")
+	inUse := fs.Int("in-use", defaultInUse, "Currently used local job slots")
+	workerSlots := fs.Int("worker-slots", defaultWorkerSlots, "Target-local NATS worker slots to advertise (also TORQUE_AGENT_WORKER_SLOTS)")
+	workerInUse := fs.Int("worker-in-use", defaultWorkerInUse, "Currently used target-local NATS worker slots (also TORQUE_AGENT_WORKER_IN_USE)")
 	discoverCapabilities := fs.Bool("discover-capabilities", defaultDiscoverCapabilities, "Discover local agent capabilities and include available adapters by default (also TORQUE_AGENT_DISCOVER_CAPABILITIES)")
 	labels := copyStringMap(defaultLabels)
 	capabilities := append([]string(nil), defaultCapabilities...)
@@ -145,6 +171,18 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 	if *inUse > *slots {
 		return natsHeartbeatConfig{}, fmt.Errorf("--in-use must not exceed --slots")
 	}
+	if !flagSetWasSet(fs, "worker-slots") && strings.TrimSpace(getenv("TORQUE_AGENT_WORKER_SLOTS")) == "" {
+		*workerSlots = *slots
+	}
+	if !flagSetWasSet(fs, "worker-in-use") && strings.TrimSpace(getenv("TORQUE_AGENT_WORKER_IN_USE")) == "" {
+		*workerInUse = *inUse
+	}
+	if *workerSlots < 0 || *workerInUse < 0 {
+		return natsHeartbeatConfig{}, fmt.Errorf("--worker-slots and --worker-in-use must not be negative")
+	}
+	if *workerInUse > *workerSlots {
+		return natsHeartbeatConfig{}, fmt.Errorf("--worker-in-use must not exceed --worker-slots")
+	}
 	capabilityDigest := ""
 	if *discoverCapabilities {
 		report := agentcapability.Discover(agentcapability.Options{
@@ -168,6 +206,10 @@ func parseNATSHeartbeatConfig(args []string, getenv func(string) string) (natsHe
 		Slots: heartbeat.Slots{
 			Total: *slots,
 			InUse: *inUse,
+		},
+		WorkerSlots: heartbeat.Slots{
+			Total: *workerSlots,
+			InUse: *workerInUse,
 		},
 		State: strings.TrimSpace(*state),
 	}
@@ -234,7 +276,7 @@ func runNATSHeartbeat(ctx context.Context, config natsHeartbeatConfig) error {
 
 func printNATSHeartbeatUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [--nats-url nats://127.0.0.1:4222] [--label role=mysql] [--jetstream] [--discover-capabilities=false]")
+	fmt.Fprintln(out, "  torque-agent nats heartbeat --agent-id <id> [--nats-url nats://127.0.0.1:4222] [--label role=mysql] [--worker-slots 2] [--jetstream] [--discover-capabilities=false]")
 }
 
 func parseKeyValueCSV(raw string) (map[string]string, error) {

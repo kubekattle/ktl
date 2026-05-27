@@ -4,7 +4,7 @@ Status: design draft; local NATS heartbeat/status, agent capability reporting,
 durable registry compaction, stack fleet readiness/capability gate slices,
 worker-side capability enforcement, worker identity receipts, targeted NATS
 fleet fan-out, JetStream durable assignments, receipt offset resume, and
-target-local worker pools implemented.
+target-local worker pools with slot-lease evidence implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -125,6 +125,13 @@ Implemented local slice:
   and ledger; the first stack run is executed by one worker, that worker is
   stopped, and a second stack run succeeds through the surviving worker with
   receipt evidence naming the exact process.
+- `torque-agent nats heartbeat --worker-slots <n> --worker-in-use <n>` now
+  publishes explicit target-local worker capacity as `workerSlots`. Stack
+  `runner.fanout.targetConcurrency` can require available target capacity,
+  cap local concurrency with `maxPerTarget`, and attach a signed/proven slot
+  lease to each NATS assignment. Workers echo the lease in receipts, and
+  `host-command-fanout.json` preserves target capacity, lease, assignment, and
+  receipt metadata.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
@@ -529,6 +536,11 @@ metadata:
   "hostname": "mysql-01",
   "workerSubject": "torque.assign.lab.host_mysql-01",
   "queue": "mysql-target-pool",
+  "workerSlots": {"total": 2, "inUse": 1},
+  "slotLeaseId": "sha256:...",
+  "slotLeaseTargetId": "host/mysql-01",
+  "slotLeaseIndex": "1",
+  "slotLeaseSlots": "1",
   "capabilityDigest": "sha256:...",
   "requiredCapability": "host.command.run",
   "assignmentTargetId": "host/mysql-01",

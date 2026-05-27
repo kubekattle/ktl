@@ -37,6 +37,12 @@ type CommandAssignment struct {
 	RunID              string `json:"runId,omitempty"`
 	NodeID             string `json:"nodeId,omitempty"`
 	PlanDigest         string `json:"planDigest,omitempty"`
+	SlotLeaseID        string `json:"slotLeaseId,omitempty"`
+	SlotLeaseTargetID  string `json:"slotLeaseTargetId,omitempty"`
+	SlotLeaseIndex     int    `json:"slotLeaseIndex,omitempty"`
+	SlotLeaseSlots     int    `json:"slotLeaseSlots,omitempty"`
+	SlotLeaseTTL       string `json:"slotLeaseTtl,omitempty"`
+	SlotLeaseExpiresAt string `json:"slotLeaseExpiresAt,omitempty"`
 	SentAt             string `json:"sentAt"`
 }
 
@@ -49,6 +55,12 @@ type CommandAssignmentMetadata struct {
 	RunID              string
 	NodeID             string
 	PlanDigest         string
+	SlotLeaseID        string
+	SlotLeaseTargetID  string
+	SlotLeaseIndex     int
+	SlotLeaseSlots     int
+	SlotLeaseTTL       string
+	SlotLeaseExpiresAt string
 }
 
 type CommandAssignmentEnvelope struct {
@@ -120,6 +132,12 @@ func NewCommandAssignmentWithMetadata(operation string, target string, command s
 		RunID:              strings.TrimSpace(metadata.RunID),
 		NodeID:             strings.TrimSpace(metadata.NodeID),
 		PlanDigest:         strings.TrimSpace(metadata.PlanDigest),
+		SlotLeaseID:        strings.TrimSpace(metadata.SlotLeaseID),
+		SlotLeaseTargetID:  strings.TrimSpace(metadata.SlotLeaseTargetID),
+		SlotLeaseIndex:     metadata.SlotLeaseIndex,
+		SlotLeaseSlots:     metadata.SlotLeaseSlots,
+		SlotLeaseTTL:       strings.TrimSpace(metadata.SlotLeaseTTL),
+		SlotLeaseExpiresAt: strings.TrimSpace(metadata.SlotLeaseExpiresAt),
 		SentAt:             sentAt.UTC().Format(time.RFC3339Nano),
 	}
 	if assignment.AssignmentID == "" {
@@ -174,6 +192,16 @@ func normalizeCommandAssignment(assignment CommandAssignment) (CommandAssignment
 	assignment.RunID = strings.TrimSpace(assignment.RunID)
 	assignment.NodeID = strings.TrimSpace(assignment.NodeID)
 	assignment.PlanDigest = strings.TrimSpace(assignment.PlanDigest)
+	assignment.SlotLeaseID = strings.TrimSpace(assignment.SlotLeaseID)
+	assignment.SlotLeaseTargetID = strings.TrimSpace(assignment.SlotLeaseTargetID)
+	assignment.SlotLeaseTTL = strings.TrimSpace(assignment.SlotLeaseTTL)
+	assignment.SlotLeaseExpiresAt = strings.TrimSpace(assignment.SlotLeaseExpiresAt)
+	if assignment.SlotLeaseIndex < 0 {
+		assignment.SlotLeaseIndex = 0
+	}
+	if assignment.SlotLeaseSlots < 0 {
+		assignment.SlotLeaseSlots = 0
+	}
 	if assignment.APIVersion != "" && assignment.APIVersion != AssignmentAPIVersion {
 		return CommandAssignment{}, fmt.Errorf("unsupported assignment apiVersion %q", assignment.APIVersion)
 	}

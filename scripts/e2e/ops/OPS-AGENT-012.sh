@@ -16,11 +16,13 @@ Options:
   --no-cleanup           Keep local scratch for debugging.
   -h, --help             Show this help.
 
-OPS-AGENT-012 proves target-local worker pools: two JetStream workers share one
-target subject, one queue/durable consumer, and one assignment ledger. The first
-stack apply records which worker executed the assignment. That worker is then
-stopped, and a second stack apply must succeed through the surviving worker
-without using NATS queue groups as fleet broadcast.
+OPS-AGENT-012 proves target-local worker pools and slot leases: two JetStream
+workers share one target subject, one queue/durable consumer, and one
+assignment ledger. The heartbeat advertises workerSlots, stack fan-out requires
+available target capacity, and receipts must carry slot lease metadata. The
+first stack apply records which worker executed the assignment. That worker is
+then stopped, and a second stack apply must succeed through the surviving
+worker without using NATS queue groups as fleet broadcast.
 EOF
 }
 
@@ -199,6 +201,11 @@ runner:
     maxFailed: 0
     minSucceededPercent: 100
     onPartialFailure: block
+    targetConcurrency:
+      enabled: true
+      requireAvailable: true
+      maxPerTarget: 2
+      leaseTTL: 20s
 nodes:
   - kind: host.command.run
     name: write-target-local-pool-marker
@@ -285,6 +292,8 @@ ops_log "publish heartbeat and compact registry"
   --target-id "${target_id}" \
   --hostname worker-pool-01 \
   --label role=mysql \
+  --worker-slots 2 \
+  --worker-in-use 1 \
   --capability host.command.run \
   >"${OPS_RUN_DIR}/logs/heartbeat.json" 2>"${OPS_RUN_DIR}/logs/heartbeat.err"
 "${repo_root}/bin/torque" ops agent registry compact \
@@ -449,6 +458,31 @@ if audit_second.get("status") != "succeeded":
     errors.append(f"second audit must succeed: {audit_second.get('status')}")
 if fanout_first.get("status") != "succeeded" or fanout_second.get("status") != "succeeded":
     errors.append(f"fanout artifacts must succeed: first={fanout_first} second={fanout_second}")
+for label, fanout in [("first", fanout_first), ("second", fanout_second)]:
+    policy = fanout.get("policy") or {}
+    target_concurrency = policy.get("targetConcurrency") or {}
+    summary = fanout.get("summary") or {}
+    targets = fanout.get("targets") or []
+    if not target_concurrency.get("enabled"):
+        errors.append(f"{label} fanout must enable targetConcurrency: {policy}")
+    if target_concurrency.get("maxPerTarget") != 2:
+        errors.append(f"{label} maxPerTarget mismatch: {target_concurrency}")
+    if summary.get("slotLeases") != 1:
+        errors.append(f"{label} summary slotLeases mismatch: {summary}")
+    if summary.get("workerSlotsTotal") != 2 or summary.get("workerSlotsAvailable") != 1:
+        errors.append(f"{label} worker slot summary mismatch: {summary}")
+    if len(targets) != 1:
+        errors.append(f"{label} expected one target view, got {len(targets)}")
+    else:
+        target = targets[0]
+        slots = target.get("workerSlots") or {}
+        lease = target.get("slotLease") or {}
+        if slots.get("total") != 2 or slots.get("inUse") != 1:
+            errors.append(f"{label} target workerSlots mismatch: {target}")
+        if target.get("workerSlotsAvailable") != 1:
+            errors.append(f"{label} target workerSlotsAvailable mismatch: {target}")
+        if not lease.get("id") or lease.get("targetId") != target_id:
+            errors.append(f"{label} target slotLease mismatch: {target}")
 if marker_count != 2:
     errors.append(f"marker must be written exactly twice, got {marker_count}")
 if first_worker_id not in {worker_a_id, worker_b_id}:
@@ -480,6 +514,18 @@ for label, result, receipt, metadata, expected_worker in [
         errors.append(f"{label} workerDecision mismatch: {metadata}")
     if not metadata.get("assignmentId"):
         errors.append(f"{label} missing assignmentId: {metadata}")
+    lease = result.get("slotLease") or {}
+    assignment = result.get("assignment") or {}
+    if not lease.get("id"):
+        errors.append(f"{label} missing result slotLease: {result}")
+    if assignment.get("slotLeaseId") != lease.get("id"):
+        errors.append(f"{label} assignment slotLeaseId mismatch: assignment={assignment} lease={lease}")
+    if metadata.get("slotLeaseId") != lease.get("id"):
+        errors.append(f"{label} receipt slotLeaseId mismatch: {metadata} lease={lease}")
+    if metadata.get("slotLeaseTargetId") != target_id:
+        errors.append(f"{label} receipt slotLeaseTargetId mismatch: {metadata}")
+    if metadata.get("slotLeaseIndex") != "1" or metadata.get("slotLeaseSlots") != "1":
+        errors.append(f"{label} receipt slot lease cardinality mismatch: {metadata}")
 
 status = "succeeded" if not errors else "failed"
 metadata_doc = {
@@ -492,6 +538,7 @@ metadata_doc = {
     "labProfiles": [
         "local.nats.jetstream",
         "stack.fleet-jetstream-target-local-worker-pool",
+        "stack.fleet-jetstream-target-capacity-slot-lease",
         "agent.assignment-idempotency-ledger",
     ],
 }
@@ -529,6 +576,7 @@ metadata_doc = {
     "secondWorkerId": second_worker_id,
     "survivorWorkerId": survivor_worker_id,
     "queue": worker_queue,
+    "targetConcurrency": {"enabled": True, "maxPerTarget": 2, "leaseTTL": "20s"},
     "markerCount": marker_count,
 }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 if errors:

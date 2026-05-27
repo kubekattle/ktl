@@ -38,6 +38,12 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 						MinSucceededPercent: pint(90),
 						OnPartialFailure:    RunnerFanoutOnContinue,
 						Delivery:            RunnerFanoutDeliveryJetStream,
+						TargetConcurrency: RunnerFanoutTargetConcurrency{
+							Enabled:          pbool(true),
+							RequireAvailable: pbool(true),
+							MaxPerTarget:     pint(2),
+							LeaseTTL:         pduration(45 * time.Second),
+						},
 						Retry: RunnerFanoutRetry{
 							MaxDeliver:  pint(4),
 							AckWait:     pduration(15 * time.Second),
@@ -89,6 +95,9 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 	}
 	if got.Fanout.MaxParallel != 12 || got.Fanout.MaxFailed != 2 || got.Fanout.MinSucceededPercent != 90 || got.Fanout.OnPartialFailure != RunnerFanoutOnContinue || got.Fanout.Delivery != RunnerFanoutDeliveryJetStream {
 		t.Fatalf("fanout = %#v", got.Fanout)
+	}
+	if !got.Fanout.TargetConcurrency.Enabled || !got.Fanout.TargetConcurrency.RequireAvailable || got.Fanout.TargetConcurrency.MaxPerTarget != 2 || got.Fanout.TargetConcurrency.LeaseTTL != 45*time.Second {
+		t.Fatalf("fanout target concurrency = %#v", got.Fanout.TargetConcurrency)
 	}
 	if got.Fanout.Retry.MaxDeliver != 4 || got.Fanout.Retry.AckWait != 15*time.Second || len(got.Fanout.Retry.Backoff) != 2 || got.Fanout.Retry.OnExhausted != RunnerFanoutRetryOnBlock {
 		t.Fatalf("fanout retry = %#v", got.Fanout.Retry)

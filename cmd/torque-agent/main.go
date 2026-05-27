@@ -392,6 +392,19 @@ func flagWasSet(name string) bool {
 	return seen
 }
 
+func flagSetWasSet(fs *flag.FlagSet, name string) bool {
+	if fs == nil {
+		return false
+	}
+	seen := false
+	fs.Visit(func(f *flag.Flag) {
+		if f != nil && f.Name == name {
+			seen = true
+		}
+	})
+	return seen
+}
+
 func defaultDurableMirrorStore() string {
 	if os.Getuid() == 0 {
 		return "/var/lib/torque/agent/mirror.sqlite"

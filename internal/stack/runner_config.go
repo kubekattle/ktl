@@ -51,6 +51,11 @@ func ResolveRunnerConfig(u *Universe, profile string) (RunnerResolved, error) {
 			MinSucceededPercent: 100,
 			OnPartialFailure:    RunnerFanoutOnBlock,
 			Delivery:            RunnerFanoutDeliveryRequestReply,
+			TargetConcurrency: RunnerFanoutTargetConcurrencyResolved{
+				RequireAvailable: true,
+				MaxPerTarget:     1,
+				LeaseTTL:         30 * time.Second,
+			},
 			Retry: RunnerFanoutRetryResolved{
 				MaxDeliver:  3,
 				AckWait:     30 * time.Second,
@@ -233,7 +238,26 @@ func mergeRunnerFanout(dst *RunnerFanout, src RunnerFanout) {
 	if strings.TrimSpace(src.Delivery) != "" {
 		dst.Delivery = src.Delivery
 	}
+	mergeRunnerFanoutTargetConcurrency(&dst.TargetConcurrency, src.TargetConcurrency)
 	mergeRunnerFanoutRetry(&dst.Retry, src.Retry)
+}
+
+func mergeRunnerFanoutTargetConcurrency(dst *RunnerFanoutTargetConcurrency, src RunnerFanoutTargetConcurrency) {
+	if dst == nil {
+		return
+	}
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+	}
+	if src.RequireAvailable != nil {
+		dst.RequireAvailable = src.RequireAvailable
+	}
+	if src.MaxPerTarget != nil {
+		dst.MaxPerTarget = src.MaxPerTarget
+	}
+	if src.LeaseTTL != nil {
+		dst.LeaseTTL = src.LeaseTTL
+	}
 }
 
 func mergeRunnerFanoutRetry(dst *RunnerFanoutRetry, src RunnerFanoutRetry) {
@@ -323,7 +347,26 @@ func applyRunnerFanoutResolved(dst *RunnerResolved, cfg RunnerFanout) {
 	if strings.TrimSpace(cfg.Delivery) != "" {
 		dst.Fanout.Delivery = normalizeRunnerFanoutDelivery(cfg.Delivery)
 	}
+	applyRunnerFanoutTargetConcurrencyResolved(&dst.Fanout.TargetConcurrency, cfg.TargetConcurrency)
 	applyRunnerFanoutRetryResolved(&dst.Fanout.Retry, cfg.Retry)
+}
+
+func applyRunnerFanoutTargetConcurrencyResolved(dst *RunnerFanoutTargetConcurrencyResolved, cfg RunnerFanoutTargetConcurrency) {
+	if dst == nil {
+		return
+	}
+	if cfg.Enabled != nil {
+		dst.Enabled = *cfg.Enabled
+	}
+	if cfg.RequireAvailable != nil {
+		dst.RequireAvailable = *cfg.RequireAvailable
+	}
+	if cfg.MaxPerTarget != nil {
+		dst.MaxPerTarget = *cfg.MaxPerTarget
+	}
+	if cfg.LeaseTTL != nil {
+		dst.LeaseTTL = *cfg.LeaseTTL
+	}
 }
 
 func applyRunnerFanoutRetryResolved(dst *RunnerFanoutRetryResolved, cfg RunnerFanoutRetry) {
@@ -427,6 +470,12 @@ func ValidateRunnerResolved(r RunnerResolved) error {
 	}
 	if delivery != RunnerFanoutDeliveryRequestReply && delivery != RunnerFanoutDeliveryJetStream {
 		return fmt.Errorf("runner.fanout.delivery must be requestReply or jetstream (got %q)", r.Fanout.Delivery)
+	}
+	if r.Fanout.TargetConcurrency.MaxPerTarget < 1 {
+		return fmt.Errorf("runner.fanout.targetConcurrency.maxPerTarget must be >= 1 (got %d)", r.Fanout.TargetConcurrency.MaxPerTarget)
+	}
+	if r.Fanout.TargetConcurrency.LeaseTTL <= 0 {
+		return fmt.Errorf("runner.fanout.targetConcurrency.leaseTTL must be > 0")
 	}
 	if r.Fanout.Retry.MaxDeliver < 1 {
 		return fmt.Errorf("runner.fanout.retry.maxDeliver must be >= 1 (got %d)", r.Fanout.Retry.MaxDeliver)

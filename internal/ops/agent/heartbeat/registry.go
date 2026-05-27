@@ -55,6 +55,7 @@ type AgentStatus struct {
 	Capabilities     []string          `json:"capabilities,omitempty"`
 	CapabilityDigest string            `json:"capabilityDigest,omitempty"`
 	Slots            Slots             `json:"slots,omitempty"`
+	WorkerSlots      Slots             `json:"workerSlots,omitempty"`
 	Offsets          Offsets           `json:"offsets,omitempty"`
 	Resources        Resources         `json:"resources,omitempty"`
 	EvidenceOffset   *StreamOffset     `json:"evidenceOffset,omitempty"`
@@ -140,7 +141,8 @@ func agentStatus(heartbeat Heartbeat, now time.Time, staleAfter time.Duration) A
 		Labels:           cleanLabels(heartbeat.Labels),
 		Capabilities:     cleanList(heartbeat.Capabilities),
 		CapabilityDigest: strings.TrimSpace(heartbeat.CapabilityDigest),
-		Slots:            heartbeat.Slots,
+		Slots:            cleanSlots(heartbeat.Slots),
+		WorkerSlots:      cleanSlots(heartbeat.WorkerSlots),
 		Offsets:          cleanOffsets(heartbeat.Offsets),
 		Resources:        heartbeat.Resources,
 	}

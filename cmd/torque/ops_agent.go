@@ -216,16 +216,17 @@ func newOpsAgentRegistryCompactCommand() *cobra.Command {
 
 func renderOpsAgentStatusTable(out io.Writer, snapshot heartbeat.Snapshot) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "AGENT\tTARGET\tHEALTH\tSTATE\tAGE\tVERSION\tLABELS\tCAPABILITIES")
+	fmt.Fprintln(tw, "AGENT\tTARGET\tHEALTH\tSTATE\tAGE\tWORKER_SLOTS\tVERSION\tLABELS\tCAPABILITIES")
 	for _, agent := range snapshot.Agents {
 		fmt.Fprintf(
 			tw,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			emptyDash(agent.AgentID),
 			emptyDash(agent.TargetID),
 			emptyDash(agent.Health),
 			emptyDash(agent.State),
 			emptyDash(agent.Age),
+			formatAgentSlots(agent.WorkerSlots),
 			emptyDash(agent.Version),
 			inventory.FormatLabels(agent.Labels),
 			inventory.FormatList(agent.Capabilities),
@@ -248,6 +249,13 @@ func emptyDash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func formatAgentSlots(slots heartbeat.Slots) string {
+	if slots.Total <= 0 && slots.InUse <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d/%d", slots.InUse, slots.Total)
 }
 
 type opsAgentStoreFlags struct {

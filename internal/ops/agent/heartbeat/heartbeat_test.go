@@ -18,6 +18,8 @@ func TestHeartbeatSubjectAndParse(t *testing.T) {
 		Labels:           map[string]string{"role": "mysql", "site": "lab"},
 		Capabilities:     []string{"host.file.ensure", "mysql.replication.verify", "host.file.ensure"},
 		CapabilityDigest: "sha256:test",
+		Slots:            Slots{Total: 4, InUse: 1},
+		WorkerSlots:      Slots{Total: 2, InUse: 1},
 		State:            StateReady,
 		ObservedAt:       observedAt,
 	})
@@ -38,9 +40,42 @@ func TestHeartbeatSubjectAndParse(t *testing.T) {
 	if parsed.CapabilityDigest != "sha256:test" {
 		t.Fatalf("capability digest was not preserved: %#v", parsed)
 	}
+	if parsed.WorkerSlots.Total != 2 || parsed.WorkerSlots.InUse != 1 {
+		t.Fatalf("workerSlots were not preserved: %#v", parsed.WorkerSlots)
+	}
 	subject := Subject(parsed.Tenant, 16, parsed.AgentID)
 	if !strings.HasPrefix(subject, "torque.v1.agent.heartbeat.lab_prod.") || strings.Contains(subject, ".host.141") {
 		t.Fatalf("subject was not sanitized: %s", subject)
+	}
+}
+
+func TestHeartbeatWorkerSlotsFallbackToSlots(t *testing.T) {
+	heartbeat := New(Options{
+		AgentID:    "agent-a",
+		Tenant:     "lab",
+		Slots:      Slots{Total: 3, InUse: 1},
+		State:      StateReady,
+		ObservedAt: time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC),
+	})
+	if heartbeat.WorkerSlots.Total != 3 || heartbeat.WorkerSlots.InUse != 1 {
+		t.Fatalf("workerSlots = %#v, want slots fallback", heartbeat.WorkerSlots)
+	}
+	raw, err := json.Marshal(heartbeat)
+	if err != nil {
+		t.Fatalf("marshal heartbeat: %v", err)
+	}
+	var legacy map[string]any
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		t.Fatalf("parse map: %v", err)
+	}
+	delete(legacy, "workerSlots")
+	legacyRaw, _ := json.Marshal(legacy)
+	parsed, err := Parse(legacyRaw)
+	if err != nil {
+		t.Fatalf("parse legacy heartbeat: %v", err)
+	}
+	if parsed.WorkerSlots.Total != 3 || parsed.WorkerSlots.InUse != 1 {
+		t.Fatalf("legacy workerSlots = %#v, want slots fallback", parsed.WorkerSlots)
 	}
 }
 

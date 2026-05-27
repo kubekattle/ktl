@@ -4336,6 +4336,163 @@ nodes:
 	}
 }
 
+func TestRun_HostCommandFleetModeJetStreamFanoutAttachesSlotLease(t *testing.T) {
+	root := t.TempDir()
+	serverURL := startStackTestNATSJetStreamServer(t)
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	marker := filepath.Join(root, "fanout-jetstream-slot-marker.txt")
+	assignmentStream := "TORQUE_ASSIGNMENTS_SLOT_TEST"
+	receiptStream := "TORQUE_RECEIPTS_SLOT_TEST"
+	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-jetstream-slot-lease
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: %q
+    tenant: lab
+    selector:
+      role: mysql
+    requireAgents: true
+    minReadyPercent: 100
+    failureBudget: 0
+    staleAfter: 45s
+    onInsufficientReady: block
+  fanout:
+    delivery: jetstream
+    maxParallel: 1
+    maxFailed: 0
+    minSucceededPercent: 100
+    onPartialFailure: block
+    targetConcurrency:
+      enabled: true
+      requireAvailable: true
+      maxPerTarget: 2
+      leaseTTL: 20s
+nodes:
+  - kind: host.command.run
+    name: write-slot-marker
+    host:
+      transport: nats
+      timeout: 8s
+      command: "printf 'slot-hit\n' >> %s"
+`, registryPath, marker)
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack: %v", err)
+	}
+	agentID := "agent-js-slot"
+	writeFleetReadinessAgentWithWorkerSlots(t, registryPath, agentID, heartbeat.StateReady, time.Now().UTC(), heartbeat.Slots{Total: 2, InUse: 1}, NodeKindHostCommandRun)
+	t.Setenv("TORQUE_NATS_URL", serverURL)
+	t.Setenv("TORQUE_NATS_ASSIGNMENT_STREAM", assignmentStream)
+	t.Setenv("TORQUE_NATS_RECEIPT_STREAM", receiptStream)
+
+	p := compileFleetReadinessStack(t, root)
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	ready := make(chan struct{})
+	worker, err := natsworker.New(natsworker.Config{
+		Server:                     serverURL,
+		Subject:                    fleetNATSAssignmentSubject("lab", agentID),
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "stack-js-slot-worker",
+		LedgerPath:                 filepath.Join(root, "agent-assignments.sqlite"),
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{NodeKindHostCommandRun},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    agentID,
+		WorkerID:                   "slot-worker-a",
+		Tenant:                     "lab",
+		TargetID:                   agentID,
+		Hostname:                   agentID + ".test",
+	})
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	workerErr := make(chan error, 1)
+	go func() {
+		workerErr <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not become ready")
+	}
+
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if got := countFileSubstring(t, marker, "slot-hit"); got != 1 {
+		t.Fatalf("marker hits = %d, want 1", got)
+	}
+	audit := fleetReadinessAudit(t, root)
+	var fanout fleetNATSFanoutReceipt
+	for _, artifact := range audit.Artifacts {
+		if artifact.Name == "host-command-fanout.json" {
+			if err := json.Unmarshal([]byte(artifact.Body), &fanout); err != nil {
+				t.Fatalf("parse fanout artifact: %v\n%s", err, artifact.Body)
+			}
+		}
+	}
+	if fanout.Status != "succeeded" || !fanout.Policy.TargetConcurrency.Enabled || fanout.Summary.SlotLeases != 1 {
+		t.Fatalf("fanout slot policy = %#v", fanout)
+	}
+	if len(fanout.Targets) != 1 || fanout.Targets[0].WorkerSlots.Total != 2 || fanout.Targets[0].WorkerSlotsAvailable != 1 || fanout.Targets[0].SlotLease == nil {
+		t.Fatalf("fanout target slot evidence = %#v", fanout.Targets)
+	}
+	if len(fanout.Results) != 1 {
+		t.Fatalf("fanout results = %#v", fanout.Results)
+	}
+	result := fanout.Results[0]
+	if result.Assignment == nil || result.SlotLease == nil || result.Assignment.SlotLeaseID == "" || result.Assignment.SlotLeaseID != result.SlotLease.ID {
+		t.Fatalf("assignment slot lease missing: %#v", result)
+	}
+	metadata := result.Receipt.Metadata
+	if metadata["slotLeaseId"] != result.SlotLease.ID || metadata["slotLeaseTargetId"] != agentID || metadata["slotLeaseIndex"] != "1" || metadata["slotLeaseSlots"] != "1" {
+		t.Fatalf("receipt slot lease metadata = %#v, lease=%#v", metadata, result.SlotLease)
+	}
+	workerCancel()
+	select {
+	case err := <-workerErr:
+		if err != nil {
+			t.Fatalf("worker error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
+func TestFleetNATSSlotLeaseRequiresAvailableWorkerSlot(t *testing.T) {
+	exec := &customNodeExecutor{}
+	_, err := exec.assignFleetNATSSlotLeases(fleetNATSFanoutPolicy{
+		TargetConcurrency: RunnerFanoutTargetConcurrencyResolved{
+			Enabled:          true,
+			RequireAvailable: true,
+			MaxPerTarget:     2,
+			LeaseTTL:         30 * time.Second,
+		},
+	}, "run-slot", "node-slot", []fleetNATSFanoutTarget{
+		{
+			agentID:     "agent-slot",
+			targetID:    "host/slot",
+			workerSlots: heartbeat.Slots{Total: 2, InUse: 2},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "no available worker slots") {
+		t.Fatalf("expected no available worker slot error, got %v", err)
+	}
+}
+
 func TestRun_HostCommandFleetModeJetStreamFanoutResumesReceiptOffset(t *testing.T) {
 	root := t.TempDir()
 	serverURL := startStackTestNATSJetStreamServer(t)

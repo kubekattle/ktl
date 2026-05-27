@@ -558,12 +558,14 @@ scripts/e2e/ops/OPS-AGENT-011.sh \
 
 ## OPS-AGENT-012
 
-`OPS-AGENT-012.sh` proves target-local worker pools. It starts two
-`torque-agent nats worker --delivery jetstream` processes on the same target
-subject, queue/durable consumer, and assignment ledger, runs one stack apply,
-stops the worker named in the first receipt, then runs a second stack apply.
-The second run must succeed through the surviving worker, and both receipts
-must include `workerId`, `queue`, and `assignmentConsumer` metadata.
+`OPS-AGENT-012.sh` proves target-local worker pools and slot leases. It starts
+two `torque-agent nats worker --delivery jetstream` processes on the same
+target subject, queue/durable consumer, and assignment ledger, publishes a
+heartbeat with `workerSlots`, runs one stack apply with
+`runner.fanout.targetConcurrency`, stops the worker named in the first receipt,
+then runs a second stack apply. The second run must succeed through the
+surviving worker, and both receipts must include `workerId`, `queue`,
+`assignmentConsumer`, and slot lease metadata.
 
 ```bash
 scripts/e2e/ops/OPS-AGENT-012.sh \

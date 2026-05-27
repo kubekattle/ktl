@@ -26,6 +26,12 @@ type Config struct {
 	RunID              string
 	NodeID             string
 	PlanDigest         string
+	SlotLeaseID        string
+	SlotLeaseTargetID  string
+	SlotLeaseIndex     int
+	SlotLeaseSlots     int
+	SlotLeaseTTL       string
+	SlotLeaseExpiresAt string
 	Requester          Requester
 	Dialer             RequestDialer
 }
@@ -91,6 +97,12 @@ func New(config Config) (*Client, error) {
 			RunID:              strings.TrimSpace(config.RunID),
 			NodeID:             strings.TrimSpace(config.NodeID),
 			PlanDigest:         strings.TrimSpace(config.PlanDigest),
+			SlotLeaseID:        strings.TrimSpace(config.SlotLeaseID),
+			SlotLeaseTargetID:  strings.TrimSpace(config.SlotLeaseTargetID),
+			SlotLeaseIndex:     config.SlotLeaseIndex,
+			SlotLeaseSlots:     config.SlotLeaseSlots,
+			SlotLeaseTTL:       strings.TrimSpace(config.SlotLeaseTTL),
+			SlotLeaseExpiresAt: strings.TrimSpace(config.SlotLeaseExpiresAt),
 		},
 		redactor:  transport.NewRedactor(redactValues),
 		requester: config.Requester,

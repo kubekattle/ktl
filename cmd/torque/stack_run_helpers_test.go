@@ -41,6 +41,11 @@ func TestResolveRunnerFromFlags_NoChanges(t *testing.T) {
 			MinSucceededPercent: 100,
 			OnPartialFailure:    stack.RunnerFanoutOnBlock,
 			Delivery:            stack.RunnerFanoutDeliveryRequestReply,
+			TargetConcurrency: stack.RunnerFanoutTargetConcurrencyResolved{
+				RequireAvailable: true,
+				MaxPerTarget:     1,
+				LeaseTTL:         30 * time.Second,
+			},
 			Retry: stack.RunnerFanoutRetryResolved{
 				MaxDeliver:  3,
 				AckWait:     30 * time.Second,
@@ -104,6 +109,11 @@ func TestResolveRunnerFromFlags_Overrides(t *testing.T) {
 			MinSucceededPercent: 100,
 			OnPartialFailure:    stack.RunnerFanoutOnBlock,
 			Delivery:            stack.RunnerFanoutDeliveryRequestReply,
+			TargetConcurrency: stack.RunnerFanoutTargetConcurrencyResolved{
+				RequireAvailable: true,
+				MaxPerTarget:     1,
+				LeaseTTL:         30 * time.Second,
+			},
 			Retry: stack.RunnerFanoutRetryResolved{
 				MaxDeliver:  3,
 				AckWait:     30 * time.Second,

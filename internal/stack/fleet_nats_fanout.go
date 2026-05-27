@@ -44,33 +44,40 @@ type fleetNATSFanoutReceipt struct {
 }
 
 type fleetNATSFanoutPolicy struct {
-	MaxParallel         int                       `json:"maxParallel"`
-	MaxFailed           int                       `json:"maxFailed"`
-	MinSucceededPercent int                       `json:"minSucceededPercent"`
-	OnPartialFailure    string                    `json:"onPartialFailure"`
-	Delivery            string                    `json:"delivery"`
-	Retry               RunnerFanoutRetryResolved `json:"retry,omitempty"`
+	MaxParallel         int                                   `json:"maxParallel"`
+	MaxFailed           int                                   `json:"maxFailed"`
+	MinSucceededPercent int                                   `json:"minSucceededPercent"`
+	OnPartialFailure    string                                `json:"onPartialFailure"`
+	Delivery            string                                `json:"delivery"`
+	TargetConcurrency   RunnerFanoutTargetConcurrencyResolved `json:"targetConcurrency,omitempty"`
+	Retry               RunnerFanoutRetryResolved             `json:"retry,omitempty"`
 }
 
 type fleetNATSFanoutSummary struct {
-	TargetCount      int `json:"targetCount"`
-	Succeeded        int `json:"succeeded"`
-	Failed           int `json:"failed,omitempty"`
-	Blocked          int `json:"blocked,omitempty"`
-	TimedOut         int `json:"timedOut,omitempty"`
-	MissingReceipts  int `json:"missingReceipts,omitempty"`
-	SucceededPercent int `json:"succeededPercent"`
-	NonSucceeded     int `json:"nonSucceeded,omitempty"`
-	PolicyViolations int `json:"policyViolations,omitempty"`
+	TargetCount          int `json:"targetCount"`
+	Succeeded            int `json:"succeeded"`
+	Failed               int `json:"failed,omitempty"`
+	Blocked              int `json:"blocked,omitempty"`
+	TimedOut             int `json:"timedOut,omitempty"`
+	MissingReceipts      int `json:"missingReceipts,omitempty"`
+	WorkerSlotsTotal     int `json:"workerSlotsTotal,omitempty"`
+	WorkerSlotsAvailable int `json:"workerSlotsAvailable,omitempty"`
+	SlotLeases           int `json:"slotLeases,omitempty"`
+	SucceededPercent     int `json:"succeededPercent"`
+	NonSucceeded         int `json:"nonSucceeded,omitempty"`
+	PolicyViolations     int `json:"policyViolations,omitempty"`
 }
 
 type fleetNATSFanoutTargetView struct {
-	AgentID          string            `json:"agentId"`
-	TargetID         string            `json:"targetId"`
-	Hostname         string            `json:"hostname,omitempty"`
-	WorkerSubject    string            `json:"workerSubject"`
-	CapabilityDigest string            `json:"capabilityDigest,omitempty"`
-	Labels           map[string]string `json:"labels,omitempty"`
+	AgentID              string              `json:"agentId"`
+	TargetID             string              `json:"targetId"`
+	Hostname             string              `json:"hostname,omitempty"`
+	WorkerSubject        string              `json:"workerSubject"`
+	CapabilityDigest     string              `json:"capabilityDigest,omitempty"`
+	WorkerSlots          heartbeat.Slots     `json:"workerSlots,omitempty"`
+	WorkerSlotsAvailable int                 `json:"workerSlotsAvailable,omitempty"`
+	SlotLease            *fleetNATSSlotLease `json:"slotLease,omitempty"`
+	Labels               map[string]string   `json:"labels,omitempty"`
 }
 
 type fleetNATSFanoutResult struct {
@@ -84,6 +91,7 @@ type fleetNATSFanoutResult struct {
 	AssignmentEnvelope *natstransport.CommandAssignmentEnvelope `json:"assignmentEnvelope,omitempty"`
 	AssignmentOffset   *natstransport.StreamOffset              `json:"assignmentOffset,omitempty"`
 	ReceiptOffset      *natstransport.StreamOffset              `json:"receiptOffset,omitempty"`
+	SlotLease          *fleetNATSSlotLease                      `json:"slotLease,omitempty"`
 	Receipt            transport.OperationResult                `json:"receipt"`
 }
 
@@ -93,7 +101,22 @@ type fleetNATSFanoutTarget struct {
 	hostname         string
 	workerSubject    string
 	capabilityDigest string
+	workerSlots      heartbeat.Slots
+	slotLease        *fleetNATSSlotLease
 	labels           map[string]string
+}
+
+type fleetNATSSlotLease struct {
+	ID                   string `json:"id"`
+	TargetID             string `json:"targetId"`
+	SlotIndex            int    `json:"slotIndex"`
+	Slots                int    `json:"slots"`
+	MaxPerTarget         int    `json:"maxPerTarget"`
+	WorkerSlotsTotal     int    `json:"workerSlotsTotal"`
+	WorkerSlotsInUse     int    `json:"workerSlotsInUse"`
+	WorkerSlotsAvailable int    `json:"workerSlotsAvailable"`
+	LeaseTTL             string `json:"leaseTtl"`
+	ExpiresAt            string `json:"expiresAt"`
 }
 
 type fleetNATSAssignmentSigner struct {
@@ -135,6 +158,12 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 	targets, err := e.fleetNATSFanoutTargets(ctx, spec.RequiredCap)
 	if err != nil {
 		receipt.Status = "failed"
+		receipt.Reason = err.Error()
+		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
+	}
+	targets, err = e.assignFleetNATSSlotLeases(policy, receipt.RunID, receipt.NodeID, targets)
+	if err != nil {
+		receipt.Status = "blocked"
 		receipt.Reason = err.Error()
 		return receipt, e.fleetNATSFanoutOperationResult(started, receipt)
 	}
@@ -203,6 +232,12 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 					RunID:              strings.TrimSpace(spec.RunID),
 					NodeID:             strings.TrimSpace(spec.NodeID),
 					PlanDigest:         strings.TrimSpace(spec.PlanDigest),
+					SlotLeaseID:        target.slotLeaseID(),
+					SlotLeaseTargetID:  target.slotLeaseTargetID(),
+					SlotLeaseIndex:     target.slotLeaseIndex(),
+					SlotLeaseSlots:     target.slotLeaseSlots(),
+					SlotLeaseTTL:       target.slotLeaseTTL(),
+					SlotLeaseExpiresAt: target.slotLeaseExpiresAt(),
 					Requester:          requester,
 				})
 				if clientErr != nil {
@@ -337,6 +372,12 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			RunID:              assignmentRunID,
 			NodeID:             strings.TrimSpace(spec.NodeID),
 			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
+			SlotLeaseID:        target.slotLeaseID(),
+			SlotLeaseTargetID:  target.slotLeaseTargetID(),
+			SlotLeaseIndex:     target.slotLeaseIndex(),
+			SlotLeaseSlots:     target.slotLeaseSlots(),
+			SlotLeaseTTL:       target.slotLeaseTTL(),
+			SlotLeaseExpiresAt: target.slotLeaseExpiresAt(),
 		})
 		assignments[idx] = assignment
 		if stored, ok := storedCheckpoints[assignment.AssignmentID]; ok {
@@ -501,6 +542,11 @@ func (e *customNodeExecutor) fleetNATSFanoutPolicy() fleetNATSFanoutPolicy {
 		MinSucceededPercent: 100,
 		OnPartialFailure:    RunnerFanoutOnBlock,
 		Delivery:            RunnerFanoutDeliveryRequestReply,
+		TargetConcurrency: RunnerFanoutTargetConcurrencyResolved{
+			RequireAvailable: true,
+			MaxPerTarget:     1,
+			LeaseTTL:         30 * time.Second,
+		},
 		Retry: RunnerFanoutRetryResolved{
 			MaxDeliver:  3,
 			AckWait:     30 * time.Second,
@@ -531,6 +577,13 @@ func (e *customNodeExecutor) fleetNATSFanoutPolicy() fleetNATSFanoutPolicy {
 	}
 	if policy.Delivery != RunnerFanoutDeliveryJetStream {
 		policy.Delivery = RunnerFanoutDeliveryRequestReply
+	}
+	policy.TargetConcurrency = resolved.TargetConcurrency
+	if policy.TargetConcurrency.MaxPerTarget < 1 {
+		policy.TargetConcurrency.MaxPerTarget = 1
+	}
+	if policy.TargetConcurrency.LeaseTTL <= 0 {
+		policy.TargetConcurrency.LeaseTTL = 30 * time.Second
 	}
 	if resolved.Retry.MaxDeliver > 0 {
 		policy.Retry.MaxDeliver = resolved.Retry.MaxDeliver
@@ -584,6 +637,7 @@ func (e *customNodeExecutor) fleetNATSFanoutTargets(ctx context.Context, require
 			hostname:         strings.TrimSpace(agent.Hostname),
 			workerSubject:    fleetNATSAssignmentSubject(readiness.Tenant, targetID),
 			capabilityDigest: strings.TrimSpace(agent.CapabilityDigest),
+			workerSlots:      targetWorkerSlots(agent),
 			labels:           cloneStringMap(agent.Labels),
 		})
 	}
@@ -595,6 +649,47 @@ func (e *customNodeExecutor) fleetNATSFanoutTargets(ctx context.Context, require
 	})
 	if len(out) == 0 {
 		return nil, fmt.Errorf("no ready capable agents matched runner.readiness.selector")
+	}
+	return out, nil
+}
+
+func (e *customNodeExecutor) assignFleetNATSSlotLeases(policy fleetNATSFanoutPolicy, runID string, nodeID string, targets []fleetNATSFanoutTarget) ([]fleetNATSFanoutTarget, error) {
+	if !policy.TargetConcurrency.Enabled {
+		return targets, nil
+	}
+	out := append([]fleetNATSFanoutTarget(nil), targets...)
+	expiresAt := time.Now().UTC().Add(policy.TargetConcurrency.LeaseTTL).Format(time.RFC3339Nano)
+	for idx := range out {
+		target := &out[idx]
+		capacity, available := targetWorkerSlotCapacity(target.workerSlots, policy.TargetConcurrency.MaxPerTarget)
+		if policy.TargetConcurrency.RequireAvailable && target.workerSlots.Total <= 0 {
+			return nil, fmt.Errorf("target %s did not advertise workerSlots", target.targetID)
+		}
+		if policy.TargetConcurrency.RequireAvailable && available < 1 {
+			return nil, fmt.Errorf("target %s has no available worker slots (total=%d inUse=%d maxPerTarget=%d)", target.targetID, target.workerSlots.Total, target.workerSlots.InUse, policy.TargetConcurrency.MaxPerTarget)
+		}
+		if capacity < 1 {
+			capacity = policy.TargetConcurrency.MaxPerTarget
+		}
+		if available < 1 {
+			available = 1
+		}
+		lease := fleetNATSSlotLease{
+			ID:                   fleetNATSSlotLeaseID(runID, nodeID, target.targetID),
+			TargetID:             strings.TrimSpace(target.targetID),
+			SlotIndex:            1,
+			Slots:                1,
+			MaxPerTarget:         policy.TargetConcurrency.MaxPerTarget,
+			WorkerSlotsTotal:     target.workerSlots.Total,
+			WorkerSlotsInUse:     target.workerSlots.InUse,
+			WorkerSlotsAvailable: available,
+			LeaseTTL:             policy.TargetConcurrency.LeaseTTL.String(),
+			ExpiresAt:            expiresAt,
+		}
+		if lease.WorkerSlotsTotal <= 0 {
+			lease.WorkerSlotsTotal = capacity
+		}
+		target.slotLease = &lease
 	}
 	return out, nil
 }
@@ -777,6 +872,13 @@ func (e *customNodeExecutor) finalizeFleetNATSFanoutReceipt(receipt *fleetNATSFa
 	if receipt == nil {
 		return
 	}
+	for _, target := range receipt.Targets {
+		receipt.Summary.WorkerSlotsTotal += target.WorkerSlots.Total
+		receipt.Summary.WorkerSlotsAvailable += target.WorkerSlotsAvailable
+		if target.SlotLease != nil {
+			receipt.Summary.SlotLeases++
+		}
+	}
 	for _, result := range receipt.Results {
 		status := strings.ToLower(strings.TrimSpace(result.Status))
 		if nodeStepSucceeded(status) {
@@ -846,6 +948,10 @@ func (e *customNodeExecutor) fleetNATSFanoutOperationResult(started time.Time, r
 		"retryMaxDeliver":     strconv.Itoa(receipt.Policy.Retry.MaxDeliver),
 		"retryAckWait":        receipt.Policy.Retry.AckWait.String(),
 		"retryOnExhausted":    receipt.Policy.Retry.OnExhausted,
+		"targetConcurrency":   strconv.FormatBool(receipt.Policy.TargetConcurrency.Enabled),
+		"targetMaxPerTarget":  strconv.Itoa(receipt.Policy.TargetConcurrency.MaxPerTarget),
+		"targetLeaseTTL":      receipt.Policy.TargetConcurrency.LeaseTTL.String(),
+		"slotLeases":          strconv.Itoa(receipt.Summary.SlotLeases),
 	}
 	if len(receipt.Policy.Retry.Backoff) > 0 {
 		metadata["retryBackoff"] = joinDurations(receipt.Policy.Retry.Backoff)
@@ -910,12 +1016,15 @@ func (e *customNodeExecutor) recordHostCommandFanoutReceipts(node *runNode, phas
 
 func (t fleetNATSFanoutTarget) view() fleetNATSFanoutTargetView {
 	return fleetNATSFanoutTargetView{
-		AgentID:          strings.TrimSpace(t.agentID),
-		TargetID:         strings.TrimSpace(t.targetID),
-		Hostname:         strings.TrimSpace(t.hostname),
-		WorkerSubject:    strings.TrimSpace(t.workerSubject),
-		CapabilityDigest: strings.TrimSpace(t.capabilityDigest),
-		Labels:           cloneStringMap(t.labels),
+		AgentID:              strings.TrimSpace(t.agentID),
+		TargetID:             strings.TrimSpace(t.targetID),
+		Hostname:             strings.TrimSpace(t.hostname),
+		WorkerSubject:        strings.TrimSpace(t.workerSubject),
+		CapabilityDigest:     strings.TrimSpace(t.capabilityDigest),
+		WorkerSlots:          t.workerSlots,
+		WorkerSlotsAvailable: targetWorkerSlotsAvailable(t.workerSlots),
+		SlotLease:            t.slotLeaseCopy(),
+		Labels:               cloneStringMap(t.labels),
 	}
 }
 
@@ -945,8 +1054,110 @@ func (t fleetNATSFanoutTarget) resultWithEvidence(receipt transport.OperationRes
 		AssignmentEnvelope: envelopePtr,
 		AssignmentOffset:   assignmentOffset,
 		ReceiptOffset:      receiptOffset,
+		SlotLease:          t.slotLeaseCopy(),
 		Receipt:            receipt,
 	}
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseCopy() *fleetNATSSlotLease {
+	if t.slotLease == nil {
+		return nil
+	}
+	copy := *t.slotLease
+	return &copy
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseID() string {
+	if t.slotLease == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.slotLease.ID)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseTargetID() string {
+	if t.slotLease == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.slotLease.TargetID)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseIndex() int {
+	if t.slotLease == nil {
+		return 0
+	}
+	return t.slotLease.SlotIndex
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseSlots() int {
+	if t.slotLease == nil {
+		return 0
+	}
+	return t.slotLease.Slots
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseTTL() string {
+	if t.slotLease == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.slotLease.LeaseTTL)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseExpiresAt() string {
+	if t.slotLease == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.slotLease.ExpiresAt)
+}
+
+func targetWorkerSlots(agent heartbeat.AgentStatus) heartbeat.Slots {
+	slots := agent.WorkerSlots
+	if slots.Total == 0 && slots.InUse == 0 {
+		slots = agent.Slots
+	}
+	return heartbeat.Slots{
+		Total: slots.Total,
+		InUse: slots.InUse,
+	}
+}
+
+func targetWorkerSlotsAvailable(slots heartbeat.Slots) int {
+	_, available := targetWorkerSlotCapacity(slots, 0)
+	return available
+}
+
+func targetWorkerSlotCapacity(slots heartbeat.Slots, maxPerTarget int) (int, int) {
+	total := slots.Total
+	if total < 0 {
+		total = 0
+	}
+	inUse := slots.InUse
+	if inUse < 0 {
+		inUse = 0
+	}
+	capacity := total
+	if maxPerTarget > 0 && (capacity == 0 || maxPerTarget < capacity) {
+		capacity = maxPerTarget
+	}
+	if capacity < 0 {
+		capacity = 0
+	}
+	if inUse > capacity {
+		inUse = capacity
+	}
+	available := capacity - inUse
+	if available < 0 {
+		available = 0
+	}
+	return capacity, available
+}
+
+func fleetNATSSlotLeaseID(runID string, nodeID string, targetID string) string {
+	return digestString(strings.Join([]string{
+		"fleet-nats-slot-lease/v1",
+		strings.TrimSpace(runID),
+		strings.TrimSpace(nodeID),
+		strings.TrimSpace(targetID),
+	}, "\x00"))
 }
 
 func fleetNATSAssignmentSubject(tenant string, targetID string) string {

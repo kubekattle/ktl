@@ -56,6 +56,7 @@ type Heartbeat struct {
 	Capabilities     []string          `json:"capabilities,omitempty"`
 	CapabilityDigest string            `json:"capabilityDigest,omitempty"`
 	Slots            Slots             `json:"slots,omitempty"`
+	WorkerSlots      Slots             `json:"workerSlots,omitempty"`
 	Offsets          Offsets           `json:"offsets,omitempty"`
 	Resources        Resources         `json:"resources,omitempty"`
 	State            string            `json:"state"`
@@ -72,6 +73,7 @@ type Options struct {
 	Capabilities     []string
 	CapabilityDigest string
 	Slots            Slots
+	WorkerSlots      Slots
 	Offsets          Offsets
 	Resources        Resources
 	State            string
@@ -92,6 +94,11 @@ func New(opts Options) Heartbeat {
 	if targetID == "" {
 		targetID = agentID
 	}
+	slots := cleanSlots(opts.Slots)
+	workerSlots := cleanSlots(opts.WorkerSlots)
+	if workerSlots.Total == 0 && workerSlots.InUse == 0 {
+		workerSlots = slots
+	}
 	return Heartbeat{
 		APIVersion:       APIVersion,
 		Kind:             Kind,
@@ -103,7 +110,8 @@ func New(opts Options) Heartbeat {
 		Labels:           cleanLabels(opts.Labels),
 		Capabilities:     cleanList(opts.Capabilities),
 		CapabilityDigest: strings.TrimSpace(opts.CapabilityDigest),
-		Slots:            opts.Slots,
+		Slots:            slots,
+		WorkerSlots:      workerSlots,
 		Offsets:          cleanOffsets(opts.Offsets),
 		Resources:        opts.Resources,
 		State:            state,
@@ -126,6 +134,11 @@ func Parse(raw []byte) (Heartbeat, error) {
 	heartbeat.Labels = cleanLabels(heartbeat.Labels)
 	heartbeat.Capabilities = cleanList(heartbeat.Capabilities)
 	heartbeat.CapabilityDigest = strings.TrimSpace(heartbeat.CapabilityDigest)
+	heartbeat.Slots = cleanSlots(heartbeat.Slots)
+	heartbeat.WorkerSlots = cleanSlots(heartbeat.WorkerSlots)
+	if heartbeat.WorkerSlots.Total == 0 && heartbeat.WorkerSlots.InUse == 0 {
+		heartbeat.WorkerSlots = heartbeat.Slots
+	}
 	heartbeat.Offsets = cleanOffsets(heartbeat.Offsets)
 	heartbeat.State = strings.ToLower(strings.TrimSpace(heartbeat.State))
 	heartbeat.ObservedAt = strings.TrimSpace(heartbeat.ObservedAt)
@@ -147,6 +160,12 @@ func (h Heartbeat) Validate() error {
 	}
 	if strings.TrimSpace(h.State) == "" {
 		return fmt.Errorf("heartbeat state is required")
+	}
+	if err := validateSlots("slots", h.Slots); err != nil {
+		return err
+	}
+	if err := validateSlots("workerSlots", h.WorkerSlots); err != nil {
+		return err
 	}
 	switch strings.ToLower(strings.TrimSpace(h.State)) {
 	case StateReady, StateDegraded, StateDraining, StateOffline:
@@ -255,4 +274,27 @@ func cleanOffsets(offsets Offsets) Offsets {
 		Assignment: strings.TrimSpace(offsets.Assignment),
 		Receipt:    strings.TrimSpace(offsets.Receipt),
 	}
+}
+
+func cleanSlots(slots Slots) Slots {
+	if slots.Total < 0 {
+		slots.Total = 0
+	}
+	if slots.InUse < 0 {
+		slots.InUse = 0
+	}
+	if slots.Total > 0 && slots.InUse > slots.Total {
+		slots.InUse = slots.Total
+	}
+	return slots
+}
+
+func validateSlots(field string, slots Slots) error {
+	if slots.Total < 0 || slots.InUse < 0 {
+		return fmt.Errorf("heartbeat %s values must not be negative", field)
+	}
+	if slots.Total > 0 && slots.InUse > slots.Total {
+		return fmt.Errorf("heartbeat %s inUse must not exceed total", field)
+	}
+	return nil
 }

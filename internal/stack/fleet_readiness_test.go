@@ -349,6 +349,10 @@ func compileFleetReadinessStack(t *testing.T, root string) *Plan {
 }
 
 func writeFleetReadinessAgent(t *testing.T, registryPath string, agentID string, state string, observedAt time.Time, capabilities ...string) {
+	writeFleetReadinessAgentWithWorkerSlots(t, registryPath, agentID, state, observedAt, heartbeat.Slots{}, capabilities...)
+}
+
+func writeFleetReadinessAgentWithWorkerSlots(t *testing.T, registryPath string, agentID string, state string, observedAt time.Time, workerSlots heartbeat.Slots, capabilities ...string) {
 	t.Helper()
 	store, err := heartbeat.NewFileStore(registryPath)
 	if err != nil {
@@ -362,6 +366,7 @@ func writeFleetReadinessAgent(t *testing.T, registryPath string, agentID string,
 		Hostname:     agentID,
 		Labels:       map[string]string{"role": "mysql"},
 		Capabilities: capabilities,
+		WorkerSlots:  workerSlots,
 		State:        state,
 		ObservedAt:   observedAt,
 	})

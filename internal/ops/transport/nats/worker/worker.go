@@ -831,6 +831,16 @@ func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, dec
 	addMetadata("assignmentTargetId", assignment.TargetID)
 	addMetadata("expectedAgentId", assignment.ExpectedAgentID)
 	addMetadata("queue", w.queue)
+	addMetadata("slotLeaseId", assignment.SlotLeaseID)
+	addMetadata("slotLeaseTargetId", assignment.SlotLeaseTargetID)
+	addMetadata("slotLeaseTtl", assignment.SlotLeaseTTL)
+	addMetadata("slotLeaseExpiresAt", assignment.SlotLeaseExpiresAt)
+	if assignment.SlotLeaseIndex > 0 {
+		metadata["slotLeaseIndex"] = strconv.Itoa(assignment.SlotLeaseIndex)
+	}
+	if assignment.SlotLeaseSlots > 0 {
+		metadata["slotLeaseSlots"] = strconv.Itoa(assignment.SlotLeaseSlots)
+	}
 	for key, value := range metadata {
 		if strings.TrimSpace(value) == "" {
 			delete(metadata, key)

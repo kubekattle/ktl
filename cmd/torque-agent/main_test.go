@@ -182,6 +182,10 @@ func TestParseNATSHeartbeatConfig(t *testing.T) {
 		"TORQUE_AGENT_CAPABILITIES":          "host.file.ensure,mysql.replication.verify",
 		"TORQUE_AGENT_DISCOVER_CAPABILITIES": "false",
 		"TORQUE_AGENT_HEARTBEAT_INTERVAL":    "1s",
+		"TORQUE_AGENT_SLOTS":                 "4",
+		"TORQUE_AGENT_IN_USE":                "1",
+		"TORQUE_AGENT_WORKER_SLOTS":          "2",
+		"TORQUE_AGENT_WORKER_IN_USE":         "1",
 	}
 	config, err := parseNATSHeartbeatConfig([]string{"--once", "--label", "zone=a", "--capability", "host.systemd.unit"}, func(key string) string {
 		return env[key]
@@ -203,6 +207,9 @@ func TestParseNATSHeartbeatConfig(t *testing.T) {
 	}
 	if config.Options.CapabilityDigest == "" {
 		t.Fatalf("capability digest was not set")
+	}
+	if config.Options.Slots.Total != 4 || config.Options.Slots.InUse != 1 || config.Options.WorkerSlots.Total != 2 || config.Options.WorkerSlots.InUse != 1 {
+		t.Fatalf("slots not parsed: slots=%#v workerSlots=%#v", config.Options.Slots, config.Options.WorkerSlots)
 	}
 }
 

@@ -203,7 +203,8 @@ torque-agent nats heartbeat \
   --nats-url nats://127.0.0.1:4222 \
   --tenant lab \
   --agent-id host-141 \
-  --label role=mysql
+  --label role=mysql \
+  --worker-slots 2
 
 torque ops agent status \
   --nats-url nats://127.0.0.1:4222 \
@@ -221,7 +222,9 @@ torque-agent nats heartbeat \
   --jetstream \
   --tenant lab \
   --agent-id host-141 \
-  --label role=mysql
+  --label role=mysql \
+  --worker-slots 2 \
+  --worker-in-use 0
 
 torque ops agent registry compact \
   --nats-url nats://127.0.0.1:4222 \
@@ -257,9 +260,11 @@ keep a local SQLite assignment ledger, keyed by stable `assignmentId`, so a
 redelivered assignment replays the stored receipt instead of running the command
 again. With `--queue mysql-target-pool`, several local worker processes can
 share one durable consumer and ledger for the same target; receipts identify
-the exact `workerId` that executed or blocked the work. Add `runner.fanout.retry`
-to bound transient failures and force dead-letter evidence when the retry budget
-is exhausted. Set
+the exact `workerId` that executed or blocked the work. Add
+`runner.fanout.targetConcurrency` to require advertised `workerSlots`, cap
+per-target local concurrency, and attach a slot lease to each assignment and
+receipt. Add `runner.fanout.retry` to bound transient failures and force
+dead-letter evidence when the retry budget is exhausted. Set
 `TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` for stack-side JetStream signing, then run
 workers with `--verify-assignments --trusted-issuer-key` so agents reject
 unsigned or mismatched broker messages before execution. Stack apply also
@@ -293,6 +298,11 @@ runner:
     maxFailed: 5
     minSucceededPercent: 95
     onPartialFailure: block
+    targetConcurrency:
+      enabled: true
+      requireAvailable: true
+      maxPerTarget: 2
+      leaseTTL: 30s
     retry:
       maxDeliver: 3
       ackWait: 30s
