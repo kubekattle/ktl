@@ -182,6 +182,39 @@ torque-agent nats worker \
   --capability host.command.run
 ```
 
+## NATS Firecracker Kafka and RabbitMQ labs
+
+Run the real lab harness when you need a complete multi-node data-service
+proof over NATS transport. The harness starts NATS and two
+`torque-agent nats worker` processes on the lab host, then applies the Kafka
+and RabbitMQ stackfiles through `transport: nats`. Use `--no-cleanup` to leave
+both clusters running side by side.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-KAFKA-RABBITMQ-001.sh \
+  --destroy-existing \
+  --evidence-root /tmp/torque-ops-e2e \
+  --no-cleanup
+```
+
+Direct stack execution uses the same subjects and NATS URL:
+
+```bash
+TORQUE_NATS_URL=nats://127.0.0.1:4222 \
+TORQUE_KAFKA_NATS_LAB_SUBJECT=torque.lab.kafka \
+torque stack apply \
+  --config ./testdata/stack/e2e/26-firecracker-kafka-nats-cluster \
+  --yes
+
+TORQUE_NATS_URL=nats://127.0.0.1:4222 \
+TORQUE_RABBITMQ_NATS_LAB_SUBJECT=torque.lab.rabbitmq \
+torque stack apply \
+  --config ./testdata/stack/e2e/27-firecracker-rabbitmq-nats-cluster \
+  --yes
+```
+
 ## Agent capability report
 
 `torque-agent capabilities report` observes the local host and emits the
