@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -4487,6 +4488,9 @@ nodes:
 	if result.SlotLease.Renewals < 1 || result.SlotLease.RenewedAt == "" {
 		t.Fatalf("result slot lease was not renewed: %#v", result.SlotLease)
 	}
+	if result.SlotLease.RenewalOwner != "worker" || result.SlotLease.ReleaseOwner != "worker" || result.SlotLease.WorkerRenewals != result.SlotLease.Renewals || result.SlotLease.WorkerReleasedAt == "" {
+		t.Fatalf("result slot lease must use worker-owned final evidence: %#v", result.SlotLease)
+	}
 	metadata := result.Receipt.Metadata
 	if metadata["slotLeaseId"] != result.SlotLease.ID || metadata["slotLeaseTargetId"] != agentID || metadata["slotLeaseIndex"] != "1" || metadata["slotLeaseSlots"] != "1" {
 		t.Fatalf("receipt slot lease metadata = %#v, lease=%#v", metadata, result.SlotLease)
@@ -4512,6 +4516,46 @@ nodes:
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("worker did not stop")
+	}
+}
+
+func TestFleetNATSSlotLeaseReconcilesWorkerReceiptMetadata(t *testing.T) {
+	lease := &fleetNATSSlotLease{
+		ID:                  "lease-worker",
+		TargetID:            "host/mysql-slot",
+		Status:              slotledger.StatusHeld,
+		RenewedAt:           "2026-05-27T10:00:01Z",
+		Renewals:            2,
+		RenewalOwner:        "controller-backup",
+		ControllerRenewedAt: "2026-05-27T10:00:01Z",
+		ControllerRenewals:  2,
+		releaseToken:        "raw-token",
+		renewalMu:           &sync.Mutex{},
+	}
+	changed := lease.applyWorkerReceiptMetadata(map[string]string{
+		"slotLeaseRenewedBy":        "worker",
+		"slotLeaseWorkerRenewals":   "3",
+		"slotLeaseWorkerRenewedAt":  "2026-05-27T10:00:03Z",
+		"slotLeaseWorkerReleased":   "true",
+		"slotLeaseWorkerReleasedAt": "2026-05-27T10:00:04Z",
+	})
+	if !changed {
+		t.Fatal("applyWorkerReceiptMetadata changed = false")
+	}
+	if lease.RenewalOwner != "worker" || lease.ReleaseOwner != "worker" {
+		t.Fatalf("lease owners = renewal %q release %q", lease.RenewalOwner, lease.ReleaseOwner)
+	}
+	if lease.Renewals != 3 || lease.WorkerRenewals != 3 || lease.ControllerRenewals != 2 {
+		t.Fatalf("lease renewal counters = %#v", lease)
+	}
+	if lease.RenewedAt != "2026-05-27T10:00:03Z" || lease.WorkerRenewedAt != "2026-05-27T10:00:03Z" {
+		t.Fatalf("lease renewal timestamps = %#v", lease)
+	}
+	if lease.Status != slotledger.StatusReleased || lease.ReleasedAt != "2026-05-27T10:00:04Z" || lease.WorkerReleasedAt != "2026-05-27T10:00:04Z" {
+		t.Fatalf("lease release evidence = %#v", lease)
+	}
+	if lease.releaseTokenValue() != "" {
+		t.Fatalf("release token was not cleared")
 	}
 }
 
