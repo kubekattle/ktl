@@ -729,6 +729,13 @@ torque stack delete --config ./stacks/terraform-aws-s3 --yes
 See [`docs/terraform-provider-adapter.md`](terraform-provider-adapter.md) for
 the full input contract and the opt-in AWS S3 smoke harness.
 
+Run the deterministic 100-node provider harness before certifying generator or
+adapter changes:
+
+```bash
+scripts/e2e/terraform-provider-100.sh --count 100 --concurrency 20
+```
+
 ## Stack: render a host file
 
 Use `host.file.render` for small host-side configuration files that need a

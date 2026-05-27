@@ -66,6 +66,8 @@ without hiding the important decisions in CI logs or a control-plane database.
   readiness/log/event automation.
 - Terraform/OpenTofu provider resources as typed stack modules with saved-plan
   apply/delete, state digests, redacted receipts, and audit artifacts.
+- Provider ecosystem hardening path for generated module packs, Ops cloud
+  targets, Fleet execution, and deterministic 100-node provider tests.
 - Agent-backed NATS command execution, targeted fleet fan-out, durable
   JetStream assignments/receipts, worker idempotency ledgers, capability
   reporting, worker-side capability enforcement, and identity receipts for

@@ -121,3 +121,20 @@ scripts/e2e/terraform-aws-s3.sh
 It creates a unique S3 bucket through the adapter, verifies the Torque audit
 receipts, runs `torque stack delete`, and fails if delete/verify evidence is
 missing.
+
+## 100-Node Provider Harness
+
+The deterministic scale harness does not touch a real cloud account. It creates
+100 Terraform-backed module nodes, runs apply and delete through the adapter,
+and verifies one state resource per node after apply plus zero resources after
+delete:
+
+```bash
+scripts/e2e/terraform-provider-100.sh
+```
+
+Use `--count` and `--concurrency` to change the scale and runner pressure:
+
+```bash
+scripts/e2e/terraform-provider-100.sh --count 100 --concurrency 20
+```

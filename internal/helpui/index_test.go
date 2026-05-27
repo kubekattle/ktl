@@ -141,15 +141,16 @@ func TestBuildIndex_IncludesAgentAndCacheDocs(t *testing.T) {
 
 	index := BuildIndex(root, false)
 	want := map[string]string{
-		"doc:grpc-agent":                  "-tls-client-ca",
-		"doc:enterprise-agent-operations": "mTLS-First Remote Bridge",
-		"doc:s3-build-cache":              "--s3-cache",
-		"doc:apply-simulate":              "Live Apply Twin",
-		"doc:guardian":                    "observe-only runtime proof",
-		"doc:incident":                    "incident time machine",
-		"doc:contract":                    "recurrence rules",
-		"doc:proof-graph":                 "torque proof graph",
-		"doc:fleet-control-plane":         "10,000 hosts",
+		"doc:grpc-agent":                   "-tls-client-ca",
+		"doc:enterprise-agent-operations":  "mTLS-First Remote Bridge",
+		"doc:s3-build-cache":               "--s3-cache",
+		"doc:apply-simulate":               "Live Apply Twin",
+		"doc:guardian":                     "observe-only runtime proof",
+		"doc:incident":                     "incident time machine",
+		"doc:contract":                     "recurrence rules",
+		"doc:proof-graph":                  "torque proof graph",
+		"doc:fleet-control-plane":          "10,000 hosts",
+		"doc:terraform-provider-ecosystem": "100 independent Terraform-backed module nodes",
 	}
 	for id, content := range want {
 		found := false

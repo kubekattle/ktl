@@ -313,6 +313,17 @@ func BuildIndex(root *cobra.Command, includeHidden bool) Index {
 		})
 	}
 
+	if md := strings.TrimSpace(torquedocs.TerraformProviderEcosystemSpecMD); md != "" {
+		entries = append(entries, Entry{
+			ID:       "doc:terraform-provider-ecosystem",
+			Kind:     "doc",
+			Title:    "Terraform Provider Ecosystem",
+			Subtitle: "Generated provider module packs, Ops cloud targets, Fleet execution, and 100-node conformance",
+			Content:  md,
+			Tags:     []string{"doc", "terraform", "opentofu", "provider", "module", "ops", "fleet", "cloud", "schema", "conformance", "evidence"},
+		})
+	}
+
 	if md := strings.TrimSpace(torquedocs.EnterpriseAgentOperationsMD); md != "" {
 		entries = append(entries, Entry{
 			ID:       "doc:enterprise-agent-operations",
