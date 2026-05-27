@@ -43,6 +43,11 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 							RequireAvailable: pbool(true),
 							MaxPerTarget:     pint(2),
 							LeaseTTL:         pduration(45 * time.Second),
+							Ledger: RunnerFanoutTargetSlotLedger{
+								Enabled:   pbool(true),
+								Store:     "file",
+								StorePath: "/tmp/target-slots.sqlite",
+							},
 						},
 						Retry: RunnerFanoutRetry{
 							MaxDeliver:  pint(4),
@@ -98,6 +103,9 @@ func TestResolveRunnerConfig_ProfileOverridesBase(t *testing.T) {
 	}
 	if !got.Fanout.TargetConcurrency.Enabled || !got.Fanout.TargetConcurrency.RequireAvailable || got.Fanout.TargetConcurrency.MaxPerTarget != 2 || got.Fanout.TargetConcurrency.LeaseTTL != 45*time.Second {
 		t.Fatalf("fanout target concurrency = %#v", got.Fanout.TargetConcurrency)
+	}
+	if !got.Fanout.TargetConcurrency.Ledger.Enabled || got.Fanout.TargetConcurrency.Ledger.Store != "file" || got.Fanout.TargetConcurrency.Ledger.StorePath != "/tmp/target-slots.sqlite" {
+		t.Fatalf("fanout target slot ledger = %#v", got.Fanout.TargetConcurrency.Ledger)
 	}
 	if got.Fanout.Retry.MaxDeliver != 4 || got.Fanout.Retry.AckWait != 15*time.Second || len(got.Fanout.Retry.Backoff) != 2 || got.Fanout.Retry.OnExhausted != RunnerFanoutRetryOnBlock {
 		t.Fatalf("fanout retry = %#v", got.Fanout.Retry)

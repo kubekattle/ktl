@@ -16,13 +16,14 @@ Options:
   --no-cleanup           Keep local scratch for debugging.
   -h, --help             Show this help.
 
-OPS-AGENT-012 proves target-local worker pools and slot leases: two JetStream
-workers share one target subject, one queue/durable consumer, and one
-assignment ledger. The heartbeat advertises workerSlots, stack fan-out requires
-available target capacity, and receipts must carry slot lease metadata. The
-first stack apply records which worker executed the assignment. That worker is
-then stopped, and a second stack apply must succeed through the surviving
-worker without using NATS queue groups as fleet broadcast.
+OPS-AGENT-012 proves target-local worker pools and durable slot leases: two
+JetStream workers share one target subject, one queue/durable consumer, and one
+assignment ledger. The heartbeat advertises workerSlots, stack fan-out reserves
+a durable target slot, receipts carry slot lease metadata, and the slot ledger
+must block a concurrent reservation, reclaim an expired reservation, and record
+released leases. The first stack apply records which worker executed the
+assignment. That worker is then stopped, and a second stack apply must succeed
+through the surviving worker without using NATS queue groups as fleet broadcast.
 EOF
 }
 
@@ -71,6 +72,7 @@ scratch_root="$(mktemp -d "${TMPDIR:-/tmp}/torque-ops-agent-012.XXXXXX")"
 stack_dir="${scratch_root}/stack"
 registry_path="${scratch_root}/agent-registry.json"
 marker="${scratch_root}/target-local-pool-marker.txt"
+slot_ledger_path="${scratch_root}/target-slot-ledger.sqlite"
 nats_pid=""
 nats_url="${external_nats_url}"
 worker_a_pid=""
@@ -206,6 +208,10 @@ runner:
       requireAvailable: true
       maxPerTarget: 2
       leaseTTL: 20s
+      ledger:
+        enabled: true
+        store: file
+        storePath: "${slot_ledger_path}"
 nodes:
   - kind: host.command.run
     name: write-target-local-pool-marker
@@ -395,9 +401,96 @@ second_stack_run_id="$(query_stack_run_id)"
   >"${OPS_RUN_DIR}/verification/audit-second.json"
 second_worker_id="$(extract_worker_id "${OPS_RUN_DIR}/verification/audit-second.json")"
 
+ops_log "prove durable slot ledger blocks concurrent target reservation"
+python3 - "${slot_ledger_path}" "${target_id}" "${run_token}" <<'PY'
+import sqlite3
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+target_id = sys.argv[2]
+run_token = sys.argv[3]
+now = datetime.now(timezone.utc)
+conn = sqlite3.connect(path)
+try:
+    conn.execute(
+        """
+        INSERT INTO target_slot_leases (
+          lease_id, tenant, target_id, slot_index, slots, max_slots, holder, run_id,
+          node_id, token_digest, status, acquired_at, expires_at, released_at,
+          updated_at, store, store_key, store_scope, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            f"external-held-{run_token}",
+            "lab",
+            target_id,
+            1,
+            1,
+            1,
+            "external-controller",
+            "external-run",
+            "external-node",
+            "sha256:external-held",
+            "held",
+            now.isoformat().replace("+00:00", "Z"),
+            (now + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
+            None,
+            now.isoformat().replace("+00:00", "Z"),
+            "file",
+            f"external-held-{run_token}",
+            path,
+            "{}",
+        ),
+    )
+    conn.commit()
+finally:
+    conn.close()
+PY
+if TORQUE_NATS_URL="${nats_url}" \
+TORQUE_NATS_ASSIGNMENT_STREAM="${assignment_stream}" \
+TORQUE_NATS_RECEIPT_STREAM="${receipt_stream}" \
+  "${repo_root}/bin/torque" stack apply --config "${stack_dir}" --yes \
+  >"${OPS_RUN_DIR}/logs/apply-blocked.out" 2>"${OPS_RUN_DIR}/logs/apply-blocked.err"; then
+  ops_fail "expected stack apply to block on held target slot lease"
+fi
+blocked_stack_run_id="$(query_stack_run_id)"
+"${repo_root}/bin/torque" stack audit --config "${stack_dir}" --run-id "${blocked_stack_run_id}" --output json --include-events --include-artifacts \
+  >"${OPS_RUN_DIR}/verification/audit-blocked.json"
+
+ops_log "expire held slot lease and prove reclaim through surviving worker"
+python3 - "${slot_ledger_path}" "${run_token}" <<'PY'
+import sqlite3
+import sys
+from datetime import datetime, timedelta, timezone
+
+path = sys.argv[1]
+run_token = sys.argv[2]
+expired = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat().replace("+00:00", "Z")
+conn = sqlite3.connect(path)
+try:
+    conn.execute(
+        "UPDATE target_slot_leases SET expires_at = ?, updated_at = ? WHERE lease_id = ?",
+        (expired, expired, f"external-held-{run_token}"),
+    )
+    conn.commit()
+finally:
+    conn.close()
+PY
+TORQUE_NATS_URL="${nats_url}" \
+TORQUE_NATS_ASSIGNMENT_STREAM="${assignment_stream}" \
+TORQUE_NATS_RECEIPT_STREAM="${receipt_stream}" \
+  "${repo_root}/bin/torque" stack apply --config "${stack_dir}" --yes \
+  >"${OPS_RUN_DIR}/logs/apply-reclaim.out" 2>"${OPS_RUN_DIR}/logs/apply-reclaim.err"
+reclaim_stack_run_id="$(query_stack_run_id)"
+"${repo_root}/bin/torque" stack audit --config "${stack_dir}" --run-id "${reclaim_stack_run_id}" --output json --include-events --include-artifacts \
+  >"${OPS_RUN_DIR}/verification/audit-reclaim.json"
+reclaim_worker_id="$(extract_worker_id "${OPS_RUN_DIR}/verification/audit-reclaim.json")"
+
 ops_log "verify target-local worker pool evidence"
-python3 - "${OPS_RUN_DIR}" "${OPS_TASK_ID}" "${OPS_RUN_ID}" "${started_at}" "${nats_url}" "${event_stream}" "${assignment_stream}" "${receipt_stream}" "${marker}" "${agent_id}" "${target_id}" "${subject}" "${worker_queue}" "${worker_a_id}" "${worker_b_id}" "${first_worker_id}" "${survivor_worker_id}" "${second_worker_id}" "${first_stack_run_id}" "${second_stack_run_id}" <<'PY'
+python3 - "${OPS_RUN_DIR}" "${OPS_TASK_ID}" "${OPS_RUN_ID}" "${started_at}" "${nats_url}" "${event_stream}" "${assignment_stream}" "${receipt_stream}" "${marker}" "${agent_id}" "${target_id}" "${subject}" "${worker_queue}" "${worker_a_id}" "${worker_b_id}" "${first_worker_id}" "${survivor_worker_id}" "${second_worker_id}" "${first_stack_run_id}" "${second_stack_run_id}" "${blocked_stack_run_id}" "${reclaim_stack_run_id}" "${reclaim_worker_id}" "${slot_ledger_path}" <<'PY'
 import json
+import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -422,6 +515,10 @@ survivor_worker_id = sys.argv[17]
 second_worker_id = sys.argv[18]
 first_stack_run_id = sys.argv[19]
 second_stack_run_id = sys.argv[20]
+blocked_stack_run_id = sys.argv[21]
+reclaim_stack_run_id = sys.argv[22]
+reclaim_worker_id = sys.argv[23]
+slot_ledger_path = Path(sys.argv[24])
 
 def load(path):
     with (run_dir / path).open("r", encoding="utf-8") as f:
@@ -440,13 +537,19 @@ def fanout_result(audit):
 
 audit_first = load("verification/audit-first.json")
 audit_second = load("verification/audit-second.json")
+audit_blocked = load("verification/audit-blocked.json")
+audit_reclaim = load("verification/audit-reclaim.json")
 registry_status = load("verification/registry-status.json")
 fanout_first, result_first = fanout_result(audit_first)
 fanout_second, result_second = fanout_result(audit_second)
+fanout_blocked = artifact(audit_blocked, "host-command-fanout.json")
+fanout_reclaim, result_reclaim = fanout_result(audit_reclaim)
 receipt_first = result_first.get("receipt") or {}
 receipt_second = result_second.get("receipt") or {}
+receipt_reclaim = result_reclaim.get("receipt") or {}
 meta_first = receipt_first.get("metadata") or {}
 meta_second = receipt_second.get("metadata") or {}
+meta_reclaim = receipt_reclaim.get("metadata") or {}
 errors = []
 
 marker_count = marker.read_text(encoding="utf-8").count("target-local-pool") if marker.exists() else 0
@@ -456,9 +559,13 @@ if audit_first.get("status") != "succeeded":
     errors.append(f"first audit must succeed: {audit_first.get('status')}")
 if audit_second.get("status") != "succeeded":
     errors.append(f"second audit must succeed: {audit_second.get('status')}")
-if fanout_first.get("status") != "succeeded" or fanout_second.get("status") != "succeeded":
-    errors.append(f"fanout artifacts must succeed: first={fanout_first} second={fanout_second}")
-for label, fanout in [("first", fanout_first), ("second", fanout_second)]:
+if audit_reclaim.get("status") != "succeeded":
+    errors.append(f"reclaim audit must succeed: {audit_reclaim.get('status')}")
+if fanout_first.get("status") != "succeeded" or fanout_second.get("status") != "succeeded" or fanout_reclaim.get("status") != "succeeded":
+    errors.append(f"fanout artifacts must succeed: first={fanout_first} second={fanout_second} reclaim={fanout_reclaim}")
+if fanout_blocked.get("status") != "blocked" or "slot ledger blocked" not in (fanout_blocked.get("reason") or ""):
+    errors.append(f"blocked fanout must prove held slot ledger block: {fanout_blocked}")
+for label, fanout in [("first", fanout_first), ("second", fanout_second), ("reclaim", fanout_reclaim)]:
     policy = fanout.get("policy") or {}
     target_concurrency = policy.get("targetConcurrency") or {}
     summary = fanout.get("summary") or {}
@@ -483,18 +590,27 @@ for label, fanout in [("first", fanout_first), ("second", fanout_second)]:
             errors.append(f"{label} target workerSlotsAvailable mismatch: {target}")
         if not lease.get("id") or lease.get("targetId") != target_id:
             errors.append(f"{label} target slotLease mismatch: {target}")
-if marker_count != 2:
-    errors.append(f"marker must be written exactly twice, got {marker_count}")
+        if lease.get("status") != "released" or not lease.get("releasedAt"):
+            errors.append(f"{label} target slotLease must be released: {lease}")
+        if lease.get("ledgerStore") != "file" or not lease.get("ledgerTokenDigest"):
+            errors.append(f"{label} target slotLedger evidence missing: {lease}")
+        if label == "reclaim" and lease.get("reclaimed") != 1:
+            errors.append(f"{label} target slotLease must prove one reclaimed lease: {lease}")
+if marker_count != 3:
+    errors.append(f"marker must be written exactly three times, got {marker_count}")
 if first_worker_id not in {worker_a_id, worker_b_id}:
     errors.append(f"first worker {first_worker_id} not in pool")
 if second_worker_id != survivor_worker_id:
     errors.append(f"second worker {second_worker_id} must equal survivor {survivor_worker_id}")
 if first_worker_id == second_worker_id:
     errors.append(f"second run must move to surviving worker, got {second_worker_id}")
+if reclaim_worker_id != survivor_worker_id:
+    errors.append(f"reclaim worker {reclaim_worker_id} must equal survivor {survivor_worker_id}")
 
 for label, result, receipt, metadata, expected_worker in [
     ("first", result_first, receipt_first, meta_first, first_worker_id),
     ("second", result_second, receipt_second, meta_second, second_worker_id),
+    ("reclaim", result_reclaim, receipt_reclaim, meta_reclaim, reclaim_worker_id),
 ]:
     if result.get("targetId") != target_id or result.get("agentId") != agent_id:
         errors.append(f"{label} result identity mismatch: {result}")
@@ -518,6 +634,10 @@ for label, result, receipt, metadata, expected_worker in [
     assignment = result.get("assignment") or {}
     if not lease.get("id"):
         errors.append(f"{label} missing result slotLease: {result}")
+    if lease.get("status") != "released" or not lease.get("releasedAt"):
+        errors.append(f"{label} result slotLease must be released: {lease}")
+    if label == "reclaim" and lease.get("reclaimed") != 1:
+        errors.append(f"{label} result slotLease must prove one reclaimed lease: {lease}")
     if assignment.get("slotLeaseId") != lease.get("id"):
         errors.append(f"{label} assignment slotLeaseId mismatch: assignment={assignment} lease={lease}")
     if metadata.get("slotLeaseId") != lease.get("id"):
@@ -526,6 +646,23 @@ for label, result, receipt, metadata, expected_worker in [
         errors.append(f"{label} receipt slotLeaseTargetId mismatch: {metadata}")
     if metadata.get("slotLeaseIndex") != "1" or metadata.get("slotLeaseSlots") != "1":
         errors.append(f"{label} receipt slot lease cardinality mismatch: {metadata}")
+
+if not slot_ledger_path.exists():
+    errors.append(f"slot ledger not found: {slot_ledger_path}")
+else:
+    conn = sqlite3.connect(slot_ledger_path)
+    try:
+        rows = conn.execute("SELECT status, COUNT(*) FROM target_slot_leases GROUP BY status").fetchall()
+        counts = {status: count for status, count in rows}
+        held = conn.execute("SELECT COUNT(*) FROM target_slot_leases WHERE status='held'").fetchone()[0]
+    finally:
+        conn.close()
+    if held != 0:
+        errors.append(f"slot ledger must not leave held leases, held={held}")
+    if counts.get("released", 0) < 3:
+        errors.append(f"slot ledger must record released stack leases: {counts}")
+    if counts.get("expired", 0) < 1:
+        errors.append(f"slot ledger must record one reclaimed expired lease: {counts}")
 
 status = "succeeded" if not errors else "failed"
 metadata_doc = {
@@ -539,6 +676,7 @@ metadata_doc = {
         "local.nats.jetstream",
         "stack.fleet-jetstream-target-local-worker-pool",
         "stack.fleet-jetstream-target-capacity-slot-lease",
+        "stack.fleet-jetstream-target-slot-ledger",
         "agent.assignment-idempotency-ledger",
     ],
 }
@@ -550,6 +688,7 @@ metadata_doc = {
     "runId": run_id,
     "targets": [
         {"id": "nats/local-jetstream", "type": "nats-jetstream", "url": nats_url, "streams": [event_stream, assignment_stream, receipt_stream]},
+        {"id": "slot-ledger/local-sqlite", "type": "sqlite", "path": str(slot_ledger_path)},
         {"id": f"worker/{worker_a_id}", "type": "torque-agent-nats-worker", "agentId": agent_id, "workerId": worker_a_id, "targetId": target_id, "subject": subject, "queue": worker_queue},
         {"id": f"worker/{worker_b_id}", "type": "torque-agent-nats-worker", "agentId": agent_id, "workerId": worker_b_id, "targetId": target_id, "subject": subject, "queue": worker_queue},
     ],
@@ -561,7 +700,7 @@ metadata_doc = {
     "runId": run_id,
     "decision": "accept",
     "status": status,
-    "reason": "target-local worker pool verified" if not errors else "; ".join(errors),
+    "reason": "target-local worker pool and durable slot ledger verified" if not errors else "; ".join(errors),
 }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 (run_dir / "verification" / "receipt.json").write_text(json.dumps({
     "apiVersion": "torque.dev/e2e/v1",
@@ -572,11 +711,14 @@ metadata_doc = {
     "errors": errors,
     "firstStackRunId": first_stack_run_id,
     "secondStackRunId": second_stack_run_id,
+    "blockedStackRunId": blocked_stack_run_id,
+    "reclaimStackRunId": reclaim_stack_run_id,
     "firstWorkerId": first_worker_id,
     "secondWorkerId": second_worker_id,
+    "reclaimWorkerId": reclaim_worker_id,
     "survivorWorkerId": survivor_worker_id,
     "queue": worker_queue,
-    "targetConcurrency": {"enabled": True, "maxPerTarget": 2, "leaseTTL": "20s"},
+    "targetConcurrency": {"enabled": True, "maxPerTarget": 2, "leaseTTL": "20s", "ledger": {"enabled": True, "store": "file"}},
     "markerCount": marker_count,
 }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 if errors:

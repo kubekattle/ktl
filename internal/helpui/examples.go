@@ -433,6 +433,7 @@ var curatedExamples = map[string][]string{
 		"# Apply a Terraform/OpenTofu provider resource from a saved plan\nTORQUE_TERRAFORM_BIN=tofu torque stack apply --config ./stacks/terraform-aws-s3 --yes",
 		"# Apply a host.file.ensure module over a NATS assignment worker\nTORQUE_NATS_URL=nats://127.0.0.1:4222 torque stack apply --config ./testdata/stack/e2e/24-host-file-nats-module --yes",
 		"# Apply in fleet mode after agent readiness and capability gates pass\nTORQUE_NATS_URL=nats://127.0.0.1:4222 torque stack apply --config ./stacks/mysql-fleet --yes",
+		"# Apply fleet fan-out with durable target slot leases from stack config\nTORQUE_NATS_URL=nats://127.0.0.1:4222 torque stack apply --config ./stacks/mysql-fleet-slot-ledger --yes",
 		"# Inspect topology, apply lifecycle policy gates, derive cert targets, verify, and export summary evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes",
 		"# Apply an approved lifecycle policy override with scoped approval evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes --policy-override",
 		"# Run the Oracle/APEX -> PostgreSQL local proof harness\ntorque stack apply --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --yes",

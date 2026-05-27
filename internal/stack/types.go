@@ -245,10 +245,19 @@ type RunnerFanoutRetry struct {
 }
 
 type RunnerFanoutTargetConcurrency struct {
-	Enabled          *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	RequireAvailable *bool          `yaml:"requireAvailable,omitempty" json:"requireAvailable,omitempty"`
-	MaxPerTarget     *int           `yaml:"maxPerTarget,omitempty" json:"maxPerTarget,omitempty"`
-	LeaseTTL         *time.Duration `yaml:"leaseTTL,omitempty" json:"leaseTTL,omitempty"`
+	Enabled          *bool                        `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	RequireAvailable *bool                        `yaml:"requireAvailable,omitempty" json:"requireAvailable,omitempty"`
+	MaxPerTarget     *int                         `yaml:"maxPerTarget,omitempty" json:"maxPerTarget,omitempty"`
+	LeaseTTL         *time.Duration               `yaml:"leaseTTL,omitempty" json:"leaseTTL,omitempty"`
+	Ledger           RunnerFanoutTargetSlotLedger `yaml:"ledger,omitempty" json:"ledger,omitempty"`
+}
+
+type RunnerFanoutTargetSlotLedger struct {
+	Enabled       *bool    `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Store         string   `yaml:"store,omitempty" json:"store,omitempty"`
+	StorePath     string   `yaml:"storePath,omitempty" json:"storePath,omitempty"`
+	EtcdEndpoints []string `yaml:"etcdEndpoints,omitempty" json:"etcdEndpoints,omitempty"`
+	EtcdPrefix    string   `yaml:"etcdPrefix,omitempty" json:"etcdPrefix,omitempty"`
 }
 
 type RunnerLimits struct {
@@ -312,10 +321,19 @@ type RunnerFanoutRetryResolved struct {
 }
 
 type RunnerFanoutTargetConcurrencyResolved struct {
-	Enabled          bool          `json:"enabled,omitempty"`
-	RequireAvailable bool          `json:"requireAvailable,omitempty"`
-	MaxPerTarget     int           `json:"maxPerTarget,omitempty"`
-	LeaseTTL         time.Duration `json:"leaseTTL,omitempty"`
+	Enabled          bool                                 `json:"enabled,omitempty"`
+	RequireAvailable bool                                 `json:"requireAvailable,omitempty"`
+	MaxPerTarget     int                                  `json:"maxPerTarget,omitempty"`
+	LeaseTTL         time.Duration                        `json:"leaseTTL,omitempty"`
+	Ledger           RunnerFanoutTargetSlotLedgerResolved `json:"ledger,omitempty"`
+}
+
+type RunnerFanoutTargetSlotLedgerResolved struct {
+	Enabled       bool     `json:"enabled,omitempty"`
+	Store         string   `json:"store,omitempty"`
+	StorePath     string   `json:"storePath,omitempty"`
+	EtcdEndpoints []string `json:"etcdEndpoints,omitempty"`
+	EtcdPrefix    string   `json:"etcdPrefix,omitempty"`
 }
 
 type RunnerLimitsResolved struct {

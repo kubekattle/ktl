@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ingresslabs/torque/internal/ops/slotledger"
 )
 
 const (
@@ -258,6 +260,28 @@ func mergeRunnerFanoutTargetConcurrency(dst *RunnerFanoutTargetConcurrency, src 
 	if src.LeaseTTL != nil {
 		dst.LeaseTTL = src.LeaseTTL
 	}
+	mergeRunnerFanoutTargetSlotLedger(&dst.Ledger, src.Ledger)
+}
+
+func mergeRunnerFanoutTargetSlotLedger(dst *RunnerFanoutTargetSlotLedger, src RunnerFanoutTargetSlotLedger) {
+	if dst == nil {
+		return
+	}
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+	}
+	if strings.TrimSpace(src.Store) != "" {
+		dst.Store = src.Store
+	}
+	if strings.TrimSpace(src.StorePath) != "" {
+		dst.StorePath = src.StorePath
+	}
+	if src.EtcdEndpoints != nil {
+		dst.EtcdEndpoints = append([]string(nil), src.EtcdEndpoints...)
+	}
+	if strings.TrimSpace(src.EtcdPrefix) != "" {
+		dst.EtcdPrefix = src.EtcdPrefix
+	}
 }
 
 func mergeRunnerFanoutRetry(dst *RunnerFanoutRetry, src RunnerFanoutRetry) {
@@ -366,6 +390,28 @@ func applyRunnerFanoutTargetConcurrencyResolved(dst *RunnerFanoutTargetConcurren
 	}
 	if cfg.LeaseTTL != nil {
 		dst.LeaseTTL = *cfg.LeaseTTL
+	}
+	applyRunnerFanoutTargetSlotLedgerResolved(&dst.Ledger, cfg.Ledger)
+}
+
+func applyRunnerFanoutTargetSlotLedgerResolved(dst *RunnerFanoutTargetSlotLedgerResolved, cfg RunnerFanoutTargetSlotLedger) {
+	if dst == nil {
+		return
+	}
+	if cfg.Enabled != nil {
+		dst.Enabled = *cfg.Enabled
+	}
+	if strings.TrimSpace(cfg.Store) != "" {
+		dst.Store = strings.ToLower(strings.TrimSpace(cfg.Store))
+	}
+	if strings.TrimSpace(cfg.StorePath) != "" {
+		dst.StorePath = strings.TrimSpace(cfg.StorePath)
+	}
+	if cfg.EtcdEndpoints != nil {
+		dst.EtcdEndpoints = normalizeTrimmedStringSlice(cfg.EtcdEndpoints)
+	}
+	if strings.TrimSpace(cfg.EtcdPrefix) != "" {
+		dst.EtcdPrefix = strings.TrimSpace(cfg.EtcdPrefix)
 	}
 }
 
@@ -476,6 +522,13 @@ func ValidateRunnerResolved(r RunnerResolved) error {
 	}
 	if r.Fanout.TargetConcurrency.LeaseTTL <= 0 {
 		return fmt.Errorf("runner.fanout.targetConcurrency.leaseTTL must be > 0")
+	}
+	ledgerStore := strings.ToLower(strings.TrimSpace(r.Fanout.TargetConcurrency.Ledger.Store))
+	if ledgerStore == "" {
+		ledgerStore = slotledger.StoreFile
+	}
+	if ledgerStore != slotledger.StoreFile && ledgerStore != slotledger.StoreEtcd {
+		return fmt.Errorf("runner.fanout.targetConcurrency.ledger.store must be file or etcd (got %q)", r.Fanout.TargetConcurrency.Ledger.Store)
 	}
 	if r.Fanout.Retry.MaxDeliver < 1 {
 		return fmt.Errorf("runner.fanout.retry.maxDeliver must be >= 1 (got %d)", r.Fanout.Retry.MaxDeliver)

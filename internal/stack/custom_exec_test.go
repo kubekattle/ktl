@@ -4340,6 +4340,7 @@ func TestRun_HostCommandFleetModeJetStreamFanoutAttachesSlotLease(t *testing.T) 
 	root := t.TempDir()
 	serverURL := startStackTestNATSJetStreamServer(t)
 	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	slotLedgerPath := filepath.Join(root, ".torque", "fleet", "target-slot-ledger.sqlite")
 	marker := filepath.Join(root, "fanout-jetstream-slot-marker.txt")
 	assignmentStream := "TORQUE_ASSIGNMENTS_SLOT_TEST"
 	receiptStream := "TORQUE_RECEIPTS_SLOT_TEST"
@@ -4371,6 +4372,10 @@ runner:
       requireAvailable: true
       maxPerTarget: 2
       leaseTTL: 20s
+      ledger:
+        enabled: true
+        store: file
+        storePath: %q
 nodes:
   - kind: host.command.run
     name: write-slot-marker
@@ -4378,7 +4383,7 @@ nodes:
       transport: nats
       timeout: 8s
       command: "printf 'slot-hit\n' >> %s"
-`, registryPath, marker)
+`, registryPath, slotLedgerPath, marker)
 	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
 		t.Fatalf("write stack: %v", err)
 	}
@@ -4450,12 +4455,18 @@ nodes:
 	if len(fanout.Targets) != 1 || fanout.Targets[0].WorkerSlots.Total != 2 || fanout.Targets[0].WorkerSlotsAvailable != 1 || fanout.Targets[0].SlotLease == nil {
 		t.Fatalf("fanout target slot evidence = %#v", fanout.Targets)
 	}
+	if fanout.Targets[0].SlotLease.Status != "released" || fanout.Targets[0].SlotLease.LedgerStore != "file" || fanout.Targets[0].SlotLease.LedgerTokenDigest == "" {
+		t.Fatalf("fanout target ledger evidence = %#v", fanout.Targets[0].SlotLease)
+	}
 	if len(fanout.Results) != 1 {
 		t.Fatalf("fanout results = %#v", fanout.Results)
 	}
 	result := fanout.Results[0]
 	if result.Assignment == nil || result.SlotLease == nil || result.Assignment.SlotLeaseID == "" || result.Assignment.SlotLeaseID != result.SlotLease.ID {
 		t.Fatalf("assignment slot lease missing: %#v", result)
+	}
+	if result.SlotLease.Status != "released" || result.SlotLease.ReleasedAt == "" {
+		t.Fatalf("result slot lease was not released: %#v", result.SlotLease)
 	}
 	metadata := result.Receipt.Metadata
 	if metadata["slotLeaseId"] != result.SlotLease.ID || metadata["slotLeaseTargetId"] != agentID || metadata["slotLeaseIndex"] != "1" || metadata["slotLeaseSlots"] != "1" {
@@ -4474,7 +4485,7 @@ nodes:
 
 func TestFleetNATSSlotLeaseRequiresAvailableWorkerSlot(t *testing.T) {
 	exec := &customNodeExecutor{}
-	_, err := exec.assignFleetNATSSlotLeases(fleetNATSFanoutPolicy{
+	_, err := exec.assignFleetNATSSlotLeases(context.Background(), nil, fleetNATSFanoutPolicy{
 		TargetConcurrency: RunnerFanoutTargetConcurrencyResolved{
 			Enabled:          true,
 			RequireAvailable: true,

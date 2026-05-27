@@ -262,9 +262,12 @@ again. With `--queue mysql-target-pool`, several local worker processes can
 share one durable consumer and ledger for the same target; receipts identify
 the exact `workerId` that executed or blocked the work. Add
 `runner.fanout.targetConcurrency` to require advertised `workerSlots`, cap
-per-target local concurrency, and attach a slot lease to each assignment and
-receipt. Add `runner.fanout.retry` to bound transient failures and force
-dead-letter evidence when the retry budget is exhausted. Set
+per-target local concurrency, and reserve/release a durable slot lease for each
+assignment and receipt. Use the SQLite `file` ledger for local/shared-disk
+labs, or the `etcd` ledger in fleet control plane mode so concurrent
+controllers cannot overbook one target. Add `runner.fanout.retry` to bound
+transient failures and force dead-letter evidence when the retry budget is
+exhausted. Set
 `TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` for stack-side JetStream signing, then run
 workers with `--verify-assignments --trusted-issuer-key` so agents reject
 unsigned or mismatched broker messages before execution. Stack apply also
@@ -303,6 +306,12 @@ runner:
       requireAvailable: true
       maxPerTarget: 2
       leaseTTL: 30s
+      ledger:
+        enabled: true
+        store: etcd
+        etcdEndpoints:
+          - http://127.0.0.1:2379
+        etcdPrefix: /torque
     retry:
       maxDeliver: 3
       ackWait: 30s
