@@ -48,20 +48,35 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal worker receipt: %v", err)
 	}
+	leaseToken := "lease-secret-token"
+	leaseSum := sha256.Sum256([]byte(leaseToken))
+	leaseDigest := "sha256:" + hex.EncodeToString(leaseSum[:])
 	requester := &recordingRequester{responses: [][]byte{raw}}
 	client, err := New(Config{
-		Target:             "nats-mesh://torque.lab.assign.agent.mysql",
-		Server:             "nats://127.0.0.1:4222",
-		Creds:              "/tmp/nats.creds",
-		RedactValues:       []string{"top-secret"},
-		RequiredCapability: "mysql.replication.verify",
-		NodeKind:           "mysql.replication.verify",
-		RunID:              "run-123",
-		NodeID:             "mysql.replication.verify/mysql",
-		PlanDigest:         "sha256:plan",
-		TargetID:           "host/mysql-01",
-		ExpectedAgentID:    "agent-mysql-01",
-		Requester:          requester,
+		Target:                   "nats-mesh://torque.lab.assign.agent.mysql",
+		Server:                   "nats://127.0.0.1:4222",
+		Creds:                    "/tmp/nats.creds",
+		RedactValues:             []string{"top-secret"},
+		RequiredCapability:       "mysql.replication.verify",
+		NodeKind:                 "mysql.replication.verify",
+		RunID:                    "run-123",
+		NodeID:                   "mysql.replication.verify/mysql",
+		PlanDigest:               "sha256:plan",
+		TargetID:                 "host/mysql-01",
+		ExpectedAgentID:          "agent-mysql-01",
+		SlotLeaseID:              "lease-1",
+		SlotLeaseTargetID:        "host/mysql-01",
+		SlotLeaseIndex:           1,
+		SlotLeaseSlots:           1,
+		SlotLeaseTTL:             "30s",
+		SlotLeaseExpiresAt:       time.Unix(200, 0).UTC().Format(time.RFC3339Nano),
+		SlotLeaseToken:           leaseToken,
+		SlotLeaseTokenDigest:     leaseDigest,
+		SlotLeaseRenewInterval:   "10s",
+		SlotLeaseLedgerStore:     "file",
+		SlotLeaseLedgerStorePath: "/tmp/target-slots.sqlite",
+		SlotLeaseLedgerStoreKey:  "sqlite://lab/host/mysql-01/lease-1",
+		Requester:                requester,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -91,7 +106,7 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 			t.Fatalf("command evidence missing %q: %#v", want, result.Command)
 		}
 	}
-	if strings.Contains(strings.Join(result.Command, " "), "top-secret") || strings.Contains(strings.Join(result.Command, " "), "/tmp/nats.creds") {
+	if strings.Contains(strings.Join(result.Command, " "), "top-secret") || strings.Contains(strings.Join(result.Command, " "), "/tmp/nats.creds") || strings.Contains(strings.Join(result.Command, " "), leaseToken) {
 		t.Fatalf("command evidence was not redacted: %#v", result.Command)
 	}
 	var assignment CommandAssignment
@@ -103,6 +118,12 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	}
 	if assignment.TargetID != "host/mysql-01" || assignment.ExpectedAgentID != "agent-mysql-01" || assignment.RequiredCapability != "mysql.replication.verify" || assignment.NodeKind != "mysql.replication.verify" || assignment.RunID != "run-123" || assignment.NodeID != "mysql.replication.verify/mysql" || assignment.PlanDigest != "sha256:plan" {
 		t.Fatalf("assignment metadata = %#v", assignment)
+	}
+	if assignment.SlotLeaseID != "lease-1" || assignment.SlotLeaseToken != leaseToken || assignment.SlotLeaseTokenDigest != leaseDigest || assignment.SlotLeaseRenewInterval != "10s" || assignment.SlotLeaseLedgerStore != "file" || assignment.SlotLeaseLedgerStorePath != "/tmp/target-slots.sqlite" {
+		t.Fatalf("assignment slot lease grant metadata = %#v", assignment)
+	}
+	if redacted := RedactCommandAssignmentSecrets(assignment); redacted.SlotLeaseToken != "" || assignment.SlotLeaseToken == "" {
+		t.Fatalf("redacted assignment token=%q original=%q", redacted.SlotLeaseToken, assignment.SlotLeaseToken)
 	}
 	if assignment.AssignmentID == "" || assignment.AssignmentID != DeriveAssignmentID(assignment) {
 		t.Fatalf("assignmentId = %q, want derived stable ID", assignment.AssignmentID)

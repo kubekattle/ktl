@@ -12,9 +12,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	agentcapability "github.com/ingresslabs/torque/internal/ops/agent/capability"
+	"github.com/ingresslabs/torque/internal/ops/slotledger"
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 	localtransport "github.com/ingresslabs/torque/internal/ops/transport/local"
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
@@ -611,6 +613,11 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
 		return result
 	}
+	if operation == "run" && strings.TrimSpace(assignment.Command) == "" {
+		result := w.blockedResultWithReason(operation, target, assignment, "run assignment command is required")
+		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+		return result
+	}
 	client, err := localtransport.New(localtransport.Config{
 		Target:       "local://" + w.subject,
 		ShellBinary:  w.shell,
@@ -628,12 +635,41 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	case "connect":
 		result = client.Connect(ctx)
 	case "run":
-		if strings.TrimSpace(assignment.Command) == "" {
-			result := w.blockedResultWithReason(operation, target, assignment, "run assignment command is required")
+		grant, grantMetadata, grantErr := w.openSlotLeaseGrant(ctx, assignment)
+		slotLeaseMetadata = mergeMetadata(slotLeaseMetadata, grantMetadata)
+		if grantErr != nil {
+			result := w.blockedResultWithReason(operation, target, assignment, grantErr.Error())
 			result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+			result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+				"slotLeaseDecision": "blocked",
+				"slotLeaseReason":   grantErr.Error(),
+			})
 			return result
 		}
-		result = client.Run(ctx, assignment.Command)
+		if grant != nil {
+			defer grant.close()
+			if err := grant.renew(ctx); err != nil {
+				result := w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("renew slot lease before execution: %v", err))
+				result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+				result.Metadata = mergeMetadata(result.Metadata, grant.metadata())
+				result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+					"slotLeaseDecision": "blocked",
+					"slotLeaseReason":   fmt.Sprintf("renew slot lease before execution: %v", err),
+				})
+				return result
+			}
+			execCtx, execCancel := context.WithCancel(ctx)
+			stopRenewal := grant.startRenewal(execCtx, execCancel)
+			result = client.Run(execCtx, assignment.Command)
+			stopRenewal()
+			execCancel()
+			releaseCtx, releaseCancel := context.WithTimeout(context.Background(), workerSlotLeaseReleaseTimeout(w.timeout))
+			grant.release(releaseCtx)
+			releaseCancel()
+			slotLeaseMetadata = mergeMetadata(slotLeaseMetadata, grant.metadata())
+		} else {
+			result = client.Run(ctx, assignment.Command)
+		}
 	default:
 		result := w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("unsupported assignment operation %q", operation))
 		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
@@ -655,8 +691,20 @@ func commandAssignmentHasSlotLease(assignment natstransport.CommandAssignment) b
 		strings.TrimSpace(assignment.SlotLeaseTargetID) != "" ||
 		strings.TrimSpace(assignment.SlotLeaseTTL) != "" ||
 		strings.TrimSpace(assignment.SlotLeaseExpiresAt) != "" ||
+		commandAssignmentHasSlotLeaseGrant(assignment) ||
 		assignment.SlotLeaseIndex > 0 ||
 		assignment.SlotLeaseSlots > 0
+}
+
+func commandAssignmentHasSlotLeaseGrant(assignment natstransport.CommandAssignment) bool {
+	return strings.TrimSpace(assignment.SlotLeaseToken) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseTokenDigest) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseRenewInterval) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseLedgerStore) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseLedgerStorePath) != "" ||
+		strings.TrimSpace(assignment.SlotLeaseLedgerStoreKey) != "" ||
+		len(assignment.SlotLeaseEtcdEndpoints) > 0 ||
+		strings.TrimSpace(assignment.SlotLeaseEtcdPrefix) != ""
 }
 
 func (w *Worker) validateSlotLeaseAssignment(assignment natstransport.CommandAssignment) error {
@@ -696,6 +744,297 @@ func (w *Worker) validateSlotLeaseAssignment(assignment natstransport.CommandAss
 		return fmt.Errorf("slot lease %s expired at %s", leaseID, expiresAtRaw)
 	}
 	return nil
+}
+
+type workerSlotLeaseGrant struct {
+	store         slotledger.Store
+	tenant        string
+	targetID      string
+	leaseID       string
+	token         string
+	ttl           time.Duration
+	renewInterval time.Duration
+
+	mu           sync.Mutex
+	renewals     int
+	renewedAt    string
+	renewalError string
+	released     bool
+	releasedAt   string
+	releaseError string
+}
+
+func (w *Worker) openSlotLeaseGrant(ctx context.Context, assignment natstransport.CommandAssignment) (*workerSlotLeaseGrant, map[string]string, error) {
+	if !commandAssignmentHasSlotLeaseGrant(assignment) {
+		return nil, nil, nil
+	}
+	token := strings.TrimSpace(assignment.SlotLeaseToken)
+	tokenDigest := slotledger.TokenDigest(token)
+	metadata := map[string]string{
+		"slotLeaseGrant":         "true",
+		"slotLeaseGrantRedacted": "true",
+	}
+	add := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			metadata[key] = value
+		}
+	}
+	add("slotLeaseTokenDigest", firstNonEmptyWorker(strings.TrimSpace(assignment.SlotLeaseTokenDigest), tokenDigest))
+	add("slotLeaseGrantDigest", firstNonEmptyWorker(tokenDigest, strings.TrimSpace(assignment.SlotLeaseTokenDigest)))
+	add("slotLeaseRenewInterval", assignment.SlotLeaseRenewInterval)
+	add("slotLeaseLedgerStore", assignment.SlotLeaseLedgerStore)
+	add("slotLeaseLedgerStorePath", assignment.SlotLeaseLedgerStorePath)
+	add("slotLeaseLedgerStoreKey", assignment.SlotLeaseLedgerStoreKey)
+	add("slotLeaseEtcdPrefix", assignment.SlotLeaseEtcdPrefix)
+	if len(assignment.SlotLeaseEtcdEndpoints) > 0 {
+		metadata["slotLeaseEtcdEndpoints"] = strings.Join(normalizeWorkerStringSlice(assignment.SlotLeaseEtcdEndpoints), ",")
+	}
+	if token == "" {
+		return nil, metadata, fmt.Errorf("slot lease token grant is required")
+	}
+	if expected := strings.TrimSpace(assignment.SlotLeaseTokenDigest); expected != "" && expected != tokenDigest {
+		return nil, metadata, fmt.Errorf("slot lease token digest mismatch")
+	}
+	ttl, err := time.ParseDuration(strings.TrimSpace(assignment.SlotLeaseTTL))
+	if err != nil || ttl <= 0 {
+		if err == nil {
+			err = fmt.Errorf("ttl must be > 0")
+		}
+		return nil, metadata, fmt.Errorf("parse slot lease ttl: %w", err)
+	}
+	renewInterval := defaultWorkerSlotLeaseRenewInterval(ttl)
+	if raw := strings.TrimSpace(assignment.SlotLeaseRenewInterval); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, metadata, fmt.Errorf("parse slot lease renew interval: %w", err)
+		}
+		if parsed > 0 {
+			renewInterval = parsed
+		}
+	}
+	store, storeName, err := openWorkerSlotLeaseStore(ctx, assignment)
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata["slotLeaseLedgerStore"] = storeName
+	return &workerSlotLeaseGrant{
+		store:         store,
+		tenant:        slotledger.NormalizeTenant(w.tenant),
+		targetID:      strings.TrimSpace(assignment.SlotLeaseTargetID),
+		leaseID:       strings.TrimSpace(assignment.SlotLeaseID),
+		token:         token,
+		ttl:           ttl,
+		renewInterval: renewInterval,
+	}, metadata, nil
+}
+
+func openWorkerSlotLeaseStore(ctx context.Context, assignment natstransport.CommandAssignment) (slotledger.Store, string, error) {
+	storeName := strings.ToLower(strings.TrimSpace(assignment.SlotLeaseLedgerStore))
+	if storeName == "" {
+		if strings.TrimSpace(assignment.SlotLeaseLedgerStorePath) != "" {
+			storeName = slotledger.StoreFile
+		} else if len(assignment.SlotLeaseEtcdEndpoints) > 0 {
+			storeName = slotledger.StoreEtcd
+		} else {
+			storeName = slotledger.StoreFile
+		}
+	}
+	switch storeName {
+	case slotledger.StoreFile:
+		path := firstNonEmptyWorker(assignment.SlotLeaseLedgerStorePath, os.Getenv("TORQUE_TARGET_SLOT_LEDGER_FILE"))
+		if strings.TrimSpace(path) == "" {
+			return nil, storeName, fmt.Errorf("slot lease ledger file path is required")
+		}
+		store, err := slotledger.NewSQLiteStore(ctx, path)
+		if err != nil {
+			return nil, storeName, fmt.Errorf("open slot lease ledger file: %w", err)
+		}
+		return store, storeName, nil
+	case slotledger.StoreEtcd:
+		endpoints := normalizeWorkerStringSlice(assignment.SlotLeaseEtcdEndpoints)
+		if len(endpoints) == 0 {
+			endpoints = parseWorkerCSV(firstNonEmptyWorker(os.Getenv("TORQUE_TARGET_SLOT_LEDGER_ETCD_ENDPOINTS"), os.Getenv("TORQUE_ETCD_ENDPOINTS"), os.Getenv("ETCD_ENDPOINTS")))
+		}
+		if len(endpoints) == 0 {
+			return nil, storeName, fmt.Errorf("slot lease etcd endpoints are required")
+		}
+		prefix := firstNonEmptyWorker(assignment.SlotLeaseEtcdPrefix, os.Getenv("TORQUE_TARGET_SLOT_LEDGER_ETCD_PREFIX"), slotledger.DefaultStorePrefix)
+		store, err := slotledger.NewEtcdStore(ctx, slotledger.EtcdConfig{
+			Endpoints:   endpoints,
+			Prefix:      prefix,
+			DialTimeout: 5 * time.Second,
+		})
+		if err != nil {
+			return nil, storeName, fmt.Errorf("open slot lease etcd ledger: %w", err)
+		}
+		return store, storeName, nil
+	default:
+		return nil, storeName, fmt.Errorf("unsupported slot lease ledger store %q", storeName)
+	}
+}
+
+func (g *workerSlotLeaseGrant) renew(ctx context.Context) error {
+	if g == nil || g.store == nil {
+		return nil
+	}
+	record, err := g.store.Renew(ctx, slotledger.RenewRequest{
+		Tenant:   g.tenant,
+		TargetID: g.targetID,
+		LeaseID:  g.leaseID,
+		Token:    g.token,
+		TTL:      g.ttl,
+		Now:      time.Now().UTC(),
+	})
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err != nil {
+		g.renewalError = err.Error()
+		return err
+	}
+	g.renewals++
+	g.renewedAt = strings.TrimSpace(record.UpdatedAt)
+	g.renewalError = ""
+	return nil
+}
+
+func (g *workerSlotLeaseGrant) startRenewal(ctx context.Context, cancelExecution context.CancelFunc) func() {
+	if g == nil || g.store == nil || g.renewInterval <= 0 {
+		return func() {}
+	}
+	renewCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(g.renewInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				if err := g.renew(renewCtx); err != nil {
+					if cancelExecution != nil {
+						cancelExecution()
+					}
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		wait := g.renewInterval + time.Second
+		if wait < time.Second {
+			wait = time.Second
+		}
+		select {
+		case <-done:
+		case <-time.After(wait):
+		}
+	}
+}
+
+func (g *workerSlotLeaseGrant) release(ctx context.Context) {
+	if g == nil || g.store == nil {
+		return
+	}
+	record, err := g.store.Release(ctx, slotledger.ReleaseRequest{
+		Tenant:   g.tenant,
+		TargetID: g.targetID,
+		LeaseID:  g.leaseID,
+		Token:    g.token,
+		Now:      time.Now().UTC(),
+	})
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err != nil {
+		g.releaseError = err.Error()
+		return
+	}
+	g.released = true
+	g.releasedAt = strings.TrimSpace(record.ReleasedAt)
+	g.releaseError = ""
+}
+
+func (g *workerSlotLeaseGrant) close() {
+	if g == nil || g.store == nil {
+		return
+	}
+	_ = g.store.Close()
+}
+
+func (g *workerSlotLeaseGrant) metadata() map[string]string {
+	if g == nil {
+		return nil
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	metadata := map[string]string{
+		"slotLeaseRenewedBy":      "worker",
+		"slotLeaseWorkerRenewals": strconv.Itoa(g.renewals),
+	}
+	if g.renewedAt != "" {
+		metadata["slotLeaseWorkerRenewedAt"] = g.renewedAt
+	}
+	if g.renewalError != "" {
+		metadata["slotLeaseWorkerRenewalError"] = g.renewalError
+	}
+	if g.released {
+		metadata["slotLeaseWorkerReleased"] = "true"
+	}
+	if g.releasedAt != "" {
+		metadata["slotLeaseWorkerReleasedAt"] = g.releasedAt
+	}
+	if g.releaseError != "" {
+		metadata["slotLeaseWorkerReleaseError"] = g.releaseError
+	}
+	return metadata
+}
+
+func defaultWorkerSlotLeaseRenewInterval(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return 0
+	}
+	interval := ttl / 2
+	if interval <= 0 {
+		interval = ttl
+	}
+	if interval < 250*time.Millisecond {
+		interval = 250 * time.Millisecond
+	}
+	return interval
+}
+
+func workerSlotLeaseReleaseTimeout(workerTimeout time.Duration) time.Duration {
+	if workerTimeout > 0 && workerTimeout < 5*time.Second {
+		return workerTimeout
+	}
+	return 5 * time.Second
+}
+
+func normalizeWorkerStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseWorkerCSV(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return normalizeWorkerStringSlice(strings.Split(value, ","))
 }
 
 func (w *Worker) errorResult(operation string, target string, err error, timedOut bool) transport.OperationResult {
@@ -904,6 +1243,19 @@ func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, dec
 	addMetadata("slotLeaseTargetId", assignment.SlotLeaseTargetID)
 	addMetadata("slotLeaseTtl", assignment.SlotLeaseTTL)
 	addMetadata("slotLeaseExpiresAt", assignment.SlotLeaseExpiresAt)
+	addMetadata("slotLeaseTokenDigest", assignment.SlotLeaseTokenDigest)
+	if strings.TrimSpace(assignment.SlotLeaseToken) != "" {
+		addMetadata("slotLeaseGrantDigest", slotledger.TokenDigest(assignment.SlotLeaseToken))
+		metadata["slotLeaseGrantRedacted"] = "true"
+	}
+	addMetadata("slotLeaseRenewInterval", assignment.SlotLeaseRenewInterval)
+	addMetadata("slotLeaseLedgerStore", assignment.SlotLeaseLedgerStore)
+	addMetadata("slotLeaseLedgerStorePath", assignment.SlotLeaseLedgerStorePath)
+	addMetadata("slotLeaseLedgerStoreKey", assignment.SlotLeaseLedgerStoreKey)
+	addMetadata("slotLeaseEtcdPrefix", assignment.SlotLeaseEtcdPrefix)
+	if len(assignment.SlotLeaseEtcdEndpoints) > 0 {
+		metadata["slotLeaseEtcdEndpoints"] = strings.Join(normalizeWorkerStringSlice(assignment.SlotLeaseEtcdEndpoints), ",")
+	}
 	if assignment.SlotLeaseIndex > 0 {
 		metadata["slotLeaseIndex"] = strconv.Itoa(assignment.SlotLeaseIndex)
 	}

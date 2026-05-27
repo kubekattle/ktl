@@ -9,12 +9,14 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ingresslabs/torque/internal/ops/slotledger"
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
 	natsgo "github.com/nats-io/nats.go"
@@ -197,6 +199,164 @@ func TestHandleAssignmentRunsWithValidSlotLease(t *testing.T) {
 		"slotLeaseDecision":  "accepted",
 		"workerDecision":     "executed",
 		"assignmentTargetId": "host/mysql-slot",
+	})
+}
+
+func TestHandleAssignmentRenewsAndReleasesWorkerOwnedSlotLease(t *testing.T) {
+	ctx := context.Background()
+	ledgerPath := filepath.Join(t.TempDir(), "target-slots.sqlite")
+	store, err := slotledger.NewSQLiteStore(ctx, ledgerPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer store.Close()
+	token, err := slotledger.NewToken()
+	if err != nil {
+		t.Fatalf("NewToken: %v", err)
+	}
+	reservation, err := store.Reserve(ctx, slotledger.ReserveRequest{
+		Tenant:   "lab",
+		TargetID: "host/mysql-slot",
+		Holder:   "run-slot",
+		RunID:    "run-slot",
+		NodeID:   "host.command.run/slot",
+		LeaseID:  "lease-worker-owned",
+		MaxSlots: 1,
+		Slots:    1,
+		TTL:      700 * time.Millisecond,
+		Now:      time.Now().UTC(),
+		Token:    token,
+	})
+	if err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	if reservation.Lease == nil {
+		t.Fatalf("reservation lease is nil: %#v", reservation)
+	}
+	runner := &sleepRunner{
+		sleep: 950 * time.Millisecond,
+		output: transport.RunOutput{
+			Stdout:   []byte("lease-renewed\n"),
+			ExitCode: 0,
+		},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.lab.assign.mysql",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-worker-slot",
+		Tenant:                     "lab",
+		TargetID:                   "host/mysql-slot",
+		Hostname:                   "mysql-slot",
+		Timeout:                    3 * time.Second,
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf lease-renewed", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:                 "host/mysql-slot",
+		ExpectedAgentID:          "agent-worker-slot",
+		RequiredCapability:       "host.command.run",
+		NodeKind:                 "host.command.run",
+		RunID:                    "run-slot",
+		NodeID:                   "host.command.run/slot",
+		SlotLeaseID:              "lease-worker-owned",
+		SlotLeaseTargetID:        "host/mysql-slot",
+		SlotLeaseIndex:           1,
+		SlotLeaseSlots:           1,
+		SlotLeaseTTL:             "700ms",
+		SlotLeaseExpiresAt:       reservation.Lease.ExpiresAt,
+		SlotLeaseToken:           token,
+		SlotLeaseTokenDigest:     slotledger.TokenDigest(token),
+		SlotLeaseRenewInterval:   "200ms",
+		SlotLeaseLedgerStore:     slotledger.StoreFile,
+		SlotLeaseLedgerStorePath: ledgerPath,
+		SlotLeaseLedgerStoreKey:  reservation.Lease.StoreKey,
+	})
+	result := worker.HandleAssignment(ctx, assignment)
+	if result.Status != "succeeded" {
+		t.Fatalf("result = %#v, want succeeded", result)
+	}
+	if runner.Calls() != 1 {
+		t.Fatalf("runner calls = %d, want one call", runner.Calls())
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"slotLeaseDecision":        "accepted",
+		"slotLeaseGrant":           "true",
+		"slotLeaseGrantRedacted":   "true",
+		"slotLeaseTokenDigest":     slotledger.TokenDigest(token),
+		"slotLeaseGrantDigest":     slotledger.TokenDigest(token),
+		"slotLeaseLedgerStore":     slotledger.StoreFile,
+		"slotLeaseLedgerStorePath": ledgerPath,
+		"slotLeaseLedgerStoreKey":  reservation.Lease.StoreKey,
+		"slotLeaseRenewedBy":       "worker",
+		"slotLeaseWorkerReleased":  "true",
+	})
+	renewals, err := strconv.Atoi(result.Metadata["slotLeaseWorkerRenewals"])
+	if err != nil || renewals < 2 {
+		t.Fatalf("slotLeaseWorkerRenewals = %q, want at least 2", result.Metadata["slotLeaseWorkerRenewals"])
+	}
+	if result.Metadata["slotLeaseWorkerRenewedAt"] == "" || result.Metadata["slotLeaseWorkerReleasedAt"] == "" {
+		t.Fatalf("worker slot lease timestamps missing: %#v", result.Metadata)
+	}
+	leases, err := store.List(ctx, slotledger.ListRequest{Tenant: "lab", TargetID: "host/mysql-slot", Include: "all"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(leases) != 1 || leases[0].Status != slotledger.StatusReleased {
+		t.Fatalf("leases = %#v, want released lease", leases)
+	}
+}
+
+func TestHandleAssignmentBlocksInvalidWorkerOwnedSlotLeaseGrant(t *testing.T) {
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("should-not-run\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.lab.assign.mysql",
+		Capabilities:               []string{"host.command.run"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-worker-slot",
+		Tenant:                     "lab",
+		TargetID:                   "host/mysql-slot",
+		Hostname:                   "mysql-slot",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	assignment := natstransport.NewCommandAssignmentWithMetadata("run", "torque.lab.assign.mysql", "printf should-not-run", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:                 "host/mysql-slot",
+		ExpectedAgentID:          "agent-worker-slot",
+		RequiredCapability:       "host.command.run",
+		NodeKind:                 "host.command.run",
+		RunID:                    "run-slot",
+		NodeID:                   "host.command.run/slot",
+		SlotLeaseID:              "lease-worker-owned",
+		SlotLeaseTargetID:        "host/mysql-slot",
+		SlotLeaseIndex:           1,
+		SlotLeaseSlots:           1,
+		SlotLeaseTTL:             "30s",
+		SlotLeaseExpiresAt:       time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
+		SlotLeaseToken:           "raw-token",
+		SlotLeaseTokenDigest:     "sha256:not-the-token",
+		SlotLeaseRenewInterval:   "5s",
+		SlotLeaseLedgerStore:     slotledger.StoreFile,
+		SlotLeaseLedgerStorePath: filepath.Join(t.TempDir(), "target-slots.sqlite"),
+	})
+	result := worker.HandleAssignment(context.Background(), assignment)
+	if result.Status != "blocked" || !strings.Contains(result.Error, "token digest mismatch") {
+		t.Fatalf("result = %#v, want blocked token digest mismatch", result)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("runner was called despite invalid grant: %#v", runner.calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"slotLeaseDecision":      "blocked",
+		"slotLeaseReason":        "slot lease token digest mismatch",
+		"slotLeaseGrant":         "true",
+		"slotLeaseGrantRedacted": "true",
 	})
 }
 
@@ -1413,6 +1573,36 @@ func (r *recordingRunner) Calls() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.calls)
+}
+
+type sleepRunner struct {
+	mu     sync.Mutex
+	calls  int
+	sleep  time.Duration
+	output transport.RunOutput
+	err    error
+}
+
+func (r *sleepRunner) Run(ctx context.Context, name string, args []string) (transport.RunOutput, error) {
+	r.mu.Lock()
+	r.calls++
+	r.mu.Unlock()
+	if r.sleep > 0 {
+		timer := time.NewTimer(r.sleep)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return transport.RunOutput{Stderr: []byte(ctx.Err().Error()), ExitCode: 1}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return r.output, r.err
+}
+
+func (r *sleepRunner) Calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls
 }
 
 type flakyRunner struct {

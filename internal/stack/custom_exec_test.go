@@ -4444,8 +4444,10 @@ nodes:
 	}
 	audit := fleetReadinessAudit(t, root)
 	var fanout fleetNATSFanoutReceipt
+	var fanoutBody string
 	for _, artifact := range audit.Artifacts {
 		if artifact.Name == "host-command-fanout.json" {
+			fanoutBody = artifact.Body
 			if err := json.Unmarshal([]byte(artifact.Body), &fanout); err != nil {
 				t.Fatalf("parse fanout artifact: %v\n%s", err, artifact.Body)
 			}
@@ -4470,6 +4472,15 @@ nodes:
 	if result.Assignment == nil || result.SlotLease == nil || result.Assignment.SlotLeaseID == "" || result.Assignment.SlotLeaseID != result.SlotLease.ID {
 		t.Fatalf("assignment slot lease missing: %#v", result)
 	}
+	if result.Assignment.SlotLeaseToken != "" || result.Assignment.SlotLeaseTokenDigest != result.SlotLease.LedgerTokenDigest || result.Assignment.SlotLeaseLedgerStore != "file" || result.Assignment.SlotLeaseRenewInterval != "500ms" {
+		t.Fatalf("assignment slot lease grant evidence should be redacted with digest: assignment=%#v lease=%#v", result.Assignment, result.SlotLease)
+	}
+	if result.AssignmentEnvelope != nil && result.AssignmentEnvelope.Assignment.SlotLeaseToken != "" {
+		t.Fatalf("assignment envelope leaked slot lease token: %#v", result.AssignmentEnvelope.Assignment)
+	}
+	if strings.Contains(fanoutBody, `"slotLeaseToken":`) {
+		t.Fatalf("fanout artifact leaked slot lease token: %s", fanoutBody)
+	}
 	if result.SlotLease.Status != "released" || result.SlotLease.ReleasedAt == "" {
 		t.Fatalf("result slot lease was not released: %#v", result.SlotLease)
 	}
@@ -4482,6 +4493,16 @@ nodes:
 	}
 	if metadata["slotLeaseDecision"] != "accepted" {
 		t.Fatalf("receipt slot lease decision metadata = %#v", metadata)
+	}
+	if metadata["slotLeaseGrant"] != "true" || metadata["slotLeaseGrantRedacted"] != "true" || metadata["slotLeaseTokenDigest"] != result.SlotLease.LedgerTokenDigest || metadata["slotLeaseGrantDigest"] != result.SlotLease.LedgerTokenDigest {
+		t.Fatalf("receipt slot lease grant metadata = %#v, lease=%#v", metadata, result.SlotLease)
+	}
+	if metadata["slotLeaseRenewedBy"] != "worker" || metadata["slotLeaseWorkerReleased"] != "true" {
+		t.Fatalf("receipt worker-owned slot lease metadata = %#v", metadata)
+	}
+	workerRenewals, err := strconv.Atoi(metadata["slotLeaseWorkerRenewals"])
+	if err != nil || workerRenewals < 1 {
+		t.Fatalf("slotLeaseWorkerRenewals = %q, want >= 1", metadata["slotLeaseWorkerRenewals"])
 	}
 	workerCancel()
 	select {

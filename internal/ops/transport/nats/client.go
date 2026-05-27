@@ -13,27 +13,35 @@ import (
 )
 
 type Config struct {
-	Target             string
-	Server             string
-	Creds              string
-	NKey               string
-	Timeout            time.Duration
-	RedactValues       []string
-	TargetID           string
-	ExpectedAgentID    string
-	RequiredCapability string
-	NodeKind           string
-	RunID              string
-	NodeID             string
-	PlanDigest         string
-	SlotLeaseID        string
-	SlotLeaseTargetID  string
-	SlotLeaseIndex     int
-	SlotLeaseSlots     int
-	SlotLeaseTTL       string
-	SlotLeaseExpiresAt string
-	Requester          Requester
-	Dialer             RequestDialer
+	Target                   string
+	Server                   string
+	Creds                    string
+	NKey                     string
+	Timeout                  time.Duration
+	RedactValues             []string
+	TargetID                 string
+	ExpectedAgentID          string
+	RequiredCapability       string
+	NodeKind                 string
+	RunID                    string
+	NodeID                   string
+	PlanDigest               string
+	SlotLeaseID              string
+	SlotLeaseTargetID        string
+	SlotLeaseIndex           int
+	SlotLeaseSlots           int
+	SlotLeaseTTL             string
+	SlotLeaseExpiresAt       string
+	SlotLeaseToken           string
+	SlotLeaseTokenDigest     string
+	SlotLeaseRenewInterval   string
+	SlotLeaseLedgerStore     string
+	SlotLeaseLedgerStorePath string
+	SlotLeaseLedgerStoreKey  string
+	SlotLeaseEtcdEndpoints   []string
+	SlotLeaseEtcdPrefix      string
+	Requester                Requester
+	Dialer                   RequestDialer
 }
 
 // Client sends command assignments over a NATS request/reply subject and
@@ -82,7 +90,7 @@ func New(config Config) (*Client, error) {
 	creds := strings.TrimSpace(config.Creds)
 	nkey := strings.TrimSpace(config.NKey)
 	redactValues := append([]string(nil), config.RedactValues...)
-	redactValues = append(redactValues, target, server, creds, nkey)
+	redactValues = append(redactValues, target, server, creds, nkey, strings.TrimSpace(config.SlotLeaseToken))
 	return &Client{
 		target:  target,
 		server:  server,
@@ -90,19 +98,27 @@ func New(config Config) (*Client, error) {
 		nkey:    nkey,
 		timeout: timeout,
 		metadata: CommandAssignmentMetadata{
-			TargetID:           strings.TrimSpace(config.TargetID),
-			ExpectedAgentID:    strings.TrimSpace(config.ExpectedAgentID),
-			RequiredCapability: strings.TrimSpace(config.RequiredCapability),
-			NodeKind:           strings.TrimSpace(config.NodeKind),
-			RunID:              strings.TrimSpace(config.RunID),
-			NodeID:             strings.TrimSpace(config.NodeID),
-			PlanDigest:         strings.TrimSpace(config.PlanDigest),
-			SlotLeaseID:        strings.TrimSpace(config.SlotLeaseID),
-			SlotLeaseTargetID:  strings.TrimSpace(config.SlotLeaseTargetID),
-			SlotLeaseIndex:     config.SlotLeaseIndex,
-			SlotLeaseSlots:     config.SlotLeaseSlots,
-			SlotLeaseTTL:       strings.TrimSpace(config.SlotLeaseTTL),
-			SlotLeaseExpiresAt: strings.TrimSpace(config.SlotLeaseExpiresAt),
+			TargetID:                 strings.TrimSpace(config.TargetID),
+			ExpectedAgentID:          strings.TrimSpace(config.ExpectedAgentID),
+			RequiredCapability:       strings.TrimSpace(config.RequiredCapability),
+			NodeKind:                 strings.TrimSpace(config.NodeKind),
+			RunID:                    strings.TrimSpace(config.RunID),
+			NodeID:                   strings.TrimSpace(config.NodeID),
+			PlanDigest:               strings.TrimSpace(config.PlanDigest),
+			SlotLeaseID:              strings.TrimSpace(config.SlotLeaseID),
+			SlotLeaseTargetID:        strings.TrimSpace(config.SlotLeaseTargetID),
+			SlotLeaseIndex:           config.SlotLeaseIndex,
+			SlotLeaseSlots:           config.SlotLeaseSlots,
+			SlotLeaseTTL:             strings.TrimSpace(config.SlotLeaseTTL),
+			SlotLeaseExpiresAt:       strings.TrimSpace(config.SlotLeaseExpiresAt),
+			SlotLeaseToken:           strings.TrimSpace(config.SlotLeaseToken),
+			SlotLeaseTokenDigest:     strings.TrimSpace(config.SlotLeaseTokenDigest),
+			SlotLeaseRenewInterval:   strings.TrimSpace(config.SlotLeaseRenewInterval),
+			SlotLeaseLedgerStore:     strings.ToLower(strings.TrimSpace(config.SlotLeaseLedgerStore)),
+			SlotLeaseLedgerStorePath: strings.TrimSpace(config.SlotLeaseLedgerStorePath),
+			SlotLeaseLedgerStoreKey:  strings.TrimSpace(config.SlotLeaseLedgerStoreKey),
+			SlotLeaseEtcdEndpoints:   normalizeAssignmentStringSlice(config.SlotLeaseEtcdEndpoints),
+			SlotLeaseEtcdPrefix:      strings.TrimSpace(config.SlotLeaseEtcdPrefix),
 		},
 		redactor:  transport.NewRedactor(redactValues),
 		requester: config.Requester,

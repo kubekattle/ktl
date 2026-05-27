@@ -24,43 +24,59 @@ const (
 // CommandAssignment is the NATS request payload shared by the stack transport
 // client and the agent worker.
 type CommandAssignment struct {
-	APIVersion         string `json:"apiVersion"`
-	Kind               string `json:"kind"`
-	AssignmentID       string `json:"assignmentId,omitempty"`
-	Operation          string `json:"operation"`
-	Target             string `json:"target"`
-	Command            string `json:"command,omitempty"`
-	TargetID           string `json:"targetId,omitempty"`
-	ExpectedAgentID    string `json:"expectedAgentId,omitempty"`
-	RequiredCapability string `json:"requiredCapability,omitempty"`
-	NodeKind           string `json:"nodeKind,omitempty"`
-	RunID              string `json:"runId,omitempty"`
-	NodeID             string `json:"nodeId,omitempty"`
-	PlanDigest         string `json:"planDigest,omitempty"`
-	SlotLeaseID        string `json:"slotLeaseId,omitempty"`
-	SlotLeaseTargetID  string `json:"slotLeaseTargetId,omitempty"`
-	SlotLeaseIndex     int    `json:"slotLeaseIndex,omitempty"`
-	SlotLeaseSlots     int    `json:"slotLeaseSlots,omitempty"`
-	SlotLeaseTTL       string `json:"slotLeaseTtl,omitempty"`
-	SlotLeaseExpiresAt string `json:"slotLeaseExpiresAt,omitempty"`
-	SentAt             string `json:"sentAt"`
+	APIVersion               string   `json:"apiVersion"`
+	Kind                     string   `json:"kind"`
+	AssignmentID             string   `json:"assignmentId,omitempty"`
+	Operation                string   `json:"operation"`
+	Target                   string   `json:"target"`
+	Command                  string   `json:"command,omitempty"`
+	TargetID                 string   `json:"targetId,omitempty"`
+	ExpectedAgentID          string   `json:"expectedAgentId,omitempty"`
+	RequiredCapability       string   `json:"requiredCapability,omitempty"`
+	NodeKind                 string   `json:"nodeKind,omitempty"`
+	RunID                    string   `json:"runId,omitempty"`
+	NodeID                   string   `json:"nodeId,omitempty"`
+	PlanDigest               string   `json:"planDigest,omitempty"`
+	SlotLeaseID              string   `json:"slotLeaseId,omitempty"`
+	SlotLeaseTargetID        string   `json:"slotLeaseTargetId,omitempty"`
+	SlotLeaseIndex           int      `json:"slotLeaseIndex,omitempty"`
+	SlotLeaseSlots           int      `json:"slotLeaseSlots,omitempty"`
+	SlotLeaseTTL             string   `json:"slotLeaseTtl,omitempty"`
+	SlotLeaseExpiresAt       string   `json:"slotLeaseExpiresAt,omitempty"`
+	SlotLeaseToken           string   `json:"slotLeaseToken,omitempty"`
+	SlotLeaseTokenDigest     string   `json:"slotLeaseTokenDigest,omitempty"`
+	SlotLeaseRenewInterval   string   `json:"slotLeaseRenewInterval,omitempty"`
+	SlotLeaseLedgerStore     string   `json:"slotLeaseLedgerStore,omitempty"`
+	SlotLeaseLedgerStorePath string   `json:"slotLeaseLedgerStorePath,omitempty"`
+	SlotLeaseLedgerStoreKey  string   `json:"slotLeaseLedgerStoreKey,omitempty"`
+	SlotLeaseEtcdEndpoints   []string `json:"slotLeaseEtcdEndpoints,omitempty"`
+	SlotLeaseEtcdPrefix      string   `json:"slotLeaseEtcdPrefix,omitempty"`
+	SentAt                   string   `json:"sentAt"`
 }
 
 type CommandAssignmentMetadata struct {
-	AssignmentID       string
-	TargetID           string
-	ExpectedAgentID    string
-	RequiredCapability string
-	NodeKind           string
-	RunID              string
-	NodeID             string
-	PlanDigest         string
-	SlotLeaseID        string
-	SlotLeaseTargetID  string
-	SlotLeaseIndex     int
-	SlotLeaseSlots     int
-	SlotLeaseTTL       string
-	SlotLeaseExpiresAt string
+	AssignmentID             string
+	TargetID                 string
+	ExpectedAgentID          string
+	RequiredCapability       string
+	NodeKind                 string
+	RunID                    string
+	NodeID                   string
+	PlanDigest               string
+	SlotLeaseID              string
+	SlotLeaseTargetID        string
+	SlotLeaseIndex           int
+	SlotLeaseSlots           int
+	SlotLeaseTTL             string
+	SlotLeaseExpiresAt       string
+	SlotLeaseToken           string
+	SlotLeaseTokenDigest     string
+	SlotLeaseRenewInterval   string
+	SlotLeaseLedgerStore     string
+	SlotLeaseLedgerStorePath string
+	SlotLeaseLedgerStoreKey  string
+	SlotLeaseEtcdEndpoints   []string
+	SlotLeaseEtcdPrefix      string
 }
 
 type CommandAssignmentEnvelope struct {
@@ -119,26 +135,34 @@ func NewCommandAssignment(operation string, target string, command string, sentA
 
 func NewCommandAssignmentWithMetadata(operation string, target string, command string, sentAt time.Time, metadata CommandAssignmentMetadata) CommandAssignment {
 	assignment := CommandAssignment{
-		APIVersion:         AssignmentAPIVersion,
-		Kind:               AssignmentKind,
-		AssignmentID:       strings.TrimSpace(metadata.AssignmentID),
-		Operation:          strings.TrimSpace(operation),
-		Target:             NormalizeTarget(target),
-		Command:            command,
-		TargetID:           strings.TrimSpace(metadata.TargetID),
-		ExpectedAgentID:    strings.TrimSpace(metadata.ExpectedAgentID),
-		RequiredCapability: strings.TrimSpace(metadata.RequiredCapability),
-		NodeKind:           strings.TrimSpace(metadata.NodeKind),
-		RunID:              strings.TrimSpace(metadata.RunID),
-		NodeID:             strings.TrimSpace(metadata.NodeID),
-		PlanDigest:         strings.TrimSpace(metadata.PlanDigest),
-		SlotLeaseID:        strings.TrimSpace(metadata.SlotLeaseID),
-		SlotLeaseTargetID:  strings.TrimSpace(metadata.SlotLeaseTargetID),
-		SlotLeaseIndex:     metadata.SlotLeaseIndex,
-		SlotLeaseSlots:     metadata.SlotLeaseSlots,
-		SlotLeaseTTL:       strings.TrimSpace(metadata.SlotLeaseTTL),
-		SlotLeaseExpiresAt: strings.TrimSpace(metadata.SlotLeaseExpiresAt),
-		SentAt:             sentAt.UTC().Format(time.RFC3339Nano),
+		APIVersion:               AssignmentAPIVersion,
+		Kind:                     AssignmentKind,
+		AssignmentID:             strings.TrimSpace(metadata.AssignmentID),
+		Operation:                strings.TrimSpace(operation),
+		Target:                   NormalizeTarget(target),
+		Command:                  command,
+		TargetID:                 strings.TrimSpace(metadata.TargetID),
+		ExpectedAgentID:          strings.TrimSpace(metadata.ExpectedAgentID),
+		RequiredCapability:       strings.TrimSpace(metadata.RequiredCapability),
+		NodeKind:                 strings.TrimSpace(metadata.NodeKind),
+		RunID:                    strings.TrimSpace(metadata.RunID),
+		NodeID:                   strings.TrimSpace(metadata.NodeID),
+		PlanDigest:               strings.TrimSpace(metadata.PlanDigest),
+		SlotLeaseID:              strings.TrimSpace(metadata.SlotLeaseID),
+		SlotLeaseTargetID:        strings.TrimSpace(metadata.SlotLeaseTargetID),
+		SlotLeaseIndex:           metadata.SlotLeaseIndex,
+		SlotLeaseSlots:           metadata.SlotLeaseSlots,
+		SlotLeaseTTL:             strings.TrimSpace(metadata.SlotLeaseTTL),
+		SlotLeaseExpiresAt:       strings.TrimSpace(metadata.SlotLeaseExpiresAt),
+		SlotLeaseToken:           strings.TrimSpace(metadata.SlotLeaseToken),
+		SlotLeaseTokenDigest:     strings.TrimSpace(metadata.SlotLeaseTokenDigest),
+		SlotLeaseRenewInterval:   strings.TrimSpace(metadata.SlotLeaseRenewInterval),
+		SlotLeaseLedgerStore:     strings.ToLower(strings.TrimSpace(metadata.SlotLeaseLedgerStore)),
+		SlotLeaseLedgerStorePath: strings.TrimSpace(metadata.SlotLeaseLedgerStorePath),
+		SlotLeaseLedgerStoreKey:  strings.TrimSpace(metadata.SlotLeaseLedgerStoreKey),
+		SlotLeaseEtcdEndpoints:   normalizeAssignmentStringSlice(metadata.SlotLeaseEtcdEndpoints),
+		SlotLeaseEtcdPrefix:      strings.TrimSpace(metadata.SlotLeaseEtcdPrefix),
+		SentAt:                   sentAt.UTC().Format(time.RFC3339Nano),
 	}
 	if assignment.AssignmentID == "" {
 		assignment.AssignmentID = DeriveAssignmentID(assignment)
@@ -196,6 +220,14 @@ func normalizeCommandAssignment(assignment CommandAssignment) (CommandAssignment
 	assignment.SlotLeaseTargetID = strings.TrimSpace(assignment.SlotLeaseTargetID)
 	assignment.SlotLeaseTTL = strings.TrimSpace(assignment.SlotLeaseTTL)
 	assignment.SlotLeaseExpiresAt = strings.TrimSpace(assignment.SlotLeaseExpiresAt)
+	assignment.SlotLeaseToken = strings.TrimSpace(assignment.SlotLeaseToken)
+	assignment.SlotLeaseTokenDigest = strings.TrimSpace(assignment.SlotLeaseTokenDigest)
+	assignment.SlotLeaseRenewInterval = strings.TrimSpace(assignment.SlotLeaseRenewInterval)
+	assignment.SlotLeaseLedgerStore = strings.ToLower(strings.TrimSpace(assignment.SlotLeaseLedgerStore))
+	assignment.SlotLeaseLedgerStorePath = strings.TrimSpace(assignment.SlotLeaseLedgerStorePath)
+	assignment.SlotLeaseLedgerStoreKey = strings.TrimSpace(assignment.SlotLeaseLedgerStoreKey)
+	assignment.SlotLeaseEtcdEndpoints = normalizeAssignmentStringSlice(assignment.SlotLeaseEtcdEndpoints)
+	assignment.SlotLeaseEtcdPrefix = strings.TrimSpace(assignment.SlotLeaseEtcdPrefix)
 	if assignment.SlotLeaseIndex < 0 {
 		assignment.SlotLeaseIndex = 0
 	}
@@ -221,6 +253,16 @@ func normalizeCommandAssignment(assignment CommandAssignment) (CommandAssignment
 		assignment.AssignmentID = DeriveAssignmentID(assignment)
 	}
 	return assignment, nil
+}
+
+func RedactCommandAssignmentSecrets(assignment CommandAssignment) CommandAssignment {
+	assignment.SlotLeaseToken = ""
+	return assignment
+}
+
+func RedactCommandAssignmentEnvelopeSecrets(envelope CommandAssignmentEnvelope) CommandAssignmentEnvelope {
+	envelope.Assignment = RedactCommandAssignmentSecrets(envelope.Assignment)
+	return envelope
 }
 
 func ParseCommandAssignmentEnvelope(raw []byte) (CommandAssignmentEnvelope, error) {
@@ -414,6 +456,23 @@ func CommandAssignmentVerificationMetadata(verification CommandAssignmentVerific
 		return nil
 	}
 	return metadata
+}
+
+func normalizeAssignmentStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func LoadEd25519PublicKeyFile(path string) (ed25519.PublicKey, error) {

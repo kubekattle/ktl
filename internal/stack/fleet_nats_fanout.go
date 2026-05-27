@@ -258,26 +258,34 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 			for idx := range jobs {
 				target := targets[idx]
 				client, clientErr := natstransport.New(natstransport.Config{
-					Target:             target.workerSubject,
-					Server:             server,
-					Creds:              creds,
-					NKey:               nkey,
-					Timeout:            timeout,
-					RedactValues:       []string{target.workerSubject, server},
-					TargetID:           target.targetID,
-					ExpectedAgentID:    target.agentID,
-					RequiredCapability: strings.TrimSpace(spec.RequiredCap),
-					NodeKind:           strings.TrimSpace(spec.NodeKind),
-					RunID:              strings.TrimSpace(spec.RunID),
-					NodeID:             strings.TrimSpace(spec.NodeID),
-					PlanDigest:         strings.TrimSpace(spec.PlanDigest),
-					SlotLeaseID:        target.slotLeaseID(),
-					SlotLeaseTargetID:  target.slotLeaseTargetID(),
-					SlotLeaseIndex:     target.slotLeaseIndex(),
-					SlotLeaseSlots:     target.slotLeaseSlots(),
-					SlotLeaseTTL:       target.slotLeaseTTL(),
-					SlotLeaseExpiresAt: target.slotLeaseExpiresAt(),
-					Requester:          requester,
+					Target:                   target.workerSubject,
+					Server:                   server,
+					Creds:                    creds,
+					NKey:                     nkey,
+					Timeout:                  timeout,
+					RedactValues:             []string{target.workerSubject, server},
+					TargetID:                 target.targetID,
+					ExpectedAgentID:          target.agentID,
+					RequiredCapability:       strings.TrimSpace(spec.RequiredCap),
+					NodeKind:                 strings.TrimSpace(spec.NodeKind),
+					RunID:                    strings.TrimSpace(spec.RunID),
+					NodeID:                   strings.TrimSpace(spec.NodeID),
+					PlanDigest:               strings.TrimSpace(spec.PlanDigest),
+					SlotLeaseID:              target.slotLeaseID(),
+					SlotLeaseTargetID:        target.slotLeaseTargetID(),
+					SlotLeaseIndex:           target.slotLeaseIndex(),
+					SlotLeaseSlots:           target.slotLeaseSlots(),
+					SlotLeaseTTL:             target.slotLeaseTTL(),
+					SlotLeaseExpiresAt:       target.slotLeaseExpiresAt(),
+					SlotLeaseToken:           target.slotLeaseToken(),
+					SlotLeaseTokenDigest:     target.slotLeaseTokenDigest(),
+					SlotLeaseRenewInterval:   target.slotLeaseRenewInterval(policy),
+					SlotLeaseLedgerStore:     target.slotLeaseLedgerStore(policy),
+					SlotLeaseLedgerStorePath: target.slotLeaseLedgerStorePath(policy),
+					SlotLeaseLedgerStoreKey:  target.slotLeaseLedgerStoreKey(),
+					SlotLeaseEtcdEndpoints:   target.slotLeaseEtcdEndpoints(policy),
+					SlotLeaseEtcdPrefix:      target.slotLeaseEtcdPrefix(policy),
+					Requester:                requester,
 				})
 				if clientErr != nil {
 					results[idx] = target.result(transport.OperationResult{
@@ -406,19 +414,27 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 	for idx, target := range targets {
 		targetIndex[target.targetID] = idx
 		assignment := natstransport.NewCommandAssignmentWithMetadata("run", target.workerSubject, command, time.Now(), natstransport.CommandAssignmentMetadata{
-			TargetID:           target.targetID,
-			ExpectedAgentID:    target.agentID,
-			RequiredCapability: strings.TrimSpace(spec.RequiredCap),
-			NodeKind:           strings.TrimSpace(spec.NodeKind),
-			RunID:              assignmentRunID,
-			NodeID:             strings.TrimSpace(spec.NodeID),
-			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
-			SlotLeaseID:        target.slotLeaseID(),
-			SlotLeaseTargetID:  target.slotLeaseTargetID(),
-			SlotLeaseIndex:     target.slotLeaseIndex(),
-			SlotLeaseSlots:     target.slotLeaseSlots(),
-			SlotLeaseTTL:       target.slotLeaseTTL(),
-			SlotLeaseExpiresAt: target.slotLeaseExpiresAt(),
+			TargetID:                 target.targetID,
+			ExpectedAgentID:          target.agentID,
+			RequiredCapability:       strings.TrimSpace(spec.RequiredCap),
+			NodeKind:                 strings.TrimSpace(spec.NodeKind),
+			RunID:                    assignmentRunID,
+			NodeID:                   strings.TrimSpace(spec.NodeID),
+			PlanDigest:               strings.TrimSpace(spec.PlanDigest),
+			SlotLeaseID:              target.slotLeaseID(),
+			SlotLeaseTargetID:        target.slotLeaseTargetID(),
+			SlotLeaseIndex:           target.slotLeaseIndex(),
+			SlotLeaseSlots:           target.slotLeaseSlots(),
+			SlotLeaseTTL:             target.slotLeaseTTL(),
+			SlotLeaseExpiresAt:       target.slotLeaseExpiresAt(),
+			SlotLeaseToken:           target.slotLeaseToken(),
+			SlotLeaseTokenDigest:     target.slotLeaseTokenDigest(),
+			SlotLeaseRenewInterval:   target.slotLeaseRenewInterval(receipt.Policy),
+			SlotLeaseLedgerStore:     target.slotLeaseLedgerStore(receipt.Policy),
+			SlotLeaseLedgerStorePath: target.slotLeaseLedgerStorePath(receipt.Policy),
+			SlotLeaseLedgerStoreKey:  target.slotLeaseLedgerStoreKey(),
+			SlotLeaseEtcdEndpoints:   target.slotLeaseEtcdEndpoints(receipt.Policy),
+			SlotLeaseEtcdPrefix:      target.slotLeaseEtcdPrefix(receipt.Policy),
 		})
 		assignments[idx] = assignment
 		if stored, ok := storedCheckpoints[assignment.AssignmentID]; ok {
@@ -1469,12 +1485,12 @@ func (t fleetNATSFanoutTarget) result(receipt transport.OperationResult) fleetNA
 func (t fleetNATSFanoutTarget) resultWithEvidence(receipt transport.OperationResult, assignment natstransport.CommandAssignment, envelope *natstransport.CommandAssignmentEnvelope, assignmentOffset *natstransport.StreamOffset, receiptOffset *natstransport.StreamOffset) fleetNATSFanoutResult {
 	var assignmentPtr *natstransport.CommandAssignment
 	if strings.TrimSpace(assignment.Target) != "" {
-		copy := assignment
+		copy := natstransport.RedactCommandAssignmentSecrets(assignment)
 		assignmentPtr = &copy
 	}
 	var envelopePtr *natstransport.CommandAssignmentEnvelope
 	if envelope != nil && strings.TrimSpace(envelope.Kind) != "" {
-		copy := *envelope
+		copy := natstransport.RedactCommandAssignmentEnvelopeSecrets(*envelope)
 		envelopePtr = &copy
 	}
 	return fleetNATSFanoutResult{
@@ -1631,6 +1647,75 @@ func (t fleetNATSFanoutTarget) slotLeaseExpiresAt() string {
 		return ""
 	}
 	return strings.TrimSpace(lease.ExpiresAt)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseToken() string {
+	if t.slotLease == nil {
+		return ""
+	}
+	return t.slotLease.releaseTokenValue()
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseTokenDigest() string {
+	lease := copyFleetNATSSlotLease(t.slotLease)
+	if lease == nil {
+		return ""
+	}
+	return strings.TrimSpace(lease.LedgerTokenDigest)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseRenewInterval(policy fleetNATSFanoutPolicy) string {
+	if t.slotLease == nil {
+		return ""
+	}
+	interval := policy.TargetConcurrency.Ledger.RenewInterval
+	if interval <= 0 {
+		interval = defaultFleetNATSSlotLeaseRenewInterval(policy.TargetConcurrency.LeaseTTL)
+	}
+	if interval <= 0 {
+		return ""
+	}
+	return interval.String()
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseLedgerStore(policy fleetNATSFanoutPolicy) string {
+	lease := copyFleetNATSSlotLease(t.slotLease)
+	if lease == nil {
+		return ""
+	}
+	return firstNonEmptyString(strings.TrimSpace(lease.LedgerStore), strings.TrimSpace(policy.TargetConcurrency.Ledger.Store))
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseLedgerStorePath(policy fleetNATSFanoutPolicy) string {
+	if t.slotLease == nil {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(policy.TargetConcurrency.Ledger.Store), slotledger.StoreEtcd) {
+		return ""
+	}
+	return strings.TrimSpace(policy.TargetConcurrency.Ledger.StorePath)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseLedgerStoreKey() string {
+	lease := copyFleetNATSSlotLease(t.slotLease)
+	if lease == nil {
+		return ""
+	}
+	return strings.TrimSpace(lease.LedgerStoreKey)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseEtcdEndpoints(policy fleetNATSFanoutPolicy) []string {
+	if t.slotLease == nil || !strings.EqualFold(strings.TrimSpace(policy.TargetConcurrency.Ledger.Store), slotledger.StoreEtcd) {
+		return nil
+	}
+	return append([]string(nil), policy.TargetConcurrency.Ledger.EtcdEndpoints...)
+}
+
+func (t fleetNATSFanoutTarget) slotLeaseEtcdPrefix(policy fleetNATSFanoutPolicy) string {
+	if t.slotLease == nil || !strings.EqualFold(strings.TrimSpace(policy.TargetConcurrency.Ledger.Store), slotledger.StoreEtcd) {
+		return ""
+	}
+	return strings.TrimSpace(policy.TargetConcurrency.Ledger.EtcdPrefix)
 }
 
 func targetWorkerSlots(agent heartbeat.AgentStatus) heartbeat.Slots {

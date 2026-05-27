@@ -266,9 +266,12 @@ per-target local concurrency, and reserve/release a durable slot lease for each
 assignment and receipt. Use the SQLite `file` ledger for local/shared-disk
 labs, or the `etcd` ledger in fleet control plane mode so concurrent
 controllers cannot overbook one target. Set `ledger.renewInterval` so long
-assignments keep their slot alive until release; workers also reject expired or
-wrong-target slot leases before command execution and record the lease decision
-in receipts. If stack apply resumes after a controller restart, Torque reloads
+assignments keep their slot alive until release; the worker that mutates the
+host verifies the lease grant digest, renews the slot while the command runs,
+releases it after execution, rejects expired or wrong-target slot leases before
+command execution, and records the lease decision plus worker-owned
+renew/release metadata in receipts. If stack apply resumes after a controller
+restart, Torque reloads
 the private slot lease token escrow from `.torque/stack/state.sqlite`, renews
 the held lease, and releases it after receipt collection without exposing the
 raw token in audit artifacts. Add `runner.fanout.retry` to bound transient

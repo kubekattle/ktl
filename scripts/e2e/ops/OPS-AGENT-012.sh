@@ -540,6 +540,12 @@ def fanout_result(audit):
 def duration_matches(value, text, ns):
     return value == text or value == ns
 
+def int_value(value):
+    try:
+        return int(value)
+    except Exception:
+        return 0
+
 audit_first = load("verification/audit-first.json")
 audit_second = load("verification/audit-second.json")
 audit_blocked = load("verification/audit-blocked.json")
@@ -571,6 +577,8 @@ if fanout_first.get("status") != "succeeded" or fanout_second.get("status") != "
 if fanout_blocked.get("status") != "blocked" or "slot ledger blocked" not in (fanout_blocked.get("reason") or ""):
     errors.append(f"blocked fanout must prove held slot ledger block: {fanout_blocked}")
 for label, fanout in [("first", fanout_first), ("second", fanout_second), ("reclaim", fanout_reclaim)]:
+    if '"slotLeaseToken":' in json.dumps(fanout, sort_keys=True):
+        errors.append(f"{label} fanout artifact must redact raw slot lease tokens")
     policy = fanout.get("policy") or {}
     target_concurrency = policy.get("targetConcurrency") or {}
     summary = fanout.get("summary") or {}
@@ -654,6 +662,12 @@ for label, result, receipt, metadata, expected_worker in [
         errors.append(f"{label} result slotLease must prove one reclaimed lease: {lease}")
     if assignment.get("slotLeaseId") != lease.get("id"):
         errors.append(f"{label} assignment slotLeaseId mismatch: assignment={assignment} lease={lease}")
+    if assignment.get("slotLeaseToken"):
+        errors.append(f"{label} assignment artifact leaked raw slot lease token: {assignment}")
+    if assignment.get("slotLeaseTokenDigest") != lease.get("ledgerTokenDigest"):
+        errors.append(f"{label} assignment slot lease token digest mismatch: assignment={assignment} lease={lease}")
+    if assignment.get("slotLeaseLedgerStore") != "file" or not assignment.get("slotLeaseLedgerStorePath"):
+        errors.append(f"{label} assignment slot lease ledger grant missing: {assignment}")
     if metadata.get("slotLeaseId") != lease.get("id"):
         errors.append(f"{label} receipt slotLeaseId mismatch: {metadata} lease={lease}")
     if metadata.get("slotLeaseTargetId") != target_id:
@@ -662,6 +676,14 @@ for label, result, receipt, metadata, expected_worker in [
         errors.append(f"{label} receipt slot lease cardinality mismatch: {metadata}")
     if metadata.get("slotLeaseDecision") != "accepted":
         errors.append(f"{label} receipt must prove worker accepted slot lease: {metadata}")
+    if metadata.get("slotLeaseGrant") != "true" or metadata.get("slotLeaseGrantRedacted") != "true":
+        errors.append(f"{label} receipt must prove redacted worker slot lease grant: {metadata}")
+    if metadata.get("slotLeaseTokenDigest") != lease.get("ledgerTokenDigest") or metadata.get("slotLeaseGrantDigest") != lease.get("ledgerTokenDigest"):
+        errors.append(f"{label} receipt slot lease grant digest mismatch: {metadata} lease={lease}")
+    if metadata.get("slotLeaseRenewedBy") != "worker" or metadata.get("slotLeaseWorkerReleased") != "true":
+        errors.append(f"{label} receipt must prove worker-owned slot lease renew/release: {metadata}")
+    if int_value(metadata.get("slotLeaseWorkerRenewals")) < 1:
+        errors.append(f"{label} receipt must prove worker slot lease renewal count: {metadata}")
 
 if not slot_ledger_path.exists():
     errors.append(f"slot ledger not found: {slot_ledger_path}")

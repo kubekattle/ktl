@@ -71,9 +71,9 @@ without hiding the important decisions in CI logs or a control-plane database.
 - Agent-backed NATS command execution, targeted fleet fan-out, durable
   JetStream assignments/receipts, worker idempotency ledgers, capability
   reporting, worker-side capability and slot-lease enforcement, renewable
-  target slot ledgers, resume-safe slot lease ownership, and identity receipts
-  for stack nodes that need outbound worker fan-out without changing stack
-  semantics.
+  target slot ledgers, worker-owned slot lease renewal/release, resume-safe slot
+  lease ownership, and identity receipts for stack nodes that need outbound
+  worker fan-out without changing stack semantics.
 - Optional fleet control-plane design for Kubernetes, dedicated etcd inventory,
   NATS JetStream assignment/receipt streams, readiness/capability gates, and
   10,000-host durable agents.

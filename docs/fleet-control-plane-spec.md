@@ -127,22 +127,26 @@ Implemented local slice:
   succeeds through the surviving worker with receipt evidence naming the exact
   process. The same proof injects a held target slot lease, proves stack apply
   blocks before assignment, expires the held lease, proves the next run reclaims
-  it, verifies long-running assignments renew their slot lease before the
-  original TTL expires, and verifies released/expired ledger rows.
+  it, verifies long-running assignments are renewed and released by the worker
+  that mutates the host before the original TTL expires, and verifies
+  released/expired ledger rows.
 - `torque-agent nats heartbeat --worker-slots <n> --worker-in-use <n>` now
   publishes explicit target-local worker capacity as `workerSlots`. Stack
   `runner.fanout.targetConcurrency` can require available target capacity,
   cap local concurrency with `maxPerTarget`, reserve/release durable slot
   leases through `targetConcurrency.ledger` (`file`/SQLite locally, `etcd` in
   fleet control plane mode), renew leases with `ledger.renewInterval`, and
-  attach a proven slot lease to each NATS assignment. Workers reject expired or
-  wrong-target slot leases before command execution, echo the lease decision in
-  receipts, and `host-command-fanout.json` preserves target capacity, lease,
-  ledger, assignment, and receipt metadata.
+  attach a signed, redacted lease grant to each NATS assignment. Workers reject
+  expired or wrong-target slot leases before command execution, verify the
+  grant digest, renew the lease while the command runs, release it after the
+  local mutation returns, echo the lease decision in receipts, and
+  `host-command-fanout.json` preserves target capacity, lease, ledger,
+  assignment, and receipt metadata.
 - Stack state stores raw slot lease release tokens in a private local escrow
   table keyed by `runId`, `nodeId`, `targetId`, and `leaseId`. Resume reloads
   held escrow records, renews the original lease, reuses it for the resumed
-  assignment run, and clears the raw token after release. Audit artifacts and
+  assignment run, and clears the raw token after release. Raw lease grants are
+  sent only in the NATS assignment payload; audit artifacts, receipts, and
   exported bundles carry only digests plus `leaseRecovered: true`.
 
 This is intentionally not the full fleet registry yet. It proves the
@@ -554,6 +558,12 @@ metadata:
   "slotLeaseIndex": "1",
   "slotLeaseSlots": "1",
   "slotLeaseDecision": "accepted",
+  "slotLeaseGrant": "true",
+  "slotLeaseGrantRedacted": "true",
+  "slotLeaseTokenDigest": "sha256:...",
+  "slotLeaseRenewedBy": "worker",
+  "slotLeaseWorkerRenewals": "2",
+  "slotLeaseWorkerReleased": "true",
   "capabilityDigest": "sha256:...",
   "requiredCapability": "host.command.run",
   "assignmentTargetId": "host/mysql-01",
