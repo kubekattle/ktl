@@ -32,6 +32,7 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 		"TORQUE_NATS_TRUSTED_ISSUER_KEY":       "/tmp/assignment-pub.json",
 		"TORQUE_NATS_ASSIGNMENT_POLICY_DIGEST": "sha256:policy",
 		"TORQUE_AGENT_ID":                      "agent-mysql-01",
+		"TORQUE_AGENT_WORKER_ID":               "worker-mysql-01a",
 		"TORQUE_AGENT_TENANT":                  "lab",
 		"TORQUE_AGENT_TARGET_ID":               "host/mysql-01",
 		"TORQUE_AGENT_HOSTNAME":                "mysql-01",
@@ -63,7 +64,7 @@ func TestParseNATSWorkerConfig(t *testing.T) {
 	if len(config.Backoff) != 2 || config.Backoff[0] != time.Second || config.Backoff[1] != 2*time.Second {
 		t.Fatalf("Backoff = %#v", config.Backoff)
 	}
-	if config.AgentID != "agent-mysql-01" || config.Tenant != "lab" || config.TargetID != "host/mysql-01" || config.Hostname != "mysql-01" {
+	if config.AgentID != "agent-mysql-01" || config.WorkerID != "worker-mysql-01a" || config.Tenant != "lab" || config.TargetID != "host/mysql-01" || config.Hostname != "mysql-01" {
 		t.Fatalf("identity not parsed: %#v", config)
 	}
 	if config.DisableCapabilityDiscovery {
@@ -137,6 +138,7 @@ func TestParseNATSWorkerConfigIdentityFlags(t *testing.T) {
 	}
 	config, err := parseNATSWorkerConfig([]string{
 		"--agent-id", "agent-flag",
+		"--worker-id", "worker-flag",
 		"--tenant", "lab",
 		"--target-id", "host/flag",
 		"--hostname", "host-flag",
@@ -146,7 +148,7 @@ func TestParseNATSWorkerConfigIdentityFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseNATSWorkerConfig: %v", err)
 	}
-	if config.AgentID != "agent-flag" || config.Tenant != "lab" || config.TargetID != "host/flag" || config.Hostname != "host-flag" {
+	if config.AgentID != "agent-flag" || config.WorkerID != "worker-flag" || config.Tenant != "lab" || config.TargetID != "host/flag" || config.Hostname != "host-flag" {
 		t.Fatalf("identity flags not parsed: %#v", config)
 	}
 }

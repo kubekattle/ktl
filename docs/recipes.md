@@ -162,17 +162,20 @@ accepted `CommandAssignment` payloads through the local transport and replies
 with the standard redacted `OperationResult`. Workers discover local
 capabilities at startup and reject assignments whose `requiredCapability` is
 not available, returning a `blocked` receipt without executing the command.
-Receipts include the worker identity, subject, capability digest, and matching
-assignment `runId`/`nodeId` metadata. In fleet fan-out mode workers normally
-subscribe to deterministic per-target subjects such as
+Receipts include the agent identity, local `workerId`, subject, capability
+digest, and matching assignment `runId`/`nodeId` metadata. In fleet fan-out
+mode workers normally subscribe to deterministic per-target subjects such as
 `torque.assign.lab.host_mysql-01`; explicit stack targets can still use a
-single custom subject.
+single custom subject. Start more than one worker with the same `--queue`,
+`--subject`, `--target-id`, and ledger path for target-local HA; the queue is
+the shared durable consumer in JetStream mode, not a broadcast primitive.
 
 ```bash
 torque-agent nats worker \
   --nats-url nats://127.0.0.1:4222 \
   --subject torque.lab.assign.mysql \
   --agent-id agent-mysql-01 \
+  --worker-id agent-mysql-01-a \
   --tenant lab \
   --target-id host/mysql-01 \
   --queue mysql-workers \
@@ -252,8 +255,11 @@ offline worker; the worker consumes from `TORQUE_ASSIGNMENTS` and writes
 receipts to `TORQUE_RECEIPTS` before ACKing the assignment. Durable workers also
 keep a local SQLite assignment ledger, keyed by stable `assignmentId`, so a
 redelivered assignment replays the stored receipt instead of running the command
-again. Add `runner.fanout.retry` to bound transient failures and force
-dead-letter evidence when the retry budget is exhausted. Set
+again. With `--queue mysql-target-pool`, several local worker processes can
+share one durable consumer and ledger for the same target; receipts identify
+the exact `workerId` that executed or blocked the work. Add `runner.fanout.retry`
+to bound transient failures and force dead-letter evidence when the retry budget
+is exhausted. Set
 `TORQUE_NATS_ASSIGNMENT_SIGNING_KEY` for stack-side JetStream signing, then run
 workers with `--verify-assignments --trusted-issuer-key` so agents reject
 unsigned or mismatched broker messages before execution. Stack apply also
@@ -320,8 +326,10 @@ torque-agent nats worker \
   --ledger-path ./.torque/agent/assignments.sqlite \
   --subject torque.assign.lab.host_mysql-01 \
   --agent-id agent-mysql-01 \
+  --worker-id agent-mysql-01-a \
   --tenant lab \
   --target-id host/mysql-01 \
+  --queue mysql-target-pool \
   --capability host.command.run \
   --verify-assignments \
   --trusted-issuer-key ./assignment-pub.json \

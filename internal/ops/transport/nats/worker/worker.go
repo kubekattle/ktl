@@ -48,6 +48,7 @@ type Config struct {
 	Capabilities               []string
 	DisableCapabilityDiscovery bool
 	AgentID                    string
+	WorkerID                   string
 	Tenant                     string
 	TargetID                   string
 	Hostname                   string
@@ -83,6 +84,7 @@ type Worker struct {
 	capabilities           map[string]struct{}
 	capabilityDigest       string
 	agentID                string
+	workerID               string
 	tenant                 string
 	targetID               string
 	hostname               string
@@ -188,6 +190,7 @@ func New(config Config) (*Worker, error) {
 		capabilities:           capabilities,
 		capabilityDigest:       capabilityDigest,
 		agentID:                identity.agentID,
+		workerID:               identity.workerID,
 		tenant:                 identity.tenant,
 		targetID:               identity.targetID,
 		hostname:               identity.hostname,
@@ -729,6 +732,7 @@ func normalizeCapabilityNames(names []string) []string {
 
 type workerIdentityInfo struct {
 	agentID  string
+	workerID string
 	tenant   string
 	targetID string
 	hostname string
@@ -743,6 +747,10 @@ func workerIdentity(config Config) workerIdentityInfo {
 	if agentID == "" {
 		agentID = hostname
 	}
+	workerID := strings.TrimSpace(config.WorkerID)
+	if workerID == "" {
+		workerID = firstNonEmptyWorker(agentID, hostname, "worker") + "-" + strconv.Itoa(os.Getpid())
+	}
 	tenant := strings.TrimSpace(config.Tenant)
 	if tenant == "" {
 		tenant = "default"
@@ -753,6 +761,7 @@ func workerIdentity(config Config) workerIdentityInfo {
 	}
 	return workerIdentityInfo{
 		agentID:  agentID,
+		workerID: workerID,
 		tenant:   tenant,
 		targetID: targetID,
 		hostname: hostname,
@@ -799,6 +808,7 @@ func joinWorkerDurations(values []time.Duration) string {
 func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, decision string) map[string]string {
 	metadata := map[string]string{
 		"agentId":          strings.TrimSpace(w.agentID),
+		"workerId":         strings.TrimSpace(w.workerID),
 		"tenant":           strings.TrimSpace(w.tenant),
 		"targetId":         strings.TrimSpace(w.targetID),
 		"hostname":         strings.TrimSpace(w.hostname),
@@ -820,6 +830,7 @@ func (w *Worker) receiptMetadata(assignment natstransport.CommandAssignment, dec
 	addMetadata("planDigest", assignment.PlanDigest)
 	addMetadata("assignmentTargetId", assignment.TargetID)
 	addMetadata("expectedAgentId", assignment.ExpectedAgentID)
+	addMetadata("queue", w.queue)
 	for key, value := range metadata {
 		if strings.TrimSpace(value) == "" {
 			delete(metadata, key)

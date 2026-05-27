@@ -2,9 +2,9 @@
 
 Status: design draft; local NATS heartbeat/status, agent capability reporting,
 durable registry compaction, stack fleet readiness/capability gate slices,
-worker-side capability enforcement, worker identity receipts, and targeted NATS
-fleet fan-out with JetStream durable assignments and receipt offset resume
-implemented.
+worker-side capability enforcement, worker identity receipts, targeted NATS
+fleet fan-out, JetStream durable assignments, receipt offset resume, and
+target-local worker pools implemented.
 
 This spec defines how Torque evolves from a CLI with local SQLite evidence into
 an optional Kubernetes-installed fleet control plane that can operate 10,000
@@ -112,6 +112,19 @@ Implemented local slice:
   to end: it runs a JetStream fleet stack once, stops the worker, marks the run
   interrupted, resumes from the first run, and verifies the second apply
   succeeds from stored receipt offsets without writing the marker again.
+- `torque-agent nats worker --queue <target-pool> --worker-id <id>` supports
+  multiple local worker processes representing the same target. For JetStream
+  delivery the queue name becomes the shared durable consumer when `--durable`
+  is omitted, so workers compete for assignments for that target without
+  broadcasting one assignment to every local process. Receipts include both
+  `agentId` and `workerId` plus `queue`, `assignmentConsumer`, and ledger
+  attempt metadata. The assignment ledger enables process-local HA while still
+  preventing duplicate execution of a stable `assignmentId`.
+- `scripts/e2e/ops/OPS-AGENT-012.sh` proves target-local worker pools end to
+  end: two JetStream workers share one target subject, queue/durable consumer,
+  and ledger; the first stack run is executed by one worker, that worker is
+  stopped, and a second stack run succeeds through the surviving worker with
+  receipt evidence naming the exact process.
 
 This is intentionally not the full fleet registry yet. It proves the
 cross-process contract that the Kubernetes controller, etcd compactor, and
@@ -510,10 +523,12 @@ metadata:
 ```json
 {
   "agentId": "agent-mysql-01",
+  "workerId": "agent-mysql-01-a",
   "tenant": "lab",
   "targetId": "host/mysql-01",
   "hostname": "mysql-01",
   "workerSubject": "torque.assign.lab.host_mysql-01",
+  "queue": "mysql-target-pool",
   "capabilityDigest": "sha256:...",
   "requiredCapability": "host.command.run",
   "assignmentTargetId": "host/mysql-01",

@@ -556,6 +556,21 @@ scripts/e2e/ops/OPS-AGENT-011.sh \
   --cleanup
 ```
 
+## OPS-AGENT-012
+
+`OPS-AGENT-012.sh` proves target-local worker pools. It starts two
+`torque-agent nats worker --delivery jetstream` processes on the same target
+subject, queue/durable consumer, and assignment ledger, runs one stack apply,
+stops the worker named in the first receipt, then runs a second stack apply.
+The second run must succeed through the surviving worker, and both receipts
+must include `workerId`, `queue`, and `assignmentConsumer` metadata.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-012.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-TR-007
 
 `OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or

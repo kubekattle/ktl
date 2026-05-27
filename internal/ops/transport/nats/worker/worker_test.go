@@ -707,6 +707,200 @@ func TestWorkerDedupesRepeatedDurableJetStreamAssignment(t *testing.T) {
 	}
 }
 
+func TestWorkerJetStreamTargetLocalPoolSharesDurable(t *testing.T) {
+	serverURL := startLocalNATSJetStreamServer(t)
+	subject := "torque.assign.lab.host_js-pool"
+	assignmentStream := "TORQUE_ASSIGNMENTS_POOL_TEST"
+	receiptStream := "TORQUE_RECEIPTS_POOL_TEST"
+	queue := "target-pool"
+	agentID := "agent-js-pool"
+	targetID := "host/js-pool"
+	runID := "run-js-pool"
+	ledgerPath := t.TempDir() + "/assignments.sqlite"
+	runnerA := &recordingRunner{output: transport.RunOutput{Stdout: []byte("worker-a\n"), ExitCode: 0}}
+	runnerB := &recordingRunner{output: transport.RunOutput{Stdout: []byte("worker-b\n"), ExitCode: 0}}
+
+	conn, err := natsgo.Connect(serverURL, natsgo.Name("torque-worker-js-pool-test"), natsgo.Timeout(time.Second))
+	if err != nil {
+		t.Fatalf("connect test client: %v", err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream(natsgo.MaxWait(2 * time.Second))
+	if err != nil {
+		t.Fatalf("open JetStream: %v", err)
+	}
+	ctx := context.Background()
+	if err := natstransport.EnsureStream(ctx, js, assignmentStream, []string{natstransport.DefaultAssignmentStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure assignment stream: %v", err)
+	}
+	if err := natstransport.EnsureStream(ctx, js, receiptStream, []string{natstransport.DefaultReceiptStreamSubject}, time.Hour); err != nil {
+		t.Fatalf("ensure receipt stream: %v", err)
+	}
+
+	receiptSubject := natstransport.ReceiptSubject("lab", runID, targetID)
+	sub, err := js.PullSubscribe(receiptSubject, "worker-js-pool-receipts", natsgo.BindStream(receiptStream), natsgo.DeliverAll(), natsgo.AckExplicit(), natsgo.ManualAck())
+	if err != nil {
+		t.Fatalf("subscribe receipt stream: %v", err)
+	}
+
+	startWorker := func(workerID string, runner *recordingRunner) (context.CancelFunc, <-chan error) {
+		t.Helper()
+		ready := make(chan struct{})
+		worker, err := New(Config{
+			Server:                     serverURL,
+			Subject:                    subject,
+			Queue:                      queue,
+			Delivery:                   natstransport.DeliveryJetStream,
+			AssignmentStream:           assignmentStream,
+			ReceiptStream:              receiptStream,
+			LedgerPath:                 ledgerPath,
+			MaxDeliver:                 3,
+			AckWait:                    500 * time.Millisecond,
+			Ready:                      ready,
+			Timeout:                    2 * time.Second,
+			Capabilities:               []string{"host.command.run"},
+			DisableCapabilityDiscovery: true,
+			AgentID:                    agentID,
+			WorkerID:                   workerID,
+			Tenant:                     "lab",
+			TargetID:                   targetID,
+			Hostname:                   "js-pool",
+			Runner:                     runner,
+		})
+		if err != nil {
+			t.Fatalf("New(%s) error = %v", workerID, err)
+		}
+		workerCtx, cancel := context.WithCancel(context.Background())
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- worker.Run(workerCtx)
+		}()
+		select {
+		case <-ready:
+		case err := <-errCh:
+			cancel()
+			t.Fatalf("worker %s exited before ready: %v", workerID, err)
+		case <-time.After(5 * time.Second):
+			cancel()
+			t.Fatalf("worker %s did not become ready", workerID)
+		}
+		return cancel, errCh
+	}
+	stopWorker := func(cancel context.CancelFunc, errCh <-chan error) {
+		t.Helper()
+		cancel()
+		select {
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("worker Run() error = %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("worker did not stop")
+		}
+	}
+	publish := func(nodeID string, command string) natstransport.CommandAssignment {
+		t.Helper()
+		assignment := natstransport.NewCommandAssignmentWithMetadata("run", subject, command, time.Now(), natstransport.CommandAssignmentMetadata{
+			TargetID:           targetID,
+			ExpectedAgentID:    agentID,
+			RequiredCapability: "host.command.run",
+			NodeKind:           "host.command.run",
+			RunID:              runID,
+			NodeID:             nodeID,
+		})
+		raw, err := json.Marshal(assignment)
+		if err != nil {
+			t.Fatalf("marshal assignment: %v", err)
+		}
+		if _, err := js.Publish(subject, raw, natsgo.Context(ctx)); err != nil {
+			t.Fatalf("publish assignment: %v", err)
+		}
+		return assignment
+	}
+	nextResult := func() transport.OperationResult {
+		t.Helper()
+		msgs := fetchNATSReceipts(t, sub, 1, 5*time.Second)
+		if len(msgs) != 1 {
+			t.Fatalf("receipts = %d, want one", len(msgs))
+		}
+		var result transport.OperationResult
+		if err := json.Unmarshal(msgs[0].Data, &result); err != nil {
+			t.Fatalf("parse receipt: %v", err)
+		}
+		_ = msgs[0].Ack()
+		return result
+	}
+
+	cancelA, errChA := startWorker("pool-worker-a", runnerA)
+	cancelB, errChB := startWorker("pool-worker-b", runnerB)
+	stoppedA := false
+	stoppedB := false
+	defer func() {
+		if !stoppedA {
+			stopWorker(cancelA, errChA)
+		}
+		if !stoppedB {
+			stopWorker(cancelB, errChB)
+		}
+	}()
+
+	firstAssignment := publish("host.command.run/pool-one", "printf pool-one")
+	first := nextResult()
+	if first.Status != "succeeded" {
+		t.Fatalf("first result = %#v, want success", first)
+	}
+	if first.Metadata["assignmentId"] != firstAssignment.AssignmentID {
+		t.Fatalf("first assignmentId = %q, want %q", first.Metadata["assignmentId"], firstAssignment.AssignmentID)
+	}
+	assertMetadata(t, first.Metadata, map[string]string{
+		"agentId":            agentID,
+		"targetId":           targetID,
+		"workerSubject":      subject,
+		"queue":              queue,
+		"assignmentConsumer": queue,
+		"workerDecision":     "executed",
+	})
+	firstWorkerID := first.Metadata["workerId"]
+	if firstWorkerID != "pool-worker-a" && firstWorkerID != "pool-worker-b" {
+		t.Fatalf("first workerId = %q, want one pool worker in %#v", firstWorkerID, first.Metadata)
+	}
+	if calls := runnerA.Calls() + runnerB.Calls(); calls != 1 {
+		t.Fatalf("total runner calls = %d, want one", calls)
+	}
+
+	var survivor string
+	switch firstWorkerID {
+	case "pool-worker-a":
+		stopWorker(cancelA, errChA)
+		stoppedA = true
+		survivor = "pool-worker-b"
+	case "pool-worker-b":
+		stopWorker(cancelB, errChB)
+		stoppedB = true
+		survivor = "pool-worker-a"
+	}
+
+	secondAssignment := publish("host.command.run/pool-two", "printf pool-two")
+	second := nextResult()
+	if second.Status != "succeeded" {
+		t.Fatalf("second result = %#v, want success", second)
+	}
+	if second.Metadata["assignmentId"] != secondAssignment.AssignmentID {
+		t.Fatalf("second assignmentId = %q, want %q", second.Metadata["assignmentId"], secondAssignment.AssignmentID)
+	}
+	if second.Metadata["workerId"] != survivor {
+		t.Fatalf("second workerId = %q, want survivor %q in %#v", second.Metadata["workerId"], survivor, second.Metadata)
+	}
+	assertMetadata(t, second.Metadata, map[string]string{
+		"queue":              queue,
+		"assignmentConsumer": queue,
+		"workerDecision":     "executed",
+	})
+	if calls := runnerA.Calls() + runnerB.Calls(); calls != 2 {
+		t.Fatalf("total runner calls = %d, want two", calls)
+	}
+}
+
 func TestWorkerRetriesDurableAssignmentUntilSuccess(t *testing.T) {
 	serverURL := startLocalNATSJetStreamServer(t)
 	subject := "torque.assign.lab.host_js-retry"
@@ -967,6 +1161,7 @@ func assertMetadata(t *testing.T, got map[string]string, want map[string]string)
 }
 
 type recordingRunner struct {
+	mu     sync.Mutex
 	calls  []recordedCall
 	output transport.RunOutput
 	err    error
@@ -978,8 +1173,16 @@ type recordedCall struct {
 }
 
 func (r *recordingRunner) Run(ctx context.Context, name string, args []string) (transport.RunOutput, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.calls = append(r.calls, recordedCall{name: name, args: append([]string(nil), args...)})
 	return r.output, r.err
+}
+
+func (r *recordingRunner) Calls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.calls)
 }
 
 type flakyRunner struct {

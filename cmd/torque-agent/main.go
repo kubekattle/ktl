@@ -195,6 +195,7 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	defaultDurable := firstNonEmptyAgent(getenv("TORQUE_NATS_DURABLE"), getenv("TORQUE_NATS_WORKER_DURABLE"))
 	defaultLedgerPath := strings.TrimSpace(getenv("TORQUE_AGENT_ASSIGNMENT_LEDGER"))
 	defaultAgentID := firstNonEmptyAgent(getenv("TORQUE_AGENT_ID"), hostname)
+	defaultWorkerID := firstNonEmptyAgent(getenv("TORQUE_AGENT_WORKER_ID"), getenv("TORQUE_NATS_WORKER_ID"))
 	defaultTenant := firstNonEmptyAgent(getenv("TORQUE_AGENT_TENANT"), "default")
 	defaultTargetID := firstNonEmptyAgent(getenv("TORQUE_AGENT_TARGET_ID"), defaultAgentID)
 	defaultHostname := firstNonEmptyAgent(getenv("TORQUE_AGENT_HOSTNAME"), hostname)
@@ -276,6 +277,7 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 	timeout := fs.Duration("timeout", defaultTimeout, "Per-assignment execution timeout (also TORQUE_NATS_TIMEOUT or TORQUE_NATS_WORKER_TIMEOUT)")
 	shell := fs.String("shell", strings.TrimSpace(getenv("TORQUE_AGENT_SHELL")), "Shell binary for local command execution (default sh)")
 	agentID := fs.String("agent-id", defaultAgentID, "Stable worker agent identity for receipts (also TORQUE_AGENT_ID)")
+	workerID := fs.String("worker-id", defaultWorkerID, "Stable local worker process identity for receipts (also TORQUE_AGENT_WORKER_ID or TORQUE_NATS_WORKER_ID)")
 	tenant := fs.String("tenant", defaultTenant, "Tenant namespace for worker receipts (also TORQUE_AGENT_TENANT)")
 	targetID := fs.String("target-id", defaultTargetID, "TargetGraph target ID represented by this worker (also TORQUE_AGENT_TARGET_ID)")
 	hostnameFlag := fs.String("hostname", defaultHostname, "Hostname to include in worker receipts (also TORQUE_AGENT_HOSTNAME)")
@@ -359,6 +361,7 @@ func parseNATSWorkerConfig(args []string, getenv func(string) string) (natsworke
 		Capabilities:               capabilities,
 		DisableCapabilityDiscovery: !*discoverCapabilities,
 		AgentID:                    strings.TrimSpace(*agentID),
+		WorkerID:                   strings.TrimSpace(*workerID),
 		Tenant:                     strings.TrimSpace(*tenant),
 		TargetID:                   strings.TrimSpace(*targetID),
 		Hostname:                   strings.TrimSpace(*hostnameFlag),
@@ -376,7 +379,7 @@ func printNATSUsage(out *os.File) {
 
 func printNATSWorkerUsage(out *os.File) {
 	fmt.Fprintln(out, "Usage:")
-	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--ledger-path .torque/agent/assignments.sqlite] [--verify-assignments --trusted-issuer-key ./assignment-pub.json] [--max-deliver 3] [--ack-wait 30s] [--nak-delay 1s] [--queue workers] [--agent-id host-141] [--discover-capabilities=false]")
+	fmt.Fprintln(out, "  torque-agent nats worker --subject <assignment-subject> [--nats-url nats://127.0.0.1:4222] [--delivery requestReply|jetstream] [--ledger-path .torque/agent/assignments.sqlite] [--verify-assignments --trusted-issuer-key ./assignment-pub.json] [--max-deliver 3] [--ack-wait 30s] [--nak-delay 1s] [--queue workers] [--agent-id host-141] [--worker-id host-141-a] [--discover-capabilities=false]")
 }
 
 func flagWasSet(name string) bool {

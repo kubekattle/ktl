@@ -51,6 +51,8 @@ func openAssignmentLedger(ctx context.Context, path string) (*assignmentLedger, 
 	if err != nil {
 		return nil, fmt.Errorf("open assignment ledger: %w", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	ledger := &assignmentLedger{db: db}
 	if err := ledger.init(ctx); err != nil {
 		_ = db.Close()
@@ -82,6 +84,9 @@ func (l *assignmentLedger) Close() error {
 
 func (l *assignmentLedger) init(ctx context.Context) error {
 	_, err := l.db.ExecContext(ctx, `
+PRAGMA busy_timeout = 5000;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
 CREATE TABLE IF NOT EXISTS nats_assignment_ledger (
   assignment_id TEXT PRIMARY KEY,
   status TEXT NOT NULL,
@@ -124,6 +129,12 @@ func (l *assignmentLedger) Begin(ctx context.Context, assignment natstransport.C
 			_ = tx.Rollback()
 		}
 	}()
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO nats_assignment_ledger (assignment_id, status, assignment_json, attempts, received_at, updated_at)
+VALUES (?, ?, ?, 0, ?, ?)
+ON CONFLICT(assignment_id) DO NOTHING`, assignmentID, ledgerStatusReceived, string(rawAssignment), now, now); err != nil {
+		return ledgerDecision{}, err
+	}
 	row := tx.QueryRowContext(ctx, `SELECT status, receipt_json, attempts FROM nats_assignment_ledger WHERE assignment_id = ?`, assignmentID)
 	var status string
 	var receiptJSON sql.NullString
@@ -149,11 +160,7 @@ func (l *assignmentLedger) Begin(ctx context.Context, assignment natstransport.C
 			return ledgerDecision{UnsafeReplay: true, Status: status, Attempt: attempts}, nil
 		}
 	case errors.Is(err, sql.ErrNoRows):
-		if _, err := tx.ExecContext(ctx, `
-INSERT INTO nats_assignment_ledger (assignment_id, status, assignment_json, attempts, received_at, updated_at)
-VALUES (?, ?, ?, 0, ?, ?)`, assignmentID, ledgerStatusReceived, string(rawAssignment), now, now); err != nil {
-			return ledgerDecision{}, err
-		}
+		return ledgerDecision{}, fmt.Errorf("assignment ledger insert did not create row for %s", assignmentID)
 	default:
 		return ledgerDecision{}, err
 	}
