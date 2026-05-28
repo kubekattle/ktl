@@ -39,6 +39,47 @@ AWS_REGION=ap-south-1 \
 scripts/e2e/postgres-s3-rds-drill.sh
 ```
 
+## Generate A Live `manual.env`
+
+If you want to run `torque stack apply` yourself, first ask the harness to
+create live disposable resources and keep them:
+
+```bash
+cd /Users/antonvkrylov/work/torque
+
+TORQUE_AWS_RDS_E2E_CONFIRM=1 \
+TORQUE_AWS_RDS_E2E_KEEP_RESOURCES=1 \
+TORQUE_AWS_RDS_E2E_SETUP_ONLY=1 \
+AWS_REGION=ap-south-1 \
+scripts/e2e/postgres-s3-rds-drill.sh
+```
+
+That writes:
+
+```text
+docs/showcase/postgres-s3-rds-drill/runtime/manual.env
+```
+
+Load it:
+
+```bash
+set -a
+source docs/showcase/postgres-s3-rds-drill/runtime/manual.env
+set +a
+```
+
+Then run:
+
+```bash
+./bin/torque stack apply --config docs/showcase/postgres-s3-rds-drill --yes
+```
+
+When done, remove the kept AWS resources and source container:
+
+```bash
+docs/showcase/postgres-s3-rds-drill/runtime/cleanup-kept-resources.sh
+```
+
 ## Manual Apply Against Existing Resources
 
 Build the local Torque binary first:

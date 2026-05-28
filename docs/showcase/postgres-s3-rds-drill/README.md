@@ -38,4 +38,5 @@ For a step-by-step manual run against existing resources, see
 [MANUAL.md](./MANUAL.md). Run it from the repository root with
 `torque stack apply --config docs/showcase/postgres-s3-rds-drill --yes`;
 plain `torque apply` is the Helm apply surface and expects `--chart` and
-`--release`.
+`--release`. To generate a live local env file first, run the harness with
+`TORQUE_AWS_RDS_E2E_KEEP_RESOURCES=1` and `TORQUE_AWS_RDS_E2E_SETUP_ONLY=1`.
