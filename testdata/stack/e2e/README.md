@@ -23,6 +23,18 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
   collection by applying `host.file.ensure` through a NATS assignment worker,
   then verifying the same module receipt shape that SSH-backed execution will
   use.
+- `25-firecracker-postgres-pgbouncer-nats` is the full NATS stackfile used by
+  `scripts/e2e/ops/STACK-FC-POSTGRES-001.sh`: one PostgreSQL primary, four
+  streaming replicas, PgBouncer on every VM, a replicated write probe, reapply,
+  audit/export, and delete through `host.command.run` nodes dispatched to
+  Firecracker-local `torque-agent nats worker` subjects.
+- `26-firecracker-kafka-nats-cluster` and
+  `27-firecracker-rabbitmq-nats-cluster` are real-lab NATS stackfiles for
+  side-by-side five-node Firecracker/k3s data-service clusters. All stack
+  commands dispatch to lab-host `torque-agent nats worker` subjects; the
+  workers bootstrap the Firecracker clusters, apply the Kafka/RabbitMQ
+  workloads, deploy continuous traffic generators, verify message flow and
+  quorum evidence, and delete the labs through the same NATS path.
 - `30-firecracker-keycloak-postgres-nats-admin` is a real-lab PostgreSQL day-2
   admin stack for the Keycloak Firecracker VM cluster. It runs the typed
   resources `postgres.role.ensure`, `postgres.database.ensure`,
@@ -32,13 +44,6 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
   `postgres.config.ensure`, and `postgres.maintenance.run` through a
   JetStream-backed NATS worker on the primary, then proves backup, verify,
   restore-drill, and receipt-offset resume after controller death.
-- `26-firecracker-kafka-nats-cluster` and
-  `27-firecracker-rabbitmq-nats-cluster` are real-lab NATS stackfiles for
-  side-by-side five-node Firecracker/k3s data-service clusters. All stack
-  commands dispatch to lab-host `torque-agent nats worker` subjects; the
-  workers bootstrap the Firecracker clusters, apply the Kafka/RabbitMQ
-  workloads, deploy continuous traffic generators, verify message flow and
-  quorum evidence, and delete the labs through the same NATS path.
 - `19-firecracker-gitlab-hybrid` is a real-lab GitLab hybrid stack that
   creates Firecracker VMs for a 3-node k3s service tier and 4-node
   PostgreSQL/Redis/MinIO stateful tier, deploys GitLab with external services,

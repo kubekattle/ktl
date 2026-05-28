@@ -113,6 +113,24 @@ scripts/e2e/ops/STACK-FC-KAFKA-RABBITMQ-001.sh \
   --no-cleanup
 ```
 
+## STACK-FC-POSTGRES-001
+
+`STACK-FC-POSTGRES-001.sh` proves a NATS-transport database workflow on the
+real Firecracker lab host. It boots five Firecracker VMs, starts a
+`torque-agent nats worker` inside each VM, applies the full stackfile at
+`testdata/stack/e2e/25-firecracker-postgres-pgbouncer-nats` whose PostgreSQL
+primary, four streaming replicas, PgBouncer setup, replicated probe, reapply,
+audit/export, and delete phases all run through NATS assignment subjects, then
+collects proof artifacts and cleans up the VM resources.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-POSTGRES-001.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## OPS-HOST-001
 
 `OPS-HOST-001.sh` proves the first guarded host adapter on the real

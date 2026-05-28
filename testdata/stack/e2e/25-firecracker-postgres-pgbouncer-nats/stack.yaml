@@ -1,0 +1,764 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-postgres-pgbouncer-nats
+runner:
+  concurrency: 2
+cli:
+  inferDeps: false
+nodes:
+  - name: postgres-primary
+    kind: host.command.run
+    host:
+      transport: nats
+      targetEnv: TORQUE_PG_NATS_POSTGRES_00_SUBJECT
+      timeout: 20m
+      command: |
+        pg_version() {
+          pg_lsclusters --no-header | awk 'NR==1 {print $1}'
+        }
+        
+        set_setting() {
+          local file="$1" key="$2" value="$3"
+          if grep -Eq "^[#[:space:]]*${key}[[:space:]]*=" "${file}"; then
+            sed -ri "s|^[#[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "${file}"
+          else
+            printf '%s = %s\n' "${key}" "${value}" >>"${file}"
+          fi
+        }
+        
+        ensure_hba() {
+          local hba="$1"
+          if ! grep -q 'torque-postgres-pgbouncer-e2e' "${hba}"; then
+            cp "${hba}" "${hba}.torque-bak"
+            {
+              echo '# torque-postgres-pgbouncer-e2e begin'
+              echo 'local all all trust'
+              echo 'host all all 127.0.0.1/32 trust'
+              echo 'host all all 172.31.239.0/24 trust'
+              echo 'host replication replicator 172.31.239.0/24 trust'
+              echo '# torque-postgres-pgbouncer-e2e end'
+              cat "${hba}.torque-bak"
+            } >"${hba}"
+          fi
+        }
+        
+        configure_postgres_common() {
+          local ver conf hba
+          ver="$(pg_version)"
+          conf="/etc/postgresql/${ver}/main/postgresql.conf"
+          hba="/etc/postgresql/${ver}/main/pg_hba.conf"
+          set_setting "${conf}" "listen_addresses" "'*'"
+          set_setting "${conf}" "wal_level" "replica"
+          set_setting "${conf}" "max_wal_senders" "16"
+          set_setting "${conf}" "max_replication_slots" "16"
+          set_setting "${conf}" "hot_standby" "on"
+          ensure_hba "${hba}"
+        }
+        
+        ensure_pgbouncer() {
+          install -d -m 0755 -o postgres -g postgres /run/pgbouncer /var/log/pgbouncer
+          cat >/etc/pgbouncer/pgbouncer.ini <<'EOF'
+        [databases]
+        torque = host=127.0.0.1 port=5432 dbname=torque
+        
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        user = postgres
+        auth_type = trust
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_client_conn = 100
+        default_pool_size = 20
+        ignore_startup_parameters = extra_float_digits
+        pidfile = /run/pgbouncer/pgbouncer.pid
+        logfile = /var/log/pgbouncer/pgbouncer.log
+        admin_users = postgres, torque_app
+        EOF
+          cat >/etc/pgbouncer/userlist.txt <<'EOF'
+        "postgres" ""
+        "torque_app" ""
+        EOF
+          chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          chmod 0640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          if [[ -f /etc/default/pgbouncer ]]; then
+            sed -ri 's/^START=.*/START=1/' /etc/default/pgbouncer
+            grep -q '^START=' /etc/default/pgbouncer || echo 'START=1' >>/etc/default/pgbouncer
+          fi
+          systemctl enable pgbouncer >/dev/null 2>&1 || true
+          if ! systemctl restart pgbouncer; then
+            systemctl status pgbouncer --no-pager || true
+            journalctl -u pgbouncer -n 80 --no-pager || true
+            return 1
+          fi
+        }
+        
+        set -euo pipefail
+        PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
+        mkdir -p "${PROOF_DIR}"
+        
+        configure_postgres_common
+        systemctl restart postgresql
+        for _ in $(seq 1 90); do
+          if runuser -u postgres -- psql -tAc 'select 1' >/dev/null 2>&1; then
+            break
+          fi
+          sleep 2
+        done
+        runuser -u postgres -- psql -v ON_ERROR_STOP=1 <<'SQL'
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
+            CREATE ROLE replicator WITH REPLICATION LOGIN;
+          END IF;
+        END$$;
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'torque_app') THEN
+            CREATE ROLE torque_app WITH LOGIN;
+          END IF;
+        END$$;
+        SELECT 'CREATE DATABASE torque OWNER torque_app' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'torque')\gexec
+        \c torque
+        CREATE TABLE IF NOT EXISTS torque_probe (
+          id text PRIMARY KEY,
+          payload text NOT NULL,
+          observed_at timestamptz NOT NULL DEFAULT now()
+        );
+        ALTER TABLE torque_probe OWNER TO torque_app;
+        GRANT ALL ON TABLE torque_probe TO torque_app;
+        SQL
+        ensure_pgbouncer
+        pg_isready -h 127.0.0.1 -p 5432
+        pg_isready -h 127.0.0.1 -p 6432
+        cat >"${PROOF_DIR}/primary.json" <<EOF
+        {"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresPrimaryReceipt","status":"succeeded","node":"postgres-00","ip":"172.31.239.10","pgbouncerPort":6432}
+        EOF
+        cat "${PROOF_DIR}/primary.json"
+      deleteCommand: |
+        set -euo pipefail
+        systemctl stop pgbouncer postgresql 2>/dev/null || true
+  - name: postgres-replica-01
+    kind: host.command.run
+    needs: [postgres-primary]
+    host:
+      transport: nats
+      targetEnv: TORQUE_PG_NATS_POSTGRES_01_SUBJECT
+      timeout: 20m
+      command: |
+        pg_version() {
+          pg_lsclusters --no-header | awk 'NR==1 {print $1}'
+        }
+        
+        set_setting() {
+          local file="$1" key="$2" value="$3"
+          if grep -Eq "^[#[:space:]]*${key}[[:space:]]*=" "${file}"; then
+            sed -ri "s|^[#[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "${file}"
+          else
+            printf '%s = %s\n' "${key}" "${value}" >>"${file}"
+          fi
+        }
+        
+        ensure_hba() {
+          local hba="$1"
+          if ! grep -q 'torque-postgres-pgbouncer-e2e' "${hba}"; then
+            cp "${hba}" "${hba}.torque-bak"
+            {
+              echo '# torque-postgres-pgbouncer-e2e begin'
+              echo 'local all all trust'
+              echo 'host all all 127.0.0.1/32 trust'
+              echo 'host all all 172.31.239.0/24 trust'
+              echo 'host replication replicator 172.31.239.0/24 trust'
+              echo '# torque-postgres-pgbouncer-e2e end'
+              cat "${hba}.torque-bak"
+            } >"${hba}"
+          fi
+        }
+        
+        configure_postgres_common() {
+          local ver conf hba
+          ver="$(pg_version)"
+          conf="/etc/postgresql/${ver}/main/postgresql.conf"
+          hba="/etc/postgresql/${ver}/main/pg_hba.conf"
+          set_setting "${conf}" "listen_addresses" "'*'"
+          set_setting "${conf}" "wal_level" "replica"
+          set_setting "${conf}" "max_wal_senders" "16"
+          set_setting "${conf}" "max_replication_slots" "16"
+          set_setting "${conf}" "hot_standby" "on"
+          ensure_hba "${hba}"
+        }
+        
+        ensure_pgbouncer() {
+          install -d -m 0755 -o postgres -g postgres /run/pgbouncer /var/log/pgbouncer
+          cat >/etc/pgbouncer/pgbouncer.ini <<'EOF'
+        [databases]
+        torque = host=127.0.0.1 port=5432 dbname=torque
+        
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        user = postgres
+        auth_type = trust
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_client_conn = 100
+        default_pool_size = 20
+        ignore_startup_parameters = extra_float_digits
+        pidfile = /run/pgbouncer/pgbouncer.pid
+        logfile = /var/log/pgbouncer/pgbouncer.log
+        admin_users = postgres, torque_app
+        EOF
+          cat >/etc/pgbouncer/userlist.txt <<'EOF'
+        "postgres" ""
+        "torque_app" ""
+        EOF
+          chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          chmod 0640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          if [[ -f /etc/default/pgbouncer ]]; then
+            sed -ri 's/^START=.*/START=1/' /etc/default/pgbouncer
+            grep -q '^START=' /etc/default/pgbouncer || echo 'START=1' >>/etc/default/pgbouncer
+          fi
+          systemctl enable pgbouncer >/dev/null 2>&1 || true
+          if ! systemctl restart pgbouncer; then
+            systemctl status pgbouncer --no-pager || true
+            journalctl -u pgbouncer -n 80 --no-pager || true
+            return 1
+          fi
+        }
+        
+        set -euo pipefail
+        PRIMARY="172.31.239.10"
+        PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
+        mkdir -p "${PROOF_DIR}"
+        
+        configure_postgres_common
+        ver="$(pg_version)"
+        data_dir="/var/lib/postgresql/${ver}/main"
+        if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+          systemctl restart postgresql
+        else
+          systemctl stop postgresql pgbouncer 2>/dev/null || true
+          rm -rf "${data_dir}"
+          install -d -m 0700 -o postgres -g postgres "${data_dir}"
+          runuser -u postgres -- pg_basebackup -h "${PRIMARY}" -D "${data_dir}" -U replicator -Fp -Xs -P -R -w
+          chown -R postgres:postgres "${data_dir}"
+          systemctl start postgresql
+        fi
+        for _ in $(seq 1 120); do
+          if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+            break
+          fi
+          sleep 2
+        done
+        runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" | grep -q t
+        ensure_pgbouncer
+        pg_isready -h 127.0.0.1 -p 5432
+        pg_isready -h 127.0.0.1 -p 6432
+        cat >"${PROOF_DIR}/replica-01.json" <<EOF
+        {"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresReplicaReceipt","status":"succeeded","node":"postgres-01","ip":"172.31.239.11","primary":"172.31.239.10","pgbouncerPort":6432}
+        EOF
+        cat "${PROOF_DIR}/replica-01.json"
+      deleteCommand: |
+        set -euo pipefail
+        systemctl stop pgbouncer postgresql 2>/dev/null || true
+  - name: postgres-replica-02
+    kind: host.command.run
+    needs: [postgres-primary]
+    host:
+      transport: nats
+      targetEnv: TORQUE_PG_NATS_POSTGRES_02_SUBJECT
+      timeout: 20m
+      command: |
+        pg_version() {
+          pg_lsclusters --no-header | awk 'NR==1 {print $1}'
+        }
+        
+        set_setting() {
+          local file="$1" key="$2" value="$3"
+          if grep -Eq "^[#[:space:]]*${key}[[:space:]]*=" "${file}"; then
+            sed -ri "s|^[#[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "${file}"
+          else
+            printf '%s = %s\n' "${key}" "${value}" >>"${file}"
+          fi
+        }
+        
+        ensure_hba() {
+          local hba="$1"
+          if ! grep -q 'torque-postgres-pgbouncer-e2e' "${hba}"; then
+            cp "${hba}" "${hba}.torque-bak"
+            {
+              echo '# torque-postgres-pgbouncer-e2e begin'
+              echo 'local all all trust'
+              echo 'host all all 127.0.0.1/32 trust'
+              echo 'host all all 172.31.239.0/24 trust'
+              echo 'host replication replicator 172.31.239.0/24 trust'
+              echo '# torque-postgres-pgbouncer-e2e end'
+              cat "${hba}.torque-bak"
+            } >"${hba}"
+          fi
+        }
+        
+        configure_postgres_common() {
+          local ver conf hba
+          ver="$(pg_version)"
+          conf="/etc/postgresql/${ver}/main/postgresql.conf"
+          hba="/etc/postgresql/${ver}/main/pg_hba.conf"
+          set_setting "${conf}" "listen_addresses" "'*'"
+          set_setting "${conf}" "wal_level" "replica"
+          set_setting "${conf}" "max_wal_senders" "16"
+          set_setting "${conf}" "max_replication_slots" "16"
+          set_setting "${conf}" "hot_standby" "on"
+          ensure_hba "${hba}"
+        }
+        
+        ensure_pgbouncer() {
+          install -d -m 0755 -o postgres -g postgres /run/pgbouncer /var/log/pgbouncer
+          cat >/etc/pgbouncer/pgbouncer.ini <<'EOF'
+        [databases]
+        torque = host=127.0.0.1 port=5432 dbname=torque
+        
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        user = postgres
+        auth_type = trust
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_client_conn = 100
+        default_pool_size = 20
+        ignore_startup_parameters = extra_float_digits
+        pidfile = /run/pgbouncer/pgbouncer.pid
+        logfile = /var/log/pgbouncer/pgbouncer.log
+        admin_users = postgres, torque_app
+        EOF
+          cat >/etc/pgbouncer/userlist.txt <<'EOF'
+        "postgres" ""
+        "torque_app" ""
+        EOF
+          chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          chmod 0640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          if [[ -f /etc/default/pgbouncer ]]; then
+            sed -ri 's/^START=.*/START=1/' /etc/default/pgbouncer
+            grep -q '^START=' /etc/default/pgbouncer || echo 'START=1' >>/etc/default/pgbouncer
+          fi
+          systemctl enable pgbouncer >/dev/null 2>&1 || true
+          if ! systemctl restart pgbouncer; then
+            systemctl status pgbouncer --no-pager || true
+            journalctl -u pgbouncer -n 80 --no-pager || true
+            return 1
+          fi
+        }
+        
+        set -euo pipefail
+        PRIMARY="172.31.239.10"
+        PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
+        mkdir -p "${PROOF_DIR}"
+        
+        configure_postgres_common
+        ver="$(pg_version)"
+        data_dir="/var/lib/postgresql/${ver}/main"
+        if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+          systemctl restart postgresql
+        else
+          systemctl stop postgresql pgbouncer 2>/dev/null || true
+          rm -rf "${data_dir}"
+          install -d -m 0700 -o postgres -g postgres "${data_dir}"
+          runuser -u postgres -- pg_basebackup -h "${PRIMARY}" -D "${data_dir}" -U replicator -Fp -Xs -P -R -w
+          chown -R postgres:postgres "${data_dir}"
+          systemctl start postgresql
+        fi
+        for _ in $(seq 1 120); do
+          if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+            break
+          fi
+          sleep 2
+        done
+        runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" | grep -q t
+        ensure_pgbouncer
+        pg_isready -h 127.0.0.1 -p 5432
+        pg_isready -h 127.0.0.1 -p 6432
+        cat >"${PROOF_DIR}/replica-02.json" <<EOF
+        {"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresReplicaReceipt","status":"succeeded","node":"postgres-02","ip":"172.31.239.12","primary":"172.31.239.10","pgbouncerPort":6432}
+        EOF
+        cat "${PROOF_DIR}/replica-02.json"
+      deleteCommand: |
+        set -euo pipefail
+        systemctl stop pgbouncer postgresql 2>/dev/null || true
+  - name: postgres-replica-03
+    kind: host.command.run
+    needs: [postgres-primary]
+    host:
+      transport: nats
+      targetEnv: TORQUE_PG_NATS_POSTGRES_03_SUBJECT
+      timeout: 20m
+      command: |
+        pg_version() {
+          pg_lsclusters --no-header | awk 'NR==1 {print $1}'
+        }
+        
+        set_setting() {
+          local file="$1" key="$2" value="$3"
+          if grep -Eq "^[#[:space:]]*${key}[[:space:]]*=" "${file}"; then
+            sed -ri "s|^[#[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "${file}"
+          else
+            printf '%s = %s\n' "${key}" "${value}" >>"${file}"
+          fi
+        }
+        
+        ensure_hba() {
+          local hba="$1"
+          if ! grep -q 'torque-postgres-pgbouncer-e2e' "${hba}"; then
+            cp "${hba}" "${hba}.torque-bak"
+            {
+              echo '# torque-postgres-pgbouncer-e2e begin'
+              echo 'local all all trust'
+              echo 'host all all 127.0.0.1/32 trust'
+              echo 'host all all 172.31.239.0/24 trust'
+              echo 'host replication replicator 172.31.239.0/24 trust'
+              echo '# torque-postgres-pgbouncer-e2e end'
+              cat "${hba}.torque-bak"
+            } >"${hba}"
+          fi
+        }
+        
+        configure_postgres_common() {
+          local ver conf hba
+          ver="$(pg_version)"
+          conf="/etc/postgresql/${ver}/main/postgresql.conf"
+          hba="/etc/postgresql/${ver}/main/pg_hba.conf"
+          set_setting "${conf}" "listen_addresses" "'*'"
+          set_setting "${conf}" "wal_level" "replica"
+          set_setting "${conf}" "max_wal_senders" "16"
+          set_setting "${conf}" "max_replication_slots" "16"
+          set_setting "${conf}" "hot_standby" "on"
+          ensure_hba "${hba}"
+        }
+        
+        ensure_pgbouncer() {
+          install -d -m 0755 -o postgres -g postgres /run/pgbouncer /var/log/pgbouncer
+          cat >/etc/pgbouncer/pgbouncer.ini <<'EOF'
+        [databases]
+        torque = host=127.0.0.1 port=5432 dbname=torque
+        
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        user = postgres
+        auth_type = trust
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_client_conn = 100
+        default_pool_size = 20
+        ignore_startup_parameters = extra_float_digits
+        pidfile = /run/pgbouncer/pgbouncer.pid
+        logfile = /var/log/pgbouncer/pgbouncer.log
+        admin_users = postgres, torque_app
+        EOF
+          cat >/etc/pgbouncer/userlist.txt <<'EOF'
+        "postgres" ""
+        "torque_app" ""
+        EOF
+          chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          chmod 0640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          if [[ -f /etc/default/pgbouncer ]]; then
+            sed -ri 's/^START=.*/START=1/' /etc/default/pgbouncer
+            grep -q '^START=' /etc/default/pgbouncer || echo 'START=1' >>/etc/default/pgbouncer
+          fi
+          systemctl enable pgbouncer >/dev/null 2>&1 || true
+          if ! systemctl restart pgbouncer; then
+            systemctl status pgbouncer --no-pager || true
+            journalctl -u pgbouncer -n 80 --no-pager || true
+            return 1
+          fi
+        }
+        
+        set -euo pipefail
+        PRIMARY="172.31.239.10"
+        PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
+        mkdir -p "${PROOF_DIR}"
+        
+        configure_postgres_common
+        ver="$(pg_version)"
+        data_dir="/var/lib/postgresql/${ver}/main"
+        if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+          systemctl restart postgresql
+        else
+          systemctl stop postgresql pgbouncer 2>/dev/null || true
+          rm -rf "${data_dir}"
+          install -d -m 0700 -o postgres -g postgres "${data_dir}"
+          runuser -u postgres -- pg_basebackup -h "${PRIMARY}" -D "${data_dir}" -U replicator -Fp -Xs -P -R -w
+          chown -R postgres:postgres "${data_dir}"
+          systemctl start postgresql
+        fi
+        for _ in $(seq 1 120); do
+          if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+            break
+          fi
+          sleep 2
+        done
+        runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" | grep -q t
+        ensure_pgbouncer
+        pg_isready -h 127.0.0.1 -p 5432
+        pg_isready -h 127.0.0.1 -p 6432
+        cat >"${PROOF_DIR}/replica-03.json" <<EOF
+        {"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresReplicaReceipt","status":"succeeded","node":"postgres-03","ip":"172.31.239.13","primary":"172.31.239.10","pgbouncerPort":6432}
+        EOF
+        cat "${PROOF_DIR}/replica-03.json"
+      deleteCommand: |
+        set -euo pipefail
+        systemctl stop pgbouncer postgresql 2>/dev/null || true
+  - name: postgres-replica-04
+    kind: host.command.run
+    needs: [postgres-primary]
+    host:
+      transport: nats
+      targetEnv: TORQUE_PG_NATS_POSTGRES_04_SUBJECT
+      timeout: 20m
+      command: |
+        pg_version() {
+          pg_lsclusters --no-header | awk 'NR==1 {print $1}'
+        }
+        
+        set_setting() {
+          local file="$1" key="$2" value="$3"
+          if grep -Eq "^[#[:space:]]*${key}[[:space:]]*=" "${file}"; then
+            sed -ri "s|^[#[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "${file}"
+          else
+            printf '%s = %s\n' "${key}" "${value}" >>"${file}"
+          fi
+        }
+        
+        ensure_hba() {
+          local hba="$1"
+          if ! grep -q 'torque-postgres-pgbouncer-e2e' "${hba}"; then
+            cp "${hba}" "${hba}.torque-bak"
+            {
+              echo '# torque-postgres-pgbouncer-e2e begin'
+              echo 'local all all trust'
+              echo 'host all all 127.0.0.1/32 trust'
+              echo 'host all all 172.31.239.0/24 trust'
+              echo 'host replication replicator 172.31.239.0/24 trust'
+              echo '# torque-postgres-pgbouncer-e2e end'
+              cat "${hba}.torque-bak"
+            } >"${hba}"
+          fi
+        }
+        
+        configure_postgres_common() {
+          local ver conf hba
+          ver="$(pg_version)"
+          conf="/etc/postgresql/${ver}/main/postgresql.conf"
+          hba="/etc/postgresql/${ver}/main/pg_hba.conf"
+          set_setting "${conf}" "listen_addresses" "'*'"
+          set_setting "${conf}" "wal_level" "replica"
+          set_setting "${conf}" "max_wal_senders" "16"
+          set_setting "${conf}" "max_replication_slots" "16"
+          set_setting "${conf}" "hot_standby" "on"
+          ensure_hba "${hba}"
+        }
+        
+        ensure_pgbouncer() {
+          install -d -m 0755 -o postgres -g postgres /run/pgbouncer /var/log/pgbouncer
+          cat >/etc/pgbouncer/pgbouncer.ini <<'EOF'
+        [databases]
+        torque = host=127.0.0.1 port=5432 dbname=torque
+        
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        user = postgres
+        auth_type = trust
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_client_conn = 100
+        default_pool_size = 20
+        ignore_startup_parameters = extra_float_digits
+        pidfile = /run/pgbouncer/pgbouncer.pid
+        logfile = /var/log/pgbouncer/pgbouncer.log
+        admin_users = postgres, torque_app
+        EOF
+          cat >/etc/pgbouncer/userlist.txt <<'EOF'
+        "postgres" ""
+        "torque_app" ""
+        EOF
+          chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          chmod 0640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          if [[ -f /etc/default/pgbouncer ]]; then
+            sed -ri 's/^START=.*/START=1/' /etc/default/pgbouncer
+            grep -q '^START=' /etc/default/pgbouncer || echo 'START=1' >>/etc/default/pgbouncer
+          fi
+          systemctl enable pgbouncer >/dev/null 2>&1 || true
+          if ! systemctl restart pgbouncer; then
+            systemctl status pgbouncer --no-pager || true
+            journalctl -u pgbouncer -n 80 --no-pager || true
+            return 1
+          fi
+        }
+        
+        set -euo pipefail
+        PRIMARY="172.31.239.10"
+        PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
+        mkdir -p "${PROOF_DIR}"
+        
+        configure_postgres_common
+        ver="$(pg_version)"
+        data_dir="/var/lib/postgresql/${ver}/main"
+        if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+          systemctl restart postgresql
+        else
+          systemctl stop postgresql pgbouncer 2>/dev/null || true
+          rm -rf "${data_dir}"
+          install -d -m 0700 -o postgres -g postgres "${data_dir}"
+          runuser -u postgres -- pg_basebackup -h "${PRIMARY}" -D "${data_dir}" -U replicator -Fp -Xs -P -R -w
+          chown -R postgres:postgres "${data_dir}"
+          systemctl start postgresql
+        fi
+        for _ in $(seq 1 120); do
+          if runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" 2>/dev/null | grep -q t; then
+            break
+          fi
+          sleep 2
+        done
+        runuser -u postgres -- psql -tAc "select pg_is_in_recovery()" | grep -q t
+        ensure_pgbouncer
+        pg_isready -h 127.0.0.1 -p 5432
+        pg_isready -h 127.0.0.1 -p 6432
+        cat >"${PROOF_DIR}/replica-04.json" <<EOF
+        {"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresReplicaReceipt","status":"succeeded","node":"postgres-04","ip":"172.31.239.14","primary":"172.31.239.10","pgbouncerPort":6432}
+        EOF
+        cat "${PROOF_DIR}/replica-04.json"
+      deleteCommand: |
+        set -euo pipefail
+        systemctl stop pgbouncer postgresql 2>/dev/null || true
+  - name: postgres-pgbouncer-verify
+    kind: host.command.run
+    needs: [postgres-replica-01, postgres-replica-02, postgres-replica-03, postgres-replica-04]
+    host:
+      transport: nats
+      targetEnv: TORQUE_PG_NATS_POSTGRES_00_SUBJECT
+      timeout: 15m
+      command: |
+        pg_version() {
+          pg_lsclusters --no-header | awk 'NR==1 {print $1}'
+        }
+        
+        set_setting() {
+          local file="$1" key="$2" value="$3"
+          if grep -Eq "^[#[:space:]]*${key}[[:space:]]*=" "${file}"; then
+            sed -ri "s|^[#[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "${file}"
+          else
+            printf '%s = %s\n' "${key}" "${value}" >>"${file}"
+          fi
+        }
+        
+        ensure_hba() {
+          local hba="$1"
+          if ! grep -q 'torque-postgres-pgbouncer-e2e' "${hba}"; then
+            cp "${hba}" "${hba}.torque-bak"
+            {
+              echo '# torque-postgres-pgbouncer-e2e begin'
+              echo 'local all all trust'
+              echo 'host all all 127.0.0.1/32 trust'
+              echo 'host all all 172.31.239.0/24 trust'
+              echo 'host replication replicator 172.31.239.0/24 trust'
+              echo '# torque-postgres-pgbouncer-e2e end'
+              cat "${hba}.torque-bak"
+            } >"${hba}"
+          fi
+        }
+        
+        configure_postgres_common() {
+          local ver conf hba
+          ver="$(pg_version)"
+          conf="/etc/postgresql/${ver}/main/postgresql.conf"
+          hba="/etc/postgresql/${ver}/main/pg_hba.conf"
+          set_setting "${conf}" "listen_addresses" "'*'"
+          set_setting "${conf}" "wal_level" "replica"
+          set_setting "${conf}" "max_wal_senders" "16"
+          set_setting "${conf}" "max_replication_slots" "16"
+          set_setting "${conf}" "hot_standby" "on"
+          ensure_hba "${hba}"
+        }
+        
+        ensure_pgbouncer() {
+          install -d -m 0755 -o postgres -g postgres /run/pgbouncer /var/log/pgbouncer
+          cat >/etc/pgbouncer/pgbouncer.ini <<'EOF'
+        [databases]
+        torque = host=127.0.0.1 port=5432 dbname=torque
+        
+        [pgbouncer]
+        listen_addr = 0.0.0.0
+        listen_port = 6432
+        user = postgres
+        auth_type = trust
+        auth_file = /etc/pgbouncer/userlist.txt
+        pool_mode = transaction
+        max_client_conn = 100
+        default_pool_size = 20
+        ignore_startup_parameters = extra_float_digits
+        pidfile = /run/pgbouncer/pgbouncer.pid
+        logfile = /var/log/pgbouncer/pgbouncer.log
+        admin_users = postgres, torque_app
+        EOF
+          cat >/etc/pgbouncer/userlist.txt <<'EOF'
+        "postgres" ""
+        "torque_app" ""
+        EOF
+          chown postgres:postgres /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          chmod 0640 /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/userlist.txt
+          if [[ -f /etc/default/pgbouncer ]]; then
+            sed -ri 's/^START=.*/START=1/' /etc/default/pgbouncer
+            grep -q '^START=' /etc/default/pgbouncer || echo 'START=1' >>/etc/default/pgbouncer
+          fi
+          systemctl enable pgbouncer >/dev/null 2>&1 || true
+          if ! systemctl restart pgbouncer; then
+            systemctl status pgbouncer --no-pager || true
+            journalctl -u pgbouncer -n 80 --no-pager || true
+            return 1
+          fi
+        }
+        
+        set -euo pipefail
+        PROOF_DIR="/var/lib/torque-postgres-pgbouncer"
+        mkdir -p "${PROOF_DIR}"
+        probe_id="probe-${HOSTNAME}-postgres-pgbouncer-nats"
+        psql_primary() {
+          PGPASSWORD= psql -h 127.0.0.1 -p 6432 -U torque_app -d torque -v ON_ERROR_STOP=1 "$@"
+        }
+        psql_primary -c "INSERT INTO torque_probe(id, payload) VALUES ('${probe_id}', 'nats pgbouncer proof') ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, observed_at = now();"
+        
+        replication_state="0"
+        for _ in $(seq 1 120); do
+          replication_state="$(runuser -u postgres -- psql -tAc "select count(*) from pg_stat_replication where state = 'streaming';" | tr -d '[:space:]')"
+          [[ "${replication_state}" == "4" ]] && break
+          sleep 2
+        done
+        
+        ready_nodes=0
+        replicated_nodes=0
+        pgbouncer_nodes=0
+        : >"${PROOF_DIR}/cluster-status.txt"
+        for node in 0 1 2 3 4; do
+          ip="172.31.239.$((10 + node))"
+          if pg_isready -h "${ip}" -p 5432 >/dev/null 2>&1; then
+            ready_nodes=$((ready_nodes + 1))
+          fi
+          if pg_isready -h "${ip}" -p 6432 >/dev/null 2>&1; then
+            pgbouncer_nodes=$((pgbouncer_nodes + 1))
+          fi
+          count="$(PGPASSWORD= psql -h "${ip}" -p 6432 -U torque_app -d torque -tAc "select count(*) from torque_probe where id='${probe_id}';" 2>/dev/null | tr -d '[:space:]' || true)"
+          in_recovery="$(PGPASSWORD= psql -h "${ip}" -p 5432 -U postgres -d postgres -tAc "select pg_is_in_recovery();" 2>/dev/null | tr -d '[:space:]' || true)"
+          printf 'node=postgres-%02d ip=%s postgresReady=%s pgbouncerReady=%s replicatedCount=%s inRecovery=%s
+        ' "${node}" "${ip}" "$(pg_isready -h "${ip}" -p 5432 >/dev/null 2>&1 && echo true || echo false)" "$(pg_isready -h "${ip}" -p 6432 >/dev/null 2>&1 && echo true || echo false)" "${count:-0}" "${in_recovery}" >>"${PROOF_DIR}/cluster-status.txt"
+          [[ "${count}" == "1" ]] && replicated_nodes=$((replicated_nodes + 1))
+        done
+        cat "${PROOF_DIR}/cluster-status.txt"
+        status="succeeded"
+        if [[ "${ready_nodes}" != "5" || "${pgbouncer_nodes}" != "5" || "${replicated_nodes}" != "5" || "${replication_state}" != "4" ]]; then
+          status="failed"
+        fi
+        cat >"${PROOF_DIR}/receipt.json" <<EOF
+        {"apiVersion":"torque.dev/postgres-pgbouncer/v1","kind":"PostgresPgBouncerClusterReceipt","status":"${status}","runId":"postgres-pgbouncer-nats","nodeCount":5,"primaryIP":"172.31.239.10","replicaCount":4,"streamingReplicas":${replication_state:-0},"postgresReady":${ready_nodes},"pgbouncerReady":${pgbouncer_nodes},"replicatedNodes":${replicated_nodes},"probeId":"${probe_id}","transport":"nats"}
+        EOF
+        cat "${PROOF_DIR}/receipt.json"
+        [[ "${status}" == "succeeded" ]]
