@@ -23,6 +23,9 @@ The short version:
   assignments, receipts, retries, dead letters, and evidence offsets.
 - SQLite remains the portable local cache/export format, not the shared source
   of truth for 10,000-host execution.
+- In fleet mode, JetStream is the default mutation path. NATS request/reply
+  remains a local and lab compatibility mode, not the long-term control-plane
+  transport for durable production changes.
 
 Implemented local slice:
 
@@ -496,6 +499,12 @@ Use it for:
 - advisory capture;
 - replay after controller restart.
 
+In fleet mode, mutating execution should default to JetStream assignment and
+receipt streams even when a simpler request/reply path exists. Request/reply is
+still useful for local development, one-off diagnostics, and small-target labs,
+but it does not provide the replay, redelivery, dead-letter, and offset
+checkpoint properties that Torque needs as a production change-control plane.
+
 Suggested streams:
 
 ```text
@@ -523,7 +532,12 @@ TORQUE_AUDIT
     torque.v1.audit.<tenant>.<actor>.<event-type>
 ```
 
-Assignment envelopes include the node/run context the worker must enforce:
+Assignment envelopes include the node/run context the worker must enforce.
+Assignments should prefer typed resource payloads in `assignment.resource`
+whenever the node kind has a stable domain contract. Opaque shell commands are
+allowed as a compatibility path for host and bootstrap flows, but they should
+not be the primary fleet mutation primitive once a typed adapter exists. The
+goal is intent-carrying execution over NATS, not "SSH over a message bus":
 
 In local request/reply mode, targeted fan-out uses one deterministic subject per
 selected target: `torque.assign.<tenant>.<normalized-target-id>`. The stack
@@ -817,7 +831,8 @@ A NATS connection alone grants no authority.
 ### Lifecycle
 
 1. Run coordinator resolves selector to target IDs.
-2. Readiness gate verifies enough agents are ready.
+2. Readiness gate verifies enough agents are ready, fresh, capable, and have
+   enough advertised worker capacity for the requested batch.
 3. Coordinator writes immutable run plan to etcd.
 4. Assignment controller publishes signed assignments to JetStream.
 5. Agent receives assignment.
@@ -830,6 +845,11 @@ A NATS connection alone grants no authority.
     spooled.
 12. Receipt ingestor validates and indexes receipt.
 13. Run coordinator advances run state.
+
+Target resolution is placement, not broadcast. The coordinator should choose
+specific target bindings from compact registry status, capability digests,
+heartbeat freshness, labels, quarantine state, worker slot availability, and
+target-local lease policy before it publishes any assignment.
 
 ### Idempotency
 
@@ -995,6 +1015,12 @@ perAgentSlots: 1
 ackWait: 2m
 maxDeliver: 5
 deadLetterAfter: 5
+rollout:
+  mode: progressive
+  canaryTargets: 1
+  firstBatchPercent: 1
+  pauseOnFailureBudget: true
+  resumeFromOffsets: true
 ```
 
 The control plane should prefer progressive fan-out:
@@ -1004,6 +1030,11 @@ The control plane should prefer progressive fan-out:
 3. normal batches: bounded by `maxInFlight`;
 4. pause on failure-budget breach;
 5. resume from assignment and receipt offsets.
+
+These rollout semantics should compile into bounded NATS execution windows
+rather than ad hoc controller sleeps. Pause, resume, abort, and operator
+override should all preserve stream offsets, receipt checkpoints, and the
+reason the coordinator advanced or stopped.
 
 ### Indexing
 

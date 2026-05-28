@@ -24,6 +24,11 @@ External module collections own domain behavior:
 - `kernel.sysctl.ensure`
 - provider-specific cloud or SaaS resources
 
+When a module supports NATS-backed execution, the preferred contract is a typed
+resource payload that an agent can validate and execute natively. Shell-over-
+NATS compatibility wrappers are allowed for bootstrap and migration cases, but
+they should not be the long-term execution model for mature module kinds.
+
 ## Stack Shape
 
 A module-backed node keeps a domain-specific `kind`. The implementation is
@@ -197,7 +202,9 @@ Publishing requirements:
 - secret redaction tests;
 - deterministic receipt shape;
 - signature and digest verification;
-- compatibility metadata for local, SSH, and NATS execution.
+- compatibility metadata for local, SSH, and NATS execution, including whether
+  NATS support is native typed-resource execution or only a shell compatibility
+  shim.
 
 This keeps Torque core small while allowing an ecosystem of typed,
 proof-producing operations modules.
@@ -253,6 +260,9 @@ Ansible/Salt replacements without moving file behavior into core:
 - the module supports `transport: ssh` and `transport: nats`, so host
   reachability can move from SSH bootstrap to agent-backed fan-out without
   changing the stack node kind;
+- the long-term direction for `transport: nats` is typed resource execution
+  carried over signed JetStream assignments; the current POSIX shell payload is
+  a compatibility bridge, not the ideal end state;
 - the remote payload is POSIX shell, not Python, so managed hosts do not need a
   module runtime installed just to reconcile a file;
 - `scripts/e2e/ops/OPS-TR-008.sh` benchmarks the same typed resource over SSH
