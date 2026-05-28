@@ -10,6 +10,7 @@ exercise offline fallback without requiring a live cluster.
 | [torque-apply-plan.md](torque-apply-plan.md) | `torque apply plan --format markdown --github-comment` | PR-ready release plan summary with verifier findings attached. |
 | [torque-apply-plan.html](https://ingresslabs.github.io/torque/showcase/reports/torque-apply-plan.html) | `torque apply plan --visualize --format html` | Interactive torque release plan, graph, manifest, and policy view. |
 | [helmer-plan.html](https://ingresslabs.github.io/torque/showcase/reports/helmer-plan.html) | `helmer plan --visualize --format html` | Standalone Helm plan visualization. |
+| [helmer-kube-prometheus-stack-compare.html](https://ingresslabs.github.io/torque/showcase/reports/helmer-kube-prometheus-stack-compare.html) | `helmer plan --visualize --format html --compare-to <baseline> --compare-exit=false` | Large-chart comparison showcase: `prometheus-community/kube-prometheus-stack` `70.0.0` rendered against a `65.0.0` baseline with embedded side-by-side manifests for all `126` resources. |
 | [verifier-report.json](verifier-report.json) | `verifier --format json` | Machine-readable policy report for CI and plan attachment. |
 | [verifier-report.html](https://ingresslabs.github.io/torque/showcase/reports/verifier-report.html) | `verifier --format html` | Browser-friendly policy report. |
 | [verifier-report.rendered.yaml](verifier-report.rendered.yaml) | emitted by `verifier` | Rendered manifest used for source-linked findings. |
@@ -17,3 +18,8 @@ exercise offline fallback without requiring a live cluster.
 Summary: the verifier report records `14` findings (`1` critical, `4` high,
 `4` medium, `3` low, `2` info), while the torque plan marks the release as
 `High` risk and includes the verifier report as attached policy evidence.
+
+For larger standalone Helm examples, also see
+[`docs/showcase/atlassian/reports`](../atlassian/reports), which contains
+heavier `helmer` reports for Bamboo, Confluence, Crowd, Jira, and storage
+infrastructure charts.
