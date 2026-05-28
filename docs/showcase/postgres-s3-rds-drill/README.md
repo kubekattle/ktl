@@ -33,3 +33,9 @@ the same desired state works with disposable buckets and RDS endpoints:
 The harness writes proof under `docs/showcase/postgres-s3-rds-drill/runtime/`
 and removes AWS resources during cleanup. Local runtime files are ignored by
 Git.
+
+For a step-by-step manual run against existing resources, see
+[MANUAL.md](./MANUAL.md). Run it from the repository root with
+`torque stack apply --config docs/showcase/postgres-s3-rds-drill --yes`;
+plain `torque apply` is the Helm apply surface and expects `--chart` and
+`--release`.
