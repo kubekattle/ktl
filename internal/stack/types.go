@@ -3,7 +3,10 @@
 
 package stack
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type APIVersionKind struct {
 	APIVersion string `yaml:"apiVersion,omitempty" json:"apiVersion,omitempty"`
@@ -376,6 +379,7 @@ type ReleaseFile struct {
 	Module       ModuleSpec        `yaml:"module,omitempty" json:"module,omitempty"`
 	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
 	MySQL        MySQLSpec         `yaml:"mysql,omitempty" json:"mysql,omitempty"`
+	Postgres     PostgresSpec      `yaml:"postgres,omitempty" json:"postgres,omitempty"`
 	Kubernetes   KubernetesSpec    `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
 }
 
@@ -401,6 +405,7 @@ type ReleaseSpec struct {
 	Module       ModuleSpec        `yaml:"module,omitempty" json:"module,omitempty"`
 	Database     DatabaseSpec      `yaml:"database,omitempty" json:"database,omitempty"`
 	MySQL        MySQLSpec         `yaml:"mysql,omitempty" json:"mysql,omitempty"`
+	Postgres     PostgresSpec      `yaml:"postgres,omitempty" json:"postgres,omitempty"`
 	Host         HostCommandSpec   `yaml:"host,omitempty" json:"host,omitempty"`
 	Kubernetes   KubernetesSpec    `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
 	Input        map[string]any    `yaml:"input,omitempty" json:"input,omitempty"`
@@ -438,6 +443,7 @@ type ResolvedRelease struct {
 	Module     ModuleSpec       `json:"module,omitempty"`
 	Database   DatabaseSpec     `json:"database,omitempty"`
 	MySQL      MySQLSpec        `json:"mysql,omitempty"`
+	Postgres   PostgresSpec     `json:"postgres,omitempty"`
 	Host       HostCommandSpec  `json:"host,omitempty"`
 	Kubernetes KubernetesSpec   `json:"kubernetes,omitempty"`
 
@@ -484,6 +490,7 @@ type EffectiveInput struct {
 	ModuleDigest     string `json:"moduleDigest,omitempty"`
 	DatabaseDigest   string `json:"databaseDigest,omitempty"`
 	MySQLDigest      string `json:"mysqlDigest,omitempty"`
+	PostgresDigest   string `json:"postgresDigest,omitempty"`
 	HostDigest       string `json:"hostDigest,omitempty"`
 	KubernetesDigest string `json:"kubernetesDigest,omitempty"`
 
@@ -493,60 +500,61 @@ type EffectiveInput struct {
 }
 
 type HostCommandSpec struct {
-	Transport       string         `yaml:"transport,omitempty" json:"transport,omitempty"`
-	TargetID        string         `yaml:"targetId,omitempty" json:"targetId,omitempty"`
-	Target          string         `yaml:"target,omitempty" json:"target,omitempty"`
-	TargetEnv       string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
-	RequiredCap     string         `yaml:"-" json:"-"`
-	NodeKind        string         `yaml:"-" json:"-"`
-	RunID           string         `yaml:"-" json:"-"`
-	NodeID          string         `yaml:"-" json:"-"`
-	PlanDigest      string         `yaml:"-" json:"-"`
-	Command         string         `yaml:"command,omitempty" json:"command,omitempty"`
-	DeleteCommand   string         `yaml:"deleteCommand,omitempty" json:"deleteCommand,omitempty"`
-	Timeout         *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	Path            string         `yaml:"path,omitempty" json:"path,omitempty"`
-	SourcePath      string         `yaml:"sourcePath,omitempty" json:"sourcePath,omitempty"`
-	Content         string         `yaml:"content,omitempty" json:"content,omitempty"`
-	Template        string         `yaml:"template,omitempty" json:"template,omitempty"`
-	TemplatePath    string         `yaml:"templatePath,omitempty" json:"templatePath,omitempty"`
-	Data            map[string]any `yaml:"data,omitempty" json:"data,omitempty"`
-	Mode            string         `yaml:"mode,omitempty" json:"mode,omitempty"`
-	Owner           string         `yaml:"owner,omitempty" json:"owner,omitempty"`
-	Group           string         `yaml:"group,omitempty" json:"group,omitempty"`
-	Validate        string         `yaml:"validate,omitempty" json:"validate,omitempty"`
-	Backup          bool           `yaml:"backup,omitempty" json:"backup,omitempty"`
-	BackupPath      string         `yaml:"backupPath,omitempty" json:"backupPath,omitempty"`
-	RemoveOnDelete  bool           `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
-	RestoreOnDelete bool           `yaml:"restoreOnDelete,omitempty" json:"restoreOnDelete,omitempty"`
-	PackageName     string         `yaml:"package,omitempty" json:"package,omitempty"`
-	PackageManager  string         `yaml:"packageManager,omitempty" json:"packageManager,omitempty"`
-	State           string         `yaml:"state,omitempty" json:"state,omitempty"`
-	Version         string         `yaml:"version,omitempty" json:"version,omitempty"`
-	UpdateCache     bool           `yaml:"updateCache,omitempty" json:"updateCache,omitempty"`
-	Purge           bool           `yaml:"purge,omitempty" json:"purge,omitempty"`
-	ServiceName     string         `yaml:"service,omitempty" json:"service,omitempty"`
-	ServiceManager  string         `yaml:"serviceManager,omitempty" json:"serviceManager,omitempty"`
-	Enabled         *bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	StopOnDelete    bool           `yaml:"stopOnDelete,omitempty" json:"stopOnDelete,omitempty"`
-	DisableOnDelete bool           `yaml:"disableOnDelete,omitempty" json:"disableOnDelete,omitempty"`
-	UserName        string         `yaml:"user,omitempty" json:"user,omitempty"`
-	GroupName       string         `yaml:"groupName,omitempty" json:"groupName,omitempty"`
-	UserGroup       string         `yaml:"userGroup,omitempty" json:"userGroup,omitempty"`
-	UID             *int           `yaml:"uid,omitempty" json:"uid,omitempty"`
-	GID             *int           `yaml:"gid,omitempty" json:"gid,omitempty"`
-	Home            string         `yaml:"home,omitempty" json:"home,omitempty"`
-	Shell           string         `yaml:"shell,omitempty" json:"shell,omitempty"`
-	Comment         string         `yaml:"comment,omitempty" json:"comment,omitempty"`
-	Groups          []string       `yaml:"groups,omitempty" json:"groups,omitempty"`
-	CreateHome      bool           `yaml:"createHome,omitempty" json:"createHome,omitempty"`
-	RemoveHome      bool           `yaml:"removeHome,omitempty" json:"removeHome,omitempty"`
-	System          bool           `yaml:"system,omitempty" json:"system,omitempty"`
-	CronName        string         `yaml:"cronName,omitempty" json:"cronName,omitempty"`
-	CronSchedule    string         `yaml:"schedule,omitempty" json:"schedule,omitempty"`
-	CronUser        string         `yaml:"cronUser,omitempty" json:"cronUser,omitempty"`
-	CronCommand     string         `yaml:"cronCommand,omitempty" json:"cronCommand,omitempty"`
-	UnitName        string         `yaml:"unit,omitempty" json:"unit,omitempty"`
+	Transport       string          `yaml:"transport,omitempty" json:"transport,omitempty"`
+	TargetID        string          `yaml:"targetId,omitempty" json:"targetId,omitempty"`
+	Target          string          `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv       string          `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	RequiredCap     string          `yaml:"-" json:"-"`
+	NodeKind        string          `yaml:"-" json:"-"`
+	RunID           string          `yaml:"-" json:"-"`
+	NodeID          string          `yaml:"-" json:"-"`
+	PlanDigest      string          `yaml:"-" json:"-"`
+	Resource        json.RawMessage `yaml:"-" json:"-"`
+	Command         string          `yaml:"command,omitempty" json:"command,omitempty"`
+	DeleteCommand   string          `yaml:"deleteCommand,omitempty" json:"deleteCommand,omitempty"`
+	Timeout         *time.Duration  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Path            string          `yaml:"path,omitempty" json:"path,omitempty"`
+	SourcePath      string          `yaml:"sourcePath,omitempty" json:"sourcePath,omitempty"`
+	Content         string          `yaml:"content,omitempty" json:"content,omitempty"`
+	Template        string          `yaml:"template,omitempty" json:"template,omitempty"`
+	TemplatePath    string          `yaml:"templatePath,omitempty" json:"templatePath,omitempty"`
+	Data            map[string]any  `yaml:"data,omitempty" json:"data,omitempty"`
+	Mode            string          `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Owner           string          `yaml:"owner,omitempty" json:"owner,omitempty"`
+	Group           string          `yaml:"group,omitempty" json:"group,omitempty"`
+	Validate        string          `yaml:"validate,omitempty" json:"validate,omitempty"`
+	Backup          bool            `yaml:"backup,omitempty" json:"backup,omitempty"`
+	BackupPath      string          `yaml:"backupPath,omitempty" json:"backupPath,omitempty"`
+	RemoveOnDelete  bool            `yaml:"removeOnDelete,omitempty" json:"removeOnDelete,omitempty"`
+	RestoreOnDelete bool            `yaml:"restoreOnDelete,omitempty" json:"restoreOnDelete,omitempty"`
+	PackageName     string          `yaml:"package,omitempty" json:"package,omitempty"`
+	PackageManager  string          `yaml:"packageManager,omitempty" json:"packageManager,omitempty"`
+	State           string          `yaml:"state,omitempty" json:"state,omitempty"`
+	Version         string          `yaml:"version,omitempty" json:"version,omitempty"`
+	UpdateCache     bool            `yaml:"updateCache,omitempty" json:"updateCache,omitempty"`
+	Purge           bool            `yaml:"purge,omitempty" json:"purge,omitempty"`
+	ServiceName     string          `yaml:"service,omitempty" json:"service,omitempty"`
+	ServiceManager  string          `yaml:"serviceManager,omitempty" json:"serviceManager,omitempty"`
+	Enabled         *bool           `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	StopOnDelete    bool            `yaml:"stopOnDelete,omitempty" json:"stopOnDelete,omitempty"`
+	DisableOnDelete bool            `yaml:"disableOnDelete,omitempty" json:"disableOnDelete,omitempty"`
+	UserName        string          `yaml:"user,omitempty" json:"user,omitempty"`
+	GroupName       string          `yaml:"groupName,omitempty" json:"groupName,omitempty"`
+	UserGroup       string          `yaml:"userGroup,omitempty" json:"userGroup,omitempty"`
+	UID             *int            `yaml:"uid,omitempty" json:"uid,omitempty"`
+	GID             *int            `yaml:"gid,omitempty" json:"gid,omitempty"`
+	Home            string          `yaml:"home,omitempty" json:"home,omitempty"`
+	Shell           string          `yaml:"shell,omitempty" json:"shell,omitempty"`
+	Comment         string          `yaml:"comment,omitempty" json:"comment,omitempty"`
+	Groups          []string        `yaml:"groups,omitempty" json:"groups,omitempty"`
+	CreateHome      bool            `yaml:"createHome,omitempty" json:"createHome,omitempty"`
+	RemoveHome      bool            `yaml:"removeHome,omitempty" json:"removeHome,omitempty"`
+	System          bool            `yaml:"system,omitempty" json:"system,omitempty"`
+	CronName        string          `yaml:"cronName,omitempty" json:"cronName,omitempty"`
+	CronSchedule    string          `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	CronUser        string          `yaml:"cronUser,omitempty" json:"cronUser,omitempty"`
+	CronCommand     string          `yaml:"cronCommand,omitempty" json:"cronCommand,omitempty"`
+	UnitName        string          `yaml:"unit,omitempty" json:"unit,omitempty"`
 }
 
 type KubernetesSpec struct {
@@ -819,6 +827,106 @@ type MySQLNodeSpec struct {
 	Address string `yaml:"address,omitempty" json:"address,omitempty"`
 	SSHUser string `yaml:"sshUser,omitempty" json:"sshUser,omitempty"`
 	SSHPort int    `yaml:"sshPort,omitempty" json:"sshPort,omitempty"`
+}
+
+type PostgresSpec struct {
+	Transport string         `yaml:"transport,omitempty" json:"transport,omitempty"`
+	TargetID  string         `yaml:"targetId,omitempty" json:"targetId,omitempty"`
+	Target    string         `yaml:"target,omitempty" json:"target,omitempty"`
+	TargetEnv string         `yaml:"targetEnv,omitempty" json:"targetEnv,omitempty"`
+	Timeout   *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+
+	Database    string `yaml:"database,omitempty" json:"database,omitempty"`
+	Host        string `yaml:"host,omitempty" json:"host,omitempty"`
+	Port        int    `yaml:"port,omitempty" json:"port,omitempty"`
+	User        string `yaml:"user,omitempty" json:"user,omitempty"`
+	PasswordEnv string `yaml:"passwordEnv,omitempty" json:"passwordEnv,omitempty"`
+	SSLMode     string `yaml:"sslMode,omitempty" json:"sslMode,omitempty"`
+
+	PSQLCommand      string `yaml:"psqlCommand,omitempty" json:"psqlCommand,omitempty"`
+	PGDumpCommand    string `yaml:"pgDumpCommand,omitempty" json:"pgDumpCommand,omitempty"`
+	PGRestoreCommand string `yaml:"pgRestoreCommand,omitempty" json:"pgRestoreCommand,omitempty"`
+	RunAsUser        string `yaml:"runAsUser,omitempty" json:"runAsUser,omitempty"`
+	AgentPath        string `yaml:"agentPath,omitempty" json:"agentPath,omitempty"`
+	ExecutionMode    string `yaml:"executionMode,omitempty" json:"executionMode,omitempty"`
+
+	Role        PostgresRoleSpec        `yaml:"role,omitempty" json:"role,omitempty"`
+	DatabaseRef PostgresDatabaseSpec    `yaml:"databaseRef,omitempty" json:"databaseRef,omitempty"`
+	Grant       PostgresGrantSpec       `yaml:"grant,omitempty" json:"grant,omitempty"`
+	Schema      PostgresSchemaSpec      `yaml:"schema,omitempty" json:"schema,omitempty"`
+	Extension   PostgresExtensionSpec   `yaml:"extension,omitempty" json:"extension,omitempty"`
+	Replication PostgresReplicationSpec `yaml:"replication,omitempty" json:"replication,omitempty"`
+	Backup      PostgresBackupSpec      `yaml:"backup,omitempty" json:"backup,omitempty"`
+	Restore     PostgresRestoreSpec     `yaml:"restore,omitempty" json:"restore,omitempty"`
+	Config      PostgresConfigSpec      `yaml:"config,omitempty" json:"config,omitempty"`
+	Maintenance PostgresMaintenanceSpec `yaml:"maintenance,omitempty" json:"maintenance,omitempty"`
+}
+
+type PostgresRoleSpec struct {
+	Name        string `yaml:"name,omitempty" json:"name,omitempty"`
+	Login       *bool  `yaml:"login,omitempty" json:"login,omitempty"`
+	Superuser   *bool  `yaml:"superuser,omitempty" json:"superuser,omitempty"`
+	PasswordEnv string `yaml:"passwordEnv,omitempty" json:"passwordEnv,omitempty"`
+}
+
+type PostgresDatabaseSpec struct {
+	Name  string `yaml:"name,omitempty" json:"name,omitempty"`
+	Owner string `yaml:"owner,omitempty" json:"owner,omitempty"`
+}
+
+type PostgresGrantSpec struct {
+	Role       string   `yaml:"role,omitempty" json:"role,omitempty"`
+	Database   string   `yaml:"database,omitempty" json:"database,omitempty"`
+	Schema     string   `yaml:"schema,omitempty" json:"schema,omitempty"`
+	ObjectType string   `yaml:"objectType,omitempty" json:"objectType,omitempty"`
+	Privileges []string `yaml:"privileges,omitempty" json:"privileges,omitempty"`
+}
+
+type PostgresSchemaSpec struct {
+	Name     string `yaml:"name,omitempty" json:"name,omitempty"`
+	Database string `yaml:"database,omitempty" json:"database,omitempty"`
+	Owner    string `yaml:"owner,omitempty" json:"owner,omitempty"`
+}
+
+type PostgresExtensionSpec struct {
+	Name     string `yaml:"name,omitempty" json:"name,omitempty"`
+	Database string `yaml:"database,omitempty" json:"database,omitempty"`
+	Schema   string `yaml:"schema,omitempty" json:"schema,omitempty"`
+}
+
+type PostgresReplicationSpec struct {
+	ExpectedReplicas int  `yaml:"expectedReplicas,omitempty" json:"expectedReplicas,omitempty"`
+	RequireStreaming bool `yaml:"requireStreaming,omitempty" json:"requireStreaming,omitempty"`
+}
+
+type PostgresBackupSpec struct {
+	Path             string         `yaml:"path,omitempty" json:"path,omitempty"`
+	File             string         `yaml:"file,omitempty" json:"file,omitempty"`
+	Database         string         `yaml:"database,omitempty" json:"database,omitempty"`
+	Format           string         `yaml:"format,omitempty" json:"format,omitempty"`
+	Compress         int            `yaml:"compress,omitempty" json:"compress,omitempty"`
+	SimulateDuration *time.Duration `yaml:"simulateDuration,omitempty" json:"simulateDuration,omitempty"`
+	ManifestPath     string         `yaml:"manifestPath,omitempty" json:"manifestPath,omitempty"`
+	ExpectedSha256   string         `yaml:"expectedSha256,omitempty" json:"expectedSha256,omitempty"`
+}
+
+type PostgresRestoreSpec struct {
+	BackupFile string `yaml:"backupFile,omitempty" json:"backupFile,omitempty"`
+	Database   string `yaml:"database,omitempty" json:"database,omitempty"`
+	VerifySQL  string `yaml:"verifySQL,omitempty" json:"verifySQL,omitempty"`
+	Expect     string `yaml:"expect,omitempty" json:"expect,omitempty"`
+	Cleanup    bool   `yaml:"cleanup,omitempty" json:"cleanup,omitempty"`
+}
+
+type PostgresConfigSpec struct {
+	Settings map[string]string `yaml:"settings,omitempty" json:"settings,omitempty"`
+	Reload   bool              `yaml:"reload,omitempty" json:"reload,omitempty"`
+}
+
+type PostgresMaintenanceSpec struct {
+	Action   string `yaml:"action,omitempty" json:"action,omitempty"`
+	Database string `yaml:"database,omitempty" json:"database,omitempty"`
+	Table    string `yaml:"table,omitempty" json:"table,omitempty"`
 }
 
 type EffectiveChartInput struct {

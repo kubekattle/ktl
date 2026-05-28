@@ -1,0 +1,158 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-keycloak-postgres-nats-admin
+cli:
+  inferDeps: false
+  apply:
+    lock:
+      enabled: false
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: /var/lib/torque-firecracker-systemd/postgres-nats-admin/agent-registry.json
+    tenant: lab
+    selector:
+      role: postgres
+      cluster: keycloak
+    requireAgents: true
+    minReadyPercent: 100
+    failureBudget: 0
+    staleAfter: 10m
+    onInsufficientReady: block
+  fanout:
+    delivery: jetstream
+    maxParallel: 1
+    maxFailed: 0
+    minSucceededPercent: 100
+    onPartialFailure: block
+    retry:
+      maxDeliver: 3
+      ackWait: 30s
+      backoff: [1s, 5s, 15s]
+      onExhausted: block
+nodes:
+  - name: torque-auditor-role
+    kind: postgres.role.ensure
+    postgres:
+      transport: nats
+      database: postgres
+      role:
+        name: torque_auditor
+        login: false
+        superuser: false
+
+  - name: torque-admin-database
+    kind: postgres.database.ensure
+    needs: [torque-auditor-role]
+    postgres:
+      transport: nats
+      database: postgres
+      databaseRef:
+        name: torque_admin_drill
+        owner: postgres
+
+  - name: torque-admin-schema
+    kind: postgres.schema.ensure
+    needs: [torque-auditor-role]
+    postgres:
+      transport: nats
+      database: keycloak
+      schema:
+        database: keycloak
+        name: torque_admin
+        owner: postgres
+
+  - name: keycloak-pgcrypto-extension
+    kind: postgres.extension.ensure
+    needs: [torque-admin-schema]
+    postgres:
+      transport: nats
+      database: keycloak
+      extension:
+        database: keycloak
+        name: pgcrypto
+
+  - name: torque-auditor-connect-grant
+    kind: postgres.grant.ensure
+    needs: [torque-auditor-role]
+    postgres:
+      transport: nats
+      database: keycloak
+      grant:
+        role: torque_auditor
+        database: keycloak
+        objectType: database
+        privileges: [CONNECT]
+
+  - name: keycloak-config-log-duration
+    kind: postgres.config.ensure
+    needs: [torque-auditor-connect-grant]
+    postgres:
+      transport: nats
+      database: postgres
+      config:
+        reload: true
+        settings:
+          log_min_duration_statement: "-1"
+
+  - name: keycloak-maintenance-analyze
+    kind: postgres.maintenance.run
+    needs: [keycloak-config-log-duration]
+    postgres:
+      transport: nats
+      database: keycloak
+      maintenance:
+        action: analyze
+        database: keycloak
+        table: realm
+
+  - name: keycloak-replication-verify
+    kind: postgres.replication.verify
+    needs: [keycloak-maintenance-analyze]
+    postgres:
+      transport: nats
+      database: postgres
+      replication:
+        expectedReplicas: 2
+        requireStreaming: true
+
+  - name: keycloak-backup-run
+    kind: postgres.backup.run
+    needs: [keycloak-replication-verify]
+    postgres:
+      transport: nats
+      timeout: 5m
+      database: keycloak
+      backup:
+        database: keycloak
+        path: /var/backups/torque/postgres/keycloak
+        file: /var/backups/torque/postgres/keycloak/keycloak-torque-e2e.dump
+        manifestPath: /var/backups/torque/postgres/keycloak/keycloak-torque-e2e.manifest.json
+        simulateDuration: 45s
+
+  - name: keycloak-backup-verify
+    kind: postgres.backup.verify
+    needs: [keycloak-backup-run]
+    postgres:
+      transport: nats
+      timeout: 5m
+      database: keycloak
+      backup:
+        file: /var/backups/torque/postgres/keycloak/keycloak-torque-e2e.dump
+        manifestPath: /var/backups/torque/postgres/keycloak/keycloak-torque-e2e.manifest.json
+
+  - name: keycloak-restore-drill
+    kind: postgres.restore.drill
+    needs: [keycloak-backup-verify]
+    postgres:
+      transport: nats
+      timeout: 10m
+      database: keycloak
+      restore:
+        backupFile: /var/backups/torque/postgres/keycloak/keycloak-torque-e2e.dump
+        database: keycloak_restore_drill
+        verifySQL: "select count(*) from realm where name = 'torque'"
+        expect: "1"
+        cleanup: false

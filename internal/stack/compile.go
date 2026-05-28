@@ -126,6 +126,7 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 			Action:       dr.FromFile.Action,
 			Database:     dr.FromFile.Database,
 			MySQL:        dr.FromFile.MySQL,
+			Postgres:     dr.FromFile.Postgres,
 			Kubernetes:   dr.FromFile.Kubernetes,
 		}
 	case dr.FromInline != nil:
@@ -253,6 +254,20 @@ func resolveRelease(u *Universe, dr discoveredRelease, profile string) (*Resolve
 		}
 	case NodeKindMySQLReplicationVerify:
 		if err := validateMySQLReplicationVerifySpec(leaf.Name, &n.MySQL); err != nil {
+			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
+		}
+	case NodeKindPostgresRoleEnsure,
+		NodeKindPostgresDatabaseEnsure,
+		NodeKindPostgresGrantEnsure,
+		NodeKindPostgresSchemaEnsure,
+		NodeKindPostgresExtensionEnsure,
+		NodeKindPostgresReplicationVerify,
+		NodeKindPostgresBackupRun,
+		NodeKindPostgresBackupVerify,
+		NodeKindPostgresRestoreDrill,
+		NodeKindPostgresConfigEnsure,
+		NodeKindPostgresMaintenanceRun:
+		if err := validatePostgresSpec(n.Kind, leaf.Name, &n.Postgres); err != nil {
 			return nil, fmt.Errorf("%s: %w", dr.Dir, err)
 		}
 	case NodeKindHostCommandRun:
@@ -518,6 +533,147 @@ func validateMySQLReplicationVerifySpec(name string, spec *MySQLSpec) error {
 		spec.Timeout = &timeout
 	} else if *spec.Timeout <= 0 {
 		return fmt.Errorf("%s node %s requires mysql.timeout > 0", NodeKindMySQLReplicationVerify, name)
+	}
+	return nil
+}
+
+func validatePostgresSpec(kind string, name string, spec *PostgresSpec) error {
+	if spec == nil {
+		return fmt.Errorf("%s node %s requires postgres config", normalizeNodeKind(kind), name)
+	}
+	transportKind := strings.ToLower(strings.TrimSpace(spec.Transport))
+	if transportKind == "" {
+		transportKind = "local"
+	}
+	switch transportKind {
+	case "local", "localhost", "ssh", "nats", "nats-mesh":
+		spec.Transport = transportKind
+	default:
+		return fmt.Errorf("%s node %s has unsupported postgres.transport %q", normalizeNodeKind(kind), name, spec.Transport)
+	}
+	if (transportKind == "ssh" || transportKind == "nats" || transportKind == "nats-mesh") && strings.TrimSpace(spec.Target) == "" && strings.TrimSpace(spec.TargetEnv) == "" {
+		// Fleet mode supplies NATS targets from the agent registry, so a per-node target is optional there.
+		if strings.ToLower(strings.TrimSpace(spec.Transport)) != "nats" && strings.ToLower(strings.TrimSpace(spec.Transport)) != "nats-mesh" {
+			return fmt.Errorf("%s node %s requires postgres.target or targetEnv for %s transport", normalizeNodeKind(kind), name, transportKind)
+		}
+	}
+	spec.Database = strings.TrimSpace(spec.Database)
+	if spec.Database == "" {
+		spec.Database = "postgres"
+	}
+	spec.Host = strings.TrimSpace(spec.Host)
+	spec.User = strings.TrimSpace(spec.User)
+	if spec.User == "" {
+		spec.User = "postgres"
+	}
+	spec.PasswordEnv = strings.TrimSpace(spec.PasswordEnv)
+	spec.SSLMode = strings.TrimSpace(spec.SSLMode)
+	if spec.Port < 0 || spec.Port > 65535 {
+		return fmt.Errorf("%s node %s requires postgres.port between 0 and 65535", normalizeNodeKind(kind), name)
+	}
+	spec.PSQLCommand = firstNonEmptyString(strings.TrimSpace(spec.PSQLCommand), "psql")
+	spec.PGDumpCommand = firstNonEmptyString(strings.TrimSpace(spec.PGDumpCommand), "pg_dump")
+	spec.PGRestoreCommand = firstNonEmptyString(strings.TrimSpace(spec.PGRestoreCommand), "pg_restore")
+	spec.RunAsUser = strings.TrimSpace(spec.RunAsUser)
+	if spec.RunAsUser == "" && spec.Host == "" && spec.PasswordEnv == "" {
+		spec.RunAsUser = "postgres"
+	}
+	spec.AgentPath = strings.TrimSpace(spec.AgentPath)
+	spec.ExecutionMode = strings.ToLower(strings.TrimSpace(spec.ExecutionMode))
+	switch spec.ExecutionMode {
+	case "":
+		if transportKind == "ssh" || transportKind == "nats" || transportKind == "nats-mesh" {
+			spec.ExecutionMode = "native"
+		} else {
+			spec.ExecutionMode = "shell"
+		}
+	case "native", "shell":
+	default:
+		return fmt.Errorf("%s node %s has unsupported postgres.executionMode %q", normalizeNodeKind(kind), name, spec.ExecutionMode)
+	}
+	if (transportKind == "nats" || transportKind == "nats-mesh") && spec.ExecutionMode != "native" {
+		return fmt.Errorf("%s node %s requires postgres.executionMode=native for %s transport", normalizeNodeKind(kind), name, transportKind)
+	}
+	if transportKind != "nats" && transportKind != "nats-mesh" && spec.ExecutionMode == "native" && spec.AgentPath == "" {
+		spec.AgentPath = defaultPostgresAgentPath
+	}
+	if spec.Timeout == nil {
+		timeout := 30 * time.Second
+		if normalizeNodeKind(kind) == NodeKindPostgresBackupRun || normalizeNodeKind(kind) == NodeKindPostgresRestoreDrill {
+			timeout = 15 * time.Minute
+		}
+		spec.Timeout = &timeout
+	} else if *spec.Timeout <= 0 {
+		return fmt.Errorf("%s node %s requires postgres.timeout > 0", normalizeNodeKind(kind), name)
+	}
+	switch normalizeNodeKind(kind) {
+	case NodeKindPostgresRoleEnsure:
+		if strings.TrimSpace(spec.Role.Name) == "" {
+			return fmt.Errorf("%s node %s requires postgres.role.name", normalizeNodeKind(kind), name)
+		}
+	case NodeKindPostgresDatabaseEnsure:
+		if strings.TrimSpace(spec.DatabaseRef.Name) == "" {
+			spec.DatabaseRef.Name = spec.Database
+		}
+	case NodeKindPostgresGrantEnsure:
+		if strings.TrimSpace(spec.Grant.Role) == "" {
+			return fmt.Errorf("%s node %s requires postgres.grant.role", normalizeNodeKind(kind), name)
+		}
+		if len(spec.Grant.Privileges) == 0 {
+			spec.Grant.Privileges = []string{"CONNECT"}
+		}
+		if strings.TrimSpace(spec.Grant.Database) == "" {
+			spec.Grant.Database = spec.Database
+		}
+	case NodeKindPostgresSchemaEnsure:
+		if strings.TrimSpace(spec.Schema.Name) == "" {
+			return fmt.Errorf("%s node %s requires postgres.schema.name", normalizeNodeKind(kind), name)
+		}
+		if strings.TrimSpace(spec.Schema.Database) == "" {
+			spec.Schema.Database = spec.Database
+		}
+	case NodeKindPostgresExtensionEnsure:
+		if strings.TrimSpace(spec.Extension.Name) == "" {
+			return fmt.Errorf("%s node %s requires postgres.extension.name", normalizeNodeKind(kind), name)
+		}
+		if strings.TrimSpace(spec.Extension.Database) == "" {
+			spec.Extension.Database = spec.Database
+		}
+	case NodeKindPostgresReplicationVerify:
+		if spec.Replication.ExpectedReplicas < 0 {
+			return fmt.Errorf("%s node %s requires postgres.replication.expectedReplicas >= 0", normalizeNodeKind(kind), name)
+		}
+	case NodeKindPostgresBackupRun:
+		spec.Backup.Database = firstNonEmptyString(strings.TrimSpace(spec.Backup.Database), spec.Database)
+		if strings.TrimSpace(spec.Backup.Path) == "" {
+			return fmt.Errorf("%s node %s requires postgres.backup.path", normalizeNodeKind(kind), name)
+		}
+		if spec.Backup.SimulateDuration != nil && *spec.Backup.SimulateDuration < 0 {
+			return fmt.Errorf("%s node %s requires postgres.backup.simulateDuration >= 0", normalizeNodeKind(kind), name)
+		}
+	case NodeKindPostgresBackupVerify:
+		spec.Backup.Database = firstNonEmptyString(strings.TrimSpace(spec.Backup.Database), spec.Database)
+		if strings.TrimSpace(spec.Backup.File) == "" && strings.TrimSpace(spec.Backup.ManifestPath) == "" {
+			return fmt.Errorf("%s node %s requires postgres.backup.file or postgres.backup.manifestPath", normalizeNodeKind(kind), name)
+		}
+	case NodeKindPostgresRestoreDrill:
+		if strings.TrimSpace(spec.Restore.BackupFile) == "" && strings.TrimSpace(spec.Backup.File) == "" && strings.TrimSpace(spec.Backup.ManifestPath) == "" {
+			return fmt.Errorf("%s node %s requires postgres.restore.backupFile, postgres.backup.file, or postgres.backup.manifestPath", normalizeNodeKind(kind), name)
+		}
+		if strings.TrimSpace(spec.Restore.Database) == "" {
+			spec.Restore.Database = spec.Database + "_restore_drill"
+		}
+	case NodeKindPostgresConfigEnsure:
+		if len(spec.Config.Settings) == 0 {
+			return fmt.Errorf("%s node %s requires postgres.config.settings", normalizeNodeKind(kind), name)
+		}
+	case NodeKindPostgresMaintenanceRun:
+		if strings.TrimSpace(spec.Maintenance.Action) == "" {
+			spec.Maintenance.Action = "analyze"
+		}
+		if strings.TrimSpace(spec.Maintenance.Database) == "" {
+			spec.Maintenance.Database = spec.Database
+		}
 	}
 	return nil
 }

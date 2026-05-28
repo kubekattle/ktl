@@ -456,6 +456,22 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 					s.Stop()
 					return
 				}
+				if isBlockedRunError(err) {
+					class, msg := blockedRunErrorDetails(err)
+					runErr := &RunError{Class: class, Message: msg, Digest: computeRunErrorDigest(class, msg)}
+					run.AppendEvent(node.ID, NodeBlocked, node.Attempt, msg, nil, runErr)
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					s.MarkBlocked(node.ID, msg, err)
+					if opts.FailFast {
+						s.Stop()
+						return
+					}
+					break
+				}
 				class := classifyError(err)
 				retryable := isRetryableClass(class)
 				run.AppendEvent(node.ID, NodeFailed, node.Attempt, err.Error(), nil, &RunError{Class: class, Message: err.Error(), Digest: computeRunErrorDigest(class, err.Error())})
@@ -782,14 +798,11 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 			run.AppendEvent(id, NodeBlocked, attempt, blocked[id], nil, nil)
 		}
 	}
-	status := "succeeded"
-	if firstErr != nil {
-		status = "failed"
-	}
+	status := runStatusFromSnapshot(firstErr, s.Snapshot())
 
 	// Stack-level runOnce hooks (post). If the run already failed, keep the original error but still emit hook events/output.
 	postStatus := "success"
-	if status == "failed" {
+	if status != "succeeded" {
 		postStatus = "failure"
 	}
 	run.AppendEvent("", RunFinalizing, 0, "finalizing", map[string]any{"stage": "finalizing"}, nil)
@@ -1267,6 +1280,29 @@ func (s *scheduler) MarkFailed(id string, err error) {
 	s.sortReady()
 }
 
+func (s *scheduler) MarkBlocked(id string, reason string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.status[id] != "running" {
+		return
+	}
+	s.status[id] = "blocked"
+	s.blockedBy[id] = strings.TrimSpace(reason)
+	if err != nil {
+		s.errs[id] = err
+	}
+	for _, depID := range s.dependents[id] {
+		// Still decrement so graph progresses, but the dependent will be blocked
+		// when we check predecessor status.
+		s.inDegree[depID]--
+		if s.inDegree[depID] == 0 {
+			s.ready = append(s.ready, depID)
+			s.newlyReady = append(s.newlyReady, depID)
+		}
+	}
+	s.sortReady()
+}
+
 func (s *scheduler) FinalizeBlocked() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1322,6 +1358,29 @@ func (s *scheduler) Snapshot() schedulerSnapshot {
 		errs[k] = v
 	}
 	return schedulerSnapshot{Status: status, Errors: errs}
+}
+
+func runStatusFromSnapshot(firstErr error, snap schedulerSnapshot) string {
+	hasFailed := false
+	hasBlocked := false
+	for _, status := range snap.Status {
+		switch strings.TrimSpace(status) {
+		case "failed":
+			hasFailed = true
+		case "blocked":
+			hasBlocked = true
+		}
+	}
+	if hasFailed {
+		return "failed"
+	}
+	if hasBlocked && (firstErr == nil || isBlockedRunError(firstErr)) {
+		return "blocked"
+	}
+	if firstErr != nil {
+		return "failed"
+	}
+	return "succeeded"
 }
 
 // run errors should stay actionable; prefer returning the first error but attach

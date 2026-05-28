@@ -24,38 +24,40 @@ const (
 // CommandAssignment is the NATS request payload shared by the stack transport
 // client and the agent worker.
 type CommandAssignment struct {
-	APIVersion               string   `json:"apiVersion"`
-	Kind                     string   `json:"kind"`
-	AssignmentID             string   `json:"assignmentId,omitempty"`
-	Operation                string   `json:"operation"`
-	Target                   string   `json:"target"`
-	Command                  string   `json:"command,omitempty"`
-	TargetID                 string   `json:"targetId,omitempty"`
-	ExpectedAgentID          string   `json:"expectedAgentId,omitempty"`
-	RequiredCapability       string   `json:"requiredCapability,omitempty"`
-	NodeKind                 string   `json:"nodeKind,omitempty"`
-	RunID                    string   `json:"runId,omitempty"`
-	NodeID                   string   `json:"nodeId,omitempty"`
-	PlanDigest               string   `json:"planDigest,omitempty"`
-	SlotLeaseID              string   `json:"slotLeaseId,omitempty"`
-	SlotLeaseTargetID        string   `json:"slotLeaseTargetId,omitempty"`
-	SlotLeaseIndex           int      `json:"slotLeaseIndex,omitempty"`
-	SlotLeaseSlots           int      `json:"slotLeaseSlots,omitempty"`
-	SlotLeaseTTL             string   `json:"slotLeaseTtl,omitempty"`
-	SlotLeaseExpiresAt       string   `json:"slotLeaseExpiresAt,omitempty"`
-	SlotLeaseToken           string   `json:"slotLeaseToken,omitempty"`
-	SlotLeaseTokenDigest     string   `json:"slotLeaseTokenDigest,omitempty"`
-	SlotLeaseRenewInterval   string   `json:"slotLeaseRenewInterval,omitempty"`
-	SlotLeaseLedgerStore     string   `json:"slotLeaseLedgerStore,omitempty"`
-	SlotLeaseLedgerStorePath string   `json:"slotLeaseLedgerStorePath,omitempty"`
-	SlotLeaseLedgerStoreKey  string   `json:"slotLeaseLedgerStoreKey,omitempty"`
-	SlotLeaseEtcdEndpoints   []string `json:"slotLeaseEtcdEndpoints,omitempty"`
-	SlotLeaseEtcdPrefix      string   `json:"slotLeaseEtcdPrefix,omitempty"`
-	SentAt                   string   `json:"sentAt"`
+	APIVersion               string          `json:"apiVersion"`
+	Kind                     string          `json:"kind"`
+	AssignmentID             string          `json:"assignmentId,omitempty"`
+	Operation                string          `json:"operation"`
+	Target                   string          `json:"target"`
+	Command                  string          `json:"command,omitempty"`
+	Resource                 json.RawMessage `json:"resource,omitempty"`
+	TargetID                 string          `json:"targetId,omitempty"`
+	ExpectedAgentID          string          `json:"expectedAgentId,omitempty"`
+	RequiredCapability       string          `json:"requiredCapability,omitempty"`
+	NodeKind                 string          `json:"nodeKind,omitempty"`
+	RunID                    string          `json:"runId,omitempty"`
+	NodeID                   string          `json:"nodeId,omitempty"`
+	PlanDigest               string          `json:"planDigest,omitempty"`
+	SlotLeaseID              string          `json:"slotLeaseId,omitempty"`
+	SlotLeaseTargetID        string          `json:"slotLeaseTargetId,omitempty"`
+	SlotLeaseIndex           int             `json:"slotLeaseIndex,omitempty"`
+	SlotLeaseSlots           int             `json:"slotLeaseSlots,omitempty"`
+	SlotLeaseTTL             string          `json:"slotLeaseTtl,omitempty"`
+	SlotLeaseExpiresAt       string          `json:"slotLeaseExpiresAt,omitempty"`
+	SlotLeaseToken           string          `json:"slotLeaseToken,omitempty"`
+	SlotLeaseTokenDigest     string          `json:"slotLeaseTokenDigest,omitempty"`
+	SlotLeaseRenewInterval   string          `json:"slotLeaseRenewInterval,omitempty"`
+	SlotLeaseLedgerStore     string          `json:"slotLeaseLedgerStore,omitempty"`
+	SlotLeaseLedgerStorePath string          `json:"slotLeaseLedgerStorePath,omitempty"`
+	SlotLeaseLedgerStoreKey  string          `json:"slotLeaseLedgerStoreKey,omitempty"`
+	SlotLeaseEtcdEndpoints   []string        `json:"slotLeaseEtcdEndpoints,omitempty"`
+	SlotLeaseEtcdPrefix      string          `json:"slotLeaseEtcdPrefix,omitempty"`
+	SentAt                   string          `json:"sentAt"`
 }
 
 type CommandAssignmentMetadata struct {
 	AssignmentID             string
+	Resource                 json.RawMessage
 	TargetID                 string
 	ExpectedAgentID          string
 	RequiredCapability       string
@@ -141,6 +143,7 @@ func NewCommandAssignmentWithMetadata(operation string, target string, command s
 		Operation:                strings.TrimSpace(operation),
 		Target:                   NormalizeTarget(target),
 		Command:                  command,
+		Resource:                 cloneRawMessage(metadata.Resource),
 		TargetID:                 strings.TrimSpace(metadata.TargetID),
 		ExpectedAgentID:          strings.TrimSpace(metadata.ExpectedAgentID),
 		RequiredCapability:       strings.TrimSpace(metadata.RequiredCapability),
@@ -210,6 +213,7 @@ func normalizeCommandAssignment(assignment CommandAssignment) (CommandAssignment
 	assignment.Operation = strings.TrimSpace(assignment.Operation)
 	assignment.Target = NormalizeTarget(assignment.Target)
 	assignment.TargetID = strings.TrimSpace(assignment.TargetID)
+	assignment.Resource = normalizeRawMessage(assignment.Resource)
 	assignment.ExpectedAgentID = strings.TrimSpace(assignment.ExpectedAgentID)
 	assignment.RequiredCapability = strings.TrimSpace(assignment.RequiredCapability)
 	assignment.NodeKind = strings.TrimSpace(assignment.NodeKind)
@@ -475,6 +479,21 @@ func normalizeAssignmentStringSlice(values []string) []string {
 	return out
 }
 
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
+}
+
+func normalizeRawMessage(raw json.RawMessage) json.RawMessage {
+	raw = cloneRawMessage(raw)
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil
+	}
+	return raw
+}
+
 func LoadEd25519PublicKeyFile(path string) (ed25519.PublicKey, error) {
 	raw, err := os.ReadFile(strings.TrimSpace(path))
 	if err != nil {
@@ -521,6 +540,7 @@ func sha256Hex(raw []byte) string {
 
 func DeriveAssignmentID(assignment CommandAssignment) string {
 	commandSum := sha256.Sum256([]byte(assignment.Command))
+	resourceSum := sha256.Sum256([]byte(strings.TrimSpace(string(assignment.Resource))))
 	key := struct {
 		Operation          string `json:"operation"`
 		Target             string `json:"target"`
@@ -532,6 +552,7 @@ func DeriveAssignmentID(assignment CommandAssignment) string {
 		NodeID             string `json:"nodeId,omitempty"`
 		PlanDigest         string `json:"planDigest,omitempty"`
 		CommandDigest      string `json:"commandDigest"`
+		ResourceDigest     string `json:"resourceDigest,omitempty"`
 	}{
 		Operation:          strings.TrimSpace(assignment.Operation),
 		Target:             NormalizeTarget(assignment.Target),
@@ -543,6 +564,9 @@ func DeriveAssignmentID(assignment CommandAssignment) string {
 		NodeID:             strings.TrimSpace(assignment.NodeID),
 		PlanDigest:         strings.TrimSpace(assignment.PlanDigest),
 		CommandDigest:      "sha256:" + hex.EncodeToString(commandSum[:]),
+	}
+	if len(strings.TrimSpace(string(assignment.Resource))) > 0 {
+		key.ResourceDigest = "sha256:" + hex.EncodeToString(resourceSum[:])
 	}
 	raw, _ := json.Marshal(key)
 	sum := sha256.Sum256(raw)

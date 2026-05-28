@@ -71,6 +71,18 @@ func (e *customNodeExecutor) RunNode(ctx context.Context, node *runNode, command
 		return e.runDBSchemaContractNode(ctx, node, command)
 	case NodeKindMySQLReplicationVerify:
 		return e.runMySQLReplicationVerifyNode(ctx, node, command)
+	case NodeKindPostgresRoleEnsure,
+		NodeKindPostgresDatabaseEnsure,
+		NodeKindPostgresGrantEnsure,
+		NodeKindPostgresSchemaEnsure,
+		NodeKindPostgresExtensionEnsure,
+		NodeKindPostgresReplicationVerify,
+		NodeKindPostgresBackupRun,
+		NodeKindPostgresBackupVerify,
+		NodeKindPostgresRestoreDrill,
+		NodeKindPostgresConfigEnsure,
+		NodeKindPostgresMaintenanceRun:
+		return e.runPostgresNode(ctx, node, command)
 	case NodeKindHostCommandRun:
 		return e.runHostCommandNode(ctx, node, command)
 	case NodeKindHostFileRender:
@@ -722,6 +734,7 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 			RunID:              strings.TrimSpace(spec.RunID),
 			NodeID:             strings.TrimSpace(spec.NodeID),
 			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
+			Resource:           cloneJSONRawMessage(spec.Resource),
 		})
 	default:
 		return nil, fmt.Errorf("unsupported host.command.run transport %q", transportKind)

@@ -298,6 +298,17 @@ func Definitions() []Capability {
 			NetworkDestinations: []string{"declared MySQL node addresses"},
 			Description:         "Verify MySQL replication topology and synchronized state with typed receipts.",
 		},
+		postgresCapability("postgres.role.ensure", true, "role-attribute-state", "catalog-state", []string{"PostgreSQL role catalog"}, "Ensure a PostgreSQL role with login, privilege, and password state plus typed receipts."),
+		postgresCapability("postgres.database.ensure", true, "database-catalog-state", "catalog-state", []string{"PostgreSQL database catalog"}, "Ensure a PostgreSQL database and owner with typed receipts."),
+		postgresCapability("postgres.grant.ensure", true, "grant-catalog-state", "catalog-state", []string{"PostgreSQL ACL catalog"}, "Ensure database, schema, or table grants with typed receipts."),
+		postgresCapability("postgres.schema.ensure", true, "schema-catalog-state", "catalog-state", []string{"PostgreSQL schema catalog"}, "Ensure a PostgreSQL schema and owner with typed receipts."),
+		postgresCapability("postgres.extension.ensure", true, "extension-catalog-state", "catalog-state", []string{"PostgreSQL extension catalog"}, "Ensure a PostgreSQL extension with typed receipts."),
+		postgresCapability("postgres.replication.verify", false, "read-only-verification", "runtime-state", []string{"PostgreSQL replication status"}, "Verify primary role and streaming replica count before or after mutation."),
+		postgresCapability("postgres.backup.run", true, "backup-artifact-digest", "artifact-digest", []string{"PostgreSQL logical backup file", "backup manifest"}, "Run pg_dump, write a digest-backed manifest, and emit portable backup evidence."),
+		postgresCapability("postgres.backup.verify", false, "backup-artifact-verification", "artifact-digest", []string{"PostgreSQL logical backup file"}, "Verify a backup artifact with size, sha256, and pg_restore list evidence."),
+		postgresCapability("postgres.restore.drill", true, "restore-drill-database-state", "restored-state", []string{"PostgreSQL drill database"}, "Restore a backup into a drill database and prove expected application state exists."),
+		postgresCapability("postgres.config.ensure", true, "postgresql-setting-state", "catalog-state", []string{"PostgreSQL ALTER SYSTEM configuration"}, "Ensure PostgreSQL runtime configuration through ALTER SYSTEM and optional reload."),
+		postgresCapability("postgres.maintenance.run", true, "maintenance-command-receipt", "runtime-state", []string{"PostgreSQL maintenance operation"}, "Run bounded PostgreSQL maintenance such as ANALYZE, VACUUM, or REINDEX with receipts."),
 		{
 			Adapter:             "k8s.manifest.apply",
 			Status:              "implemented",
@@ -408,6 +419,28 @@ func KnownAdapterNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func postgresCapability(adapterName string, mutating bool, idempotence string, diffQuality string, touches []string, description string) Capability {
+	return Capability{
+		Adapter:             adapterName,
+		Status:              "implemented",
+		Classification:      "guarded",
+		TargetTypes:         []string{"host", "database"},
+		Transports:          []string{"local", "ssh", "nats-agent"},
+		Mutating:            mutating,
+		RequiredPrivilege:   "PostgreSQL admin role or peer-authenticated postgres user on selected target",
+		Idempotence:         idempotence,
+		CheckMode:           "deterministic-plan",
+		DiffQuality:         diffQuality,
+		SupportedPhases:     []string{"observe", "plan", "apply", "verify", "export"},
+		EvidenceArtifacts:   []string{"postgres-observe.json", "postgres-plan.json", "postgres-execute.json", "postgres-fanout.json", "postgres-verify.json", "postgres-resource.json", "decision.json"},
+		RequiredPolicy:      []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
+		Touches:             touches,
+		SecretInputs:        []string{"database passwords are read from environment references and emitted only as digests"},
+		NetworkDestinations: []string{"selected PostgreSQL target or selected NATS agent"},
+		Description:         description,
+	}
 }
 
 func Probe(ctx context.Context, cap Capability, opts ProbeOptions) ProbeResult {
@@ -565,6 +598,32 @@ func probeCommandsFor(adapterName string) []probeCommand {
 			{Name: "bash", Command: "command -v bash >/dev/null 2>&1", Required: true},
 			{Name: "ssh", Command: "command -v ssh >/dev/null 2>&1", Required: true},
 			{Name: "mysql-client", Command: "command -v mysql >/dev/null 2>&1 || command -v mariadb >/dev/null 2>&1", Required: true},
+		}
+	case "postgres.backup.run":
+		return []probeCommand{
+			{Name: "bash", Command: "command -v bash >/dev/null 2>&1", Required: true},
+			{Name: "psql", Command: "command -v psql >/dev/null 2>&1", Required: true},
+			{Name: "pg-dump", Command: "command -v pg_dump >/dev/null 2>&1", Required: true},
+			{Name: "sha256sum", Command: "command -v sha256sum >/dev/null 2>&1", Required: true},
+		}
+	case "postgres.backup.verify", "postgres.restore.drill":
+		return []probeCommand{
+			{Name: "bash", Command: "command -v bash >/dev/null 2>&1", Required: true},
+			{Name: "psql", Command: "command -v psql >/dev/null 2>&1", Required: true},
+			{Name: "pg-restore", Command: "command -v pg_restore >/dev/null 2>&1", Required: true},
+			{Name: "sha256sum", Command: "command -v sha256sum >/dev/null 2>&1", Required: true},
+		}
+	case "postgres.role.ensure",
+		"postgres.database.ensure",
+		"postgres.grant.ensure",
+		"postgres.schema.ensure",
+		"postgres.extension.ensure",
+		"postgres.replication.verify",
+		"postgres.config.ensure",
+		"postgres.maintenance.run":
+		return []probeCommand{
+			{Name: "bash", Command: "command -v bash >/dev/null 2>&1", Required: true},
+			{Name: "psql", Command: "command -v psql >/dev/null 2>&1", Required: true},
 		}
 	case "k8s.manifest.apply", "k8s.manifest.delete":
 		return []probeCommand{

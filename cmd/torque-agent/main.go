@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/ingresslabs/torque/internal/agent"
+	opsmysql "github.com/ingresslabs/torque/internal/ops/mysql"
+	opspostgres "github.com/ingresslabs/torque/internal/ops/postgres"
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
 	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
 	"github.com/ingresslabs/torque/internal/workflows/buildsvc"
@@ -32,6 +34,12 @@ func main() {
 			return
 		case "capabilities":
 			runCapabilitiesCommand(os.Args[2:])
+			return
+		case "postgres-resource-exec":
+			runPostgresResourceExec(os.Args[2:])
+			return
+		case "mysql-resource-exec":
+			runMySQLResourceExec(os.Args[2:])
 			return
 		}
 	}
@@ -107,6 +115,68 @@ func main() {
 	defer cancel()
 	if err := srv.Run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runPostgresResourceExec(args []string) {
+	fs := flag.NewFlagSet("torque-agent postgres-resource-exec", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	requestB64 := fs.String("request-b64", "", "Base64 encoded PostgreSQL resource request")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(os.Stderr, "Error: unexpected arguments: %s\n", strings.Join(fs.Args(), " "))
+		os.Exit(2)
+	}
+	if strings.TrimSpace(*requestB64) == "" {
+		fmt.Fprintln(os.Stderr, "Error: --request-b64 is required")
+		os.Exit(2)
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	result, err := opspostgres.ExecuteFromBase64(ctx, *requestB64)
+	if writeErr := opspostgres.WriteResult(os.Stdout, result); writeErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: write PostgreSQL resource result: %v\n", writeErr)
+		os.Exit(1)
+	}
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+func runMySQLResourceExec(args []string) {
+	fs := flag.NewFlagSet("torque-agent mysql-resource-exec", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	requestB64 := fs.String("request-b64", "", "Base64 encoded MySQL resource request")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintf(os.Stderr, "Error: unexpected arguments: %s\n", strings.Join(fs.Args(), " "))
+		os.Exit(2)
+	}
+	if strings.TrimSpace(*requestB64) == "" {
+		fmt.Fprintln(os.Stderr, "Error: --request-b64 is required")
+		os.Exit(2)
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	result, err := opsmysql.ExecuteFromBase64(ctx, *requestB64)
+	if writeErr := opsmysql.WriteResult(os.Stdout, result); writeErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: write MySQL resource result: %v\n", writeErr)
+		os.Exit(1)
+	}
+	if err != nil {
 		os.Exit(1)
 	}
 }

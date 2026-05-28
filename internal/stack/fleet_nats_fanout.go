@@ -276,6 +276,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 					RunID:                    strings.TrimSpace(spec.RunID),
 					NodeID:                   strings.TrimSpace(spec.NodeID),
 					PlanDigest:               strings.TrimSpace(spec.PlanDigest),
+					Resource:                 cloneJSONRawMessage(spec.Resource),
 					SlotLeaseID:              target.slotLeaseID(),
 					SlotLeaseTargetID:        target.slotLeaseTargetID(),
 					SlotLeaseIndex:           target.slotLeaseIndex(),
@@ -302,7 +303,11 @@ func (e *customNodeExecutor) runHostCommandFleetNATSFanout(ctx context.Context, 
 					})
 					continue
 				}
-				results[idx] = target.result(client.Run(ctx, command))
+				if len(spec.Resource) > 0 {
+					results[idx] = target.result(client.RunResource(ctx, spec.Resource))
+				} else {
+					results[idx] = target.result(client.Run(ctx, command))
+				}
 			}
 		}()
 	}
@@ -428,7 +433,13 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 	e.renewFleetNATSSlotLeases(ctx, leaseStore, receipt.Policy, targets)
 	for idx, target := range targets {
 		targetIndex[target.targetID] = idx
-		assignment := natstransport.NewCommandAssignmentWithMetadata("run", target.workerSubject, command, time.Now(), natstransport.CommandAssignmentMetadata{
+		operation := "run"
+		assignmentCommand := command
+		if len(spec.Resource) > 0 {
+			operation = "resource"
+			assignmentCommand = ""
+		}
+		assignment := natstransport.NewCommandAssignmentWithMetadata(operation, target.workerSubject, assignmentCommand, time.Now(), natstransport.CommandAssignmentMetadata{
 			TargetID:                 target.targetID,
 			ExpectedAgentID:          target.agentID,
 			RequiredCapability:       strings.TrimSpace(spec.RequiredCap),
@@ -436,6 +447,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			RunID:                    assignmentRunID,
 			NodeID:                   strings.TrimSpace(spec.NodeID),
 			PlanDigest:               strings.TrimSpace(spec.PlanDigest),
+			Resource:                 cloneJSONRawMessage(spec.Resource),
 			SlotLeaseID:              target.slotLeaseID(),
 			SlotLeaseTargetID:        target.slotLeaseTargetID(),
 			SlotLeaseIndex:           target.slotLeaseIndex(),
@@ -475,7 +487,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			envelope, err := signer.sign(assignment)
 			if err != nil {
 				results[idx] = target.resultWithEvidence(transport.OperationResult{
-					Operation:    "run",
+					Operation:    operation,
 					Status:       "failed",
 					TargetDigest: natstransport.TargetDigest(target.workerSubject),
 					ExitCode:     1,
@@ -490,7 +502,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 		}
 		if err != nil {
 			results[idx] = target.resultWithEvidence(transport.OperationResult{
-				Operation:    "run",
+				Operation:    operation,
 				Status:       "failed",
 				TargetDigest: natstransport.TargetDigest(target.workerSubject),
 				ExitCode:     1,
@@ -501,7 +513,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 		ack, err := js.Publish(target.workerSubject, raw, natsgo.Context(ctx))
 		if err != nil {
 			results[idx] = target.resultWithEvidence(transport.OperationResult{
-				Operation:    "run",
+				Operation:    operation,
 				Status:       "failed",
 				TargetDigest: natstransport.TargetDigest(target.workerSubject),
 				ExitCode:     1,
@@ -511,7 +523,7 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 		}
 		assignmentOffsets[idx] = natstransport.OffsetFromPublish(target.workerSubject, ack)
 		results[idx] = target.resultWithEvidence(transport.OperationResult{
-			Operation:    "run",
+			Operation:    operation,
 			Status:       "timeout",
 			TargetDigest: natstransport.TargetDigest(target.workerSubject),
 			ExitCode:     1,
@@ -572,6 +584,10 @@ func (e *customNodeExecutor) runHostCommandFleetNATSJetStreamFanout(ctx context.
 			targetID := firstNonEmptyString(op.Metadata["assignmentTargetId"], op.Metadata["targetId"])
 			idx, ok := targetIndex[targetID]
 			if !ok {
+				_ = msg.Ack(natsgo.Context(ctx))
+				continue
+			}
+			if !fleetNATSReceiptMatchesAssignment(op, assignments[idx]) {
 				_ = msg.Ack(natsgo.Context(ctx))
 				continue
 			}
@@ -1355,6 +1371,34 @@ func fleetNATSReceiptDedupeKey(receipt transport.OperationResult, assignment nat
 	}, "\x00")
 }
 
+func fleetNATSReceiptMatchesAssignment(receipt transport.OperationResult, assignment natstransport.CommandAssignment) bool {
+	if expected := strings.TrimSpace(assignment.AssignmentID); expected != "" {
+		if strings.TrimSpace(receipt.Metadata["assignmentId"]) != expected {
+			return false
+		}
+	}
+	if expected := strings.TrimSpace(assignment.NodeID); expected != "" {
+		got := strings.TrimSpace(receipt.Metadata["nodeId"])
+		if got != "" && got != expected {
+			return false
+		}
+	}
+	if expected := strings.TrimSpace(assignment.RunID); expected != "" {
+		got := strings.TrimSpace(receipt.Metadata["runId"])
+		if got != "" && got != expected {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneJSONRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
+}
+
 func mergeStringMap(base map[string]string, overlay map[string]string) map[string]string {
 	if len(base) == 0 && len(overlay) == 0 {
 		return nil
@@ -1422,6 +1466,9 @@ func (e *customNodeExecutor) finalizeFleetNATSFanoutReceipt(receipt *fleetNATSFa
 	case receipt.Policy.OnPartialFailure == RunnerFanoutOnContinue:
 		receipt.Status = "partial"
 		receipt.Reason = "targeted NATS fan-out exceeded execution budget; continuing by policy"
+	case receipt.Summary.NonSucceeded > 0 && receipt.Summary.Blocked == receipt.Summary.NonSucceeded:
+		receipt.Status = "blocked"
+		receipt.Reason = "targeted NATS fan-out blocked by worker receipts"
 	default:
 		receipt.Status = "failed"
 		receipt.Reason = "targeted NATS fan-out exceeded execution budget"
@@ -1444,6 +1491,9 @@ func (e *customNodeExecutor) fleetNATSFanoutOperationResult(started time.Time, r
 		"fanout":              "targeted-nats",
 		"targetCount":         strconv.Itoa(receipt.Summary.TargetCount),
 		"succeeded":           strconv.Itoa(receipt.Summary.Succeeded),
+		"blocked":             strconv.Itoa(receipt.Summary.Blocked),
+		"failed":              strconv.Itoa(receipt.Summary.Failed),
+		"timedOut":            strconv.Itoa(receipt.Summary.TimedOut),
 		"nonSucceeded":        strconv.Itoa(receipt.Summary.NonSucceeded),
 		"missingReceipts":     strconv.Itoa(receipt.Summary.MissingReceipts),
 		"minSucceededPercent": strconv.Itoa(receipt.Policy.MinSucceededPercent),

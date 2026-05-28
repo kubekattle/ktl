@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +20,9 @@ import (
 
 	"github.com/ingresslabs/torque/internal/ops/agent/heartbeat"
 	"github.com/ingresslabs/torque/internal/ops/locks"
+	opspostgres "github.com/ingresslabs/torque/internal/ops/postgres"
 	"github.com/ingresslabs/torque/internal/ops/slotledger"
+	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 	natstransport "github.com/ingresslabs/torque/internal/ops/transport/nats"
 	natsworker "github.com/ingresslabs/torque/internal/ops/transport/nats/worker"
 	natsgo "github.com/nats-io/nats.go"
@@ -4201,6 +4204,286 @@ nodes:
 	}
 }
 
+func TestRun_PostgresFleetJetStreamAssignmentsAreResourceOnly(t *testing.T) {
+	serverURL := startStackTestNATSJetStreamServer(t)
+	assignmentStream := "TORQUE_ASSIGNMENTS_POSTGRES_RESOURCE_ONLY_TEST"
+	receiptStream := "TORQUE_RECEIPTS_POSTGRES_RESOURCE_ONLY_TEST"
+	t.Setenv("TORQUE_NATS_ASSIGNMENT_STREAM", assignmentStream)
+	t.Setenv("TORQUE_NATS_RECEIPT_STREAM", receiptStream)
+	t.Setenv("TORQUE_NATS_ASSIGNMENT_SIGNING_KEY", "")
+
+	timeout := 100 * time.Millisecond
+	runID := "run-postgres-resource-only"
+	nodeID := "postgres.role.ensure/torque-auditor"
+	resource := json.RawMessage(`{"apiVersion":"torque.dev/postgres-resource-request/v1","kind":"PostgresResourceRequest","nodeId":"postgres.role.ensure/torque-auditor","runId":"run-postgres-resource-only","nodeKind":"postgres.role.ensure","spec":{"database":"keycloak","role":{"name":"torque_auditor","login":true}}}`)
+	exec := &customNodeExecutor{run: &runState{
+		RunID: runID,
+		Plan: &Plan{
+			StackRoot: t.TempDir(),
+			Runner: RunnerResolved{
+				Fanout: RunnerFanoutResolved{
+					Delivery: RunnerFanoutDeliveryJetStream,
+				},
+			},
+		},
+		Command: "apply",
+	}}
+	receipt := fleetNATSFanoutReceipt{
+		APIVersion:         FleetNATSFanoutAPIVersion,
+		Kind:               FleetNATSFanoutKind,
+		NodeID:             nodeID,
+		NodeKind:           NodeKindPostgresRoleEnsure,
+		Phase:              "postgres-role-ensure",
+		Status:             "checking",
+		RunID:              runID,
+		RequiredCapability: NodeKindPostgresRoleEnsure,
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+		Policy:             exec.fleetNATSFanoutPolicy(),
+		Summary: fleetNATSFanoutSummary{
+			TargetCount: 1,
+		},
+		Targets: []fleetNATSFanoutTargetView{{
+			AgentID:       "agent-pg-01",
+			TargetID:      "host/pg-01",
+			WorkerSubject: fleetNATSAssignmentSubject("lab", "agent-pg-01"),
+		}},
+	}
+	spec := HostCommandSpec{
+		Transport:   "nats",
+		RequiredCap: NodeKindPostgresRoleEnsure,
+		NodeKind:    NodeKindPostgresRoleEnsure,
+		RunID:       runID,
+		NodeID:      nodeID,
+		PlanDigest:  "sha256:plan",
+		Resource:    resource,
+		Timeout:     &timeout,
+	}
+	targets := []fleetNATSFanoutTarget{{
+		agentID:       "agent-pg-01",
+		targetID:      "host/pg-01",
+		hostname:      "pg-01",
+		workerSubject: fleetNATSAssignmentSubject("lab", "agent-pg-01"),
+	}}
+	shellFallback := "bash <<'TORQUE_POSTGRES_RESOURCE'\necho should-not-be-assigned\nTORQUE_POSTGRES_RESOURCE"
+	fanout, _ := exec.runHostCommandFleetNATSJetStreamFanout(context.Background(), time.Now(), receipt, targets, spec, shellFallback, timeout, serverURL, "", "", nil)
+	if len(fanout.Results) != 1 || fanout.Results[0].Assignment == nil {
+		t.Fatalf("missing resource assignment evidence: %#v", fanout)
+	}
+	assignment := fanout.Results[0].Assignment
+	if assignment.Operation != "resource" || strings.TrimSpace(assignment.Command) != "" {
+		t.Fatalf("assignment operation/command = %q/%q, want resource with no command", assignment.Operation, assignment.Command)
+	}
+	if strings.Contains(assignment.Command, "bash <<") {
+		t.Fatalf("resource assignment leaked generated shell: %q", assignment.Command)
+	}
+	if strings.TrimSpace(string(assignment.Resource)) != strings.TrimSpace(string(resource)) {
+		t.Fatalf("assignment resource = %s, want %s", assignment.Resource, resource)
+	}
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		t.Fatalf("marshal assignment: %v", err)
+	}
+	if strings.Contains(string(raw), "bash <<") {
+		t.Fatalf("resource assignment payload leaked generated shell: %s", raw)
+	}
+}
+
+func TestRun_PostgresNATSPlanUsesTypedResourceDigest(t *testing.T) {
+	login := true
+	node := &runNode{ResolvedRelease: &ResolvedRelease{
+		ID:                 "postgres.role.ensure/torque-auditor",
+		Kind:               NodeKindPostgresRoleEnsure,
+		EffectiveInputHash: "sha256:input",
+		Postgres: PostgresSpec{
+			Transport: "nats",
+			Target:    "torque.lab.assign.postgres",
+			Database:  "keycloak",
+			Role: PostgresRoleSpec{
+				Name:  "torque_auditor",
+				Login: &login,
+			},
+		},
+	}}
+	exec := &customNodeExecutor{run: &runState{RunID: "run-pg", Plan: &Plan{}}}
+	resource, err := buildPostgresResourcePayload(NodeKindPostgresRoleEnsure, node.Postgres, node.ID, "run-pg", "lab")
+	if err != nil {
+		t.Fatalf("build resource payload: %v", err)
+	}
+	var req opspostgres.ResourceRequest
+	if err := json.Unmarshal(resource, &req); err != nil {
+		t.Fatalf("parse resource payload: %v", err)
+	}
+	if req.Tenant != "lab" || req.Lock == nil || !req.Lock.Enabled {
+		t.Fatalf("resource payload missing tenant-scoped lock policy: %#v", req)
+	}
+	if !strings.Contains(req.Lock.Key, "tenant=lab") || !strings.Contains(req.Lock.Key, "kind=postgres.role.ensure") || !strings.Contains(req.Lock.Key, "identity=torque_auditor") {
+		t.Fatalf("resource lock key = %q, want tenant/kind/identity scope", req.Lock.Key)
+	}
+	shellCommand, err := buildPostgresCommand(NodeKindPostgresRoleEnsure, node.Postgres, node.ID, "run-pg")
+	if err != nil {
+		t.Fatalf("build shell fallback: %v", err)
+	}
+	if !strings.Contains(shellCommand, "bash <<") {
+		t.Fatalf("shell fallback did not contain heredoc: %q", shellCommand)
+	}
+	hostSpec := exec.postgresHostCommandSpec(node, shellCommand, NodeKindPostgresRoleEnsure, resource)
+	if strings.TrimSpace(hostSpec.Command) != "" {
+		t.Fatalf("NATS postgres host spec command = %q, want resource-only command", hostSpec.Command)
+	}
+	plan := exec.postgresPlanReceipt(node, "postgres-role-ensure", resource, hostSpec.Command, "planned", "eligible")
+	if plan.AdapterKind != "postgres.native" || plan.ResourceDigest == "" || plan.CommandDigest != "" {
+		t.Fatalf("plan does not describe typed native resource: %#v", plan)
+	}
+	exec.enrichPostgresPlanFromReceipt(&plan, transport.OperationResult{
+		Operation: "resource",
+		Status:    "succeeded",
+		Metadata:  map[string]string{"resourceSQLDigest": "sha256:sql"},
+	})
+	if plan.PlannedSQLDigest != "sha256:sql" {
+		t.Fatalf("planned SQL digest = %q, want worker receipt digest", plan.PlannedSQLDigest)
+	}
+}
+
+func TestRun_PostgresSSHUsesNativeResourceCommandByDefault(t *testing.T) {
+	login := true
+	node := &runNode{ResolvedRelease: &ResolvedRelease{
+		ID:                 "postgres.role.ensure/torque-auditor",
+		Kind:               NodeKindPostgresRoleEnsure,
+		EffectiveInputHash: "sha256:input",
+		Postgres: PostgresSpec{
+			Transport: "ssh",
+			Target:    "root@db",
+			Database:  "keycloak",
+			Role: PostgresRoleSpec{
+				Name:  "torque_auditor",
+				Login: &login,
+			},
+		},
+	}}
+	exec := &customNodeExecutor{run: &runState{RunID: "run-pg", Plan: &Plan{}}}
+	resource, err := buildPostgresResourcePayload(NodeKindPostgresRoleEnsure, node.Postgres, node.ID, "run-pg", "lab")
+	if err != nil {
+		t.Fatalf("build resource payload: %v", err)
+	}
+	command, err := buildPostgresNativeCommand(node.Postgres, resource)
+	if err != nil {
+		t.Fatalf("build native command: %v", err)
+	}
+	if strings.Contains(command, "bash <<") {
+		t.Fatalf("native SSH command leaked shell fallback: %s", command)
+	}
+	if !strings.Contains(command, defaultPostgresAgentPath+" postgres-resource-exec --request-b64") {
+		t.Fatalf("native SSH command = %q, want torque-agent postgres-resource-exec", command)
+	}
+	encoded, ok := postgresRequestB64FromCommand(command)
+	if !ok {
+		t.Fatalf("native SSH command did not expose request payload: %q", command)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("decode native request payload: %v", err)
+	}
+	var req opspostgres.ResourceRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatalf("parse native request payload: %v", err)
+	}
+	if req.NodeKind != NodeKindPostgresRoleEnsure || req.Tenant != "lab" || len(req.Spec) == 0 {
+		t.Fatalf("native request payload missing typed resource fields: %#v", req)
+	}
+
+	hostSpec := exec.postgresHostCommandSpec(node, command, NodeKindPostgresRoleEnsure, resource)
+	if !strings.Contains(hostSpec.Command, "postgres-resource-exec --request-b64") {
+		t.Fatalf("SSH host spec command = %q, want native resource executor", hostSpec.Command)
+	}
+	plan := exec.postgresPlanReceipt(node, "postgres-role-ensure", resource, hostSpec.Command, "planned", "eligible")
+	if plan.AdapterKind != "postgres.native" || plan.ResourceDigest == "" || plan.CommandDigest == "" {
+		t.Fatalf("plan does not describe native SSH resource execution: %#v", plan)
+	}
+}
+
+func TestRun_PostgresSSHShellFallbackIsExplicit(t *testing.T) {
+	login := true
+	node := &runNode{ResolvedRelease: &ResolvedRelease{
+		ID:                 "postgres.role.ensure/torque-auditor",
+		Kind:               NodeKindPostgresRoleEnsure,
+		EffectiveInputHash: "sha256:input",
+		Postgres: PostgresSpec{
+			Transport:     "ssh",
+			Target:        "root@db",
+			ExecutionMode: "shell",
+			Database:      "keycloak",
+			Role: PostgresRoleSpec{
+				Name:  "torque_auditor",
+				Login: &login,
+			},
+		},
+	}}
+	exec := &customNodeExecutor{run: &runState{RunID: "run-pg", Plan: &Plan{}}}
+	resource, err := buildPostgresResourcePayload(NodeKindPostgresRoleEnsure, node.Postgres, node.ID, "run-pg", "lab")
+	if err != nil {
+		t.Fatalf("build resource payload: %v", err)
+	}
+	command, err := buildPostgresCommand(NodeKindPostgresRoleEnsure, node.Postgres, node.ID, "run-pg")
+	if err != nil {
+		t.Fatalf("build shell fallback: %v", err)
+	}
+	if !strings.Contains(command, "bash <<'TORQUE_POSTGRES_RESOURCE'") {
+		t.Fatalf("shell fallback command = %q, want generated heredoc", command)
+	}
+	plan := exec.postgresPlanReceipt(node, "postgres-role-ensure", resource, command, "planned", "eligible")
+	if plan.AdapterKind != "postgres.shell-fallback" || plan.CommandDigest == "" {
+		t.Fatalf("plan does not describe explicit shell fallback: %#v", plan)
+	}
+}
+
+func postgresRequestB64FromCommand(command string) (string, bool) {
+	const marker = "--request-b64"
+	fields := strings.Fields(command)
+	for i, field := range fields {
+		if field == marker && i+1 < len(fields) {
+			return strings.Trim(fields[i+1], "'"), true
+		}
+	}
+	return "", false
+}
+
+func TestPostgresReceiptStdoutPromotesSSHBlockedStatus(t *testing.T) {
+	receipt := transport.OperationResult{
+		Operation: "run",
+		Status:    "failed",
+		ExitCode:  1,
+		Error:     "exit status 1",
+		Stdout:    `{"apiVersion":"torque.dev/postgres-resource-result/v1","kind":"PostgresResourceResult","nodeKind":"postgres.backup.run","status":"blocked","changed":false,"message":"postgres advisory lock was not acquired","plannedSqlDigest":"sha256:planned","executedSqlDigest":"sha256:executed","lock":{"lockKey":"tenant=lab|database=keycloak|kind=postgres.backup.run|identity=keycloak/backup.dump","lockDigest":"sha256:lock","lockAcquired":false,"lockWaitMillis":30057,"timeoutMillis":30000,"blocked":true},"transaction":{"supported":false,"transactionStarted":false,"transactionCommitted":false,"transactionRolledBack":false,"reason":"pg_dump is coordinated by advisory lock"}}`,
+	}
+
+	enrichPostgresReceiptFromStdout(&receipt)
+
+	if receipt.Status != "blocked" {
+		t.Fatalf("receipt status = %q, want blocked", receipt.Status)
+	}
+	if msg := postgresReceiptMessage(receipt); msg != "postgres advisory lock was not acquired" {
+		t.Fatalf("receipt message = %q, want typed Postgres message", msg)
+	}
+	for key, want := range map[string]string{
+		"resourceStatus":                "blocked",
+		"resourceChanged":               "false",
+		"resourcePlannedSQLDigest":      "sha256:planned",
+		"resourceExecutedSQLDigest":     "sha256:executed",
+		"postgresLockAcquired":          "false",
+		"postgresLockBlocked":           "true",
+		"postgresLockWaitMillis":        "30057",
+		"postgresTransactionSupported":  "false",
+		"postgresTransactionStarted":    "false",
+		"postgresTransactionCommitted":  "false",
+		"postgresTransactionRolledBack": "false",
+		"postgresTransactionReason":     "pg_dump is coordinated by advisory lock",
+	} {
+		if got := receipt.Metadata[key]; got != want {
+			t.Fatalf("metadata[%s] = %q, want %q in %#v", key, got, want, receipt.Metadata)
+		}
+	}
+}
+
 func TestRun_HostCommandFleetModeJetStreamFanoutDeliversOfflineAssignment(t *testing.T) {
 	root := t.TempDir()
 	serverURL := startStackTestNATSJetStreamServer(t)
@@ -4327,6 +4610,150 @@ nodes:
 	if result.Receipt.Metadata["delivery"] != natstransport.DeliveryJetStream || result.Receipt.Metadata["workerDecision"] != "executed" {
 		t.Fatalf("unexpected receipt metadata: %#v", result.Receipt.Metadata)
 	}
+	workerCancel()
+	select {
+	case err := <-workerErr:
+		if err != nil {
+			t.Fatalf("worker error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop")
+	}
+}
+
+func TestRun_HostCommandFleetModeJetStreamFanoutCorrelatesReceiptsByAssignment(t *testing.T) {
+	root := t.TempDir()
+	serverURL := startStackTestNATSJetStreamServer(t)
+	registryPath := filepath.Join(root, ".torque", "agent-registry.json")
+	marker := filepath.Join(root, "fanout-jetstream-correlation-marker.txt")
+	assignmentStream := "TORQUE_ASSIGNMENTS_CORRELATION_TEST"
+	receiptStream := "TORQUE_RECEIPTS_CORRELATION_TEST"
+	stackYAML := fmt.Sprintf(`apiVersion: torque.dev/v1
+kind: Stack
+name: fleet-jetstream-correlation
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: %q
+    tenant: lab
+    selector:
+      role: mysql
+    requireAgents: true
+    minReadyPercent: 100
+    failureBudget: 0
+    staleAfter: 45s
+    onInsufficientReady: block
+  fanout:
+    delivery: jetstream
+    maxParallel: 1
+    maxFailed: 0
+    minSucceededPercent: 100
+    onPartialFailure: block
+nodes:
+  - kind: host.command.run
+    name: first
+    host:
+      transport: nats
+      timeout: 8s
+      command: "printf 'first\n' >> %s"
+  - kind: host.command.run
+    name: second
+    needs: [first]
+    host:
+      transport: nats
+      timeout: 8s
+      command: "printf 'second\n' >> %s"
+`, registryPath, marker, marker)
+	if err := os.WriteFile(filepath.Join(root, "stack.yaml"), []byte(stackYAML), 0o644); err != nil {
+		t.Fatalf("write stack: %v", err)
+	}
+	agentID := "agent-js-correlation"
+	writeFleetReadinessAgent(t, registryPath, agentID, heartbeat.StateReady, time.Now().UTC(), NodeKindHostCommandRun)
+	t.Setenv("TORQUE_NATS_URL", serverURL)
+	t.Setenv("TORQUE_NATS_ASSIGNMENT_STREAM", assignmentStream)
+	t.Setenv("TORQUE_NATS_RECEIPT_STREAM", receiptStream)
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	ready := make(chan struct{})
+	worker, err := natsworker.New(natsworker.Config{
+		Server:                     serverURL,
+		Subject:                    fleetNATSAssignmentSubject("lab", agentID),
+		Delivery:                   natstransport.DeliveryJetStream,
+		AssignmentStream:           assignmentStream,
+		ReceiptStream:              receiptStream,
+		Durable:                    "stack-js-correlation-worker",
+		LedgerPath:                 filepath.Join(root, "agent-assignments.sqlite"),
+		Ready:                      ready,
+		Timeout:                    2 * time.Second,
+		Capabilities:               []string{NodeKindHostCommandRun},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    agentID,
+		Tenant:                     "lab",
+		TargetID:                   agentID,
+		Hostname:                   agentID + ".test",
+	})
+	if err != nil {
+		t.Fatalf("new worker: %v", err)
+	}
+	workerErr := make(chan error, 1)
+	go func() {
+		workerErr <- worker.Run(workerCtx)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not become ready")
+	}
+
+	p := compileFleetReadinessStack(t, root)
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:     "apply",
+		Plan:        p,
+		Concurrency: 1,
+		Lock:        true,
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+
+	rawMarker, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read marker: %v", err)
+	}
+	if got := string(rawMarker); got != "first\nsecond\n" {
+		t.Fatalf("marker = %q, want first and second", got)
+	}
+	audit := fleetReadinessAudit(t, root)
+	for _, nodeID := range []string{"host.command.run/first", "host.command.run/second"} {
+		var fanout fleetNATSFanoutReceipt
+		found := false
+		for _, artifact := range audit.Artifacts {
+			if artifact.NodeID == nodeID && artifact.Name == "host-command-fanout.json" {
+				if err := json.Unmarshal([]byte(artifact.Body), &fanout); err != nil {
+					t.Fatalf("parse fanout artifact for %s: %v\n%s", nodeID, err, artifact.Body)
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing fanout artifact for %s", nodeID)
+		}
+		if fanout.Status != "succeeded" || len(fanout.Results) != 1 || fanout.Results[0].Assignment == nil {
+			t.Fatalf("fanout artifact for %s = %#v", nodeID, fanout)
+		}
+		result := fanout.Results[0]
+		if result.Receipt.Metadata["assignmentId"] != result.Assignment.AssignmentID {
+			t.Fatalf("receipt assignmentId for %s = %q, want %q", nodeID, result.Receipt.Metadata["assignmentId"], result.Assignment.AssignmentID)
+		}
+		if result.Receipt.Metadata["nodeId"] != nodeID {
+			t.Fatalf("receipt nodeId for %s = %q", nodeID, result.Receipt.Metadata["nodeId"])
+		}
+	}
+
 	workerCancel()
 	select {
 	case err := <-workerErr:
