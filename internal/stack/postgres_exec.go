@@ -91,7 +91,9 @@ func (e *customNodeExecutor) runPostgresNode(ctx context.Context, node *runNode,
 	}
 	remoteCommand := ""
 	if !transportIsNATS(node.Postgres.Transport) {
-		if postgresExecutionMode(node.Postgres) == "native" {
+		if postgresExecutionMode(node.Postgres) == "native" && postgresTransportIsLocal(node.Postgres.Transport) {
+			remoteCommand = "postgres.resource " + kind
+		} else if postgresExecutionMode(node.Postgres) == "native" {
 			remoteCommand, err = buildPostgresNativeCommand(node.Postgres, resourcePayload)
 		} else {
 			remoteCommand, err = buildPostgresCommand(kind, node.Postgres, node.ID, runID)
@@ -185,7 +187,9 @@ func (e *customNodeExecutor) runPostgresNode(ctx context.Context, node *runNode,
 		return wrapNodeErr(node.ResolvedRelease, newBlockedRunError("POSTGRES_RESOURCE_BLOCKED", fmt.Sprintf("%s phase %s: %s", kind, phase, guardErr.Error()), guardErr))
 	}
 	var receipt transport.OperationResult
-	if len(resourcePayload) > 0 && transportIsNATS(hostSpec.Transport) {
+	if len(resourcePayload) > 0 && postgresExecutionMode(node.Postgres) == "native" && postgresTransportIsLocal(node.Postgres.Transport) {
+		receipt = runLocalPostgresResource(ctx, time.Now(), resourcePayload, targetDigest)
+	} else if len(resourcePayload) > 0 && transportIsNATS(hostSpec.Transport) {
 		if resourceRunner, ok := runner.(interface {
 			RunResource(context.Context, json.RawMessage) transport.OperationResult
 		}); ok {
@@ -535,6 +539,69 @@ func postgresReceiptMessage(receipt transport.OperationResult) string {
 		}
 	}
 	return firstReceiptMessage(receipt)
+}
+
+func postgresTransportIsLocal(transport string) bool {
+	switch strings.ToLower(strings.TrimSpace(transport)) {
+	case "", "local", "localhost":
+		return true
+	default:
+		return false
+	}
+}
+
+func runLocalPostgresResource(ctx context.Context, started time.Time, resource json.RawMessage, targetDigest string) transport.OperationResult {
+	var req opspostgres.ResourceRequest
+	if err := json.Unmarshal(resource, &req); err != nil {
+		return transport.OperationResult{
+			Operation:    "resource",
+			Status:       "failed",
+			TargetDigest: targetDigest,
+			Command:      []string{"postgres.resource"},
+			ExitCode:     1,
+			Error:        "parse PostgreSQL resource request: " + err.Error(),
+		}
+	}
+	result, err := opspostgres.Runner{}.Execute(ctx, req)
+	raw, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		raw = []byte(`{"status":"failed","message":"marshal PostgreSQL resource result"}`)
+	}
+	status := strings.TrimSpace(result.Status)
+	if status == "" {
+		status = "succeeded"
+	}
+	exitCode := 0
+	errMsg := ""
+	if err != nil || strings.EqualFold(status, "failed") {
+		exitCode = 1
+		if err != nil {
+			errMsg = err.Error()
+		} else {
+			errMsg = strings.TrimSpace(result.Message)
+		}
+	}
+	metadata := map[string]string{
+		"resourceApiVersion":        strings.TrimSpace(req.APIVersion),
+		"resourceKind":              strings.TrimSpace(req.NodeKind),
+		"resourceStatus":            status,
+		"resourceChanged":           strconv.FormatBool(result.Changed),
+		"resourcePlanAction":        strings.TrimSpace(result.Plan.Action),
+		"resourceSQLDigest":         strings.TrimSpace(result.Plan.SQLDigest),
+		"resourcePlannedSQLDigest":  strings.TrimSpace(result.PlannedSQLDigest),
+		"resourceExecutedSQLDigest": strings.TrimSpace(result.ExecutedSQLDigest),
+	}
+	return transport.OperationResult{
+		Operation:      "resource",
+		Status:         status,
+		TargetDigest:   targetDigest,
+		Command:        []string{"postgres.resource", strings.TrimSpace(req.NodeKind)},
+		Stdout:         string(raw) + "\n",
+		ExitCode:       exitCode,
+		Error:          errMsg,
+		DurationMillis: time.Since(started).Milliseconds(),
+		Metadata:       metadata,
+	}
 }
 
 func enrichPostgresReceiptFromStdout(receipt *transport.OperationResult) {

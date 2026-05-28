@@ -1561,6 +1561,16 @@ torque stack audit \
   --include-artifacts > postgres-backup-s3-audit.json
 ```
 
+For the full cloud restore drill, use the RDS showcase. It creates disposable
+AWS S3 and RDS resources, runs the stack, proves the restored row in RDS, then
+destroys all AWS resources it created:
+
+```bash
+TORQUE_AWS_RDS_E2E_CONFIRM=1 \
+AWS_REGION=ap-south-1 \
+scripts/e2e/postgres-s3-rds-drill.sh
+```
+
 ## Stack: Oracle or APEX to PostgreSQL in Kubernetes
 
 This showcase models a realistic migration shape:

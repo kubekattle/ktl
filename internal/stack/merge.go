@@ -383,8 +383,14 @@ func mergePostgresSpec(dst PostgresSpec, src PostgresSpec) PostgresSpec {
 	if src.Host != "" {
 		dst.Host = strings.TrimSpace(src.Host)
 	}
+	if src.HostEnv != "" {
+		dst.HostEnv = strings.TrimSpace(src.HostEnv)
+	}
 	if src.Port != 0 {
 		dst.Port = src.Port
+	}
+	if src.PortEnv != "" {
+		dst.PortEnv = strings.TrimSpace(src.PortEnv)
 	}
 	if src.User != "" {
 		dst.User = strings.TrimSpace(src.User)
@@ -551,17 +557,32 @@ func mergePostgresBackupStoreSpec(dst PostgresBackupStoreSpec, src PostgresBacku
 	if src.Ref != "" {
 		dst.Ref = strings.TrimSpace(src.Ref)
 	}
+	if src.RefEnv != "" {
+		dst.RefEnv = strings.TrimSpace(src.RefEnv)
+	}
 	if src.Bucket != "" {
 		dst.Bucket = strings.TrimSpace(src.Bucket)
+	}
+	if src.BucketEnv != "" {
+		dst.BucketEnv = strings.TrimSpace(src.BucketEnv)
 	}
 	if src.Prefix != "" {
 		dst.Prefix = strings.TrimSpace(src.Prefix)
 	}
+	if src.PrefixEnv != "" {
+		dst.PrefixEnv = strings.TrimSpace(src.PrefixEnv)
+	}
 	if src.Region != "" {
 		dst.Region = strings.TrimSpace(src.Region)
 	}
+	if src.RegionEnv != "" {
+		dst.RegionEnv = strings.TrimSpace(src.RegionEnv)
+	}
 	if src.Endpoint != "" {
 		dst.Endpoint = strings.TrimSpace(src.Endpoint)
+	}
+	if src.EndpointEnv != "" {
+		dst.EndpointEnv = strings.TrimSpace(src.EndpointEnv)
 	}
 	if src.PathStyle {
 		dst.PathStyle = true

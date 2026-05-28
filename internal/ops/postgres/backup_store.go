@@ -91,11 +91,11 @@ func backupStoreEnabled(spec BackupStoreSpec) bool {
 func normalizeBackupStore(spec BackupStoreSpec) (normalizedBackupStore, error) {
 	out := normalizedBackupStore{
 		Type:               strings.ToLower(strings.TrimSpace(spec.Type)),
-		Ref:                strings.TrimSpace(spec.Ref),
-		Bucket:             strings.TrimSpace(spec.Bucket),
-		Prefix:             strings.TrimSpace(spec.Prefix),
-		Region:             first(strings.TrimSpace(spec.Region), strings.TrimSpace(os.Getenv("AWS_REGION")), strings.TrimSpace(os.Getenv("AWS_DEFAULT_REGION")), "us-east-1"),
-		Endpoint:           strings.TrimSpace(spec.Endpoint),
+		Ref:                first(strings.TrimSpace(spec.Ref), envValue(spec.RefEnv)),
+		Bucket:             first(strings.TrimSpace(spec.Bucket), envValue(spec.BucketEnv)),
+		Prefix:             first(strings.TrimSpace(spec.Prefix), envValue(spec.PrefixEnv)),
+		Region:             first(strings.TrimSpace(spec.Region), envValue(spec.RegionEnv), strings.TrimSpace(os.Getenv("AWS_REGION")), strings.TrimSpace(os.Getenv("AWS_DEFAULT_REGION")), "us-east-1"),
+		Endpoint:           first(strings.TrimSpace(spec.Endpoint), envValue(spec.EndpointEnv)),
 		PathStyle:          spec.PathStyle,
 		PartSizeBytes:      spec.PartSizeBytes,
 		SessionPath:        strings.TrimSpace(spec.SessionPath),

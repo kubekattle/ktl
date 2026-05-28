@@ -53,7 +53,9 @@ type LockPolicy struct {
 type Spec struct {
 	Database         string          `json:"database,omitempty"`
 	Host             string          `json:"host,omitempty"`
+	HostEnv          string          `json:"hostEnv,omitempty"`
 	Port             int             `json:"port,omitempty"`
+	PortEnv          string          `json:"portEnv,omitempty"`
 	User             string          `json:"user,omitempty"`
 	PasswordEnv      string          `json:"passwordEnv,omitempty"`
 	SSLMode          string          `json:"sslMode,omitempty"`
@@ -127,10 +129,15 @@ type BackupSpec struct {
 type BackupStoreSpec struct {
 	Type               string `json:"type,omitempty"`
 	Ref                string `json:"ref,omitempty"`
+	RefEnv             string `json:"refEnv,omitempty"`
 	Bucket             string `json:"bucket,omitempty"`
+	BucketEnv          string `json:"bucketEnv,omitempty"`
 	Prefix             string `json:"prefix,omitempty"`
+	PrefixEnv          string `json:"prefixEnv,omitempty"`
 	Region             string `json:"region,omitempty"`
+	RegionEnv          string `json:"regionEnv,omitempty"`
 	Endpoint           string `json:"endpoint,omitempty"`
+	EndpointEnv        string `json:"endpointEnv,omitempty"`
 	PathStyle          bool   `json:"pathStyle,omitempty"`
 	PartSizeBytes      int64  `json:"partSizeBytes,omitempty"`
 	SessionPath        string `json:"sessionPath,omitempty"`
@@ -319,7 +326,9 @@ func decodeSpec(raw json.RawMessage) (Spec, error) {
 	spec.User = first(spec.User, "postgres")
 	spec.PGDumpCommand = first(spec.PGDumpCommand, "pg_dump")
 	spec.PGRestoreCommand = first(spec.PGRestoreCommand, "pg_restore")
-	spec.RunAsUser = first(spec.RunAsUser, "postgres")
+	if strings.TrimSpace(spec.RunAsUser) == "" && postgresHost(spec) == "" && strings.TrimSpace(spec.PasswordEnv) == "" {
+		spec.RunAsUser = "postgres"
+	}
 	return spec, nil
 }
 
@@ -1418,8 +1427,8 @@ func conninfo(spec Spec, dbName string) string {
 	if host := postgresHost(spec); host != "" {
 		parts = append(parts, "host="+pqQuoteValue(host))
 	}
-	if spec.Port > 0 {
-		parts = append(parts, "port="+strconv.Itoa(spec.Port))
+	if port := postgresPort(spec); port > 0 {
+		parts = append(parts, "port="+strconv.Itoa(port))
 	}
 	if strings.TrimSpace(spec.User) != "" {
 		parts = append(parts, "user="+pqQuoteValue(strings.TrimSpace(spec.User)))
@@ -1437,12 +1446,30 @@ func postgresHost(spec Spec) string {
 	if strings.TrimSpace(spec.Host) != "" {
 		return strings.TrimSpace(spec.Host)
 	}
+	if host := envValue(spec.HostEnv); host != "" {
+		return host
+	}
 	if strings.TrimSpace(spec.PasswordEnv) == "" {
 		if info, err := os.Stat("/var/run/postgresql"); err == nil && info.IsDir() {
 			return "/var/run/postgresql"
 		}
 	}
 	return ""
+}
+
+func postgresPort(spec Spec) int {
+	if spec.Port > 0 {
+		return spec.Port
+	}
+	value := envValue(spec.PortEnv)
+	if value == "" {
+		return 0
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil || port <= 0 || port > 65535 {
+		return 0
+	}
+	return port
 }
 
 func runPostgresCommand(ctx context.Context, spec Spec, name string, args ...string) error {
@@ -1465,9 +1492,11 @@ func pgEnv(spec Spec) []string {
 	var env []string
 	if strings.TrimSpace(spec.Host) != "" {
 		env = append(env, "PGHOST="+strings.TrimSpace(spec.Host))
+	} else if host := envValue(spec.HostEnv); host != "" {
+		env = append(env, "PGHOST="+host)
 	}
-	if spec.Port > 0 {
-		env = append(env, "PGPORT="+strconv.Itoa(spec.Port))
+	if port := postgresPort(spec); port > 0 {
+		env = append(env, "PGPORT="+strconv.Itoa(port))
 	}
 	if strings.TrimSpace(spec.User) != "" {
 		env = append(env, "PGUSER="+strings.TrimSpace(spec.User))

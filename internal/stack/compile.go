@@ -562,6 +562,8 @@ func validatePostgresSpec(kind string, name string, spec *PostgresSpec) error {
 		spec.Database = "postgres"
 	}
 	spec.Host = strings.TrimSpace(spec.Host)
+	spec.HostEnv = strings.TrimSpace(spec.HostEnv)
+	spec.PortEnv = strings.TrimSpace(spec.PortEnv)
 	spec.User = strings.TrimSpace(spec.User)
 	if spec.User == "" {
 		spec.User = "postgres"
@@ -699,15 +701,20 @@ func validatePostgresBackupStoreSpec(kind string, name string, store *PostgresBa
 	}
 	store.Type = strings.ToLower(strings.TrimSpace(store.Type))
 	store.Ref = strings.TrimSpace(store.Ref)
+	store.RefEnv = strings.TrimSpace(store.RefEnv)
 	store.Bucket = strings.TrimSpace(store.Bucket)
+	store.BucketEnv = strings.TrimSpace(store.BucketEnv)
 	store.Prefix = strings.TrimSpace(store.Prefix)
+	store.PrefixEnv = strings.TrimSpace(store.PrefixEnv)
 	store.Region = strings.TrimSpace(store.Region)
+	store.RegionEnv = strings.TrimSpace(store.RegionEnv)
 	store.Endpoint = strings.TrimSpace(store.Endpoint)
+	store.EndpointEnv = strings.TrimSpace(store.EndpointEnv)
 	store.SessionPath = strings.TrimSpace(store.SessionPath)
 	store.AccessKeyIDEnv = strings.TrimSpace(store.AccessKeyIDEnv)
 	store.SecretAccessKeyEnv = strings.TrimSpace(store.SecretAccessKeyEnv)
 	store.SessionTokenEnv = strings.TrimSpace(store.SessionTokenEnv)
-	if store.Type == "" && (store.Ref != "" || store.Bucket != "") {
+	if store.Type == "" && (store.Ref != "" || store.RefEnv != "" || store.Bucket != "" || store.BucketEnv != "") {
 		store.Type = "s3"
 	}
 	if store.Type == "" {
@@ -716,8 +723,8 @@ func validatePostgresBackupStoreSpec(kind string, name string, store *PostgresBa
 	if store.Type != "s3" {
 		return fmt.Errorf("%s node %s has unsupported postgres.backup.store.type %q", kind, name, store.Type)
 	}
-	if store.Ref == "" && store.Bucket == "" {
-		return fmt.Errorf("%s node %s requires postgres.backup.store.ref or bucket for S3 backup store", kind, name)
+	if store.Ref == "" && store.RefEnv == "" && store.Bucket == "" && store.BucketEnv == "" {
+		return fmt.Errorf("%s node %s requires postgres.backup.store.ref, refEnv, bucket, or bucketEnv for S3 backup store", kind, name)
 	}
 	if store.PartSizeBytes < 0 {
 		return fmt.Errorf("%s node %s requires postgres.backup.store.partSizeBytes >= 0", kind, name)

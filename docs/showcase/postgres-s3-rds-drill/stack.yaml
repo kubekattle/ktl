@@ -1,0 +1,96 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: postgres-s3-rds-drill
+defaults:
+  cluster:
+    name: local
+nodes:
+  - name: source-backup-to-s3
+    kind: postgres.backup.run
+    postgres:
+      transport: local
+      executionMode: native
+      timeout: 30m
+      database: keycloak
+      hostEnv: TORQUE_DEMO_SOURCE_PGHOST
+      portEnv: TORQUE_DEMO_SOURCE_PGPORT
+      user: postgres
+      passwordEnv: TORQUE_DEMO_SOURCE_PGPASSWORD
+      sslMode: disable
+      backup:
+        database: keycloak
+        id: keycloak/rds-drill
+        path: docs/showcase/postgres-s3-rds-drill/runtime/backups
+        file: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.dump
+        manifestPath: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.manifest.json
+        catalogPath: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.catalog.json
+        store:
+          type: s3
+          bucketEnv: TORQUE_DEMO_S3_BUCKET
+          prefixEnv: TORQUE_DEMO_S3_PREFIX
+          regionEnv: AWS_REGION
+          partSizeBytes: 5242880
+          sessionPath: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.s3-upload-session.json
+
+  - name: source-backup-verify
+    kind: postgres.backup.verify
+    needs: [source-backup-to-s3]
+    postgres:
+      transport: local
+      executionMode: native
+      timeout: 10m
+      database: keycloak
+      hostEnv: TORQUE_DEMO_SOURCE_PGHOST
+      portEnv: TORQUE_DEMO_SOURCE_PGPORT
+      user: postgres
+      passwordEnv: TORQUE_DEMO_SOURCE_PGPASSWORD
+      sslMode: disable
+      backup:
+        database: keycloak
+        id: keycloak/rds-drill
+        file: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.dump
+        manifestPath: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.manifest.json
+        catalogPath: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.catalog.json
+        store:
+          type: s3
+          bucketEnv: TORQUE_DEMO_S3_BUCKET
+          prefixEnv: TORQUE_DEMO_S3_PREFIX
+          regionEnv: AWS_REGION
+
+  - name: remove-local-dump-before-rds-restore
+    kind: host.command.run
+    needs: [source-backup-verify]
+    host:
+      transport: local
+      command: "rm -f docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.dump"
+
+  - name: restore-drill-to-rds
+    kind: postgres.restore.drill
+    needs: [remove-local-dump-before-rds-restore]
+    postgres:
+      transport: local
+      executionMode: native
+      timeout: 30m
+      database: postgres
+      hostEnv: TORQUE_DEMO_RDS_ENDPOINT
+      port: 5432
+      user: torque_demo
+      passwordEnv: TORQUE_DEMO_RDS_PASSWORD
+      sslMode: require
+      backup:
+        database: keycloak
+        id: keycloak/rds-drill
+        file: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.dump
+        manifestPath: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.manifest.json
+        catalogPath: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.catalog.json
+        store:
+          type: s3
+          bucketEnv: TORQUE_DEMO_S3_BUCKET
+          prefixEnv: TORQUE_DEMO_S3_PREFIX
+          regionEnv: AWS_REGION
+      restore:
+        backupFile: docs/showcase/postgres-s3-rds-drill/runtime/backups/keycloak.dump
+        database: keycloak_restore_drill
+        verifySQL: "select count(*) from realm where name = 'torque'"
+        expect: "1"
+        cleanup: false

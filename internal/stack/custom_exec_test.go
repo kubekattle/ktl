@@ -4401,6 +4401,47 @@ func TestRun_PostgresSSHUsesNativeResourceCommandByDefault(t *testing.T) {
 	}
 }
 
+func TestRun_PostgresLocalNativeResourceExecutesInProcess(t *testing.T) {
+	root := t.TempDir()
+	backupFile := filepath.Join(root, "keycloak.dump")
+	writeFile(t, backupFile, "torque backup payload")
+	pgRestore := filepath.Join(root, "fake-pg-restore.sh")
+	writeFile(t, pgRestore, `#!/bin/sh
+set -eu
+test "$1" = "--list"
+test -s "$2"
+`)
+	if err := os.Chmod(pgRestore, 0o755); err != nil {
+		t.Fatalf("chmod pg_restore: %v", err)
+	}
+	spec := PostgresSpec{
+		Transport:        "local",
+		ExecutionMode:    "native",
+		Database:         "keycloak",
+		PasswordEnv:      "TORQUE_TEST_UNUSED_PGPASSWORD",
+		PGRestoreCommand: pgRestore,
+		Backup: PostgresBackupSpec{
+			ID:   "keycloak/local-native",
+			File: backupFile,
+		},
+	}
+	resource, err := buildPostgresResourcePayload(NodeKindPostgresBackupVerify, spec, "postgres.backup.verify/local", "run-local-native", "lab")
+	if err != nil {
+		t.Fatalf("build resource payload: %v", err)
+	}
+	receipt := runLocalPostgresResource(context.Background(), time.Now(), resource, "sha256:local")
+	enrichPostgresReceiptFromStdout(&receipt)
+	if receipt.Status != "succeeded" || receipt.ExitCode != 0 {
+		t.Fatalf("local native receipt = %#v", receipt)
+	}
+	if got := receipt.Metadata["postgresBackupID"]; got != "keycloak/local-native" {
+		t.Fatalf("postgresBackupID metadata = %q", got)
+	}
+	if got := receipt.Metadata["resourceSQLDigest"]; got == "" {
+		t.Fatalf("resourceSQLDigest missing from %#v", receipt.Metadata)
+	}
+}
+
 func TestRun_PostgresSSHShellFallbackIsExplicit(t *testing.T) {
 	login := true
 	node := &runNode{ResolvedRelease: &ResolvedRelease{

@@ -1,0 +1,330 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/e2e/postgres-s3-rds-drill.sh
+
+Creates a disposable PostgreSQL source container, S3 bucket, and public RDS
+PostgreSQL instance. It runs the Torque Postgres S3 backup/restore-drill
+showcase, proves the restored row exists in RDS, then destroys all AWS
+resources created by the harness.
+
+Required:
+  TORQUE_AWS_RDS_E2E_CONFIRM=1
+  AWS credentials accepted by awscli
+
+Optional:
+  AWS_REGION=ap-south-1
+  WORKDIR=docs/showcase/postgres-s3-rds-drill/runtime
+  TORQUE_BIN=/path/to/torque
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+[[ "${TORQUE_AWS_RDS_E2E_CONFIRM:-}" == "1" ]] || {
+  echo "refusing AWS RDS E2E without TORQUE_AWS_RDS_E2E_CONFIRM=1" >&2
+  exit 1
+}
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${repo_root}"
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "missing required command: $1" >&2
+    exit 1
+  }
+}
+
+require_cmd aws
+require_cmd curl
+require_cmd docker
+require_cmd make
+require_cmd pg_dump
+require_cmd pg_restore
+require_cmd psql
+require_cmd python3
+
+region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+if [[ -z "${region}" ]]; then
+  region="$(aws configure get region 2>/dev/null || true)"
+fi
+if [[ -z "${region}" ]]; then
+  region="us-east-1"
+fi
+export AWS_REGION="${region}"
+
+make build >/dev/null
+torque_bin="${TORQUE_BIN:-${repo_root}/bin/torque}"
+workdir="${WORKDIR:-${repo_root}/docs/showcase/postgres-s3-rds-drill/runtime}"
+stack_dir="${repo_root}/docs/showcase/postgres-s3-rds-drill"
+mkdir -p "${workdir}/backups"
+
+suffix="$(python3 - <<'PY'
+import secrets
+print(secrets.token_hex(5))
+PY
+)"
+bucket="torque-pg-rds-drill-${suffix}"
+prefix="postgres-rds-drill/${suffix}"
+rds_id="torque-pg-rds-${suffix}"
+subnet_group="torque-pg-rds-${suffix}"
+sg_name="torque-pg-rds-${suffix}"
+source_container="torque-pg-source-${suffix}"
+source_port="$(python3 - <<'PY'
+import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+source_password="$(python3 - <<'PY'
+import secrets
+print("TqSrc" + secrets.token_hex(12) + "9")
+PY
+)"
+rds_password="$(python3 - <<'PY'
+import secrets
+print("TqRds" + secrets.token_hex(12) + "9")
+PY
+)"
+
+sg_id=""
+rds_created=0
+subnet_group_created=0
+bucket_created=0
+source_started=0
+
+cleanup() {
+  local code=$?
+  trap - EXIT
+  set +e
+
+  docker rm -f "${source_container}" >/dev/null 2>&1
+
+  if [[ "${rds_created}" == "1" ]]; then
+    aws rds delete-db-instance \
+      --db-instance-identifier "${rds_id}" \
+      --skip-final-snapshot \
+      --delete-automated-backups \
+      --region "${region}" >/dev/null 2>&1
+    aws rds wait db-instance-deleted \
+      --db-instance-identifier "${rds_id}" \
+      --region "${region}" >/dev/null 2>&1
+  fi
+
+  if [[ "${subnet_group_created}" == "1" ]]; then
+    aws rds delete-db-subnet-group \
+      --db-subnet-group-name "${subnet_group}" \
+      --region "${region}" >/dev/null 2>&1
+  fi
+
+  if [[ -n "${sg_id}" ]]; then
+    aws ec2 delete-security-group \
+      --group-id "${sg_id}" \
+      --region "${region}" >/dev/null 2>&1
+  fi
+
+  if [[ "${bucket_created}" == "1" ]]; then
+    aws s3 rm "s3://${bucket}" --recursive --region "${region}" >/dev/null 2>&1
+    aws s3api list-multipart-uploads \
+      --bucket "${bucket}" \
+      --region "${region}" \
+      --query 'Uploads[].[Key,UploadId]' \
+      --output text 2>/dev/null | while read -r key upload_id; do
+        [[ -n "${key:-}" && -n "${upload_id:-}" ]] && \
+          aws s3api abort-multipart-upload \
+            --bucket "${bucket}" \
+            --key "${key}" \
+            --upload-id "${upload_id}" \
+            --region "${region}" >/dev/null 2>&1
+      done
+    aws s3api delete-bucket --bucket "${bucket}" --region "${region}" >/dev/null 2>&1
+  fi
+
+  exit "${code}"
+}
+trap cleanup EXIT
+
+echo "creating disposable S3 bucket ${bucket} in ${region}"
+if [[ "${region}" == "us-east-1" ]]; then
+  aws s3api create-bucket --bucket "${bucket}" --region "${region}" >"${workdir}/aws-s3-create-bucket.json"
+else
+  aws s3api create-bucket \
+    --bucket "${bucket}" \
+    --region "${region}" \
+    --create-bucket-configuration LocationConstraint="${region}" >"${workdir}/aws-s3-create-bucket.json"
+fi
+bucket_created=1
+
+echo "starting disposable source PostgreSQL container on 127.0.0.1:${source_port}"
+docker run -d \
+  --name "${source_container}" \
+  -e POSTGRES_PASSWORD="${source_password}" \
+  -p "127.0.0.1:${source_port}:5432" \
+  postgres:16-alpine >"${workdir}/source-container.id"
+source_started=1
+
+for _ in $(seq 1 90); do
+  if PGPASSWORD="${source_password}" psql -h 127.0.0.1 -p "${source_port}" -U postgres -d postgres -c "select 1" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+PGPASSWORD="${source_password}" psql -h 127.0.0.1 -p "${source_port}" -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  -c "create database keycloak" >"${workdir}/source-create-db.log"
+PGPASSWORD="${source_password}" psql -h 127.0.0.1 -p "${source_port}" -U postgres -d keycloak -v ON_ERROR_STOP=1 \
+  -c "create table realm(id text primary key, name text not null); insert into realm(id, name) values ('torque', 'torque');" >"${workdir}/source-seed.log"
+
+vpc_id="$(aws ec2 describe-vpcs \
+  --filters Name=is-default,Values=true \
+  --query 'Vpcs[0].VpcId' \
+  --output text \
+  --region "${region}")"
+if [[ -z "${vpc_id}" || "${vpc_id}" == "None" ]]; then
+  echo "no default VPC found in ${region}; cannot create public disposable RDS demo" >&2
+  exit 1
+fi
+read -r -a subnet_ids <<<"$(aws ec2 describe-subnets \
+  --filters Name=vpc-id,Values="${vpc_id}" \
+  --query 'Subnets[].SubnetId' \
+  --output text \
+  --region "${region}")"
+if [[ "${#subnet_ids[@]}" -lt 2 ]]; then
+  echo "default VPC ${vpc_id} has fewer than two subnets; RDS subnet group requires at least two" >&2
+  exit 1
+fi
+
+client_ip="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+echo "creating RDS subnet group and security group in ${vpc_id}"
+aws rds create-db-subnet-group \
+  --db-subnet-group-name "${subnet_group}" \
+  --db-subnet-group-description "Torque PostgreSQL S3 RDS drill ${suffix}" \
+  --subnet-ids "${subnet_ids[@]}" \
+  --tags Key=managed-by,Value=torque Key=torque-demo,Value=postgres-s3-rds-drill \
+  --region "${region}" >"${workdir}/aws-rds-subnet-group.json"
+subnet_group_created=1
+
+sg_id="$(aws ec2 create-security-group \
+  --group-name "${sg_name}" \
+  --description "Torque PostgreSQL S3 RDS drill ${suffix}" \
+  --vpc-id "${vpc_id}" \
+  --query GroupId \
+  --output text \
+  --region "${region}")"
+aws ec2 authorize-security-group-ingress \
+  --group-id "${sg_id}" \
+  --protocol tcp \
+  --port 5432 \
+  --cidr "${client_ip}/32" \
+  --region "${region}" >"${workdir}/aws-rds-sg-ingress.json"
+
+db_class=""
+for candidate in db.t4g.micro db.t3.micro db.t4g.small db.t3.small; do
+  count="$(aws rds describe-orderable-db-instance-options \
+    --engine postgres \
+    --db-instance-class "${candidate}" \
+    --query 'length(OrderableDBInstanceOptions)' \
+    --output text \
+    --region "${region}" 2>/dev/null || echo 0)"
+  if [[ "${count}" != "0" ]]; then
+    db_class="${candidate}"
+    break
+  fi
+done
+if [[ -z "${db_class}" ]]; then
+  echo "could not find an orderable small PostgreSQL RDS class in ${region}" >&2
+  exit 1
+fi
+
+echo "creating disposable RDS PostgreSQL instance ${rds_id} (${db_class}); this can take several minutes"
+aws rds create-db-instance \
+  --db-instance-identifier "${rds_id}" \
+  --db-instance-class "${db_class}" \
+  --engine postgres \
+  --allocated-storage 20 \
+  --master-username torque_demo \
+  --master-user-password "${rds_password}" \
+  --db-subnet-group-name "${subnet_group}" \
+  --vpc-security-group-ids "${sg_id}" \
+  --publicly-accessible \
+  --backup-retention-period 0 \
+  --no-deletion-protection \
+  --tags Key=managed-by,Value=torque Key=torque-demo,Value=postgres-s3-rds-drill \
+  --region "${region}" >"${workdir}/aws-rds-create.json"
+rds_created=1
+aws rds wait db-instance-available --db-instance-identifier "${rds_id}" --region "${region}"
+rds_endpoint="$(aws rds describe-db-instances \
+  --db-instance-identifier "${rds_id}" \
+  --query 'DBInstances[0].Endpoint.Address' \
+  --output text \
+  --region "${region}")"
+echo "RDS endpoint is ready"
+
+export TORQUE_DEMO_SOURCE_PGHOST=127.0.0.1
+export TORQUE_DEMO_SOURCE_PGPORT="${source_port}"
+export TORQUE_DEMO_SOURCE_PGPASSWORD="${source_password}"
+export TORQUE_DEMO_S3_BUCKET="${bucket}"
+export TORQUE_DEMO_S3_PREFIX="${prefix}"
+export TORQUE_DEMO_RDS_ENDPOINT="${rds_endpoint}"
+export TORQUE_DEMO_RDS_PASSWORD="${rds_password}"
+
+rm -f "${stack_dir}/runtime/backups/keycloak.dump" \
+  "${stack_dir}/runtime/backups/keycloak.dump".download.tmp.* \
+  "${stack_dir}/runtime/backups/keycloak.s3-upload-session.json"
+
+echo "running Torque stack apply for Postgres backup -> S3 -> RDS restore drill"
+"${torque_bin}" stack apply --config "${stack_dir}" --yes >"${workdir}/stack-apply.log" 2>&1
+"${torque_bin}" stack audit --config "${stack_dir}" --output json --include-artifacts >"${workdir}/stack-audit.json"
+
+object_key="${prefix}/base/keycloak/rds-drill/keycloak.dump"
+aws s3api head-object \
+  --bucket "${bucket}" \
+  --key "${object_key}" \
+  --region "${region}" >"${workdir}/aws-s3-backup-head.json"
+
+restored_count="$(PGPASSWORD="${rds_password}" PGSSLMODE=require psql \
+  -h "${rds_endpoint}" \
+  -p 5432 \
+  -U torque_demo \
+  -d keycloak_restore_drill \
+  -At \
+  -c "select count(*) from realm where name = 'torque'")"
+if [[ "${restored_count}" != "1" ]]; then
+  echo "RDS restore verification failed: expected 1 torque realm, got ${restored_count}" >&2
+  exit 1
+fi
+
+python3 - "${workdir}/stack-audit.json" <<'PY'
+import json, sys
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+names = [a.get("name") for a in doc.get("artifacts", [])]
+required = {"postgres-execute.json", "postgres-verify.json", "postgres-resource.json"}
+missing = sorted(required - set(names))
+if missing:
+    raise SystemExit("missing stack audit artifacts: " + ", ".join(missing))
+body = "\n".join(a.get("body") or "" for a in doc.get("artifacts", []))
+for needle in ["postgresBackupStoreURI", "keycloak_restore_drill", "restore drill verified"]:
+    if needle not in body:
+        raise SystemExit(f"missing audit proof marker: {needle}")
+PY
+
+cat >"${workdir}/summary.txt" <<EOF
+postgres_s3_rds_drill_ok
+region=${region}
+bucket=${bucket}
+s3_key=${object_key}
+rds_instance=${rds_id}
+rds_endpoint=${rds_endpoint}
+stack=${stack_dir}/stack.yaml
+audit=${workdir}/stack-audit.json
+EOF
+
+echo "postgres_s3_rds_drill_ok region=${region} bucket=${bucket} rds=${rds_id} audit=${workdir}/stack-audit.json"
+echo "cleanup will now delete RDS, S3, security group, subnet group, and source container"

@@ -541,6 +541,8 @@ nodes:
     kind: postgres.backup.run
     postgres:
       transport: nats
+      hostEnv: TORQUE_SOURCE_PGHOST
+      portEnv: TORQUE_SOURCE_PGPORT
       database: keycloak
       backup:
         id: keycloak/nightly
@@ -551,8 +553,12 @@ nodes:
         store:
           type: s3
           ref: s3://torque-postgres-backups/keycloak/
+          bucketEnv: TORQUE_BACKUP_BUCKET
+          prefixEnv: TORQUE_BACKUP_PREFIX
           region: us-east-1
+          regionEnv: TORQUE_BACKUP_REGION
           endpoint: https://s3.example.test
+          endpointEnv: TORQUE_BACKUP_ENDPOINT
           pathStyle: true
           partSizeBytes: 67108864
           sessionPath: /var/lib/torque/postgres/keycloak-upload-session.json
@@ -590,13 +596,15 @@ nodes:
 	if backup == nil {
 		t.Fatalf("missing postgres backup node; ids=%v", nodeIDs(p.Nodes))
 	}
-	if backup.Postgres.Transport != "nats" || backup.Postgres.Backup.Database != "keycloak" || backup.Postgres.RunAsUser != "postgres" {
+	if backup.Postgres.Transport != "nats" || backup.Postgres.HostEnv != "TORQUE_SOURCE_PGHOST" || backup.Postgres.PortEnv != "TORQUE_SOURCE_PGPORT" || backup.Postgres.Backup.Database != "keycloak" || backup.Postgres.RunAsUser != "postgres" {
 		t.Fatalf("postgres backup defaults not applied: %#v", backup.Postgres)
 	}
 	if backup.Postgres.Backup.ID != "keycloak/nightly" ||
 		backup.Postgres.Backup.CatalogPath != "/var/backups/torque/postgres/keycloak/keycloak.catalog.json" ||
 		backup.Postgres.Backup.Store.Type != "s3" ||
 		backup.Postgres.Backup.Store.Ref != "s3://torque-postgres-backups/keycloak/" ||
+		backup.Postgres.Backup.Store.BucketEnv != "TORQUE_BACKUP_BUCKET" ||
+		backup.Postgres.Backup.Store.PrefixEnv != "TORQUE_BACKUP_PREFIX" ||
 		backup.Postgres.Backup.Store.PartSizeBytes != 67108864 ||
 		!backup.Postgres.Backup.Store.PathStyle {
 		t.Fatalf("postgres backup S3 store not resolved: %#v", backup.Postgres.Backup)

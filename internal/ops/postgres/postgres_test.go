@@ -116,6 +116,41 @@ func TestExecuteBackupRunWritesDurableCatalog(t *testing.T) {
 	}
 }
 
+func TestNormalizeBackupStoreUsesEnvBackedTarget(t *testing.T) {
+	t.Setenv("TORQUE_TEST_S3_REF", "s3://torque-env-bucket/backups/")
+	t.Setenv("TORQUE_TEST_S3_PREFIX", "override-prefix")
+	t.Setenv("TORQUE_TEST_S3_REGION", "eu-west-1")
+	t.Setenv("TORQUE_TEST_S3_ENDPOINT", "https://s3.example.test")
+	store, err := normalizeBackupStore(BackupStoreSpec{
+		Type:        "s3",
+		RefEnv:      "TORQUE_TEST_S3_REF",
+		PrefixEnv:   "TORQUE_TEST_S3_PREFIX",
+		RegionEnv:   "TORQUE_TEST_S3_REGION",
+		EndpointEnv: "TORQUE_TEST_S3_ENDPOINT",
+	})
+	if err != nil {
+		t.Fatalf("normalize env store: %v", err)
+	}
+	if store.Bucket != "torque-env-bucket" || store.Prefix != "override-prefix/" || store.Region != "eu-west-1" || store.Endpoint != "https://s3.example.test" {
+		t.Fatalf("env store = %#v", store)
+	}
+}
+
+func TestPostgresHostAndPortUseEnvBackedTarget(t *testing.T) {
+	t.Setenv("TORQUE_TEST_PGHOST", "rds.example.test")
+	t.Setenv("TORQUE_TEST_PGPORT", "6543")
+	spec := Spec{HostEnv: "TORQUE_TEST_PGHOST", PortEnv: "TORQUE_TEST_PGPORT", User: "postgres"}
+	if got := postgresHost(spec); got != "rds.example.test" {
+		t.Fatalf("postgres host = %q", got)
+	}
+	if got := postgresPort(spec); got != 6543 {
+		t.Fatalf("postgres port = %d", got)
+	}
+	if got := conninfo(spec, "keycloak"); !strings.Contains(got, "host='rds.example.test'") || !strings.Contains(got, "port=6543") {
+		t.Fatalf("conninfo = %q", got)
+	}
+}
+
 func TestExecuteBackupRunUploadsToS3WithMultipartSession(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeS3Server(t)

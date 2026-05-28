@@ -838,7 +838,9 @@ type PostgresSpec struct {
 
 	Database    string `yaml:"database,omitempty" json:"database,omitempty"`
 	Host        string `yaml:"host,omitempty" json:"host,omitempty"`
+	HostEnv     string `yaml:"hostEnv,omitempty" json:"hostEnv,omitempty"`
 	Port        int    `yaml:"port,omitempty" json:"port,omitempty"`
+	PortEnv     string `yaml:"portEnv,omitempty" json:"portEnv,omitempty"`
 	User        string `yaml:"user,omitempty" json:"user,omitempty"`
 	PasswordEnv string `yaml:"passwordEnv,omitempty" json:"passwordEnv,omitempty"`
 	SSLMode     string `yaml:"sslMode,omitempty" json:"sslMode,omitempty"`
@@ -916,10 +918,15 @@ type PostgresBackupSpec struct {
 type PostgresBackupStoreSpec struct {
 	Type               string `yaml:"type,omitempty" json:"type,omitempty"`
 	Ref                string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	RefEnv             string `yaml:"refEnv,omitempty" json:"refEnv,omitempty"`
 	Bucket             string `yaml:"bucket,omitempty" json:"bucket,omitempty"`
+	BucketEnv          string `yaml:"bucketEnv,omitempty" json:"bucketEnv,omitempty"`
 	Prefix             string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	PrefixEnv          string `yaml:"prefixEnv,omitempty" json:"prefixEnv,omitempty"`
 	Region             string `yaml:"region,omitempty" json:"region,omitempty"`
+	RegionEnv          string `yaml:"regionEnv,omitempty" json:"regionEnv,omitempty"`
 	Endpoint           string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	EndpointEnv        string `yaml:"endpointEnv,omitempty" json:"endpointEnv,omitempty"`
 	PathStyle          bool   `yaml:"pathStyle,omitempty" json:"pathStyle,omitempty"`
 	PartSizeBytes      int64  `yaml:"partSizeBytes,omitempty" json:"partSizeBytes,omitempty"`
 	SessionPath        string `yaml:"sessionPath,omitempty" json:"sessionPath,omitempty"`
