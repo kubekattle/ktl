@@ -644,21 +644,36 @@ func validatePostgresSpec(kind string, name string, spec *PostgresSpec) error {
 			return fmt.Errorf("%s node %s requires postgres.replication.expectedReplicas >= 0", normalizeNodeKind(kind), name)
 		}
 	case NodeKindPostgresBackupRun:
+		spec.Backup.ID = strings.TrimSpace(spec.Backup.ID)
 		spec.Backup.Database = firstNonEmptyString(strings.TrimSpace(spec.Backup.Database), spec.Database)
 		if strings.TrimSpace(spec.Backup.Path) == "" {
 			return fmt.Errorf("%s node %s requires postgres.backup.path", normalizeNodeKind(kind), name)
 		}
+		spec.Backup.CatalogPath = strings.TrimSpace(spec.Backup.CatalogPath)
 		if spec.Backup.SimulateDuration != nil && *spec.Backup.SimulateDuration < 0 {
 			return fmt.Errorf("%s node %s requires postgres.backup.simulateDuration >= 0", normalizeNodeKind(kind), name)
 		}
+		if err := validatePostgresBackupStoreSpec(normalizeNodeKind(kind), name, &spec.Backup.Store); err != nil {
+			return err
+		}
 	case NodeKindPostgresBackupVerify:
+		spec.Backup.ID = strings.TrimSpace(spec.Backup.ID)
 		spec.Backup.Database = firstNonEmptyString(strings.TrimSpace(spec.Backup.Database), spec.Database)
+		spec.Backup.CatalogPath = strings.TrimSpace(spec.Backup.CatalogPath)
 		if strings.TrimSpace(spec.Backup.File) == "" && strings.TrimSpace(spec.Backup.ManifestPath) == "" {
 			return fmt.Errorf("%s node %s requires postgres.backup.file or postgres.backup.manifestPath", normalizeNodeKind(kind), name)
 		}
+		if err := validatePostgresBackupStoreSpec(normalizeNodeKind(kind), name, &spec.Backup.Store); err != nil {
+			return err
+		}
 	case NodeKindPostgresRestoreDrill:
+		spec.Backup.ID = strings.TrimSpace(spec.Backup.ID)
+		spec.Backup.CatalogPath = strings.TrimSpace(spec.Backup.CatalogPath)
 		if strings.TrimSpace(spec.Restore.BackupFile) == "" && strings.TrimSpace(spec.Backup.File) == "" && strings.TrimSpace(spec.Backup.ManifestPath) == "" {
 			return fmt.Errorf("%s node %s requires postgres.restore.backupFile, postgres.backup.file, or postgres.backup.manifestPath", normalizeNodeKind(kind), name)
+		}
+		if err := validatePostgresBackupStoreSpec(normalizeNodeKind(kind), name, &spec.Backup.Store); err != nil {
+			return err
 		}
 		if strings.TrimSpace(spec.Restore.Database) == "" {
 			spec.Restore.Database = spec.Database + "_restore_drill"
@@ -674,6 +689,38 @@ func validatePostgresSpec(kind string, name string, spec *PostgresSpec) error {
 		if strings.TrimSpace(spec.Maintenance.Database) == "" {
 			spec.Maintenance.Database = spec.Database
 		}
+	}
+	return nil
+}
+
+func validatePostgresBackupStoreSpec(kind string, name string, store *PostgresBackupStoreSpec) error {
+	if store == nil {
+		return nil
+	}
+	store.Type = strings.ToLower(strings.TrimSpace(store.Type))
+	store.Ref = strings.TrimSpace(store.Ref)
+	store.Bucket = strings.TrimSpace(store.Bucket)
+	store.Prefix = strings.TrimSpace(store.Prefix)
+	store.Region = strings.TrimSpace(store.Region)
+	store.Endpoint = strings.TrimSpace(store.Endpoint)
+	store.SessionPath = strings.TrimSpace(store.SessionPath)
+	store.AccessKeyIDEnv = strings.TrimSpace(store.AccessKeyIDEnv)
+	store.SecretAccessKeyEnv = strings.TrimSpace(store.SecretAccessKeyEnv)
+	store.SessionTokenEnv = strings.TrimSpace(store.SessionTokenEnv)
+	if store.Type == "" && (store.Ref != "" || store.Bucket != "") {
+		store.Type = "s3"
+	}
+	if store.Type == "" {
+		return nil
+	}
+	if store.Type != "s3" {
+		return fmt.Errorf("%s node %s has unsupported postgres.backup.store.type %q", kind, name, store.Type)
+	}
+	if store.Ref == "" && store.Bucket == "" {
+		return fmt.Errorf("%s node %s requires postgres.backup.store.ref or bucket for S3 backup store", kind, name)
+	}
+	if store.PartSizeBytes < 0 {
+		return fmt.Errorf("%s node %s requires postgres.backup.store.partSizeBytes >= 0", kind, name)
 	}
 	return nil
 }

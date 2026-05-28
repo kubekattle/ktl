@@ -4484,6 +4484,39 @@ func TestPostgresReceiptStdoutPromotesSSHBlockedStatus(t *testing.T) {
 	}
 }
 
+func TestPostgresReceiptStdoutExtractsBackupStoreMetadata(t *testing.T) {
+	receipt := transport.OperationResult{
+		Operation: "run",
+		Status:    "succeeded",
+		Stdout:    `{"apiVersion":"torque.dev/postgres-resource-result/v1","kind":"PostgresResourceResult","nodeKind":"postgres.backup.run","status":"succeeded","changed":true,"backup":{"id":"keycloak/run-1","file":"/backup/keycloak.dump","manifestPath":"/backup/keycloak.manifest.json","catalogPath":"/backup/keycloak.catalog.json","sha256":"abc123","bytes":16,"store":{"type":"s3","bucket":"torque-test","key":"postgres/base/keycloak/run-1/keycloak.dump","uri":"s3://torque-test/postgres/base/keycloak/run-1/keycloak.dump","uploaded":true,"resumed":false,"multipart":true,"parts":4,"sessionPath":"/backup/.session.json","manifestUri":"s3://torque-test/postgres/base/keycloak/run-1/keycloak.manifest.json","catalogUri":"s3://torque-test/postgres/catalog/keycloak/run-1/keycloak.catalog.json"}}}`,
+	}
+
+	enrichPostgresReceiptFromStdout(&receipt)
+
+	for key, want := range map[string]string{
+		"postgresBackupID":               "keycloak/run-1",
+		"postgresBackupFile":             "/backup/keycloak.dump",
+		"postgresBackupManifestPath":     "/backup/keycloak.manifest.json",
+		"postgresBackupCatalogPath":      "/backup/keycloak.catalog.json",
+		"postgresBackupSha256":           "abc123",
+		"postgresBackupBytes":            "16",
+		"postgresBackupStoreType":        "s3",
+		"postgresBackupStoreBucket":      "torque-test",
+		"postgresBackupStoreKey":         "postgres/base/keycloak/run-1/keycloak.dump",
+		"postgresBackupStoreURI":         "s3://torque-test/postgres/base/keycloak/run-1/keycloak.dump",
+		"postgresBackupStoreUploaded":    "true",
+		"postgresBackupStoreMultipart":   "true",
+		"postgresBackupStoreParts":       "4",
+		"postgresBackupStoreSessionPath": "/backup/.session.json",
+		"postgresBackupStoreManifestURI": "s3://torque-test/postgres/base/keycloak/run-1/keycloak.manifest.json",
+		"postgresBackupStoreCatalogURI":  "s3://torque-test/postgres/catalog/keycloak/run-1/keycloak.catalog.json",
+	} {
+		if got := receipt.Metadata[key]; got != want {
+			t.Fatalf("metadata[%s] = %q, want %q in %#v", key, got, want, receipt.Metadata)
+		}
+	}
+}
+
 func TestRun_HostCommandFleetModeJetStreamFanoutDeliversOfflineAssignment(t *testing.T) {
 	root := t.TempDir()
 	serverURL := startStackTestNATSJetStreamServer(t)

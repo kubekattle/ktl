@@ -1502,6 +1502,65 @@ torque stack audit --config ./stacks/db-program --output json > audit.json
 torque stack export --config ./stacks/db-program --out ./db-program-export.tgz
 ```
 
+## Stack: Durable PostgreSQL Backup to S3
+
+`postgres.backup.run` can write a local dump, manifest, and catalog record, then
+publish the backup artifacts to S3 with multipart upload session evidence. The
+same stack shape works with `transport: ssh` for direct host execution or
+`transport: nats` for fleet execution through a Postgres-capable agent.
+
+```yaml
+apiVersion: torque.dev/v1
+kind: Stack
+name: postgres-backup-s3
+nodes:
+  - name: keycloak-backup
+    kind: postgres.backup.run
+    postgres:
+      transport: nats
+      database: keycloak
+      backup:
+        database: keycloak
+        id: keycloak/nightly
+        path: /var/backups/torque/postgres/keycloak
+        file: /var/backups/torque/postgres/keycloak/keycloak.dump
+        manifestPath: /var/backups/torque/postgres/keycloak/keycloak.manifest.json
+        catalogPath: /var/backups/torque/postgres/keycloak/keycloak.catalog.json
+        store:
+          type: s3
+          ref: s3://company-postgres-backups/prod/
+          region: us-east-1
+          partSizeBytes: 67108864
+          sessionPath: /var/lib/torque/postgres/keycloak-upload-session.json
+
+  - name: keycloak-backup-verify
+    kind: postgres.backup.verify
+    needs: [keycloak-backup]
+    postgres:
+      transport: nats
+      database: keycloak
+      backup:
+        database: keycloak
+        id: keycloak/nightly
+        file: /var/backups/torque/postgres/keycloak/keycloak.dump
+        manifestPath: /var/backups/torque/postgres/keycloak/keycloak.manifest.json
+        catalogPath: /var/backups/torque/postgres/keycloak/keycloak.catalog.json
+        store:
+          type: s3
+          ref: s3://company-postgres-backups/prod/
+          region: us-east-1
+```
+
+```bash
+AWS_REGION=us-east-1 \
+  torque stack apply --config ./stacks/postgres-backup-s3 --yes
+
+torque stack audit \
+  --config ./stacks/postgres-backup-s3 \
+  --output json \
+  --include-artifacts > postgres-backup-s3-audit.json
+```
+
 ## Stack: Oracle or APEX to PostgreSQL in Kubernetes
 
 This showcase models a realistic migration shape:

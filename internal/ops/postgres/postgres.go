@@ -111,14 +111,32 @@ type ReplicationSpec struct {
 }
 
 type BackupSpec struct {
-	Database         string         `json:"database,omitempty"`
-	Path             string         `json:"path,omitempty"`
-	File             string         `json:"file,omitempty"`
-	Format           string         `json:"format,omitempty"`
-	ManifestPath     string         `json:"manifestPath,omitempty"`
-	Compress         int            `json:"compress,omitempty"`
-	ExpectedSha256   string         `json:"expectedSha256,omitempty"`
-	SimulateDuration *time.Duration `json:"simulateDuration,omitempty"`
+	Database         string          `json:"database,omitempty"`
+	ID               string          `json:"id,omitempty"`
+	Path             string          `json:"path,omitempty"`
+	File             string          `json:"file,omitempty"`
+	Format           string          `json:"format,omitempty"`
+	ManifestPath     string          `json:"manifestPath,omitempty"`
+	CatalogPath      string          `json:"catalogPath,omitempty"`
+	Compress         int             `json:"compress,omitempty"`
+	ExpectedSha256   string          `json:"expectedSha256,omitempty"`
+	SimulateDuration *time.Duration  `json:"simulateDuration,omitempty"`
+	Store            BackupStoreSpec `json:"store,omitempty"`
+}
+
+type BackupStoreSpec struct {
+	Type               string `json:"type,omitempty"`
+	Ref                string `json:"ref,omitempty"`
+	Bucket             string `json:"bucket,omitempty"`
+	Prefix             string `json:"prefix,omitempty"`
+	Region             string `json:"region,omitempty"`
+	Endpoint           string `json:"endpoint,omitempty"`
+	PathStyle          bool   `json:"pathStyle,omitempty"`
+	PartSizeBytes      int64  `json:"partSizeBytes,omitempty"`
+	SessionPath        string `json:"sessionPath,omitempty"`
+	AccessKeyIDEnv     string `json:"accessKeyIdEnv,omitempty"`
+	SecretAccessKeyEnv string `json:"secretAccessKeyEnv,omitempty"`
+	SessionTokenEnv    string `json:"sessionTokenEnv,omitempty"`
 }
 
 type RestoreSpec struct {
@@ -203,10 +221,36 @@ type Verify struct {
 }
 
 type BackupResult struct {
-	File         string `json:"file,omitempty"`
-	ManifestPath string `json:"manifestPath,omitempty"`
-	Sha256       string `json:"sha256,omitempty"`
-	Bytes        int64  `json:"bytes,omitempty"`
+	File         string             `json:"file,omitempty"`
+	ManifestPath string             `json:"manifestPath,omitempty"`
+	CatalogPath  string             `json:"catalogPath,omitempty"`
+	ID           string             `json:"id,omitempty"`
+	Sha256       string             `json:"sha256,omitempty"`
+	Bytes        int64              `json:"bytes,omitempty"`
+	Store        *BackupStoreResult `json:"store,omitempty"`
+}
+
+type BackupStoreResult struct {
+	Type          string `json:"type,omitempty"`
+	Bucket        string `json:"bucket,omitempty"`
+	Key           string `json:"key,omitempty"`
+	URI           string `json:"uri,omitempty"`
+	Region        string `json:"region,omitempty"`
+	Endpoint      string `json:"endpoint,omitempty"`
+	Uploaded      bool   `json:"uploaded"`
+	Resumed       bool   `json:"resumed,omitempty"`
+	Multipart     bool   `json:"multipart,omitempty"`
+	UploadID      string `json:"uploadId,omitempty"`
+	Parts         int    `json:"parts,omitempty"`
+	PartSizeBytes int64  `json:"partSizeBytes,omitempty"`
+	ETag          string `json:"etag,omitempty"`
+	Bytes         int64  `json:"bytes,omitempty"`
+	Sha256        string `json:"sha256,omitempty"`
+	ManifestKey   string `json:"manifestKey,omitempty"`
+	ManifestURI   string `json:"manifestUri,omitempty"`
+	CatalogKey    string `json:"catalogKey,omitempty"`
+	CatalogURI    string `json:"catalogUri,omitempty"`
+	SessionPath   string `json:"sessionPath,omitempty"`
 }
 
 type RestoreResult struct {
@@ -1149,6 +1193,7 @@ func executeBackupRun(ctx context.Context, result *Result, spec Spec) error {
 		file = filepath.Join(strings.TrimSpace(spec.Backup.Path), dbName+"-"+safeRun+".dump")
 	}
 	manifest := first(spec.Backup.ManifestPath, file+".manifest.json")
+	catalogPath := backupCatalogPath(spec, manifest)
 	if strings.TrimSpace(spec.Backup.Path) == "" {
 		spec.Backup.Path = filepath.Dir(file)
 	}
@@ -1183,13 +1228,44 @@ func executeBackupRun(ctx context.Context, result *Result, spec Spec) error {
 	if err != nil {
 		return err
 	}
-	backup := BackupResult{File: file, ManifestPath: manifest, Sha256: sha, Bytes: bytes}
+	backupID := backupID(result, spec, dbName, file)
+	backup := BackupResult{ID: backupID, File: file, ManifestPath: manifest, CatalogPath: catalogPath, Sha256: sha, Bytes: bytes}
+	result.Changed = true
 	if err := writeBackupManifest(manifest, result.RunID, result.NodeID, dbName, backup); err != nil {
 		return err
 	}
-	result.Changed = true
+	catalog := backupCatalogRecord(result, dbName, backup, "pending-upload")
+	if err := writeBackupCatalog(catalogPath, catalog); err != nil {
+		return err
+	}
+	if backupStoreEnabled(spec.Backup.Store) {
+		store, err := uploadBackupArtifacts(ctx, spec.Backup.Store, backupID, file, manifest, catalogPath, sha, bytes)
+		if err != nil {
+			return err
+		}
+		backup.Store = store
+		if err := writeBackupManifest(manifest, result.RunID, result.NodeID, dbName, backup); err != nil {
+			return err
+		}
+		catalog = backupCatalogRecord(result, dbName, backup, "succeeded")
+		if err := writeBackupCatalog(catalogPath, catalog); err != nil {
+			return err
+		}
+		if _, err := uploadBackupArtifacts(ctx, spec.Backup.Store, backupID, file, manifest, catalogPath, sha, bytes); err != nil {
+			return err
+		}
+	} else {
+		catalog = backupCatalogRecord(result, dbName, backup, "succeeded")
+		if err := writeBackupCatalog(catalogPath, catalog); err != nil {
+			return err
+		}
+	}
 	result.Backup = &backup
-	result.Verify = Verify{Status: "succeeded", Checks: map[string]any{"file": file, "sha256": sha, "bytes": bytes}}
+	result.Verify = Verify{Status: "succeeded", Checks: map[string]any{"backupId": backupID, "file": file, "sha256": sha, "bytes": bytes, "catalogPath": catalogPath}}
+	if backup.Store != nil {
+		result.Verify.Checks["storeUri"] = backup.Store.URI
+		result.Verify.Checks["storeType"] = backup.Store.Type
+	}
 	result.Message = "backup completed"
 	return nil
 }
@@ -1198,6 +1274,9 @@ func executeBackupVerify(ctx context.Context, result *Result, spec Spec) error {
 	file := strings.TrimSpace(spec.Backup.File)
 	if file == "" && strings.TrimSpace(spec.Backup.ManifestPath) != "" {
 		file = manifestBackupFile(strings.TrimSpace(spec.Backup.ManifestPath))
+	}
+	if _, err := ensureBackupLocalFromStore(ctx, spec, file); err != nil {
+		return err
 	}
 	if file == "" || !fileExists(file) {
 		return fmt.Errorf("backup file not found: %s", file)
@@ -1212,13 +1291,15 @@ func executeBackupVerify(ctx context.Context, result *Result, spec Spec) error {
 	if err := runPostgresCommand(ctx, spec, spec.PGRestoreCommand, "--list", file); err != nil {
 		return err
 	}
-	backup := BackupResult{File: file, ManifestPath: strings.TrimSpace(spec.Backup.ManifestPath), Sha256: sha, Bytes: bytes}
+	backupID := backupID(result, spec, first(spec.Backup.Database, spec.Database), file)
+	catalogPath := backupCatalogPath(spec, strings.TrimSpace(spec.Backup.ManifestPath))
+	backup := BackupResult{ID: backupID, File: file, ManifestPath: strings.TrimSpace(spec.Backup.ManifestPath), CatalogPath: catalogPath, Sha256: sha, Bytes: bytes}
 	result.Observed = map[string]any{"file": file, "sha256": sha, "bytes": bytes}
-	result.Desired = map[string]any{"file": file, "expectedSha256": strings.TrimSpace(spec.Backup.ExpectedSha256)}
+	result.Desired = map[string]any{"backupId": backupID, "file": file, "expectedSha256": strings.TrimSpace(spec.Backup.ExpectedSha256)}
 	result.Plan = Plan{Action: "pg_restore --list", SQLDigest: digestStrings([]string{file})}
 	result.ExecutedSQLDigest = strings.TrimSpace(result.Plan.SQLDigest)
 	result.Backup = &backup
-	result.Verify = Verify{Status: "succeeded", Checks: map[string]any{"file": file, "sha256": sha, "bytes": bytes}}
+	result.Verify = Verify{Status: "succeeded", Checks: map[string]any{"backupId": backupID, "file": file, "sha256": sha, "bytes": bytes, "catalogPath": catalogPath}}
 	result.Message = "backup verified"
 	return nil
 }
@@ -1227,6 +1308,9 @@ func executeRestoreDrill(ctx context.Context, result *Result, spec Spec) error {
 	file := first(spec.Restore.BackupFile, spec.Backup.File)
 	if file == "" && strings.TrimSpace(spec.Backup.ManifestPath) != "" {
 		file = manifestBackupFile(strings.TrimSpace(spec.Backup.ManifestPath))
+	}
+	if _, err := ensureBackupLocalFromStore(ctx, spec, file); err != nil {
+		return err
 	}
 	if file == "" || !fileExists(file) {
 		return fmt.Errorf("restore backup file not found: %s", file)
@@ -1548,15 +1632,21 @@ func writeBackupManifest(path string, runID string, nodeID string, dbName string
 		return err
 	}
 	payload := map[string]any{
-		"apiVersion": "torque.dev/postgres-backup-manifest/v1",
-		"kind":       "PostgresBackupManifest",
-		"runId":      runID,
-		"nodeId":     nodeID,
-		"database":   dbName,
-		"file":       backup.File,
-		"sha256":     backup.Sha256,
-		"bytes":      backup.Bytes,
-		"createdAt":  time.Now().UTC().Format(time.RFC3339Nano),
+		"apiVersion":   "torque.dev/postgres-backup-manifest/v1",
+		"kind":         "PostgresBackupManifest",
+		"id":           backup.ID,
+		"runId":        runID,
+		"nodeId":       nodeID,
+		"database":     dbName,
+		"file":         backup.File,
+		"manifestPath": backup.ManifestPath,
+		"catalogPath":  backup.CatalogPath,
+		"sha256":       backup.Sha256,
+		"bytes":        backup.Bytes,
+		"createdAt":    time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if backup.Store != nil {
+		payload["store"] = backup.Store
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {

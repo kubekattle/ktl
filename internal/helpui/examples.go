@@ -440,6 +440,7 @@ var curatedExamples = map[string][]string{
 		"# Apply fleet fan-out with worker-owned durable target slot leases from stack config\nTORQUE_NATS_URL=nats://127.0.0.1:4222 torque stack apply --config ./stacks/mysql-fleet-slot-ledger --yes",
 		"# Inspect topology, apply lifecycle policy gates, derive cert targets, verify, and export summary evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes",
 		"# Apply an approved lifecycle policy override with scoped approval evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes --policy-override",
+		"# Run a durable PostgreSQL backup with S3 multipart catalog evidence\nAWS_REGION=us-east-1 torque stack apply --config ./stacks/postgres-backup-s3 --yes",
 		"# Run the Oracle/APEX -> PostgreSQL local proof harness\ntorque stack apply --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --yes",
 		"# Enable manifest diffs (defaulted via env)\nTORQUE_STACK_APPLY_DIFF=1 torque stack apply --config ./stacks/prod --yes",
 		"# Apply with secret references\ntorque stack apply --config ./stacks/prod --secret-provider vault --yes",

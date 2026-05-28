@@ -543,8 +543,21 @@ nodes:
       transport: nats
       database: keycloak
       backup:
+        id: keycloak/nightly
         path: /var/backups/torque/postgres/keycloak
         file: /var/backups/torque/postgres/keycloak/keycloak.dump
+        manifestPath: /var/backups/torque/postgres/keycloak/keycloak.manifest.json
+        catalogPath: /var/backups/torque/postgres/keycloak/keycloak.catalog.json
+        store:
+          type: s3
+          ref: s3://torque-postgres-backups/keycloak/
+          region: us-east-1
+          endpoint: https://s3.example.test
+          pathStyle: true
+          partSizeBytes: 67108864
+          sessionPath: /var/lib/torque/postgres/keycloak-upload-session.json
+          accessKeyIdEnv: AWS_ACCESS_KEY_ID
+          secretAccessKeyEnv: AWS_SECRET_ACCESS_KEY
   - name: verify
     kind: postgres.backup.verify
     needs: [backup]
@@ -579,6 +592,14 @@ nodes:
 	}
 	if backup.Postgres.Transport != "nats" || backup.Postgres.Backup.Database != "keycloak" || backup.Postgres.RunAsUser != "postgres" {
 		t.Fatalf("postgres backup defaults not applied: %#v", backup.Postgres)
+	}
+	if backup.Postgres.Backup.ID != "keycloak/nightly" ||
+		backup.Postgres.Backup.CatalogPath != "/var/backups/torque/postgres/keycloak/keycloak.catalog.json" ||
+		backup.Postgres.Backup.Store.Type != "s3" ||
+		backup.Postgres.Backup.Store.Ref != "s3://torque-postgres-backups/keycloak/" ||
+		backup.Postgres.Backup.Store.PartSizeBytes != 67108864 ||
+		!backup.Postgres.Backup.Store.PathStyle {
+		t.Fatalf("postgres backup S3 store not resolved: %#v", backup.Postgres.Backup)
 	}
 	restore := p.ByID["postgres.restore.drill/restore"]
 	if restore == nil || restore.Postgres.Restore.Database != "keycloak_restore_drill" {

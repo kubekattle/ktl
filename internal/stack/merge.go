@@ -510,6 +510,9 @@ func mergePostgresReplicationSpec(dst PostgresReplicationSpec, src PostgresRepli
 }
 
 func mergePostgresBackupSpec(dst PostgresBackupSpec, src PostgresBackupSpec) PostgresBackupSpec {
+	if src.ID != "" {
+		dst.ID = strings.TrimSpace(src.ID)
+	}
 	if src.Path != "" {
 		dst.Path = strings.TrimSpace(src.Path)
 	}
@@ -531,8 +534,52 @@ func mergePostgresBackupSpec(dst PostgresBackupSpec, src PostgresBackupSpec) Pos
 	if src.ManifestPath != "" {
 		dst.ManifestPath = strings.TrimSpace(src.ManifestPath)
 	}
+	if src.CatalogPath != "" {
+		dst.CatalogPath = strings.TrimSpace(src.CatalogPath)
+	}
 	if src.ExpectedSha256 != "" {
 		dst.ExpectedSha256 = strings.TrimSpace(src.ExpectedSha256)
+	}
+	dst.Store = mergePostgresBackupStoreSpec(dst.Store, src.Store)
+	return dst
+}
+
+func mergePostgresBackupStoreSpec(dst PostgresBackupStoreSpec, src PostgresBackupStoreSpec) PostgresBackupStoreSpec {
+	if src.Type != "" {
+		dst.Type = strings.TrimSpace(src.Type)
+	}
+	if src.Ref != "" {
+		dst.Ref = strings.TrimSpace(src.Ref)
+	}
+	if src.Bucket != "" {
+		dst.Bucket = strings.TrimSpace(src.Bucket)
+	}
+	if src.Prefix != "" {
+		dst.Prefix = strings.TrimSpace(src.Prefix)
+	}
+	if src.Region != "" {
+		dst.Region = strings.TrimSpace(src.Region)
+	}
+	if src.Endpoint != "" {
+		dst.Endpoint = strings.TrimSpace(src.Endpoint)
+	}
+	if src.PathStyle {
+		dst.PathStyle = true
+	}
+	if src.PartSizeBytes != 0 {
+		dst.PartSizeBytes = src.PartSizeBytes
+	}
+	if src.SessionPath != "" {
+		dst.SessionPath = strings.TrimSpace(src.SessionPath)
+	}
+	if src.AccessKeyIDEnv != "" {
+		dst.AccessKeyIDEnv = strings.TrimSpace(src.AccessKeyIDEnv)
+	}
+	if src.SecretAccessKeyEnv != "" {
+		dst.SecretAccessKeyEnv = strings.TrimSpace(src.SecretAccessKeyEnv)
+	}
+	if src.SessionTokenEnv != "" {
+		dst.SessionTokenEnv = strings.TrimSpace(src.SessionTokenEnv)
 	}
 	return dst
 }

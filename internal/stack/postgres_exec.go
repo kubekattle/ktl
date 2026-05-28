@@ -581,6 +581,27 @@ func enrichPostgresReceiptFromStdout(receipt *transport.OperationResult) {
 		copyPostgresBoolMetadata(receipt.Metadata, "postgresTransactionRolledBack", txn["transactionRolledBack"])
 		copyPostgresMetadata(receipt.Metadata, "postgresTransactionReason", txn["reason"])
 	}
+	if backup := asStringAnyMap(parsed["backup"]); backup != nil {
+		copyPostgresMetadata(receipt.Metadata, "postgresBackupID", backup["id"])
+		copyPostgresMetadata(receipt.Metadata, "postgresBackupFile", backup["file"])
+		copyPostgresMetadata(receipt.Metadata, "postgresBackupManifestPath", backup["manifestPath"])
+		copyPostgresMetadata(receipt.Metadata, "postgresBackupCatalogPath", backup["catalogPath"])
+		copyPostgresMetadata(receipt.Metadata, "postgresBackupSha256", backup["sha256"])
+		copyPostgresMetadata(receipt.Metadata, "postgresBackupBytes", backup["bytes"])
+		if store := asStringAnyMap(backup["store"]); store != nil {
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreType", store["type"])
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreURI", store["uri"])
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreBucket", store["bucket"])
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreKey", store["key"])
+			copyPostgresBoolMetadata(receipt.Metadata, "postgresBackupStoreUploaded", store["uploaded"])
+			copyPostgresBoolMetadata(receipt.Metadata, "postgresBackupStoreResumed", store["resumed"])
+			copyPostgresBoolMetadata(receipt.Metadata, "postgresBackupStoreMultipart", store["multipart"])
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreParts", store["parts"])
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreSessionPath", store["sessionPath"])
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreManifestURI", store["manifestUri"])
+			copyPostgresMetadata(receipt.Metadata, "postgresBackupStoreCatalogURI", store["catalogUri"])
+		}
+	}
 }
 
 func postgresPlanDigestFromParsed(parsed map[string]any) string {

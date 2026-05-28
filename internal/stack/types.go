@@ -900,14 +900,32 @@ type PostgresReplicationSpec struct {
 }
 
 type PostgresBackupSpec struct {
-	Path             string         `yaml:"path,omitempty" json:"path,omitempty"`
-	File             string         `yaml:"file,omitempty" json:"file,omitempty"`
-	Database         string         `yaml:"database,omitempty" json:"database,omitempty"`
-	Format           string         `yaml:"format,omitempty" json:"format,omitempty"`
-	Compress         int            `yaml:"compress,omitempty" json:"compress,omitempty"`
-	SimulateDuration *time.Duration `yaml:"simulateDuration,omitempty" json:"simulateDuration,omitempty"`
-	ManifestPath     string         `yaml:"manifestPath,omitempty" json:"manifestPath,omitempty"`
-	ExpectedSha256   string         `yaml:"expectedSha256,omitempty" json:"expectedSha256,omitempty"`
+	Path             string                  `yaml:"path,omitempty" json:"path,omitempty"`
+	ID               string                  `yaml:"id,omitempty" json:"id,omitempty"`
+	File             string                  `yaml:"file,omitempty" json:"file,omitempty"`
+	Database         string                  `yaml:"database,omitempty" json:"database,omitempty"`
+	Format           string                  `yaml:"format,omitempty" json:"format,omitempty"`
+	Compress         int                     `yaml:"compress,omitempty" json:"compress,omitempty"`
+	SimulateDuration *time.Duration          `yaml:"simulateDuration,omitempty" json:"simulateDuration,omitempty"`
+	ManifestPath     string                  `yaml:"manifestPath,omitempty" json:"manifestPath,omitempty"`
+	CatalogPath      string                  `yaml:"catalogPath,omitempty" json:"catalogPath,omitempty"`
+	ExpectedSha256   string                  `yaml:"expectedSha256,omitempty" json:"expectedSha256,omitempty"`
+	Store            PostgresBackupStoreSpec `yaml:"store,omitempty" json:"store,omitempty"`
+}
+
+type PostgresBackupStoreSpec struct {
+	Type               string `yaml:"type,omitempty" json:"type,omitempty"`
+	Ref                string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Bucket             string `yaml:"bucket,omitempty" json:"bucket,omitempty"`
+	Prefix             string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+	Region             string `yaml:"region,omitempty" json:"region,omitempty"`
+	Endpoint           string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	PathStyle          bool   `yaml:"pathStyle,omitempty" json:"pathStyle,omitempty"`
+	PartSizeBytes      int64  `yaml:"partSizeBytes,omitempty" json:"partSizeBytes,omitempty"`
+	SessionPath        string `yaml:"sessionPath,omitempty" json:"sessionPath,omitempty"`
+	AccessKeyIDEnv     string `yaml:"accessKeyIdEnv,omitempty" json:"accessKeyIdEnv,omitempty"`
+	SecretAccessKeyEnv string `yaml:"secretAccessKeyEnv,omitempty" json:"secretAccessKeyEnv,omitempty"`
+	SessionTokenEnv    string `yaml:"sessionTokenEnv,omitempty" json:"sessionTokenEnv,omitempty"`
 }
 
 type PostgresRestoreSpec struct {
