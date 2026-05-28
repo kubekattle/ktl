@@ -26,6 +26,7 @@ type Config struct {
 	RunID                    string
 	NodeID                   string
 	PlanDigest               string
+	Resource                 json.RawMessage
 	SlotLeaseID              string
 	SlotLeaseTargetID        string
 	SlotLeaseIndex           int
@@ -105,6 +106,7 @@ func New(config Config) (*Client, error) {
 			RunID:                    strings.TrimSpace(config.RunID),
 			NodeID:                   strings.TrimSpace(config.NodeID),
 			PlanDigest:               strings.TrimSpace(config.PlanDigest),
+			Resource:                 cloneRawMessage(config.Resource),
 			SlotLeaseID:              strings.TrimSpace(config.SlotLeaseID),
 			SlotLeaseTargetID:        strings.TrimSpace(config.SlotLeaseTargetID),
 			SlotLeaseIndex:           config.SlotLeaseIndex,
@@ -149,9 +151,23 @@ func (c *Client) Run(ctx context.Context, command string) OperationResult {
 	return c.request(ctx, "run", command)
 }
 
+func (c *Client) RunResource(ctx context.Context, resource json.RawMessage) OperationResult {
+	return c.requestResource(ctx, "resource", resource)
+}
+
 func (c *Client) request(ctx context.Context, operation string, command string) OperationResult {
+	return c.requestWithResource(ctx, operation, command, nil)
+}
+
+func (c *Client) requestResource(ctx context.Context, operation string, resource json.RawMessage) OperationResult {
+	return c.requestWithResource(ctx, operation, "", resource)
+}
+
+func (c *Client) requestWithResource(ctx context.Context, operation string, command string, resource json.RawMessage) OperationResult {
 	started := time.Now()
-	assignment := NewCommandAssignmentWithMetadata(operation, c.target, command, started, c.metadata)
+	metadata := c.metadata
+	metadata.Resource = cloneRawMessage(resource)
+	assignment := NewCommandAssignmentWithMetadata(operation, c.target, command, started, metadata)
 	rawAssignment, err := json.Marshal(assignment)
 	if err != nil {
 		return c.resultFromError(operation, started, err)

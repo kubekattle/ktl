@@ -521,6 +521,87 @@ nodes:
 	}
 }
 
+func TestCompile_PostgresBackupRestoreNodes(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "stack.yaml"), `apiVersion: torque.dev/v1
+kind: Stack
+name: postgres-admin
+runner:
+  mode: fleet
+  readiness:
+    source: store
+    store: file
+    storePath: .torque/agents.json
+    tenant: lab
+    selector:
+      role: postgres
+    requireAgents: true
+nodes:
+  - name: backup
+    kind: postgres.backup.run
+    postgres:
+      transport: nats
+      database: keycloak
+      backup:
+        path: /var/backups/torque/postgres/keycloak
+        file: /var/backups/torque/postgres/keycloak/keycloak.dump
+  - name: verify
+    kind: postgres.backup.verify
+    needs: [backup]
+    postgres:
+      transport: nats
+      database: keycloak
+      backup:
+        file: /var/backups/torque/postgres/keycloak/keycloak.dump
+  - name: restore
+    kind: postgres.restore.drill
+    needs: [verify]
+    postgres:
+      transport: nats
+      database: keycloak
+      restore:
+        backupFile: /var/backups/torque/postgres/keycloak/keycloak.dump
+        database: keycloak_restore_drill
+        verifySQL: "select count(*) from realm where name = 'torque'"
+        expect: "1"
+`)
+	u, err := Discover(root)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	p, err := Compile(u, CompileOptions{})
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	backup := p.ByID["postgres.backup.run/backup"]
+	if backup == nil {
+		t.Fatalf("missing postgres backup node; ids=%v", nodeIDs(p.Nodes))
+	}
+	if backup.Postgres.Transport != "nats" || backup.Postgres.Backup.Database != "keycloak" || backup.Postgres.RunAsUser != "postgres" {
+		t.Fatalf("postgres backup defaults not applied: %#v", backup.Postgres)
+	}
+	restore := p.ByID["postgres.restore.drill/restore"]
+	if restore == nil || restore.Postgres.Restore.Database != "keycloak_restore_drill" {
+		t.Fatalf("restore node not resolved: %#v", restore)
+	}
+	if got := requiredFleetCapabilityForNode(backup); got != NodeKindPostgresBackupRun {
+		t.Fatalf("required capability = %q, want %q", got, NodeKindPostgresBackupRun)
+	}
+	if got := fleetTransportViolations(p); len(got) != 0 {
+		t.Fatalf("unexpected fleet transport violations: %#v", got)
+	}
+}
+
+func TestPostgresCommandRunIDUsesResumeSource(t *testing.T) {
+	exec := &customNodeExecutor{run: &runState{
+		RunID:           "resume-controller-run",
+		ResumeFromRunID: "original-durable-run",
+	}}
+	if got := exec.postgresCommandRunID(); got != "original-durable-run" {
+		t.Fatalf("postgres command run ID = %q, want original durable run", got)
+	}
+}
+
 func TestCompile_MySQLReplicationVerifyRequiresNATSTarget(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "stack.yaml"), `

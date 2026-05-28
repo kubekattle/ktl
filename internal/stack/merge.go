@@ -240,6 +240,7 @@ func mergeReleaseOverride(dst *ResolvedRelease, baseDir string, r ReleaseSpec) {
 		dst.Database.Backfill.MaxBatches = r.Database.Backfill.MaxBatches
 	}
 	dst.MySQL = mergeMySQLSpec(dst.MySQL, r.MySQL)
+	dst.Postgres = mergePostgresSpec(dst.Postgres, r.Postgres)
 	dst.Host = mergeHostCommandSpec(dst.Host, r.Host, r.Input)
 	dst.Kubernetes = mergeKubernetesSpec(dst.Kubernetes, r.Kubernetes)
 }
@@ -356,6 +357,224 @@ func mergeMySQLSpec(dst MySQLSpec, src MySQLSpec) MySQLSpec {
 	}
 	if src.StableInterval != nil {
 		dst.StableInterval = src.StableInterval
+	}
+	return dst
+}
+
+func mergePostgresSpec(dst PostgresSpec, src PostgresSpec) PostgresSpec {
+	if src.Transport != "" {
+		dst.Transport = strings.TrimSpace(src.Transport)
+	}
+	if src.TargetID != "" {
+		dst.TargetID = strings.TrimSpace(src.TargetID)
+	}
+	if src.Target != "" {
+		dst.Target = strings.TrimSpace(src.Target)
+	}
+	if src.TargetEnv != "" {
+		dst.TargetEnv = strings.TrimSpace(src.TargetEnv)
+	}
+	if src.Timeout != nil {
+		dst.Timeout = src.Timeout
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.Host != "" {
+		dst.Host = strings.TrimSpace(src.Host)
+	}
+	if src.Port != 0 {
+		dst.Port = src.Port
+	}
+	if src.User != "" {
+		dst.User = strings.TrimSpace(src.User)
+	}
+	if src.PasswordEnv != "" {
+		dst.PasswordEnv = strings.TrimSpace(src.PasswordEnv)
+	}
+	if src.SSLMode != "" {
+		dst.SSLMode = strings.TrimSpace(src.SSLMode)
+	}
+	if src.PSQLCommand != "" {
+		dst.PSQLCommand = strings.TrimSpace(src.PSQLCommand)
+	}
+	if src.PGDumpCommand != "" {
+		dst.PGDumpCommand = strings.TrimSpace(src.PGDumpCommand)
+	}
+	if src.PGRestoreCommand != "" {
+		dst.PGRestoreCommand = strings.TrimSpace(src.PGRestoreCommand)
+	}
+	if src.RunAsUser != "" {
+		dst.RunAsUser = strings.TrimSpace(src.RunAsUser)
+	}
+	if src.AgentPath != "" {
+		dst.AgentPath = strings.TrimSpace(src.AgentPath)
+	}
+	if src.ExecutionMode != "" {
+		dst.ExecutionMode = strings.TrimSpace(src.ExecutionMode)
+	}
+	dst.Role = mergePostgresRoleSpec(dst.Role, src.Role)
+	dst.DatabaseRef = mergePostgresDatabaseSpec(dst.DatabaseRef, src.DatabaseRef)
+	dst.Grant = mergePostgresGrantSpec(dst.Grant, src.Grant)
+	dst.Schema = mergePostgresSchemaSpec(dst.Schema, src.Schema)
+	dst.Extension = mergePostgresExtensionSpec(dst.Extension, src.Extension)
+	dst.Replication = mergePostgresReplicationSpec(dst.Replication, src.Replication)
+	dst.Backup = mergePostgresBackupSpec(dst.Backup, src.Backup)
+	dst.Restore = mergePostgresRestoreSpec(dst.Restore, src.Restore)
+	dst.Config = mergePostgresConfigSpec(dst.Config, src.Config)
+	dst.Maintenance = mergePostgresMaintenanceSpec(dst.Maintenance, src.Maintenance)
+	return dst
+}
+
+func mergePostgresRoleSpec(dst PostgresRoleSpec, src PostgresRoleSpec) PostgresRoleSpec {
+	if src.Name != "" {
+		dst.Name = strings.TrimSpace(src.Name)
+	}
+	if src.Login != nil {
+		v := *src.Login
+		dst.Login = &v
+	}
+	if src.Superuser != nil {
+		v := *src.Superuser
+		dst.Superuser = &v
+	}
+	if src.PasswordEnv != "" {
+		dst.PasswordEnv = strings.TrimSpace(src.PasswordEnv)
+	}
+	return dst
+}
+
+func mergePostgresDatabaseSpec(dst PostgresDatabaseSpec, src PostgresDatabaseSpec) PostgresDatabaseSpec {
+	if src.Name != "" {
+		dst.Name = strings.TrimSpace(src.Name)
+	}
+	if src.Owner != "" {
+		dst.Owner = strings.TrimSpace(src.Owner)
+	}
+	return dst
+}
+
+func mergePostgresGrantSpec(dst PostgresGrantSpec, src PostgresGrantSpec) PostgresGrantSpec {
+	if src.Role != "" {
+		dst.Role = strings.TrimSpace(src.Role)
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.Schema != "" {
+		dst.Schema = strings.TrimSpace(src.Schema)
+	}
+	if src.ObjectType != "" {
+		dst.ObjectType = strings.TrimSpace(src.ObjectType)
+	}
+	if len(src.Privileges) > 0 {
+		dst.Privileges = append([]string(nil), src.Privileges...)
+	}
+	return dst
+}
+
+func mergePostgresSchemaSpec(dst PostgresSchemaSpec, src PostgresSchemaSpec) PostgresSchemaSpec {
+	if src.Name != "" {
+		dst.Name = strings.TrimSpace(src.Name)
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.Owner != "" {
+		dst.Owner = strings.TrimSpace(src.Owner)
+	}
+	return dst
+}
+
+func mergePostgresExtensionSpec(dst PostgresExtensionSpec, src PostgresExtensionSpec) PostgresExtensionSpec {
+	if src.Name != "" {
+		dst.Name = strings.TrimSpace(src.Name)
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.Schema != "" {
+		dst.Schema = strings.TrimSpace(src.Schema)
+	}
+	return dst
+}
+
+func mergePostgresReplicationSpec(dst PostgresReplicationSpec, src PostgresReplicationSpec) PostgresReplicationSpec {
+	if src.ExpectedReplicas != 0 {
+		dst.ExpectedReplicas = src.ExpectedReplicas
+	}
+	if src.RequireStreaming {
+		dst.RequireStreaming = true
+	}
+	return dst
+}
+
+func mergePostgresBackupSpec(dst PostgresBackupSpec, src PostgresBackupSpec) PostgresBackupSpec {
+	if src.Path != "" {
+		dst.Path = strings.TrimSpace(src.Path)
+	}
+	if src.File != "" {
+		dst.File = strings.TrimSpace(src.File)
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.Format != "" {
+		dst.Format = strings.TrimSpace(src.Format)
+	}
+	if src.Compress != 0 {
+		dst.Compress = src.Compress
+	}
+	if src.SimulateDuration != nil {
+		dst.SimulateDuration = src.SimulateDuration
+	}
+	if src.ManifestPath != "" {
+		dst.ManifestPath = strings.TrimSpace(src.ManifestPath)
+	}
+	if src.ExpectedSha256 != "" {
+		dst.ExpectedSha256 = strings.TrimSpace(src.ExpectedSha256)
+	}
+	return dst
+}
+
+func mergePostgresRestoreSpec(dst PostgresRestoreSpec, src PostgresRestoreSpec) PostgresRestoreSpec {
+	if src.BackupFile != "" {
+		dst.BackupFile = strings.TrimSpace(src.BackupFile)
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.VerifySQL != "" {
+		dst.VerifySQL = src.VerifySQL
+	}
+	if src.Expect != "" {
+		dst.Expect = strings.TrimSpace(src.Expect)
+	}
+	if src.Cleanup {
+		dst.Cleanup = true
+	}
+	return dst
+}
+
+func mergePostgresConfigSpec(dst PostgresConfigSpec, src PostgresConfigSpec) PostgresConfigSpec {
+	if src.Settings != nil {
+		dst.Settings = maps.Clone(src.Settings)
+	}
+	if src.Reload {
+		dst.Reload = true
+	}
+	return dst
+}
+
+func mergePostgresMaintenanceSpec(dst PostgresMaintenanceSpec, src PostgresMaintenanceSpec) PostgresMaintenanceSpec {
+	if src.Action != "" {
+		dst.Action = strings.TrimSpace(src.Action)
+	}
+	if src.Database != "" {
+		dst.Database = strings.TrimSpace(src.Database)
+	}
+	if src.Table != "" {
+		dst.Table = strings.TrimSpace(src.Table)
 	}
 	return dst
 }

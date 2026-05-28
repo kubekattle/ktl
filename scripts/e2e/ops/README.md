@@ -85,6 +85,34 @@ scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
   --cleanup
 ```
 
+## STACK-FC-KAFKA-RABBITMQ-001
+
+`STACK-FC-KAFKA-RABBITMQ-001.sh` proves two side-by-side NATS-dispatched
+Firecracker data-service labs on the real SSH host. It starts a NATS server on
+the lab host, starts one `torque-agent nats worker` subject for Kafka and one
+for RabbitMQ, applies/reapplies the NATS stackfiles, deploys continuous
+traffic generators, audits and exports both runs, then optionally deletes the
+labs through the same NATS workers.
+
+Kafka runs as five host-network pods on a five-node Firecracker/k3s cluster
+over `172.31.233.0/24`, verifies topic create, produce, consume, and leaves a
+`kafka-traffic-generator` deployment producing to and consuming from
+`torque-traffic`.
+RabbitMQ runs as five host-network pods on a separate five-node
+Firecracker/k3s cluster over `172.31.234.0/24` and verifies cluster membership
+plus quorum queue publish/consume, then leaves a
+`rabbitmq-traffic-generator` deployment publishing to and draining the
+`torque_traffic` quorum queue.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-KAFKA-RABBITMQ-001.sh \
+  --destroy-existing \
+  --evidence-root /tmp/torque-ops-e2e \
+  --no-cleanup
+```
+
 ## OPS-HOST-001
 
 `OPS-HOST-001.sh` proves the first guarded host adapter on the real

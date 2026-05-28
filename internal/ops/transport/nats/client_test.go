@@ -134,6 +134,65 @@ func TestRunBuildsNATSRequestAndParsesWorkerReceipt(t *testing.T) {
 	}
 }
 
+func TestRunResourceBuildsTypedAssignment(t *testing.T) {
+	resource := json.RawMessage(`{"apiVersion":"torque.dev/postgres-resource-request/v1","kind":"PostgresResourceRequest","nodeKind":"postgres.role.ensure","spec":{"role":{"name":"torque_auditor"}}}`)
+	workerReceipt := OperationResult{
+		Operation:    "resource",
+		Status:       "succeeded",
+		Stdout:       `{"status":"succeeded","changed":true}` + "\n",
+		TargetDigest: "worker-digest",
+		Metadata: map[string]string{
+			"agentId":            "agent-pg-01",
+			"workerDecision":     "executed",
+			"resourceKind":       "postgres.role.ensure",
+			"resourceSQLDigest":  "sha256:sql",
+			"requiredCapability": "postgres.role.ensure",
+		},
+	}
+	raw, err := json.Marshal(workerReceipt)
+	if err != nil {
+		t.Fatalf("marshal worker receipt: %v", err)
+	}
+	requester := &recordingRequester{responses: [][]byte{raw}}
+	client, err := New(Config{
+		Target:             "torque.lab.assign.agent.postgres",
+		RequiredCapability: "postgres.role.ensure",
+		NodeKind:           "postgres.role.ensure",
+		RunID:              "run-pg",
+		NodeID:             "postgres.role.ensure/torque-auditor",
+		PlanDigest:         "sha256:plan",
+		Requester:          requester,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result := client.RunResource(context.Background(), resource)
+	if result.Status != "succeeded" || result.Operation != "resource" {
+		t.Fatalf("result = %#v, want resource succeeded", result)
+	}
+	if got := result.Metadata["resourceSQLDigest"]; got != "sha256:sql" {
+		t.Fatalf("resourceSQLDigest = %q", got)
+	}
+	var assignment CommandAssignment
+	if err := json.Unmarshal(requester.calls[0].payload, &assignment); err != nil {
+		t.Fatalf("assignment payload is not JSON: %v", err)
+	}
+	if assignment.Operation != "resource" || assignment.Command != "" {
+		t.Fatalf("assignment operation/command = %q/%q, want resource with no command", assignment.Operation, assignment.Command)
+	}
+	if strings.TrimSpace(string(assignment.Resource)) != strings.TrimSpace(string(resource)) {
+		t.Fatalf("assignment resource = %s, want %s", assignment.Resource, resource)
+	}
+	if assignment.AssignmentID == "" || assignment.AssignmentID != DeriveAssignmentID(assignment) {
+		t.Fatalf("assignmentId = %q, want derived stable ID", assignment.AssignmentID)
+	}
+	changed := assignment
+	changed.Resource = json.RawMessage(`{"apiVersion":"torque.dev/postgres-resource-request/v1","kind":"PostgresResourceRequest","nodeKind":"postgres.role.ensure","spec":{"role":{"name":"other"}}}`)
+	if got := DeriveAssignmentID(changed); got == assignment.AssignmentID {
+		t.Fatalf("DeriveAssignmentID did not change when resource payload changed: %q", got)
+	}
+}
+
 func TestRunRecordsTimeout(t *testing.T) {
 	client, err := New(Config{
 		Target:    "torque.lab.assign.agent.slow",

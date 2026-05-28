@@ -108,6 +108,10 @@ Implemented local slice:
   same fleet node, Torque reuses the original assignment run ID, hydrates any
   completed target result from the checkpoint, and only waits/publishes for
   missing target receipts.
+- JetStream receipt aggregation now correlates by `assignmentId` before a
+  receipt can satisfy a stack node. This matters when many node receipts share
+  the same run/target receipt subject: a later node must not accept an earlier
+  node's receipt just because it came from the same target.
 - `scripts/e2e/ops/OPS-AGENT-011.sh` proves durable receipt offset resume end
   to end: it runs a JetStream fleet stack once, stops the worker, marks the run
   interrupted, resumes from the first run, and verifies the second apply

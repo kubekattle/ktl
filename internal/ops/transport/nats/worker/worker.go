@@ -16,6 +16,8 @@ import (
 	"time"
 
 	agentcapability "github.com/ingresslabs/torque/internal/ops/agent/capability"
+	opsmysql "github.com/ingresslabs/torque/internal/ops/mysql"
+	opspostgres "github.com/ingresslabs/torque/internal/ops/postgres"
 	"github.com/ingresslabs/torque/internal/ops/slotledger"
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 	localtransport "github.com/ingresslabs/torque/internal/ops/transport/local"
@@ -613,6 +615,65 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
 		return result
 	}
+	if len(assignment.Resource) > 0 {
+		operation = "resource"
+	}
+	if operation == "resource" {
+		if len(assignment.Resource) == 0 {
+			result := w.blockedResultWithReason(operation, target, assignment, "resource assignment payload is required")
+			result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+			return result
+		}
+		var result transport.OperationResult
+		grant, grantMetadata, grantErr := w.openSlotLeaseGrant(ctx, assignment)
+		slotLeaseMetadata = mergeMetadata(slotLeaseMetadata, grantMetadata)
+		if grantErr != nil {
+			result := w.blockedResultWithReason(operation, target, assignment, grantErr.Error())
+			result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+			result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+				"slotLeaseDecision": "blocked",
+				"slotLeaseReason":   grantErr.Error(),
+			})
+			return result
+		}
+		if grant != nil {
+			defer grant.close()
+			if err := grant.renew(ctx); err != nil {
+				result := w.blockedResultWithReason(operation, target, assignment, fmt.Sprintf("renew slot lease before execution: %v", err))
+				result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+				result.Metadata = mergeMetadata(result.Metadata, grant.metadata())
+				result.Metadata = mergeMetadata(result.Metadata, map[string]string{
+					"slotLeaseDecision": "blocked",
+					"slotLeaseReason":   fmt.Sprintf("renew slot lease before execution: %v", err),
+				})
+				return result
+			}
+			execCtx, execCancel := context.WithCancel(ctx)
+			stopRenewal := grant.startRenewal(execCtx, execCancel)
+			result = w.executeResourceAssignment(execCtx, assignment, target)
+			stopRenewal()
+			execCancel()
+			releaseCtx, releaseCancel := context.WithTimeout(context.Background(), workerSlotLeaseReleaseTimeout(w.timeout))
+			grant.release(releaseCtx)
+			releaseCancel()
+			slotLeaseMetadata = mergeMetadata(slotLeaseMetadata, grant.metadata())
+		} else {
+			result = w.executeResourceAssignment(ctx, assignment, target)
+		}
+		result.Operation = operation
+		result.TargetDigest = natstransport.TargetDigest(target)
+		result.Stdout = w.redactor.RedactString(result.Stdout)
+		result.Stderr = w.redactor.RedactString(result.Stderr)
+		result.Error = w.redactor.RedactString(result.Error)
+		result.Command = w.redactor.RedactArgs(result.Command)
+		decision := "executed"
+		if strings.EqualFold(strings.TrimSpace(result.Status), "blocked") {
+			decision = "blocked"
+		}
+		result.Metadata = mergeMetadata(result.Metadata, w.receiptMetadata(assignment, decision))
+		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
+		return result
+	}
 	if operation == "run" && strings.TrimSpace(assignment.Command) == "" {
 		result := w.blockedResultWithReason(operation, target, assignment, "run assignment command is required")
 		result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
@@ -684,6 +745,187 @@ func (w *Worker) HandleAssignment(ctx context.Context, assignment natstransport.
 	result.Metadata = mergeMetadata(result.Metadata, w.receiptMetadata(assignment, "executed"))
 	result.Metadata = mergeMetadata(result.Metadata, slotLeaseMetadata)
 	return result
+}
+
+func (w *Worker) executeResourceAssignment(ctx context.Context, assignment natstransport.CommandAssignment, target string) transport.OperationResult {
+	started := time.Now()
+	var envelope struct {
+		NodeKind string `json:"nodeKind,omitempty"`
+	}
+	if err := json.Unmarshal(assignment.Resource, &envelope); err != nil {
+		return w.errorResultForAssignment("resource", target, assignment, fmt.Errorf("parse resource assignment: %w", err), false)
+	}
+	resourceKind := strings.TrimSpace(envelope.NodeKind)
+	if resourceKind == "" {
+		resourceKind = strings.TrimSpace(assignment.NodeKind)
+	}
+	switch {
+	case strings.HasPrefix(resourceKind, "postgres."):
+		return w.executePostgresResourceAssignment(ctx, started, assignment, target)
+	case strings.HasPrefix(resourceKind, "mysql."):
+		return w.executeMySQLResourceAssignment(ctx, started, assignment, target)
+	default:
+		return w.blockedResultWithReason("resource", target, assignment, fmt.Sprintf("unsupported resource kind %q", resourceKind))
+	}
+}
+
+func (w *Worker) executePostgresResourceAssignment(ctx context.Context, started time.Time, assignment natstransport.CommandAssignment, target string) transport.OperationResult {
+	var req opspostgres.ResourceRequest
+	if err := json.Unmarshal(assignment.Resource, &req); err != nil {
+		return w.errorResultForAssignment("resource", target, assignment, fmt.Errorf("parse resource assignment: %w", err), false)
+	}
+	if strings.TrimSpace(req.RunID) == "" {
+		req.RunID = strings.TrimSpace(assignment.RunID)
+	}
+	if strings.TrimSpace(req.NodeID) == "" {
+		req.NodeID = strings.TrimSpace(assignment.NodeID)
+	}
+	if strings.TrimSpace(req.NodeKind) == "" {
+		req.NodeKind = strings.TrimSpace(assignment.NodeKind)
+	}
+	if strings.TrimSpace(req.APIVersion) == "" {
+		req.APIVersion = opspostgres.RequestAPIVersion
+	}
+	if strings.TrimSpace(req.Kind) == "" {
+		req.Kind = opspostgres.RequestKind
+	}
+	result, err := opspostgres.Runner{Executable: os.Args[0]}.Execute(ctx, req)
+	raw, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		raw = []byte(`{"status":"failed","message":"marshal PostgreSQL resource result"}`)
+	}
+	status := strings.TrimSpace(result.Status)
+	if status == "" {
+		status = "succeeded"
+	}
+	exitCode := 0
+	errMsg := ""
+	if err != nil || strings.EqualFold(status, "failed") {
+		exitCode = 1
+		if err != nil {
+			errMsg = err.Error()
+		} else {
+			errMsg = strings.TrimSpace(result.Message)
+		}
+	}
+	metadata := map[string]string{
+		"resourceApiVersion":        strings.TrimSpace(req.APIVersion),
+		"resourceKind":              strings.TrimSpace(req.NodeKind),
+		"resourceStatus":            status,
+		"resourceChanged":           strconv.FormatBool(result.Changed),
+		"resourcePlanAction":        strings.TrimSpace(result.Plan.Action),
+		"resourceSQLDigest":         strings.TrimSpace(result.Plan.SQLDigest),
+		"resourcePlannedSQLDigest":  strings.TrimSpace(result.PlannedSQLDigest),
+		"resourceExecutedSQLDigest": strings.TrimSpace(result.ExecutedSQLDigest),
+	}
+	if result.Lock != nil {
+		metadata["postgresLockKey"] = strings.TrimSpace(result.Lock.Key)
+		metadata["postgresLockDigest"] = strings.TrimSpace(result.Lock.Digest)
+		metadata["postgresLockAcquired"] = strconv.FormatBool(result.Lock.Acquired)
+		metadata["postgresLockWaitMillis"] = strconv.FormatInt(result.Lock.WaitMillis, 10)
+		metadata["postgresLockTimeoutMillis"] = strconv.FormatInt(result.Lock.TimeoutMillis, 10)
+		metadata["postgresLockReleased"] = strconv.FormatBool(result.Lock.Released)
+		metadata["postgresLockBlocked"] = strconv.FormatBool(result.Lock.Blocked)
+		if strings.TrimSpace(result.Lock.ReleaseError) != "" {
+			metadata["postgresLockReleaseError"] = strings.TrimSpace(result.Lock.ReleaseError)
+		}
+	}
+	if result.Transaction != nil {
+		metadata["postgresTransactionSupported"] = strconv.FormatBool(result.Transaction.Supported)
+		metadata["postgresTransactionStarted"] = strconv.FormatBool(result.Transaction.Started)
+		metadata["postgresTransactionCommitted"] = strconv.FormatBool(result.Transaction.Committed)
+		metadata["postgresTransactionRolledBack"] = strconv.FormatBool(result.Transaction.RolledBack)
+		if strings.TrimSpace(result.Transaction.Reason) != "" {
+			metadata["postgresTransactionReason"] = strings.TrimSpace(result.Transaction.Reason)
+		}
+	}
+	if result.Backup != nil {
+		metadata["backupFile"] = strings.TrimSpace(result.Backup.File)
+		metadata["backupSha256"] = strings.TrimSpace(result.Backup.Sha256)
+		metadata["backupManifestPath"] = strings.TrimSpace(result.Backup.ManifestPath)
+	}
+	if result.Restore != nil {
+		metadata["restoreDatabase"] = strings.TrimSpace(result.Restore.Database)
+		metadata["restoreBackupFile"] = strings.TrimSpace(result.Restore.BackupFile)
+	}
+	return transport.OperationResult{
+		Operation:      "resource",
+		Status:         status,
+		TargetDigest:   natstransport.TargetDigest(target),
+		Command:        []string{"postgres.resource", strings.TrimSpace(req.NodeKind)},
+		Stdout:         string(raw) + "\n",
+		ExitCode:       exitCode,
+		Error:          errMsg,
+		DurationMillis: time.Since(started).Milliseconds(),
+		Metadata:       metadata,
+	}
+}
+
+func (w *Worker) executeMySQLResourceAssignment(ctx context.Context, started time.Time, assignment natstransport.CommandAssignment, target string) transport.OperationResult {
+	var req opsmysql.ResourceRequest
+	if err := json.Unmarshal(assignment.Resource, &req); err != nil {
+		return w.errorResultForAssignment("resource", target, assignment, fmt.Errorf("parse resource assignment: %w", err), false)
+	}
+	if strings.TrimSpace(req.RunID) == "" {
+		req.RunID = strings.TrimSpace(assignment.RunID)
+	}
+	if strings.TrimSpace(req.NodeID) == "" {
+		req.NodeID = strings.TrimSpace(assignment.NodeID)
+	}
+	if strings.TrimSpace(req.NodeKind) == "" {
+		req.NodeKind = strings.TrimSpace(assignment.NodeKind)
+	}
+	if strings.TrimSpace(req.APIVersion) == "" {
+		req.APIVersion = opsmysql.RequestAPIVersion
+	}
+	if strings.TrimSpace(req.Kind) == "" {
+		req.Kind = opsmysql.RequestKind
+	}
+	result, err := opsmysql.Runner{}.Execute(ctx, req)
+	raw, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		raw = []byte(`{"status":"failed","message":"marshal MySQL resource result"}`)
+	}
+	status := strings.TrimSpace(result.Status)
+	if status == "" {
+		status = "succeeded"
+	}
+	exitCode := 0
+	errMsg := ""
+	if err != nil || strings.EqualFold(status, "failed") {
+		exitCode = 1
+		if err != nil {
+			errMsg = err.Error()
+		} else {
+			errMsg = strings.TrimSpace(result.Message)
+		}
+	}
+	metadata := map[string]string{
+		"resourceApiVersion":              strings.TrimSpace(req.APIVersion),
+		"resourceKind":                    strings.TrimSpace(req.NodeKind),
+		"resourceStatus":                  status,
+		"resourceChanged":                 strconv.FormatBool(result.Changed),
+		"resourceReplicatedNodes":         strconv.Itoa(result.ReplicatedNodes),
+		"resourceExpectedClusterSize":     strconv.Itoa(result.ExpectedClusterSize),
+		"resourceExpectedReplicatedNodes": strconv.Itoa(result.ExpectedReplicatedNodes),
+		"resourceStableAttempts":          strconv.Itoa(result.StableAttempts),
+		"resourceStableInterval":          strings.TrimSpace(result.StableInterval),
+		"resourceProbeId":                 strings.TrimSpace(result.ProbeID),
+		"resourceProbeTable":              strings.TrimSpace(result.ProbeTable),
+		"resourceStatusPathDigest":        strings.TrimSpace(result.StatusPathDigest),
+		"resourceRequireSynced":           strconv.FormatBool(result.RequireSynced),
+	}
+	return transport.OperationResult{
+		Operation:      "resource",
+		Status:         status,
+		TargetDigest:   natstransport.TargetDigest(target),
+		Command:        []string{"mysql.resource", strings.TrimSpace(req.NodeKind)},
+		Stdout:         string(raw) + "\n",
+		ExitCode:       exitCode,
+		Error:          errMsg,
+		DurationMillis: time.Since(started).Milliseconds(),
+		Metadata:       metadata,
+	}
 }
 
 func commandAssignmentHasSlotLease(assignment natstransport.CommandAssignment) bool {

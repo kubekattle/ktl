@@ -2,12 +2,14 @@ package stack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	opsmysql "github.com/ingresslabs/torque/internal/ops/mysql"
 	transport "github.com/ingresslabs/torque/internal/ops/transport/contract"
 )
 
@@ -46,7 +48,10 @@ type mysqlReplicationPlanReceipt struct {
 	Status                  string   `json:"status"`
 	Reason                  string   `json:"reason,omitempty"`
 	GuardMode               string   `json:"guardMode"`
+	AdapterKind             string   `json:"adapterKind,omitempty"`
+	Transport               string   `json:"transport,omitempty"`
 	Operation               string   `json:"operation"`
+	ResourceDigest          string   `json:"resourceDigest,omitempty"`
 	CommandDigest           string   `json:"commandDigest,omitempty"`
 	MySQLNodes              int      `json:"mysqlNodes"`
 	ExpectedClusterSize     int      `json:"expectedClusterSize"`
@@ -104,9 +109,18 @@ func (e *customNodeExecutor) runMySQLReplicationVerifyNode(ctx context.Context, 
 	cursor := map[string]any{"kind": normalizeNodeKind(node.Kind), "phase": phase}
 	e.run.AppendEvent(node.ID, PhaseStarted, node.Attempt, phase, map[string]any{"phase": phase, "cursor": cursor}, nil)
 
-	remoteCommand := buildMySQLReplicationVerifyCommand(node.MySQL)
+	runID := e.mysqlCommandRunID()
+	resourcePayload, err := buildMySQLReplicationVerifyResourcePayload(node.MySQL, node.ID, runID, e.mysqlResourceTenant())
+	if err != nil {
+		return wrapNodeErr(node.ResolvedRelease, err)
+	}
+	remoteCommand := ""
+	if !transportIsNATS(node.MySQL.Transport) {
+		remoteCommand = buildMySQLReplicationVerifyCommand(node.MySQL)
+	}
+	hostSpec := e.mysqlReplicationHostCommandSpec(node, remoteCommand, resourcePayload)
 	observe := e.mysqlReplicationObserveReceipt(node, phase, "")
-	plan := e.mysqlReplicationPlanReceipt(node, phase, remoteCommand, "planned", "eligible")
+	plan := e.mysqlReplicationPlanReceipt(node, phase, resourcePayload, hostSpec.Command, "planned", "eligible")
 	if e.dryRun || e.diff {
 		reason := "preview"
 		if e.dryRun {
@@ -127,7 +141,7 @@ func (e *customNodeExecutor) runMySQLReplicationVerifyNode(ctx context.Context, 
 		return nil
 	}
 
-	runner, err := e.mysqlReplicationVerifyRunner(node)
+	runner, err := hostCommandTransport(hostSpec)
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
@@ -149,7 +163,24 @@ func (e *customNodeExecutor) runMySQLReplicationVerifyNode(ctx context.Context, 
 		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("mysql replication verify: %w", guardErr))
 	}
 
-	receipt := runner.Run(ctx, remoteCommand)
+	var receipt transport.OperationResult
+	if len(resourcePayload) > 0 && transportIsNATS(hostSpec.Transport) {
+		if resourceRunner, ok := runner.(interface {
+			RunResource(context.Context, json.RawMessage) transport.OperationResult
+		}); ok {
+			receipt = resourceRunner.RunResource(ctx, resourcePayload)
+		} else {
+			receipt = transport.OperationResult{
+				Operation:    "resource",
+				Status:       "failed",
+				TargetDigest: runner.TargetDigest(),
+				ExitCode:     1,
+				Error:        "NATS transport does not support typed resource execution",
+			}
+		}
+	} else {
+		receipt = runner.Run(ctx, remoteCommand)
+	}
 	evidence := e.mysqlReplicationVerifyEvidence(node, "succeeded", "replication verified", receipt)
 	verifyErr := evaluateMySQLReplicationEvidence(node.MySQL, &evidence)
 	if !nodeStepSucceeded(receipt.Status) && verifyErr == nil {
@@ -180,160 +211,70 @@ func (e *customNodeExecutor) runMySQLReplicationVerifyNode(ctx context.Context, 
 	return nil
 }
 
-func (e *customNodeExecutor) mysqlReplicationVerifyRunner(node *runNode) (hostCommandRunner, error) {
-	spec := node.MySQL
-	hostSpec := e.hostCommandAssignmentSpec(HostCommandSpec{
-		Transport: spec.Transport,
-		Target:    spec.Target,
-		TargetEnv: spec.TargetEnv,
-		Timeout:   spec.Timeout,
-	}, node, NodeKindMySQLReplicationVerify)
-	return hostCommandTransport(hostSpec)
+func buildMySQLReplicationVerifyCommand(spec MySQLSpec) string {
+	rawSpec, _ := json.Marshal(spec)
+	var resourceSpec opsmysql.Spec
+	_ = json.Unmarshal(rawSpec, &resourceSpec)
+	return opsmysql.BuildVerifyCommand(resourceSpec)
 }
 
-func buildMySQLReplicationVerifyCommand(spec MySQLSpec) string {
-	interval := defaultMySQLReplicationStableInterval
-	if spec.StableInterval != nil {
-		interval = *spec.StableInterval
+func buildMySQLReplicationVerifyResourcePayload(spec MySQLSpec, nodeID string, runID string, tenant string) (json.RawMessage, error) {
+	rawSpec, err := json.Marshal(spec)
+	if err != nil {
+		return nil, fmt.Errorf("marshal MySQL resource spec: %w", err)
 	}
-	requireSynced := true
-	if spec.RequireSynced != nil {
-		requireSynced = *spec.RequireSynced
+	req := opsmysql.ResourceRequest{
+		APIVersion: opsmysql.RequestAPIVersion,
+		Kind:       opsmysql.RequestKind,
+		Tenant:     firstNonEmptyString(tenant, "default"),
+		NodeID:     strings.TrimSpace(nodeID),
+		RunID:      strings.TrimSpace(runID),
+		NodeKind:   NodeKindMySQLReplicationVerify,
+		Spec:       rawSpec,
 	}
-	var b strings.Builder
-	b.WriteString("bash <<'TORQUE_MYSQL_REPLICATION_VERIFY'\n")
-	b.WriteString("set -euo pipefail\n")
-	writeShellAssignment(&b, "NODE_IDENTITY_FILE", spec.NodeIdentityFile)
-	writeShellAssignment(&b, "NODE_SSH_OPTIONS", spec.NodeSSHOptions)
-	writeShellAssignment(&b, "DATABASE_NAME", spec.Database)
-	writeShellAssignment(&b, "PROBE_TABLE", spec.ProbeTable)
-	writeShellAssignment(&b, "PROBE_ID", spec.ProbeID)
-	writeShellAssignment(&b, "PROBE_PAYLOAD", spec.ProbePayload)
-	writeShellAssignment(&b, "STATUS_PATH", spec.StatusPath)
-	fmt.Fprintf(&b, "EXPECTED_CLUSTER_SIZE=%d\n", spec.ExpectedClusterSize)
-	fmt.Fprintf(&b, "EXPECTED_REPLICATED_NODES=%d\n", spec.ExpectedReplicatedNodes)
-	fmt.Fprintf(&b, "STABLE_ATTEMPTS=%d\n", spec.StableAttempts)
-	fmt.Fprintf(&b, "STABLE_INTERVAL_SECONDS=%s\n", transport.ShellQuote(fmt.Sprintf("%.3f", interval.Seconds())))
-	if spec.InsertProbe {
-		b.WriteString("INSERT_PROBE=1\n")
-	} else {
-		b.WriteString("INSERT_PROBE=0\n")
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal MySQL resource request: %w", err)
 	}
-	if requireSynced {
-		b.WriteString("REQUIRE_SYNCED=1\n")
-	} else {
-		b.WriteString("REQUIRE_SYNCED=0\n")
+	return json.RawMessage(raw), nil
+}
+
+func (e *customNodeExecutor) mysqlReplicationHostCommandSpec(node *runNode, command string, resource json.RawMessage) HostCommandSpec {
+	spec := node.MySQL
+	if transportIsNATS(spec.Transport) {
+		command = ""
 	}
-	b.WriteString("NODES=()\n")
-	for _, node := range spec.Nodes {
-		entry := strings.Join([]string{
-			strings.TrimSpace(node.ID),
-			strings.TrimSpace(node.Address),
-			firstNonEmptyString(node.SSHUser, "root"),
-			strconv.Itoa(node.SSHPort),
-		}, "|")
-		fmt.Fprintf(&b, "NODES+=(%s)\n", transport.ShellQuote(entry))
+	return e.hostCommandAssignmentSpec(HostCommandSpec{
+		Transport: spec.Transport,
+		TargetID:  spec.TargetID,
+		Target:    spec.Target,
+		TargetEnv: spec.TargetEnv,
+		Command:   command,
+		Resource:  cloneJSONRawMessage(resource),
+		Timeout:   spec.Timeout,
+	}, node, NodeKindMySQLReplicationVerify)
+}
+
+func (e *customNodeExecutor) mysqlCommandRunID() string {
+	if e != nil && e.run != nil {
+		if resumeFromRunID := strings.TrimSpace(e.run.ResumeFromRunID); resumeFromRunID != "" {
+			return resumeFromRunID
+		}
+		return strings.TrimSpace(e.run.RunID)
 	}
-	b.WriteString(mysqlReplicationVerifyScriptBody)
-	b.WriteString("\nTORQUE_MYSQL_REPLICATION_VERIFY\n")
-	return b.String()
+	return ""
+}
+
+func (e *customNodeExecutor) mysqlResourceTenant() string {
+	if e != nil && e.run != nil && e.run.Plan != nil {
+		return normalizeFleetReadiness(e.run.Plan.Runner.Readiness).Tenant
+	}
+	return "default"
 }
 
 func writeShellAssignment(b *strings.Builder, key string, value string) {
 	fmt.Fprintf(b, "%s=%s\n", key, transport.ShellQuote(strings.TrimSpace(value)))
 }
-
-const mysqlReplicationVerifyScriptBody = `
-EXTRA_SSH_OPTS=()
-if [[ -n "${NODE_SSH_OPTIONS}" ]]; then
-  read -r -a EXTRA_SSH_OPTS <<< "${NODE_SSH_OPTIONS}"
-fi
-SSH_OPTS=(-n -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2)
-if [[ -n "${NODE_IDENTITY_FILE}" ]]; then
-  SSH_OPTS+=(-i "${NODE_IDENTITY_FILE}")
-fi
-if [[ "${#EXTRA_SSH_OPTS[@]}" -gt 0 ]]; then
-  SSH_OPTS+=("${EXTRA_SSH_OPTS[@]}")
-fi
-
-sql_literal() {
-  local escaped
-  escaped="$(printf '%s' "$1" | sed "s/'/''/g")"
-  printf "'%s'" "${escaped}"
-}
-
-node_query() {
-  local node_addr="$1"
-  local node_user="$2"
-  local node_port="$3"
-  local sql="$4"
-  local quoted_sql
-  local args=("${SSH_OPTS[@]}")
-  if [[ -n "${node_port}" && "${node_port}" != "0" ]]; then
-    args+=(-p "${node_port}")
-  fi
-  printf -v quoted_sql '%q' "${sql}"
-  ssh "${args[@]}" "${node_user}@${node_addr}" "if command -v mariadb >/dev/null 2>&1; then mariadb -uroot -Nse ${quoted_sql}; else mysql -uroot -Nse ${quoted_sql}; fi"
-}
-
-if [[ "${#NODES[@]}" -eq 0 ]]; then
-  echo "mysql replication verify requires at least one node" >&2
-  exit 2
-fi
-
-first_entry="${NODES[0]}"
-IFS='|' read -r first_id first_addr first_user first_port <<< "${first_entry}"
-first_user="${first_user:-root}"
-status_tmp="$(mktemp)"
-trap 'rm -f "${status_tmp}"' EXIT
-
-if [[ "${INSERT_PROBE}" == "1" ]]; then
-  probe_id_sql="$(sql_literal "${PROBE_ID}")"
-  probe_payload_sql="$(sql_literal "${PROBE_PAYLOAD}")"
-  node_query "${first_addr}" "${first_user}" "${first_port}" "CREATE DATABASE IF NOT EXISTS ${DATABASE_NAME};"
-  node_query "${first_addr}" "${first_user}" "${first_port}" "CREATE TABLE IF NOT EXISTS ${DATABASE_NAME}.${PROBE_TABLE} (id varchar(128) PRIMARY KEY, payload varchar(255), observed_at timestamp DEFAULT current_timestamp ON UPDATE current_timestamp);"
-  node_query "${first_addr}" "${first_user}" "${first_port}" "INSERT INTO ${DATABASE_NAME}.${PROBE_TABLE}(id, payload) VALUES (${probe_id_sql}, ${probe_payload_sql}) ON DUPLICATE KEY UPDATE payload=VALUES(payload), observed_at=current_timestamp;"
-fi
-
-copy_status() {
-  if [[ -n "${STATUS_PATH}" ]]; then
-    mkdir -p "$(dirname "${STATUS_PATH}")"
-    cp "${status_tmp}" "${STATUS_PATH}"
-  fi
-}
-
-replicated=0
-for attempt in $(seq 1 "${STABLE_ATTEMPTS}"); do
-  replicated=0
-  : >"${status_tmp}"
-  for entry in "${NODES[@]}"; do
-    IFS='|' read -r node_id node_addr node_user node_port <<< "${entry}"
-    node_user="${node_user:-root}"
-    count="$(node_query "${node_addr}" "${node_user}" "${node_port}" "SELECT COUNT(*) FROM ${DATABASE_NAME}.${PROBE_TABLE} WHERE id=$(sql_literal "${PROBE_ID}");" 2>/dev/null || true)"
-    size="$(node_query "${node_addr}" "${node_user}" "${node_port}" "SHOW STATUS LIKE 'wsrep_cluster_size';" 2>/dev/null | awk '{print $2}' | tail -n1 || true)"
-    state="$(node_query "${node_addr}" "${node_user}" "${node_port}" "SHOW STATUS LIKE 'wsrep_local_state_comment';" 2>/dev/null | awk '{print $2}' | tail -n1 || true)"
-    printf 'attempt=%s node=%s ip=%s count=%s cluster=%s state=%s\n' "${attempt}" "${node_id}" "${node_addr}" "${count:-0}" "${size:-0}" "${state}" >>"${status_tmp}"
-    if [[ "${count}" == "1" && "${size}" == "${EXPECTED_CLUSTER_SIZE}" ]]; then
-      if [[ "${REQUIRE_SYNCED}" != "1" || "${state}" == "Synced" ]]; then
-        replicated="$((replicated + 1))"
-      fi
-    fi
-  done
-  copy_status
-  if [[ "${replicated}" -ge "${EXPECTED_REPLICATED_NODES}" ]]; then
-    cat "${status_tmp}"
-    printf 'mysql-replication-verified replicated=%s/%s cluster=%s\n' "${replicated}" "${EXPECTED_REPLICATED_NODES}" "${EXPECTED_CLUSTER_SIZE}"
-    exit 0
-  fi
-  if [[ "${attempt}" != "${STABLE_ATTEMPTS}" ]]; then
-    sleep "${STABLE_INTERVAL_SECONDS}"
-  fi
-done
-
-cat "${status_tmp}"
-echo "mysql replication verification failed: replicated=${replicated}/${EXPECTED_REPLICATED_NODES} cluster=${EXPECTED_CLUSTER_SIZE}" >&2
-exit 1
-`
 
 func (e *customNodeExecutor) mysqlReplicationObserveReceipt(node *runNode, phase string, targetDigest string) mysqlReplicationObserveReceipt {
 	targetID, guardMode, selected := e.mysqlReplicationTargetContext(node)
@@ -358,7 +299,7 @@ func (e *customNodeExecutor) mysqlReplicationObserveReceipt(node *runNode, phase
 	}
 }
 
-func (e *customNodeExecutor) mysqlReplicationPlanReceipt(node *runNode, phase string, remoteCommand string, status string, reason string) mysqlReplicationPlanReceipt {
+func (e *customNodeExecutor) mysqlReplicationPlanReceipt(node *runNode, phase string, resource json.RawMessage, remoteCommand string, status string, reason string) mysqlReplicationPlanReceipt {
 	targetID, guardMode, selected := e.mysqlReplicationTargetContext(node)
 	var lockScopes []string
 	var policySources []string
@@ -377,6 +318,12 @@ func (e *customNodeExecutor) mysqlReplicationPlanReceipt(node *runNode, phase st
 	sort.Strings(lockScopes)
 	sort.Strings(policySources)
 	spec := node.MySQL
+	transportName := strings.TrimSpace(spec.Transport)
+	adapterKind := "mysql.shell-fallback"
+	if transportIsNATS(transportName) {
+		adapterKind = "mysql.native"
+		remoteCommand = ""
+	}
 	return mysqlReplicationPlanReceipt{
 		APIVersion:              "torque.dev/mysql-replication-node/v1",
 		Kind:                    "MySQLReplicationPlanReceipt",
@@ -387,7 +334,10 @@ func (e *customNodeExecutor) mysqlReplicationPlanReceipt(node *runNode, phase st
 		Status:                  status,
 		Reason:                  reason,
 		GuardMode:               guardMode,
+		AdapterKind:             adapterKind,
+		Transport:               transportName,
 		Operation:               NodeKindMySQLReplicationVerify,
+		ResourceDigest:          digestString(string(resource)),
 		CommandDigest:           digestString(remoteCommand),
 		MySQLNodes:              len(spec.Nodes),
 		ExpectedClusterSize:     spec.ExpectedClusterSize,
@@ -425,6 +375,23 @@ func (e *customNodeExecutor) mysqlReplicationVerifyEvidence(node *runNode, statu
 		StatusPathDigest:        digestString(spec.StatusPath),
 		Receipt:                 receipt,
 		VerifiedAt:              time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if typed := parseMySQLReplicationResultStdout(receipt.Stdout); typed != nil {
+		evidence.Status = firstNonEmptyString(strings.TrimSpace(typed.Status), evidence.Status)
+		evidence.Message = firstNonEmptyString(strings.TrimSpace(typed.Message), evidence.Message)
+		evidence.ExpectedClusterSize = typed.ExpectedClusterSize
+		evidence.ExpectedReplicatedNodes = typed.ExpectedReplicatedNodes
+		evidence.ReplicatedNodes = typed.ReplicatedNodes
+		evidence.Attempt = typed.Attempt
+		evidence.StableAttempts = typed.StableAttempts
+		evidence.StableInterval = typed.StableInterval
+		evidence.InsertProbe = typed.InsertProbe
+		evidence.RequireSynced = typed.RequireSynced
+		evidence.ProbeID = firstNonEmptyString(strings.TrimSpace(typed.ProbeID), evidence.ProbeID)
+		evidence.ProbeTable = firstNonEmptyString(strings.TrimSpace(typed.ProbeTable), evidence.ProbeTable)
+		evidence.StatusPathDigest = firstNonEmptyString(strings.TrimSpace(typed.StatusPathDigest), evidence.StatusPathDigest)
+		evidence.Nodes = convertMySQLTypedNodes(typed.Nodes)
+		return evidence
 	}
 	evidence.Nodes = parseMySQLReplicationStatus(receipt.Stdout, spec)
 	for _, nodeEvidence := range evidence.Nodes {
@@ -538,6 +505,26 @@ func parseMySQLReplicationStatus(raw string, spec MySQLSpec) []mysqlReplicationV
 	sort.Strings(extra)
 	for _, id := range extra {
 		out = append(out, latest[id])
+	}
+	return out
+}
+
+func parseMySQLReplicationResultStdout(stdout string) *opsmysql.Result {
+	return opsmysql.ParseResultStdout(stdout)
+}
+
+func convertMySQLTypedNodes(nodes []opsmysql.NodeResult) []mysqlReplicationVerifyNodeEvidence {
+	out := make([]mysqlReplicationVerifyNodeEvidence, 0, len(nodes))
+	for _, node := range nodes {
+		out = append(out, mysqlReplicationVerifyNodeEvidence{
+			ID:          node.ID,
+			Address:     node.Address,
+			Attempt:     node.Attempt,
+			Count:       node.Count,
+			ClusterSize: node.ClusterSize,
+			State:       node.State,
+			Replicated:  node.Replicated,
+		})
 	}
 	return out
 }

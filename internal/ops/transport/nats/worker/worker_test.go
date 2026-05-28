@@ -152,6 +152,55 @@ func TestHandleAssignmentBlocksMissingRequiredCapability(t *testing.T) {
 	})
 }
 
+func TestHandleAssignmentBlocksUnsupportedTypedResource(t *testing.T) {
+	runner := &recordingRunner{
+		output: transport.RunOutput{Stdout: []byte("should-not-run\n"), ExitCode: 0},
+	}
+	worker, err := New(Config{
+		Subject:                    "torque.lab.assign.postgres",
+		Capabilities:               []string{"postgres.role.ensure"},
+		DisableCapabilityDiscovery: true,
+		AgentID:                    "agent-worker-pg",
+		Tenant:                     "lab",
+		TargetID:                   "host/pg-01",
+		Hostname:                   "pg-01",
+		Runner:                     runner,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	resource := json.RawMessage(`{"apiVersion":"torque.dev/postgres-resource-request/v1","kind":"PostgresResourceRequest","nodeKind":"redis.role.ensure","spec":{}}`)
+	assignment := natstransport.NewCommandAssignmentWithMetadata("resource", "torque.lab.assign.postgres", "", time.Now(), natstransport.CommandAssignmentMetadata{
+		TargetID:           "host/pg-01",
+		ExpectedAgentID:    "agent-worker-pg",
+		RequiredCapability: "postgres.role.ensure",
+		NodeKind:           "postgres.role.ensure",
+		RunID:              "run-pg",
+		NodeID:             "postgres.role.ensure/torque-auditor",
+		Resource:           resource,
+	})
+	result := worker.HandleAssignment(context.Background(), assignment)
+	if result.Status != "blocked" || !strings.Contains(result.Error, `unsupported resource kind "redis.role.ensure"`) {
+		t.Fatalf("result = %#v, want blocked unsupported resource", result)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("runner was called for typed resource: %#v", runner.calls)
+	}
+	assertMetadata(t, result.Metadata, map[string]string{
+		"agentId":            "agent-worker-pg",
+		"tenant":             "lab",
+		"targetId":           "host/pg-01",
+		"hostname":           "pg-01",
+		"workerSubject":      "torque.lab.assign.postgres",
+		"requiredCapability": "postgres.role.ensure",
+		"nodeKind":           "postgres.role.ensure",
+		"runId":              "run-pg",
+		"nodeId":             "postgres.role.ensure/torque-auditor",
+		"workerDecision":     "blocked",
+		"assignmentTargetId": "host/pg-01",
+	})
+}
+
 func TestHandleAssignmentRunsWithValidSlotLease(t *testing.T) {
 	runner := &recordingRunner{
 		output: transport.RunOutput{Stdout: []byte("lease-ok\n"), ExitCode: 0},

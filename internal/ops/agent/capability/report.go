@@ -29,6 +29,17 @@ var defaultAdapters = []string{
 	"host.service.manage",
 	"host.systemd.unit",
 	"mysql.replication.verify",
+	"postgres.role.ensure",
+	"postgres.database.ensure",
+	"postgres.grant.ensure",
+	"postgres.schema.ensure",
+	"postgres.extension.ensure",
+	"postgres.replication.verify",
+	"postgres.backup.run",
+	"postgres.backup.verify",
+	"postgres.restore.drill",
+	"postgres.config.ensure",
+	"postgres.maintenance.run",
 }
 
 type Options struct {
@@ -213,6 +224,32 @@ func missingDependencies(name string, lookup func(string) (string, error), stat 
 			{Name: "bash", Kind: "binary"},
 			{Name: "ssh", Kind: "binary"},
 			{Name: "mysql-client", Kind: "any-binary", AnyOf: []string{"mysql", "mariadb"}},
+		}
+	case "postgres.backup.run":
+		checks = []dependencyCheck{
+			{Name: "bash", Kind: "binary"},
+			{Name: "psql", Kind: "binary"},
+			{Name: "pg_dump", Kind: "binary"},
+			{Name: "sha256sum", Kind: "binary"},
+		}
+	case "postgres.backup.verify", "postgres.restore.drill":
+		checks = []dependencyCheck{
+			{Name: "bash", Kind: "binary"},
+			{Name: "psql", Kind: "binary"},
+			{Name: "pg_restore", Kind: "binary"},
+			{Name: "sha256sum", Kind: "binary"},
+		}
+	case "postgres.role.ensure",
+		"postgres.database.ensure",
+		"postgres.grant.ensure",
+		"postgres.schema.ensure",
+		"postgres.extension.ensure",
+		"postgres.replication.verify",
+		"postgres.config.ensure",
+		"postgres.maintenance.run":
+		checks = []dependencyCheck{
+			{Name: "bash", Kind: "binary"},
+			{Name: "psql", Kind: "binary"},
 		}
 	default:
 		checks = []dependencyCheck{{Name: name, Kind: "unsupported", Reason: "unsupported built-in capability"}}

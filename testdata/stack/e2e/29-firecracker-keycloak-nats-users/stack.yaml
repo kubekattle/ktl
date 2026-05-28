@@ -1,0 +1,126 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-keycloak-nats-users
+cli:
+  inferDeps: false
+nodes:
+  - name: keycloak-users-ensure
+    kind: host.command.run
+    host:
+      transport: nats
+      targetEnv: TORQUE_KEYCLOAK_NATS_SUBJECT
+      timeout: 10m
+      command: |
+        set -euo pipefail
+        ADMIN_PASSWORD="${TORQUE_KEYCLOAK_ADMIN_PASSWORD:-torque-admin-password}"
+        USER_PASSWORD="${TORQUE_KEYCLOAK_NATS_USER_PASSWORD:-torque-nats-user-password}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        KEYCLOAK_ADMIN_NODE="${TORQUE_KEYCLOAK_ADMIN_NODE:-172.31.235.13}"
+        SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5)
+        users="${TORQUE_KEYCLOAK_NATS_USERS:-torque-nats-alpha torque-nats-beta torque-nats-gamma}"
+        ssh "${SSH_OPTS[@]}" "root@${KEYCLOAK_ADMIN_NODE}" "ADMIN_PASSWORD='${ADMIN_PASSWORD}' USER_PASSWORD='${USER_PASSWORD}' USERS='${users}' bash -se" <<'KEYCLOAK'
+        set -euo pipefail
+        kcadm() { /opt/keycloak/bin/kcadm.sh "$@"; }
+        kcadm config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "${ADMIN_PASSWORD}" --config /tmp/kcadm-nats-users.config >/dev/null
+        for username in ${USERS}; do
+          existing="$(kcadm get users -r torque -q username="${username}" --config /tmp/kcadm-nats-users.config | jq -r '.[0].id // empty')"
+          if [[ -z "${existing}" ]]; then
+            kcadm create users -r torque --config /tmp/kcadm-nats-users.config \
+              -s username="${username}" \
+              -s enabled=true \
+              -s emailVerified=true \
+              -s email="${username}@example.test" \
+              -s firstName=Torque \
+              -s lastName=NATS
+          else
+            kcadm update "users/${existing}" -r torque --config /tmp/kcadm-nats-users.config \
+              -s enabled=true \
+              -s emailVerified=true \
+              -s email="${username}@example.test" \
+              -s firstName=Torque \
+              -s lastName=NATS \
+              -s 'requiredActions=[]'
+          fi
+          kcadm set-password -r torque --config /tmp/kcadm-nats-users.config --username "${username}" --new-password "${USER_PASSWORD}" --temporary=false >/dev/null
+          uid="$(kcadm get users -r torque -q username="${username}" --config /tmp/kcadm-nats-users.config | jq -r '.[0].id')"
+          kcadm update "users/${uid}" -r torque --config /tmp/kcadm-nats-users.config -s 'requiredActions=[]'
+          echo "keycloak-user-ensured username=${username} id=${uid}"
+        done
+        KEYCLOAK
+      deleteCommand: |
+        set +e
+        ADMIN_PASSWORD="${TORQUE_KEYCLOAK_ADMIN_PASSWORD:-torque-admin-password}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        KEYCLOAK_ADMIN_NODE="${TORQUE_KEYCLOAK_ADMIN_NODE:-172.31.235.13}"
+        SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5)
+        users="${TORQUE_KEYCLOAK_NATS_USERS:-torque-nats-alpha torque-nats-beta torque-nats-gamma}"
+        ssh "${SSH_OPTS[@]}" "root@${KEYCLOAK_ADMIN_NODE}" "ADMIN_PASSWORD='${ADMIN_PASSWORD}' USERS='${users}' bash -se" <<'KEYCLOAK'
+        set +e
+        kcadm() { /opt/keycloak/bin/kcadm.sh "$@"; }
+        kcadm config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "${ADMIN_PASSWORD}" --config /tmp/kcadm-nats-users-delete.config >/dev/null || exit 0
+        for username in ${USERS}; do
+          uid="$(kcadm get users -r torque -q username="${username}" --config /tmp/kcadm-nats-users-delete.config | jq -r '.[0].id // empty')"
+          if [[ -n "${uid}" ]]; then
+            kcadm delete "users/${uid}" -r torque --config /tmp/kcadm-nats-users-delete.config
+            echo "keycloak-user-deleted username=${username} id=${uid}"
+          fi
+        done
+        KEYCLOAK
+
+  - name: keycloak-users-token-verify
+    kind: host.command.run
+    needs: [keycloak-users-ensure]
+    host:
+      transport: nats
+      targetEnv: TORQUE_KEYCLOAK_NATS_SUBJECT
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        PUBLIC_URL="${TORQUE_KEYCLOAK_PUBLIC_URL:-http://141.105.65.227:18080}"
+        USER_PASSWORD="${TORQUE_KEYCLOAK_NATS_USER_PASSWORD:-torque-nats-user-password}"
+        users="${TORQUE_KEYCLOAK_NATS_USERS:-torque-nats-alpha torque-nats-beta torque-nats-gamma}"
+        for username in ${users}; do
+          token="$(mktemp)"
+          curl -fsS \
+            -d grant_type=password \
+            -d client_id=torque-app \
+            -d username="${username}" \
+            -d "password=${USER_PASSWORD}" \
+            "${PUBLIC_URL}/realms/torque/protocol/openid-connect/token" >"${token}"
+          python3 - "${token}" "${username}" <<'PY'
+        import json
+        import sys
+
+        token_path, username = sys.argv[1:3]
+        with open(token_path, encoding="utf-8") as f:
+            doc = json.load(f)
+        token = doc.get("access_token", "")
+        if len(token) < 20:
+            raise SystemExit(f"{username}: token response missing access_token")
+        print(f"keycloak-nats-user-token-ok username={username} tokenLength={len(token)}")
+        PY
+          rm -f "${token}"
+        done
+      deleteCommand: "true"
+
+  - name: keycloak-users-postgres-verify
+    kind: host.command.run
+    needs: [keycloak-users-token-verify]
+    host:
+      transport: nats
+      targetEnv: TORQUE_KEYCLOAK_NATS_SUBJECT
+      timeout: 5m
+      command: |
+        set -euo pipefail
+        DB_PASSWORD="${TORQUE_KEYCLOAK_DB_PASSWORD:-torque-keycloak-db-password}"
+        LAB_KEY="${LAB_KEY:-/opt/firecracker-sandbox-lab/lab_ssh_key}"
+        SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5)
+        repl_count="$(ssh "${SSH_OPTS[@]}" root@172.31.235.10 "runuser -u postgres -- psql -At -c \"select count(*) from pg_stat_replication;\"" | tr -cd '0-9')"
+        echo "postgres-streaming-replicas=${repl_count}"
+        [[ "${repl_count}" == "2" ]]
+        for ip in 172.31.235.11 172.31.235.12; do
+          count="$(ssh "${SSH_OPTS[@]}" "root@${ip}" "PGPASSWORD='${DB_PASSWORD}' psql -h 127.0.0.1 -U keycloak -d keycloak -At -c \"select count(*) from user_entity u join realm r on r.id = u.realm_id where r.name='torque' and u.username like 'torque-nats-%';\"" | tr -cd '0-9')"
+          echo "keycloak-nats-users-replicated replica=${ip} count=${count}"
+          [[ "${count}" -ge "3" ]]
+        done
+      deleteCommand: "true"

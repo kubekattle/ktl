@@ -90,6 +90,37 @@ type EffectiveMySQLInput struct {
 	Digest                  string   `json:"digest,omitempty"`
 }
 
+type EffectivePostgresInput struct {
+	Transport         string `json:"transport,omitempty"`
+	TargetID          string `json:"targetId,omitempty"`
+	TargetDigest      string `json:"targetDigest,omitempty"`
+	TargetEnv         string `json:"targetEnv,omitempty"`
+	Timeout           string `json:"timeout,omitempty"`
+	Database          string `json:"database,omitempty"`
+	HostDigest        string `json:"hostDigest,omitempty"`
+	Port              int    `json:"port,omitempty"`
+	User              string `json:"user,omitempty"`
+	PasswordEnv       string `json:"passwordEnv,omitempty"`
+	SSLMode           string `json:"sslMode,omitempty"`
+	PSQLCommand       string `json:"psqlCommand,omitempty"`
+	PGDumpCommand     string `json:"pgDumpCommand,omitempty"`
+	PGRestoreCommand  string `json:"pgRestoreCommand,omitempty"`
+	RunAsUser         string `json:"runAsUser,omitempty"`
+	AgentPath         string `json:"agentPath,omitempty"`
+	ExecutionMode     string `json:"executionMode,omitempty"`
+	RoleDigest        string `json:"roleDigest,omitempty"`
+	DatabaseDigest    string `json:"databaseDigest,omitempty"`
+	GrantDigest       string `json:"grantDigest,omitempty"`
+	SchemaDigest      string `json:"schemaDigest,omitempty"`
+	ExtensionDigest   string `json:"extensionDigest,omitempty"`
+	ReplicationDigest string `json:"replicationDigest,omitempty"`
+	BackupDigest      string `json:"backupDigest,omitempty"`
+	RestoreDigest     string `json:"restoreDigest,omitempty"`
+	ConfigDigest      string `json:"configDigest,omitempty"`
+	MaintenanceDigest string `json:"maintenanceDigest,omitempty"`
+	Digest            string `json:"digest,omitempty"`
+}
+
 type EffectiveHostInput struct {
 	Transport          string   `json:"transport,omitempty"`
 	TargetID           string   `json:"targetId,omitempty"`
@@ -272,6 +303,22 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 			return "", nil, err
 		}
 		input.MySQLDigest = mysqlInput.Digest
+	case NodeKindPostgresRoleEnsure,
+		NodeKindPostgresDatabaseEnsure,
+		NodeKindPostgresGrantEnsure,
+		NodeKindPostgresSchemaEnsure,
+		NodeKindPostgresExtensionEnsure,
+		NodeKindPostgresReplicationVerify,
+		NodeKindPostgresBackupRun,
+		NodeKindPostgresBackupVerify,
+		NodeKindPostgresRestoreDrill,
+		NodeKindPostgresConfigEnsure,
+		NodeKindPostgresMaintenanceRun:
+		postgresInput, err := digestPostgresSpec(n.Postgres)
+		if err != nil {
+			return "", nil, err
+		}
+		input.PostgresDigest = postgresInput.Digest
 	case NodeKindHostCommandRun, NodeKindHostFileRender, NodeKindHostFileCopy, NodeKindHostPackageInstall, NodeKindHostServiceManage, NodeKindHostUserManage, NodeKindHostCronManage, NodeKindHostSystemdUnit:
 		hostInput, err := digestHostCommandSpec(n.Host)
 		if err != nil {
@@ -329,6 +376,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		ModuleDigest     string `json:"moduleDigest,omitempty"`
 		DatabaseDigest   string `json:"databaseDigest,omitempty"`
 		MySQLDigest      string `json:"mysqlDigest,omitempty"`
+		PostgresDigest   string `json:"postgresDigest,omitempty"`
 		HostDigest       string `json:"hostDigest,omitempty"`
 		KubernetesDigest string `json:"kubernetesDigest,omitempty"`
 
@@ -366,6 +414,7 @@ func ComputeEffectiveInputHashWithOptions(n *ResolvedRelease, opts EffectiveInpu
 		ModuleDigest:     input.ModuleDigest,
 		DatabaseDigest:   input.DatabaseDigest,
 		MySQLDigest:      input.MySQLDigest,
+		PostgresDigest:   input.PostgresDigest,
 		HostDigest:       input.HostDigest,
 		KubernetesDigest: input.KubernetesDigest,
 
@@ -573,6 +622,82 @@ func digestMySQLSpec(spec MySQLSpec) (EffectiveMySQLInput, error) {
 	}
 	input.Digest = sum
 	return input, nil
+}
+
+func digestPostgresSpec(spec PostgresSpec) (EffectivePostgresInput, error) {
+	input := EffectivePostgresInput{
+		Transport:        strings.TrimSpace(spec.Transport),
+		TargetID:         strings.TrimSpace(spec.TargetID),
+		TargetEnv:        strings.TrimSpace(spec.TargetEnv),
+		Database:         strings.TrimSpace(spec.Database),
+		Port:             spec.Port,
+		User:             strings.TrimSpace(spec.User),
+		PasswordEnv:      strings.TrimSpace(spec.PasswordEnv),
+		SSLMode:          strings.TrimSpace(spec.SSLMode),
+		PSQLCommand:      strings.TrimSpace(spec.PSQLCommand),
+		PGDumpCommand:    strings.TrimSpace(spec.PGDumpCommand),
+		PGRestoreCommand: strings.TrimSpace(spec.PGRestoreCommand),
+		RunAsUser:        strings.TrimSpace(spec.RunAsUser),
+		AgentPath:        strings.TrimSpace(spec.AgentPath),
+		ExecutionMode:    strings.TrimSpace(spec.ExecutionMode),
+	}
+	if strings.TrimSpace(spec.Target) != "" {
+		input.TargetDigest = digestString(spec.Target)
+	}
+	if strings.TrimSpace(spec.Host) != "" {
+		input.HostDigest = digestString(spec.Host)
+	}
+	if spec.Timeout != nil {
+		input.Timeout = spec.Timeout.String()
+	}
+	var err error
+	if input.RoleDigest, err = digestStableStruct(spec.Role); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.DatabaseDigest, err = digestStableStruct(spec.DatabaseRef); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.GrantDigest, err = digestStableStruct(spec.Grant); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.SchemaDigest, err = digestStableStruct(spec.Schema); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.ExtensionDigest, err = digestStableStruct(spec.Extension); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.ReplicationDigest, err = digestStableStruct(spec.Replication); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.BackupDigest, err = digestStableStruct(spec.Backup); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.RestoreDigest, err = digestStableStruct(spec.Restore); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.ConfigDigest, err = digestStableStruct(spec.Config); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	if input.MaintenanceDigest, err = digestStableStruct(spec.Maintenance); err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	sum, err := hashJSONStable(input)
+	if err != nil {
+		return EffectivePostgresInput{}, err
+	}
+	input.Digest = sum
+	return input, nil
+}
+
+func digestStableStruct(value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	if string(raw) == "{}" || string(raw) == "null" {
+		return "", nil
+	}
+	return "sha256:" + hashBytes(raw), nil
 }
 
 func digestHostCommandSpec(spec HostCommandSpec) (EffectiveHostInput, error) {

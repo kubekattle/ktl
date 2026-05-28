@@ -455,6 +455,18 @@ func requiredFleetCapabilityForNode(node *ResolvedRelease) string {
 		return kind
 	case NodeKindMySQLReplicationVerify:
 		return kind
+	case NodeKindPostgresRoleEnsure,
+		NodeKindPostgresDatabaseEnsure,
+		NodeKindPostgresGrantEnsure,
+		NodeKindPostgresSchemaEnsure,
+		NodeKindPostgresExtensionEnsure,
+		NodeKindPostgresReplicationVerify,
+		NodeKindPostgresBackupRun,
+		NodeKindPostgresBackupVerify,
+		NodeKindPostgresRestoreDrill,
+		NodeKindPostgresConfigEnsure,
+		NodeKindPostgresMaintenanceRun:
+		return kind
 	case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait, NodeKindK8sLogsCapture, NodeKindK8sEventsCapture, NodeKindK8sCertInspect, NodeKindK8sCertRenew:
 		return kind
 	default:
@@ -578,6 +590,18 @@ func fleetTransportViolations(p *Plan) []fleetTransportViolation {
 			out = appendFleetTransportViolation(out, node.ID, kind, node.Host.Transport)
 		case NodeKindMySQLReplicationVerify:
 			out = appendFleetTransportViolation(out, node.ID, kind, node.MySQL.Transport)
+		case NodeKindPostgresRoleEnsure,
+			NodeKindPostgresDatabaseEnsure,
+			NodeKindPostgresGrantEnsure,
+			NodeKindPostgresSchemaEnsure,
+			NodeKindPostgresExtensionEnsure,
+			NodeKindPostgresReplicationVerify,
+			NodeKindPostgresBackupRun,
+			NodeKindPostgresBackupVerify,
+			NodeKindPostgresRestoreDrill,
+			NodeKindPostgresConfigEnsure,
+			NodeKindPostgresMaintenanceRun:
+			out = appendFleetTransportViolation(out, node.ID, kind, node.Postgres.Transport)
 		case NodeKindK8sClusterInspect, NodeKindK8sClusterVerify, NodeKindK8sManifestApply, NodeKindK8sManifestDelete, NodeKindK8sResourceWait, NodeKindK8sLogsCapture, NodeKindK8sEventsCapture:
 			out = appendFleetTransportViolation(out, node.ID, kind, node.Kubernetes.Cluster.Transport)
 		case NodeKindK8sCertInspect, NodeKindK8sCertRenew:
