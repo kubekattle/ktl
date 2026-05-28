@@ -159,6 +159,44 @@ func TestRunConsole_TTYSpec_Golden(t *testing.T) {
 	})
 }
 
+func TestRunConsole_DetailsIncludeNodeLogs(t *testing.T) {
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	clock := &fakeClock{t: t0}
+	console := NewRunConsole(nil, testPlan(), "apply", RunConsoleOptions{
+		Enabled:     true,
+		Verbose:     true,
+		Width:       120,
+		Now:         clock.Now,
+		Color:       false,
+		ShowDetails: true,
+		DetailsTail: 4,
+	})
+	emit := func(ev RunEvent) {
+		console.mu.Lock()
+		console.applyEventLocked(ev)
+		console.mu.Unlock()
+	}
+
+	emit(RunEvent{
+		TS:    t0.Format(time.RFC3339Nano),
+		RunID: "r-details-1",
+		Type:  string(RunStarted),
+		Fields: map[string]any{
+			"command":     "apply",
+			"concurrency": 1,
+		},
+	})
+	clock.t = t0.Add(900 * time.Millisecond)
+	emit(RunEvent{TS: clock.t.Format(time.RFC3339Nano), RunID: "r-details-1", NodeID: "dev/a", Type: string(NodeRunning), Attempt: 1})
+	emit(RunEvent{TS: clock.t.Format(time.RFC3339Nano), RunID: "r-details-1", NodeID: "dev/a", Type: string(PhaseStarted), Attempt: 1, Fields: map[string]any{"phase": "postgres-backup-run"}})
+	emit(RunEvent{TS: clock.t.Format(time.RFC3339Nano), RunID: "r-details-1", NodeID: "dev/a", Type: string(NodeLog), Attempt: 1, Message: "backup: uploading durable snapshot", Fields: map[string]any{"stream": "log", "kind": "task-log"}})
+
+	got := strings.Join(console.SnapshotLines(), "\n")
+	if !strings.Contains(got, "logs:") || !strings.Contains(got, "backup: uploading durable snapshot") {
+		t.Fatalf("expected details panel to include node log tail, got:\n%s", got)
+	}
+}
+
 func readGolden(t *testing.T, relPath string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Clean(relPath))

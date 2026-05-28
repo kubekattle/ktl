@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	natsgo "github.com/nats-io/nats.go"
@@ -63,6 +64,14 @@ func IngestJetStream(ctx context.Context, opts IngestOptions) (IngestResult, err
 		Consumer:   durable,
 		Status:     "succeeded",
 		StartedAt:  startedAt.Format(time.RFC3339Nano),
+	}
+	existingRecords := map[string]CompactRecord{}
+	records, err := opts.Store.List(ctx, tenant)
+	if err != nil {
+		return resultWithError(result), err
+	}
+	for _, record := range records {
+		existingRecords[record.AgentID] = record
 	}
 	conn, timeout, err := connect(ctx, opts.NATS, "torque-agent-registry-ingestor")
 	if err != nil {
@@ -136,10 +145,14 @@ func IngestJetStream(ctx context.Context, opts IngestOptions) (IngestResult, err
 				_ = msg.Nak()
 				return resultWithError(result), err
 			}
+			if existing, ok := existingRecords[record.AgentID]; ok {
+				record = mergeCompactRecord(existing, record)
+			}
 			if err := opts.Store.Put(ctx, record); err != nil {
 				_ = msg.Nak()
 				return resultWithError(result), err
 			}
+			existingRecords[record.AgentID] = record
 			if err := msg.Ack(natsgo.Context(ctx)); err != nil {
 				return resultWithError(result), err
 			}
@@ -154,6 +167,13 @@ func resultWithError(result IngestResult) IngestResult {
 	result.Status = "failed"
 	result.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return result
+}
+
+func mergeCompactRecord(existing CompactRecord, next CompactRecord) CompactRecord {
+	if strings.TrimSpace(existing.Status.Enrollment.State) == EnrollmentStateApproved && strings.TrimSpace(next.Status.Enrollment.State) != EnrollmentStateApproved {
+		next.Status.Enrollment = existing.Status.Enrollment
+	}
+	return next
 }
 
 func firstNonEmptyHeartbeat(values ...string) string {

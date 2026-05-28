@@ -59,6 +59,9 @@ Collapse rules:
 
 - Sticky rail hidden when empty.
 - “Noisy” phases (`render`, `wait`, `pre-*`, `post-*`) collapse to `-` unless verbose or failed.
+- When `--log-level debug` is active, task-level `NODE_LOG` lines (for example
+  host-command stdout/stderr or PostgreSQL backup/restore milestones) are kept
+  in the `DETAILS` panel for active/problematic nodes.
 
 ## Colors & Glyphs
 
@@ -86,3 +89,11 @@ Rules:
 - `--helm-logs=all` shows logs for every node that has any captured lines.
 - Each node block starts with a single header line prefixed by a separator `─`, including `cluster/ns/<namespace>/<release>` when available.
 - Log lines are indented, prefixed by a gutter `│`, and include a dim timestamp (`HH:MM:SS.mmm`).
+
+### Details Section (optional)
+
+When the console renders the `DETAILS` section, it may include:
+
+- Recent hook events for the node.
+- Recent task log lines emitted as `NODE_LOG` events.
+- Captured Helm tail lines when helm log capture is enabled.

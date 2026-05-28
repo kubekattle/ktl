@@ -287,12 +287,14 @@ func uploadBackupArtifacts(ctx context.Context, spec BackupStoreSpec, envFile st
 		PartSizeBytes: store.PartSizeBytes,
 		SessionPath:   sessionPath,
 	}
+	reportProgress(ctx, "backup store: target %s", result.URI)
 	if exists, etag, err := matchingS3ObjectExists(ctx, client, store.Bucket, key, sha, bytes); err != nil {
 		return nil, err
 	} else if exists {
 		result.Uploaded = false
 		result.Resumed = true
 		result.ETag = etag
+		reportProgress(ctx, "backup store: reusing existing object %s", result.URI)
 	} else if bytes >= store.PartSizeBytes {
 		multipart, err := uploadS3MultipartFile(ctx, client, store, backupID, key, file, sha, bytes, sessionPath)
 		if err != nil {
@@ -304,6 +306,7 @@ func uploadBackupArtifacts(ctx context.Context, spec BackupStoreSpec, envFile st
 		result.UploadID = multipart.UploadID
 		result.Parts = multipart.Parts
 		result.ETag = multipart.ETag
+		reportProgress(ctx, "backup store: multipart upload completed with %d parts", multipart.Parts)
 	} else {
 		etag, err := putS3File(ctx, client, store.Bucket, key, file, map[string]string{
 			"backup-id": safeMetadataValue(backupID),
@@ -314,6 +317,7 @@ func uploadBackupArtifacts(ctx context.Context, spec BackupStoreSpec, envFile st
 		}
 		result.Uploaded = true
 		result.ETag = etag
+		reportProgress(ctx, "backup store: uploaded object %s", result.URI)
 	}
 	if strings.TrimSpace(manifest) != "" {
 		manifestKey := backupManifestKey(store, backupID, manifest)
@@ -322,6 +326,7 @@ func uploadBackupArtifacts(ctx context.Context, spec BackupStoreSpec, envFile st
 		}
 		result.ManifestKey = manifestKey
 		result.ManifestURI = s3URI(store.Bucket, manifestKey)
+		reportProgress(ctx, "backup store: uploaded manifest %s", result.ManifestURI)
 	}
 	if strings.TrimSpace(catalog) != "" && fileExists(catalog) {
 		catalogKey := backupCatalogKey(store, backupID, catalog)
@@ -330,6 +335,7 @@ func uploadBackupArtifacts(ctx context.Context, spec BackupStoreSpec, envFile st
 		}
 		result.CatalogKey = catalogKey
 		result.CatalogURI = s3URI(store.Bucket, catalogKey)
+		reportProgress(ctx, "backup store: uploaded catalog %s", result.CatalogURI)
 	}
 	return result, nil
 }
@@ -355,6 +361,7 @@ func ensureBackupLocalFromStore(ctx context.Context, spec Spec, file string) (bo
 	if err != nil {
 		return false, err
 	}
+	reportProgress(ctx, "backup store: downloading %s to %s", s3URI(store.Bucket, key), file)
 	return true, downloadS3Object(ctx, client, store.Bucket, key, file)
 }
 
@@ -439,6 +446,7 @@ func uploadS3MultipartFile(ctx context.Context, client *s3.Client, store normali
 	if err != nil {
 		return multipartUploadResult{}, err
 	}
+	reportProgress(ctx, "backup store: multipart upload %s uploadId=%s resumed=%t", s3URI(store.Bucket, key), session.UploadID, resumed)
 	f, err := os.Open(file)
 	if err != nil {
 		return multipartUploadResult{}, err
@@ -476,6 +484,8 @@ func uploadS3MultipartFile(ctx context.Context, client *s3.Client, store normali
 		if err := saveS3UploadSession(sessionPath, session); err != nil {
 			return multipartUploadResult{}, err
 		}
+		totalParts := int((bytes + session.PartSizeBytes - 1) / session.PartSizeBytes)
+		reportProgress(ctx, "backup store: uploaded part %d/%d (%d bytes)", number, totalParts, size)
 	}
 	completed := make([]s3types.CompletedPart, 0, len(uploaded))
 	for _, part := range sortedSessionParts(uploaded) {

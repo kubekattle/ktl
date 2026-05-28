@@ -75,6 +75,21 @@ jobs:
             tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner \
               -C "${outdir}" -cf - . | gzip -n > "${tarball}"
           done
+          tool="helmer"
+          outdir="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}"
+          mkdir -p "${outdir}"
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 \
+            go build -trimpath -ldflags "${ldflags} -X main.buildMode=helmer-only" -o "${outdir}/${tool}" "./cmd/torque"
+          cat > "${outdir}/README.txt" <<TXT
+          This archive contains a single binary built from https://github.com/${{ github.repository }}
+          Install:
+            chmod +x ./${tool} && mv ./${tool} /usr/local/bin/${tool}
+          Check help:
+            ${tool} -h
+          TXT
+          tarball="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz"
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner \
+            -C "${outdir}" -cf - . | gzip -n > "${tarball}"
 
       - name: Download syft
         id: syft
@@ -87,7 +102,7 @@ jobs:
           set -euo pipefail
           syft="${{ steps.syft.outputs.cmd }}"
           tag="${{ github.ref_name }}"
-          for tool in torque torque-agent verifier verify torque-package torque-mcp; do
+          for tool in torque torque-agent verifier verify helmer torque-package torque-mcp; do
             bin="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${tag}/${tool}"
             spdx="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${tag}.sbom.spdx.json"
             cdx="dist/${tool}-${{ matrix.os }}-${{ matrix.arch }}-${tag}.sbom.cdx.json"
@@ -170,6 +185,13 @@ jobs:
         with:
           subject-path: dist/verifier-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
           sbom-path: dist/verifier-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
+
+      - name: Attest SBOM (helmer)
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        continue-on-error: true
+        with:
+          subject-path: dist/helmer-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.tar.gz
+          sbom-path: dist/helmer-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_name }}.sbom.spdx.json
 
       - name: Attest SBOM (torque-package)
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3

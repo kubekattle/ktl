@@ -25,7 +25,7 @@ func TestVersionCommandPrintsClientVersion(t *testing.T) {
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if got := out.String(); !strings.Contains(got, "Client Version:") {
+	if got := out.String(); !strings.Contains(got, "Torque Version:") {
 		t.Fatalf("expected version header, got: %q", got)
 	}
 }

@@ -43,6 +43,7 @@ import (
 )
 
 func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *string, helpSection string) *cobra.Command {
+	profile := currentCLIProfile()
 	ownNamespaceFlag := false
 	if namespace == nil {
 		namespace = new(string)
@@ -73,11 +74,15 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	resolveFormat := func() string {
 		return resolveDeployPlanFormat(format, visualize)
 	}
+	longDesc := "Render the chart, diff it against live cluster resources, and summarize the net creates/updates/deletes before running torque apply."
+	if isHelmerOnlyBuild() {
+		longDesc = "Render the chart, diff it against live cluster resources, and summarize the net creates/updates/deletes without applying changes."
+	}
 
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Preview Helm release changes without applying them",
-		Long:  "Render the chart, diff it against live cluster resources, and summarize the net creates/updates/deletes before running torque apply.",
+		Long:  longDesc,
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			resolvedFormat = resolveFormat()
@@ -268,11 +273,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 			case "html":
 				path := outputPath
 				if strings.TrimSpace(path) == "" {
-					slug := sanitizeFilename(release)
-					if slug == "" {
-						slug = "release"
-					}
-					path = fmt.Sprintf("torque-deploy-plan-%s-%s.html", slug, planResult.GeneratedAt.Format("20060102-150405"))
+					path = defaultPlanHTMLOutputPath(release, planResult.GeneratedAt)
 				}
 				html, err := renderDeployPlanHTML(planResult)
 				if err != nil {
@@ -286,7 +287,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 			case "visualize-html":
 				path := strings.TrimSpace(outputPath)
 				if path == "" {
-					path = defaultDeployVisualizeOutputPath(release, planResult.GeneratedAt)
+					path = defaultPlanVisualizeHTMLOutputPath(release, planResult.GeneratedAt)
 				}
 				var visualizeCompare *deployPlanResult
 				if strings.TrimSpace(compareSource) != "" {
@@ -323,7 +324,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 					if selectedFormat == "visualize-yaml" {
 						ext = "yaml"
 					}
-					path = defaultDeployVisualizeDataOutputPath(release, planResult.GeneratedAt, ext)
+					path = defaultPlanVisualizeDataOutputPath(release, planResult.GeneratedAt, ext)
 				}
 				var visualizeCompare *deployPlanResult
 				if strings.TrimSpace(compareSource) != "" {
@@ -413,7 +414,7 @@ func newDeployPlanCommand(namespace *string, kubeconfig *string, kubeContext *st
 	cmd.Flags().BoolVar(&compareExit, "compare-exit", true, "Exit non-zero when --compare-to detects regressions")
 	cmd.Flags().StringVar(&baselinePath, "baseline", "", "Write plan JSON baseline to this path")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, yaml, markdown, or html")
-	cmd.Flags().StringVar(&outputPath, "output", "", "Write the rendered plan to this path (HTML defaults to ./torque-deploy-plan-<release>-<timestamp>.html)")
+	cmd.Flags().StringVar(&outputPath, "output", "", fmt.Sprintf("Write the rendered plan to this path (HTML defaults to %s)", profile.PlanHTMLDefaultLabel))
 	cmd.Flags().BoolVar(&githubComment, "github-comment", false, "Render a GitHub PR comment markdown summary")
 	cmd.Flags().StringArrayVar(&verifyReportPaths, "verify-report", nil, "Attach verifier JSON report to the plan artifact (repeatable)")
 	cmd.Flags().StringArrayVar(&buildCapturePaths, "build-capture", nil, "Attach a torque build capture SQLite file for image provenance (repeatable)")
@@ -1778,15 +1779,16 @@ func renderDeployPlanMarkdown(result *deployPlanResult, githubComment bool) stri
 	if result == nil {
 		return ""
 	}
+	profile := currentCLIProfile()
 	var b strings.Builder
 	namespace := strings.TrimSpace(result.Namespace)
 	if namespace == "" {
 		namespace = "(context namespace)"
 	}
 	if githubComment {
-		fmt.Fprintf(&b, "<!-- torque apply plan: release=%s namespace=%s -->\n\n", markdownCommentValue(result.ReleaseName), markdownCommentValue(namespace))
+		fmt.Fprintf(&b, "<!-- %s: release=%s namespace=%s -->\n\n", profile.PlanCommandLabel, markdownCommentValue(result.ReleaseName), markdownCommentValue(namespace))
 	}
-	fmt.Fprintf(&b, "## torque apply plan: %s\n\n", markdownCode(result.ReleaseName))
+	fmt.Fprintf(&b, "## %s: %s\n\n", profile.PlanCommandLabel, markdownCode(result.ReleaseName))
 
 	risk, reasons := planRiskSummary(result)
 	rollback := rollbackCommand(result.ReleaseName, namespace)
@@ -2151,7 +2153,7 @@ func planQuotaReports(result *deployPlanResult) []*quotaReport {
 
 func writeVerifyReportsMarkdown(b *strings.Builder, reports []planVerifyReport) {
 	if len(reports) == 0 {
-		fmt.Fprintf(b, "No verifier report is attached to this plan artifact. Run `verifier --format json --report verify.json` and pass `torque apply plan --verify-report verify.json`.\n")
+		fmt.Fprintf(b, "No verifier report is attached to this plan artifact. Run `verifier --format json --report verify.json` and pass `%s --verify-report verify.json`.\n", currentCLIProfile().PlanCommandLabel)
 		return
 	}
 	rows := make([][4]string, 0, len(reports))
@@ -2475,7 +2477,7 @@ func renderDeployPlanHTML(result *deployPlanResult) (string, error) {
 	if err := tmpl.Execute(&buf, ctx); err != nil {
 		return "", fmt.Errorf("render template: %w", err)
 	}
-	return buf.String(), nil
+	return rewritePlanSurfaceBranding(buf.String()), nil
 }
 
 var planDataScriptRegex = regexp.MustCompile(`(?s)<script[^>]+id=["']torquePlanData["'][^>]*>(.*?)</script>`)
@@ -2586,22 +2588,11 @@ func renderDeployVisualizeHTML(result *deployPlanResult, compare *deployPlanResu
 	}
 	html := strings.Replace(deployVisualizeHTMLTemplate, "__DATA__", escaped, 1)
 	html = strings.Replace(html, "__FEATURES__", escapeJSONForScript(featuresJSON), 1)
-	return html, nil
+	return rewritePlanSurfaceBranding(html), nil
 }
 
 func defaultDeployVisualizeDataOutputPath(release string, generatedAt time.Time, ext string) string {
-	slug := sanitizeFilename(release)
-	if slug == "" {
-		slug = "release"
-	}
-	stamp := time.Now()
-	if !generatedAt.IsZero() {
-		stamp = generatedAt
-	}
-	if strings.TrimSpace(ext) == "" {
-		ext = "json"
-	}
-	return fmt.Sprintf("torque-deploy-visualize-%s-%s.%s", slug, stamp.Format("20060102-150405"), ext)
+	return defaultPlanVisualizeDataOutputPath(release, generatedAt, ext)
 }
 
 func escapeJSONForScript(data []byte) string {
@@ -2780,11 +2771,7 @@ func sanitizeFilename(s string) string {
 }
 
 func defaultDeployVisualizeOutputPath(release string, generatedAt time.Time) string {
-	slug := sanitizeFilename(release)
-	if slug == "" {
-		slug = "release"
-	}
-	return fmt.Sprintf("torque-deploy-visualize-%s-%s.html", slug, generatedAt.Format("20060102-150405"))
+	return defaultPlanVisualizeHTMLOutputPath(release, generatedAt)
 }
 
 func writePlanBaseline(path string, result *deployPlanResult) error {
@@ -2812,7 +2799,7 @@ func writePlanBaseline(path string, result *deployPlanResult) error {
 }
 
 func buildInstallCommand(opts deployPlanOptions) string {
-	parts := []string{"torque", "deploy", "apply"}
+	parts := append([]string(nil), currentCLIProfile().PlanInstallCmdWords...)
 	if opts.Chart != "" {
 		parts = append(parts, "--chart", shellQuote(opts.Chart))
 	}

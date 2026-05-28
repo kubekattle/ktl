@@ -266,6 +266,8 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 		observe := e.hostCommandObserveReceipt(node, phase, "")
 		plan := e.hostCommandPlanReceipt(node, phase, remoteCommand, "planned", "eligible")
 		fanout, receipt := e.runHostCommandFleetNATSFanout(ctx, node, phase, spec, remoteCommand)
+		e.emitVerboseNodeLog(node, phase, "", "dispatching host command through fleet fan-out", map[string]any{"mode": "fanout"})
+		e.emitVerboseReceiptLogs(node, phase, receipt)
 		observe.TargetDigest = receipt.TargetDigest
 		verify := e.hostCommandVerifyReceipt(node, phase, plan.TargetID, receipt)
 		e.recordHostCommandFanoutReceipts(node, phase, fanout.Status, strings.TrimSpace(fanout.Reason), observe, plan, fanout, receipt, verify)
@@ -281,6 +283,9 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 			}, runErr, true)
 			return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("host command phase %s: %s", phase, msg))
 		}
+		e.emitVerboseNodeLog(node, phase, "", "host command fan-out completed", map[string]any{
+			"status": fanout.Status,
+		})
 		e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, firstNonEmptyString(fanout.Reason, "success"), map[string]any{
 			"phase":   phase,
 			"status":  "success",
@@ -290,10 +295,14 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 		}, nil)
 		return nil
 	}
-	transportClient, err := hostCommandTransport(spec)
+	lineObserver := e.transportLineObserver(node, phase)
+	transportClient, streamed, err := hostCommandTransportWithObserver(spec, lineObserver)
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
+	e.emitVerboseNodeLog(node, phase, "", "starting host command via "+firstNonEmptyString(strings.TrimSpace(spec.Transport), "local"), map[string]any{
+		"transport": firstNonEmptyString(strings.TrimSpace(spec.Transport), "local"),
+	})
 	targetDigest := transportClient.TargetDigest()
 	observe := e.hostCommandObserveReceipt(node, phase, targetDigest)
 	plan := e.hostCommandPlanReceipt(node, phase, remoteCommand, "planned", "eligible")
@@ -323,6 +332,12 @@ func (e *customNodeExecutor) runHostCommandNode(ctx context.Context, node *runNo
 		return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("host command phase %s: %w", phase, guardErr))
 	}
 	receipt := transportClient.Run(ctx, remoteCommand)
+	if !streamed {
+		e.emitVerboseReceiptLogs(node, phase, receipt)
+	}
+	e.emitVerboseNodeLog(node, phase, "", fmt.Sprintf("host command finished status=%s exit=%d duration=%dms", receipt.Status, receipt.ExitCode, receipt.DurationMillis), map[string]any{
+		"status": receipt.Status,
+	})
 	verify := e.hostCommandVerifyReceipt(node, phase, plan.TargetID, receipt)
 	e.recordHostCommandReceipts(node, phase, receipt.Status, strings.TrimSpace(receipt.Error), observe, plan, &receipt, verify)
 	if !nodeStepSucceeded(receipt.Status) {
@@ -681,6 +696,11 @@ type hostCommandRunner interface {
 }
 
 func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
+	runner, _, err := hostCommandTransportWithObserver(spec, nil)
+	return runner, err
+}
+
+func hostCommandTransportWithObserver(spec HostCommandSpec, lineObserver transport.LineObserver) (hostCommandRunner, bool, error) {
 	transportKind := strings.ToLower(strings.TrimSpace(spec.Transport))
 	if transportKind == "" {
 		transportKind = "local"
@@ -693,7 +713,7 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 	if envName := strings.TrimSpace(spec.TargetEnv); envName != "" {
 		target = strings.TrimSpace(os.Getenv(envName))
 		if target == "" {
-			return nil, fmt.Errorf("host command target env %s is empty", envName)
+			return nil, false, fmt.Errorf("host command target env %s is empty", envName)
 		}
 	}
 	switch transportKind {
@@ -701,28 +721,32 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 		if target == "" {
 			target = "local://localhost"
 		}
-		return localtransport.New(localtransport.Config{
+		runner, err := localtransport.New(localtransport.Config{
 			Target:       target,
 			Timeout:      timeout,
 			RedactValues: []string{target},
+			LineObserver: lineObserver,
 		})
+		return runner, lineObserver != nil, err
 	case "ssh":
 		if target == "" {
-			return nil, fmt.Errorf("host.command.run ssh transport requires host.target or host.targetEnv")
+			return nil, false, fmt.Errorf("host.command.run ssh transport requires host.target or host.targetEnv")
 		}
-		return sshtransport.New(sshtransport.Config{
+		runner, err := sshtransport.New(sshtransport.Config{
 			Target:       target,
 			IdentityFile: strings.TrimSpace(os.Getenv("TORQUE_LAB_SSH_IDENTITY")),
 			ExtraArgs:    strings.Fields(strings.TrimSpace(os.Getenv("TORQUE_LAB_SSH_OPTS"))),
 			Timeout:      timeout,
 			RedactValues: []string{target},
+			LineObserver: lineObserver,
 		})
+		return runner, lineObserver != nil, err
 	case "nats", "nats-mesh":
 		if target == "" {
-			return nil, fmt.Errorf("host.command.run nats transport requires host.target or host.targetEnv")
+			return nil, false, fmt.Errorf("host.command.run nats transport requires host.target or host.targetEnv")
 		}
 		server := firstNonEmptyString(os.Getenv("TORQUE_NATS_URL"), os.Getenv("TORQUE_NATS_SERVER"))
-		return natstransport.New(natstransport.Config{
+		runner, err := natstransport.New(natstransport.Config{
 			Target:             target,
 			Server:             server,
 			Creds:              strings.TrimSpace(os.Getenv("TORQUE_NATS_CREDS")),
@@ -736,8 +760,9 @@ func hostCommandTransport(spec HostCommandSpec) (hostCommandRunner, error) {
 			PlanDigest:         strings.TrimSpace(spec.PlanDigest),
 			Resource:           cloneJSONRawMessage(spec.Resource),
 		})
+		return runner, false, err
 	default:
-		return nil, fmt.Errorf("unsupported host.command.run transport %q", transportKind)
+		return nil, false, fmt.Errorf("unsupported host.command.run transport %q", transportKind)
 	}
 }
 

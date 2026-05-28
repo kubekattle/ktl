@@ -102,8 +102,11 @@ func newRootCommand() *cobra.Command {
 
 func newRootCommandWithBuildService(buildService buildsvc.Service) *cobra.Command {
 	initKlogFlags()
-	if strings.EqualFold(strings.TrimSpace(buildMode), "logs-only") {
+	if isLogsOnlyBuild() {
 		return newLogsRootCommand()
+	}
+	if isHelmerOnlyBuild() {
+		return newHelmerRootCommand()
 	}
 
 	opts := config.NewOptions()

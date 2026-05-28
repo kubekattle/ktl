@@ -222,6 +222,68 @@ targets:
 	}
 }
 
+func TestLoadAcceptsBootstrapAndDurableTransportRefs(t *testing.T) {
+	graph, err := Load(strings.NewReader(`
+apiVersion: torque.dev/v1alpha1
+kind: TargetGraph
+metadata:
+  name: promoted
+targets:
+  - id: host/a
+    type: host
+    transportRef: ssh/bootstrap-a
+    durableTransportRef: nats/a
+transports:
+  - id: ssh/bootstrap-a
+    kind: ssh
+    host: host-a
+  - id: nats/a
+    kind: nats
+    url: nats://127.0.0.1:4222
+`))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if graph.Targets[0].DurableTransportRef != "nats/a" {
+		t.Fatalf("DurableTransportRef = %q, want nats/a", graph.Targets[0].DurableTransportRef)
+	}
+}
+
+func TestTargetGraphWriteFilePersistsDurableTransportRef(t *testing.T) {
+	graph, err := Load(strings.NewReader(`
+apiVersion: torque.dev/v1alpha1
+kind: TargetGraph
+metadata:
+  name: promoted
+targets:
+  - id: host/a
+    type: host
+    transportRef: ssh/bootstrap-a
+    durableTransportRef: nats/a
+transports:
+  - id: ssh/bootstrap-a
+    kind: ssh
+    host: host-a
+  - id: nats/a
+    kind: nats
+    url: nats://127.0.0.1:4222
+`))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "targetgraph.yaml")
+	if err := graph.WriteFile(path); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	reloaded, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+	if reloaded.Targets[0].DurableTransportRef != "nats/a" {
+		t.Fatalf("reloaded DurableTransportRef = %q, want nats/a", reloaded.Targets[0].DurableTransportRef)
+	}
+}
+
 func TestLoadRejectsBadFactTTL(t *testing.T) {
 	_, err := Load(strings.NewReader(`
 apiVersion: torque.dev/v1alpha1

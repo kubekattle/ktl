@@ -12,9 +12,10 @@ import (
 
 func newVersionCommand() *cobra.Command {
 	var short bool
+	cliName := currentCLIName()
 	cmd := &cobra.Command{
 		Use:           "version",
-		Short:         "Print the torque client version information",
+		Short:         fmt.Sprintf("Print the %s client version information", cliName),
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -24,7 +25,7 @@ func newVersionCommand() *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), info.Version)
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Client Version: %s\n", info.Version)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s Version: %s\n", titleCase(cliName), info.Version)
 			if info.GitCommit != "" && info.GitCommit != "unknown" {
 				fmt.Fprintf(cmd.OutOrStdout(), "GitCommit: %s\n", info.GitCommit)
 			}

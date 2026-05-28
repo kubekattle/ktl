@@ -39,6 +39,7 @@ type Target struct {
 	ID                  string            `json:"id" yaml:"id"`
 	Type                string            `json:"type" yaml:"type"`
 	TransportRef        string            `json:"transportRef,omitempty" yaml:"transportRef,omitempty"`
+	DurableTransportRef string            `json:"durableTransportRef,omitempty" yaml:"durableTransportRef,omitempty"`
 	Labels              map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
 	Groups              []string          `json:"groups,omitempty" yaml:"groups,omitempty"`
 	Variables           []VariableLayer   `json:"variables,omitempty" yaml:"variables,omitempty"`
@@ -224,11 +225,18 @@ func (g TargetGraph) Validate() error {
 	for i, target := range g.Targets {
 		path := fmt.Sprintf("targets[%d]", i)
 		if target.Type == "host" {
-			if strings.TrimSpace(target.TransportRef) == "" {
-				errs = append(errs, path+".transportRef is required for host targets")
-			} else if !isExternalRef(target.TransportRef) {
-				if _, exists := transportIDs[target.TransportRef]; !exists {
-					errs = append(errs, fmt.Sprintf("%s.transportRef references unknown transport %q", path, target.TransportRef))
+			if strings.TrimSpace(target.TransportRef) == "" && strings.TrimSpace(target.DurableTransportRef) == "" {
+				errs = append(errs, path+".transportRef or "+path+".durableTransportRef is required for host targets")
+			} else {
+				if strings.TrimSpace(target.TransportRef) != "" && !isExternalRef(target.TransportRef) {
+					if _, exists := transportIDs[target.TransportRef]; !exists {
+						errs = append(errs, fmt.Sprintf("%s.transportRef references unknown transport %q", path, target.TransportRef))
+					}
+				}
+				if strings.TrimSpace(target.DurableTransportRef) != "" && !isExternalRef(target.DurableTransportRef) {
+					if _, exists := transportIDs[target.DurableTransportRef]; !exists {
+						errs = append(errs, fmt.Sprintf("%s.durableTransportRef references unknown transport %q", path, target.DurableTransportRef))
+					}
 				}
 			}
 		}
@@ -345,7 +353,7 @@ func countSecrets(value any) int {
 	case Metadata:
 		return countSecrets(typed.Labels)
 	case Target:
-		count := countSecrets(typed.TransportRef) + countSecrets(typed.Labels) + countSecrets(typed.Variables) + countSecrets(typed.Facts)
+		count := countSecrets(typed.TransportRef) + countSecrets(typed.DurableTransportRef) + countSecrets(typed.Labels) + countSecrets(typed.Variables) + countSecrets(typed.Facts)
 		count += countSecrets(typed.PrivilegeProfile) + countSecrets(typed.LockScope) + countSecrets(typed.AllowedCapabilities)
 		return count
 	case Group:

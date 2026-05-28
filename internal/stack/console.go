@@ -70,6 +70,7 @@ type RunConsole struct {
 	nodes      map[string]*runConsoleNodeState
 	metaByID   map[string]runConsoleNodeMeta
 	helmLogs   map[string][]runConsoleHelmLogEntry
+	nodeLogs   map[string][]runConsoleNodeLogEntry
 	hookEvents []runConsoleHookEntry
 	failures   []runConsoleFailure
 	startedAt  time.Time
@@ -152,6 +153,15 @@ type runConsoleHelmLogEntry struct {
 	line    string
 }
 
+type runConsoleNodeLogEntry struct {
+	seq     int64
+	offset  int
+	ts      time.Time
+	attempt int
+	stream  string
+	line    string
+}
+
 const runConsoleStackNodeID = "stack"
 
 func NewRunConsole(out io.Writer, plan *Plan, command string, opts RunConsoleOptions) *RunConsole {
@@ -167,6 +177,7 @@ func NewRunConsole(out io.Writer, plan *Plan, command string, opts RunConsoleOpt
 		nodes:      map[string]*runConsoleNodeState{},
 		metaByID:   map[string]runConsoleNodeMeta{},
 		helmLogs:   map[string][]runConsoleHelmLogEntry{},
+		nodeLogs:   map[string][]runConsoleNodeLogEntry{},
 		hookEvents: []runConsoleHookEntry{},
 	}
 	if plan != nil {
@@ -599,6 +610,7 @@ func (c *RunConsole) applyEventLocked(ev RunEvent) {
 				}
 			}
 		}
+		c.appendNodeLogLocked(ev)
 	case string(HelmLog):
 		c.appendHelmLogLocked(ev)
 	case string(StackHooksStarted):
@@ -689,6 +701,44 @@ func (c *RunConsole) appendHelmLogLocked(ev RunEvent) {
 		})
 		if len(c.helmLogs[id]) > tail {
 			c.helmLogs[id] = c.helmLogs[id][len(c.helmLogs[id])-tail:]
+		}
+	}
+}
+
+func (c *RunConsole) appendNodeLogLocked(ev RunEvent) {
+	if c == nil {
+		return
+	}
+	id := strings.TrimSpace(ev.NodeID)
+	if id == "" {
+		return
+	}
+	msg := strings.TrimSpace(ev.Message)
+	if msg == "" {
+		return
+	}
+	tail := c.opts.DetailsTail
+	if tail <= 0 {
+		tail = 8
+	}
+	ts, _ := parseRFC3339(ev.TS)
+	stream := strings.TrimSpace(fieldString(ev.Fields, "stream"))
+	lines := strings.Split(msg, "\n")
+	for i, line := range lines {
+		line = strings.TrimRight(line, "\r\t ")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		c.nodeLogs[id] = append(c.nodeLogs[id], runConsoleNodeLogEntry{
+			seq:     ev.Seq,
+			offset:  i,
+			ts:      ts,
+			attempt: ev.Attempt,
+			stream:  stream,
+			line:    line,
+		})
+		if len(c.nodeLogs[id]) > tail {
+			c.nodeLogs[id] = c.nodeLogs[id][len(c.nodeLogs[id])-tail:]
 		}
 	}
 }
@@ -1764,6 +1814,26 @@ func (c *RunConsole) renderDetailsLocked() []string {
 			msg := fmt.Sprintf("  hook[%s]: %s", strings.ToLower(e.status), hookLine(e))
 			lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidthKeepLeft(fmt.Sprintf("  │ %s %s", ts, msg), width)))
 			shownHooks++
+		}
+
+		if logs := c.nodeLogs[id]; len(logs) > 0 {
+			lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidth("  logs:", width)))
+			start := 0
+			if len(logs) > detailTail {
+				start = len(logs) - detailTail
+			}
+			for _, entry := range logs[start:] {
+				ts := "--:--:--.---"
+				if !entry.ts.IsZero() {
+					ts = entry.ts.UTC().Format("15:04:05.000")
+				}
+				msg := strings.TrimSpace(entry.line)
+				if entry.stream == "stderr" {
+					msg = "stderr: " + msg
+				}
+				line := fmt.Sprintf("  │ %s %s", ts, msg)
+				lines = append(lines, runConsoleAnsiDim(c.opts.Color, runConsoleTrimToWidthKeepLeft(line, width)))
+			}
 		}
 
 		// Helm tail (if captured).

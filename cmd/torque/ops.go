@@ -22,6 +22,7 @@ func newOpsCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newOpsInventoryCommand())
 	cmd.AddCommand(newOpsFactsCommand())
+	cmd.AddCommand(newOpsExecCommand())
 	cmd.AddCommand(newOpsLockCommand())
 	cmd.AddCommand(newOpsPolicyCommand())
 	cmd.AddCommand(newOpsAdapterCommand())

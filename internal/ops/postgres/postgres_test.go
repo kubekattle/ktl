@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -113,6 +114,42 @@ func TestExecuteBackupRunWritesDurableCatalog(t *testing.T) {
 	}
 	if record.RunID != "run-catalog" || record.NodeID != "postgres.backup.run/keycloak" {
 		t.Fatalf("catalog source = %#v", record)
+	}
+}
+
+func TestExecuteBackupRunEmitsProgressLines(t *testing.T) {
+	root := t.TempDir()
+	pgDump := writeFakePGDump(t, root, "torque-progress-fixture\n")
+	file := filepath.Join(root, "keycloak.dump")
+	manifest := filepath.Join(root, "keycloak.manifest.json")
+	catalog := filepath.Join(root, "keycloak.catalog.json")
+	result := Result{RunID: "run-progress", NodeID: "postgres.backup.run/keycloak"}
+	var progress bytes.Buffer
+	ctx := withProgressReporter(context.Background(), nil, &progress)
+	if err := executeBackupRun(ctx, &result, Spec{
+		Database:      "keycloak",
+		PGDumpCommand: pgDump,
+		Backup: BackupSpec{
+			Database:     "keycloak",
+			ID:           "keycloak/progress",
+			Path:         root,
+			File:         file,
+			ManifestPath: manifest,
+			CatalogPath:  catalog,
+		},
+	}); err != nil {
+		t.Fatalf("backup run: %v", err)
+	}
+	logs := progress.String()
+	for _, want := range []string{
+		"backup: running pg_dump",
+		"backup: wrote " + file,
+		"backup: manifest " + manifest,
+		"backup: catalog " + catalog,
+	} {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("expected progress log %q in:\n%s", want, logs)
+		}
 	}
 }
 

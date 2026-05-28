@@ -1,15 +1,18 @@
 package transport
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Runner executes a local process. Transport packages accept this interface so
@@ -23,6 +26,28 @@ type RunOutput struct {
 	Stdout   []byte
 	Stderr   []byte
 	ExitCode int
+}
+
+type LineRecord struct {
+	Stream string
+	Line   string
+}
+
+type LineObserver interface {
+	ObserveLine(LineRecord)
+}
+
+type LineObserverFunc func(LineRecord)
+
+func (f LineObserverFunc) ObserveLine(rec LineRecord) {
+	if f == nil {
+		return
+	}
+	f(rec)
+}
+
+type StreamingRunner interface {
+	RunStream(ctx context.Context, name string, args []string, observer LineObserver) (RunOutput, error)
 }
 
 // OperationResult is the evidence-safe receipt for one transport primitive.
@@ -45,12 +70,40 @@ type OperationResult struct {
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, name string, args []string) (RunOutput, error) {
+	return ExecRunner{}.RunStream(ctx, name, args, nil)
+}
+
+func (ExecRunner) RunStream(ctx context.Context, name string, args []string, observer LineObserver) (RunOutput, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return RunOutput{}, err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return RunOutput{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return RunOutput{}, err
+	}
+
+	var wg sync.WaitGroup
+	var stdoutErr error
+	var stderrErr error
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		stdoutErr = captureStream(stdoutPipe, &stdout, "stdout", observer)
+	}()
+	go func() {
+		defer wg.Done()
+		stderrErr = captureStream(stderrPipe, &stderr, "stderr", observer)
+	}()
+
+	err = cmd.Wait()
+	wg.Wait()
 	exitCode := 0
 	if err != nil {
 		exitCode = -1
@@ -59,11 +112,54 @@ func (ExecRunner) Run(ctx context.Context, name string, args []string) (RunOutpu
 			exitCode = exitErr.ExitCode()
 		}
 	}
+	if err == nil {
+		if stdoutErr != nil {
+			err = stdoutErr
+			exitCode = -1
+		} else if stderrErr != nil {
+			err = stderrErr
+			exitCode = -1
+		}
+	}
 	return RunOutput{
 		Stdout:   stdout.Bytes(),
 		Stderr:   stderr.Bytes(),
 		ExitCode: exitCode,
 	}, err
+}
+
+func captureStream(src io.Reader, dst *bytes.Buffer, stream string, observer LineObserver) error {
+	reader := bufio.NewReader(src)
+	var pending bytes.Buffer
+	for {
+		chunk, err := reader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			_, _ = dst.Write(chunk)
+			_, _ = pending.Write(chunk)
+			for {
+				data := pending.Bytes()
+				idx := bytes.IndexByte(data, '\n')
+				if idx < 0 {
+					break
+				}
+				line := strings.TrimRight(string(data[:idx]), "\r")
+				if observer != nil {
+					observer.ObserveLine(LineRecord{Stream: stream, Line: line})
+				}
+				pending.Next(idx + 1)
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if pending.Len() > 0 && observer != nil {
+		observer.ObserveLine(LineRecord{Stream: stream, Line: strings.TrimRight(pending.String(), "\r")})
+	}
+	return nil
 }
 
 func ValueDigest(value string) string {

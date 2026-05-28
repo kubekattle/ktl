@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -128,6 +129,8 @@ func (e *customNodeExecutor) runPostgresNode(ctx context.Context, node *runNode,
 
 	if e.shouldUseFleetNATSFanout(hostSpec) {
 		fanout, receipt := e.runHostCommandFleetNATSFanout(ctx, node, phase, hostSpec, hostSpec.Command)
+		e.emitVerboseNodeLog(node, phase, "", "dispatching PostgreSQL resource through fleet fan-out", map[string]any{"mode": "fanout"})
+		e.emitVerboseReceiptLogs(node, phase, receipt)
 		observe.TargetDigest = receipt.TargetDigest
 		e.enrichPostgresPlanFromFanout(&plan, fanout)
 		verify := e.postgresVerifyReceipt(node, phase, plan.TargetID, receipt)
@@ -156,6 +159,9 @@ func (e *customNodeExecutor) runPostgresNode(ctx context.Context, node *runNode,
 			}, runErr, true)
 			return wrapNodeErr(node.ResolvedRelease, fmt.Errorf("%s phase %s: %s", kind, phase, msg))
 		}
+		e.emitVerboseNodeLog(node, phase, "", "PostgreSQL resource fan-out completed", map[string]any{
+			"status": fanout.Status,
+		})
 		e.run.AppendEvent(node.ID, PhaseCompleted, node.Attempt, firstNonEmptyString(fanout.Reason, "success"), map[string]any{
 			"phase":   phase,
 			"status":  "success",
@@ -166,10 +172,14 @@ func (e *customNodeExecutor) runPostgresNode(ctx context.Context, node *runNode,
 		return nil
 	}
 
-	runner, err := hostCommandTransport(hostSpec)
+	lineObserver := e.transportLineObserver(node, phase)
+	runner, streamed, err := hostCommandTransportWithObserver(hostSpec, lineObserver)
 	if err != nil {
 		return wrapNodeErr(node.ResolvedRelease, err)
 	}
+	e.emitVerboseNodeLog(node, phase, "", "starting PostgreSQL resource via "+firstNonEmptyString(strings.TrimSpace(hostSpec.Transport), "local"), map[string]any{
+		"transport": firstNonEmptyString(strings.TrimSpace(hostSpec.Transport), "local"),
+	})
 	targetDigest := runner.TargetDigest()
 	observe.TargetDigest = targetDigest
 	if guardErr := e.validatePostgresOpsGuard(node, plan.TargetID, kind); guardErr != nil {
@@ -188,7 +198,12 @@ func (e *customNodeExecutor) runPostgresNode(ctx context.Context, node *runNode,
 	}
 	var receipt transport.OperationResult
 	if len(resourcePayload) > 0 && postgresExecutionMode(node.Postgres) == "native" && postgresTransportIsLocal(node.Postgres.Transport) {
-		receipt = runLocalPostgresResource(ctx, time.Now(), resourcePayload, targetDigest)
+		progress := e.nodeLogWriter(node, phase, "log")
+		if progress != nil {
+			defer progress.Flush()
+		}
+		receipt = runLocalPostgresResource(ctx, time.Now(), resourcePayload, targetDigest, progress)
+		streamed = progress != nil
 	} else if len(resourcePayload) > 0 && transportIsNATS(hostSpec.Transport) {
 		if resourceRunner, ok := runner.(interface {
 			RunResource(context.Context, json.RawMessage) transport.OperationResult
@@ -206,6 +221,15 @@ func (e *customNodeExecutor) runPostgresNode(ctx context.Context, node *runNode,
 	} else {
 		receipt = runner.Run(ctx, hostSpec.Command)
 	}
+	if !streamed {
+		e.emitVerboseReceiptLogs(node, phase, receipt)
+		if msg := strings.TrimSpace(postgresReceiptMessage(receipt)); msg != "" {
+			e.emitVerboseNodeLog(node, phase, "", msg, map[string]any{"kind": "postgres-summary"})
+		}
+	}
+	e.emitVerboseNodeLog(node, phase, "", fmt.Sprintf("PostgreSQL resource finished status=%s exit=%d duration=%dms", receipt.Status, receipt.ExitCode, receipt.DurationMillis), map[string]any{
+		"status": receipt.Status,
+	})
 	enrichPostgresReceiptFromStdout(&receipt)
 	e.enrichPostgresPlanFromReceipt(&plan, receipt)
 	verify := e.postgresVerifyReceipt(node, phase, plan.TargetID, receipt)
@@ -550,7 +574,7 @@ func postgresTransportIsLocal(transport string) bool {
 	}
 }
 
-func runLocalPostgresResource(ctx context.Context, started time.Time, resource json.RawMessage, targetDigest string) transport.OperationResult {
+func runLocalPostgresResource(ctx context.Context, started time.Time, resource json.RawMessage, targetDigest string, stderr io.Writer) transport.OperationResult {
 	var req opspostgres.ResourceRequest
 	if err := json.Unmarshal(resource, &req); err != nil {
 		return transport.OperationResult{
@@ -562,7 +586,7 @@ func runLocalPostgresResource(ctx context.Context, started time.Time, resource j
 			Error:        "parse PostgreSQL resource request: " + err.Error(),
 		}
 	}
-	result, err := opspostgres.Runner{}.Execute(ctx, req)
+	result, err := opspostgres.Runner{Stderr: stderr}.Execute(ctx, req)
 	raw, marshalErr := json.Marshal(result)
 	if marshalErr != nil {
 		raw = []byte(`{"status":"failed","message":"marshal PostgreSQL resource result"}`)

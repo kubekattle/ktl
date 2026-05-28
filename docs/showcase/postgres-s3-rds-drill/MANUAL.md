@@ -110,6 +110,15 @@ Apply:
   --capture docs/showcase/postgres-s3-rds-drill/runtime/manual-run.sqlite
 ```
 
+For live task-level progress in the TTY `DETAILS` panel, run the same command
+with debug logging:
+
+```bash
+./bin/torque --log-level debug stack apply \
+  --config docs/showcase/postgres-s3-rds-drill \
+  --yes
+```
+
 Delete:
 
 ```bash

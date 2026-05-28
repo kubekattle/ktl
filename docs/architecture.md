@@ -38,7 +38,8 @@ The root command wiring lives in `cmd/torque/main.go`.
 
 Legacy/experimental commands (`analyze`, `up`, `wait`) remain callable for compatibility but are hidden from the focused CLI surface.
 
-## Companion Binaries
+## Companion Tools
+- `helmer`: standalone Helm review/archive CLI built from `cmd/torque` in `helmer-only` mode. It exposes `plan`, `report`, and archive workflows while reusing the same planner as `torque apply plan`.
 - `verifier`: standalone policy verifier. The older `verify` binary remains as a compatibility shim for existing CI scripts.
 - `torque-package`: chart archive helper built from `cmd/package`; the old standalone name `package` is no longer used in repo build/package outputs.
 

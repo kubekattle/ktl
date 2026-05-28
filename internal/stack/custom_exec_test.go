@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -1010,6 +1012,54 @@ func TestRun_HostCommandRunLocalNode(t *testing.T) {
 	}
 	if _, err := os.Stat(outFile); !os.IsNotExist(err) {
 		t.Fatalf("expected delete command to remove marker, stat err=%v", err)
+	}
+}
+
+func TestRun_HostCommandRunLocalNodeEmitsVerboseLogs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh not available on windows")
+	}
+	root := t.TempDir()
+	node := &ResolvedRelease{
+		ID:        "host.command.run/verbose-lines",
+		Kind:      NodeKindHostCommandRun,
+		Name:      "verbose-lines",
+		Dir:       root,
+		Namespace: "default",
+		Host: HostCommandSpec{
+			Transport: "local",
+			Command:   "printf 'stream-alpha\\n'; printf 'stream-beta\\n' >&2",
+		},
+	}
+	plan := planForTest(root, node)
+	debug := "debug"
+	var sawStdout bool
+	var sawStderr bool
+	observer := RunEventObserverFunc(func(ev RunEvent) {
+		if ev.Type != string(NodeLog) {
+			return
+		}
+		stream := strings.TrimSpace(fieldString(ev.Fields, "stream"))
+		switch {
+		case stream == "stdout" && strings.Contains(ev.Message, "stream-alpha"):
+			sawStdout = true
+		case stream == "stderr" && strings.Contains(ev.Message, "stream-beta"):
+			sawStderr = true
+		}
+	})
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), RunOptions{
+		Command:        "apply",
+		Plan:           plan,
+		Concurrency:    1,
+		Lock:           true,
+		LogLevel:       &debug,
+		EventObservers: []RunEventObserver{observer},
+	}, &out, &errOut); err != nil {
+		t.Fatalf("Run apply: %v\nstderr=%s", err, errOut.String())
+	}
+	if !sawStdout || !sawStderr {
+		t.Fatalf("verbose host command logs missing stdout=%t stderr=%t", sawStdout, sawStderr)
 	}
 }
 
@@ -4429,7 +4479,7 @@ test -s "$2"
 	if err != nil {
 		t.Fatalf("build resource payload: %v", err)
 	}
-	receipt := runLocalPostgresResource(context.Background(), time.Now(), resource, "sha256:local")
+	receipt := runLocalPostgresResource(context.Background(), time.Now(), resource, "sha256:local", io.Discard)
 	enrichPostgresReceiptFromStdout(&receipt)
 	if receipt.Status != "succeeded" || receipt.ExitCode != 0 {
 		t.Fatalf("local native receipt = %#v", receipt)

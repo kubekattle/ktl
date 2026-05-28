@@ -25,6 +25,7 @@ type Config struct {
 	Timeout      time.Duration
 	RedactValues []string
 	Runner       transport.Runner
+	LineObserver transport.LineObserver
 }
 
 // Client runs SSH transport primitives and returns evidence-safe results.
@@ -37,6 +38,7 @@ type Client struct {
 	timeout      time.Duration
 	redactor     transport.Redactor
 	runner       transport.Runner
+	observer     transport.LineObserver
 }
 
 type Runner = transport.Runner
@@ -80,6 +82,7 @@ func New(config Config) (*Client, error) {
 		timeout:      timeout,
 		redactor:     transport.NewRedactor(redactValues),
 		runner:       runner,
+		observer:     config.LineObserver,
 	}, nil
 }
 
@@ -140,7 +143,7 @@ func (c *Client) run(ctx context.Context, operation, binary string, args []strin
 	runCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	output, err := c.runner.Run(runCtx, binary, args)
+	output, err := c.runCommand(runCtx, binary, args)
 	timedOut := errors.Is(runCtx.Err(), context.DeadlineExceeded)
 	status := "succeeded"
 	if timedOut {
@@ -164,6 +167,13 @@ func (c *Client) run(ctx context.Context, operation, binary string, args []strin
 		result.Error = c.redactor.RedactString(err.Error())
 	}
 	return result
+}
+
+func (c *Client) runCommand(ctx context.Context, binary string, args []string) (transport.RunOutput, error) {
+	if streaming, ok := c.runner.(transport.StreamingRunner); ok {
+		return streaming.RunStream(ctx, binary, args, c.observer)
+	}
+	return c.runner.Run(ctx, binary, args)
 }
 
 func NewRedactor(values []string) Redactor {

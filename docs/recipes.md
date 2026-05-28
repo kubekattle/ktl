@@ -275,6 +275,67 @@ torque ops agent status \
   --tenant lab
 ```
 
+## Bootstrap and approve a durable agent
+
+Use SSH once to install `torque-agent`, start the heartbeat and worker
+services, compact the first heartbeat into the registry, then approve the same
+target for durable execution without losing its SSH bootstrap transport.
+
+```bash
+torque ops agent bootstrap \
+  --targets ./targetgraph.yaml \
+  --target-id host/mysql-01 \
+  --nats-url nats://141.105.65.227:4222
+
+torque ops agent registry compact \
+  --nats-url nats://141.105.65.227:4222 \
+  --tenant lab \
+  --store file \
+  --store-path ./.torque/ops/agent-registry.json \
+  --max-messages 10
+
+torque ops agent enroll approve agent/mysql-01 \
+  --targets ./targetgraph.yaml \
+  --target host/mysql-01 \
+  --tenant lab \
+  --nats-url nats://141.105.65.227:4222 \
+  --update-store \
+  --store file \
+  --store-path ./.torque/ops/agent-registry.json
+```
+
+After approval, the target keeps `transportRef: ssh/...` for direct fallback and
+adds `durableTransportRef: nats/...` for automatic durable execution.
+
+## Ad-hoc ops exec
+
+`torque ops exec` turns a `TargetGraph` selection into an audited host command
+run. Automatic mode prefers ready NATS agents from the compact registry and
+falls back to the direct host transport declared on the selected target. A host
+is only eligible for durable auto-selection after the graph records a
+`durableTransportRef` (or uses a primary `nats` transport). When `--durable` is
+enabled, the NATS partition uses the same JetStream fan-out, receipt, and
+export path as fleet stack execution.
+
+```bash
+torque ops exec \
+  --targets ./targetgraph.yaml \
+  --selector role=db \
+  --command 'uptime' \
+  --transport auto
+
+torque ops exec \
+  --targets ./targetgraph.yaml \
+  --selector role=mysql \
+  --command 'mysqladmin ping' \
+  --transport auto \
+  --durable \
+  --store etcd \
+  --etcd-endpoints http://127.0.0.1:2379 \
+  --tenant lab \
+  --out-dir ./runs/mysql-ping
+```
+
 ## Stack fleet readiness and capability gate
 
 In local mode, stack nodes can still use direct SSH or NATS transports. Fleet
@@ -1688,6 +1749,10 @@ YAML
 verifier verify-chart-render.yaml
 
 # Package a chart then verify the archive
+helmer archive ./chart --output dist/chart.sqlite
+helmer verify-archive dist/chart.sqlite
+
+# Compatibility alias
 torque-package ./chart --output dist/chart.sqlite
 torque-package --verify dist/chart.sqlite
 ```

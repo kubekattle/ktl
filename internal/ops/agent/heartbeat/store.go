@@ -184,6 +184,9 @@ func NewCompactRecord(heartbeat Heartbeat, offset StreamOffset, now time.Time, s
 		now = time.Now()
 	}
 	status := agentStatus(heartbeat, now.UTC(), staleAfter)
+	if strings.TrimSpace(status.Enrollment.State) == "" {
+		status.Enrollment.State = EnrollmentStatePending
+	}
 	status.EvidenceOffset = &offset
 	return CompactRecord{
 		APIVersion:     SnapshotAPIVersion,
@@ -261,6 +264,7 @@ func SnapshotFromRecords(records []CompactRecord, req SnapshotRequest) Snapshot 
 		status := agentStatus(record.Heartbeat, now.UTC(), staleAfter)
 		offset := record.EvidenceOffset
 		status.EvidenceOffset = &offset
+		status.Enrollment = record.Status.Enrollment
 		agents = append(agents, status)
 	}
 	sort.Slice(agents, func(i, j int) bool {

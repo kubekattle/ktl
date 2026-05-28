@@ -9,6 +9,9 @@ import (
 const (
 	SnapshotAPIVersion = "torque.dev/agent-registry/v1"
 	SnapshotKind       = "AgentStatusSnapshot"
+
+	EnrollmentStatePending  = "pending"
+	EnrollmentStateApproved = "approved"
 )
 
 type Registry struct {
@@ -59,6 +62,12 @@ type AgentStatus struct {
 	Offsets          Offsets           `json:"offsets,omitempty"`
 	Resources        Resources         `json:"resources,omitempty"`
 	EvidenceOffset   *StreamOffset     `json:"evidenceOffset,omitempty"`
+	Enrollment       EnrollmentStatus  `json:"enrollment,omitempty"`
+}
+
+type EnrollmentStatus struct {
+	State      string `json:"state,omitempty"`
+	ApprovedAt string `json:"approvedAt,omitempty"`
 }
 
 func NewRegistry() *Registry {

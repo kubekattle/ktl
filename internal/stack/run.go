@@ -107,6 +107,9 @@ func Run(ctx context.Context, opts RunOptions, out io.Writer, errOut io.Writer) 
 	run.Selector = opts.Selector
 	run.PolicyOverride = opts.PolicyOverride
 	run.ResumeFromRunID = strings.TrimSpace(opts.ResumeFromRunID)
+	if opts.LogLevel != nil {
+		run.VerboseTaskLogs = strings.EqualFold(strings.TrimSpace(*opts.LogLevel), "debug")
+	}
 	if opts.InitialAttempts != nil {
 		for _, n := range run.Nodes {
 			if a, ok := opts.InitialAttempts[n.ID]; ok {
@@ -851,6 +854,7 @@ type runState struct {
 	KubeContext     string
 	PolicyOverride  bool
 	ResumeFromRunID string
+	VerboseTaskLogs bool
 
 	mu sync.Mutex
 

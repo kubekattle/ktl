@@ -34,6 +34,9 @@ From source:
 go install github.com/ingresslabs/torque/cmd/torque@latest
 go install github.com/ingresslabs/torque/cmd/torque-agent@latest
 go install github.com/ingresslabs/torque/cmd/verifier@latest
+
+# From a repo checkout:
+make install-helmer
 ```
 
 ## Platform Loop
@@ -82,6 +85,12 @@ without hiding the important decisions in CI logs or a control-plane database.
   probes, and command checks that Codex, Claude, OpenCode, CI, and humans can
   inspect from the same files.
 - Release scoring, autopilot, canary, blue/green, and flight recorder workflows.
+
+## Tools
+
+- `helmer`: standalone chart archive and Helm plan/report tool. It reuses the Torque plan engine while keeping `torque apply plan` available for the full delivery workflow.
+- `verifier`: standalone Kubernetes policy verifier for Helm charts, rendered manifests, and live namespaces.
+- `torque-package`: compatibility archive-only helper; prefer `helmer archive`, `helmer verify-archive`, and `helmer unpack` for new workflows.
 
 ```bash
 torque agent appliance run . \

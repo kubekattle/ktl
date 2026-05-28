@@ -23,9 +23,15 @@ The short version:
   assignments, receipts, retries, dead letters, and evidence offsets.
 - SQLite remains the portable local cache/export format, not the shared source
   of truth for 10,000-host execution.
+- The canonical TargetGraph should be a generated fleet graph: static
+  inventory, discovery, SSH bootstrap state, and agent enrollment merge into
+  stable target IDs rather than living as a hand-maintained host list.
 - In fleet mode, JetStream is the default mutation path. NATS request/reply
   remains a local and lab compatibility mode, not the long-term control-plane
   transport for durable production changes.
+- Targets may start with SSH bootstrap and promote to durable NATS execution
+  without changing target IDs; automatic transport selection should prefer the
+  durable path and fall back to SSH only when policy explicitly allows it.
 
 Implemented local slice:
 
@@ -505,6 +511,11 @@ still useful for local development, one-off diagnostics, and small-target labs,
 but it does not provide the replay, redelivery, dead-letter, and offset
 checkpoint properties that Torque needs as a production change-control plane.
 
+This default should apply to both stack-driven execution and future first-class
+ad-hoc surfaces such as `torque ops exec --transport auto --durable`. The
+authoring surface may differ; the mutation path, assignment envelope, retry
+policy, and receipt model should not.
+
 Suggested streams:
 
 ```text
@@ -903,7 +914,8 @@ Outcomes:
 - `blocked`: readiness below policy.
 - `blocked`: a ready matching agent lacks a required stack capability.
 - `partial`: allowed only when the stack explicitly permits partial execution.
-- `fallback`: use SSH only when explicitly allowed.
+- `fallback`: use SSH only when explicit auto-transport fallback policy allows
+  bootstrap execution for that target.
 - `ready`: create assignment stream records.
 
 Readiness is evidence. The gate writes:
@@ -922,6 +934,12 @@ Readiness is evidence. The gate writes:
 Torque inventory is not only an Ansible-style host list. It is a TargetGraph
 with bindings.
 
+The control-plane target is that this graph is generated, not manually curated
+host-by-host. A sync step should merge imported inventory, discovery,
+bootstrap reachability, and approved agent enrollment into one canonical target
+map with stable IDs. Promotion from SSH bootstrap to durable agent execution is
+an update to the same target record, not a new target.
+
 Target record:
 
 ```yaml
@@ -933,11 +951,17 @@ labels:
   site: lab
   role: mysql
   env: dev
-addresses:
+bootstrap:
   ssh: ssh://root@141.105.65.227
+execution:
+  mode: auto
+  preferred: nats
+  fallback: ssh-explicit
+  subject: torque.assign.prod.host_141
 agent:
   expected: true
   binding: agent_01HF...
+  status: ready
 capabilities:
   - host.file
   - host.systemd
@@ -959,6 +983,18 @@ bindingDigest: sha256:...
 
 Selectors operate over target inventory, then readiness gates join that set
 with live agent state.
+
+Automatic transport resolution should use the same target record:
+
+1. if `execution.preferred` is `nats` and the bound agent is ready, use durable
+   JetStream delivery;
+2. if the bound agent is unavailable but policy allows `fallback`, use the
+   bootstrap SSH transport and record a fallback reason;
+3. otherwise block before mutation and write the missing-binding or
+   missing-readiness reason to evidence.
+
+This keeps stack selectors, ad-hoc selectors, and audit references stable even
+as execution moves from bootstrap to durable mesh operation.
 
 ## 10,000 Host Scale Design
 

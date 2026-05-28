@@ -278,6 +278,7 @@ func Execute(ctx context.Context, req ResourceRequest) (Result, error) {
 }
 
 func (r Runner) Execute(ctx context.Context, req ResourceRequest) (Result, error) {
+	ctx = withProgressReporter(ctx, r.Stdout, r.Stderr)
 	req = normalizeRequest(req)
 	spec, err := decodeSpec(req.Spec)
 	if err != nil {
@@ -445,6 +446,7 @@ func withAdvisoryLock(ctx context.Context, req ResourceRequest, spec Spec, resul
 		Digest:        lockDigest,
 		TimeoutMillis: policy.TimeoutMillis,
 	}
+	reportProgress(ctx, "lock: waiting for advisory lock %s", lockDigest)
 	result.Lock = receipt
 	lockID := advisoryLockID(lockKey)
 	started := time.Now()
@@ -461,6 +463,7 @@ func withAdvisoryLock(ctx context.Context, req ResourceRequest, spec Spec, resul
 		receipt.WaitMillis = time.Since(started).Milliseconds()
 		if acquired {
 			receipt.Acquired = true
+			reportProgress(ctx, "lock: acquired advisory lock %s after %dms", lockDigest, receipt.WaitMillis)
 			break
 		}
 		if time.Now().After(deadline) {
@@ -1223,6 +1226,7 @@ func executeBackupRun(ctx context.Context, result *Result, spec Spec) error {
 	if spec.Backup.Compress > 0 {
 		args = append(args, "-Z", strconv.Itoa(spec.Backup.Compress))
 	}
+	reportProgress(ctx, "backup: running pg_dump for %s -> %s", dbName, file)
 	result.Database = dbName
 	result.Observed = map[string]any{"backupFile": fileExists(file)}
 	result.Desired = map[string]any{"database": dbName, "file": file, "manifestPath": manifest}
@@ -1238,17 +1242,21 @@ func executeBackupRun(ctx context.Context, result *Result, spec Spec) error {
 	if err != nil {
 		return err
 	}
+	reportProgress(ctx, "backup: wrote %s (%d bytes, %s)", file, bytes, sha)
 	backupID := backupID(result, spec, dbName, file)
 	backup := BackupResult{ID: backupID, File: file, ManifestPath: manifest, CatalogPath: catalogPath, Sha256: sha, Bytes: bytes}
 	result.Changed = true
 	if err := writeBackupManifest(manifest, result.RunID, result.NodeID, dbName, backup); err != nil {
 		return err
 	}
+	reportProgress(ctx, "backup: manifest %s", manifest)
 	catalog := backupCatalogRecord(result, dbName, backup, "pending-upload")
 	if err := writeBackupCatalog(catalogPath, catalog); err != nil {
 		return err
 	}
+	reportProgress(ctx, "backup: catalog %s", catalogPath)
 	if backupStoreEnabled(spec.Backup.Store) {
+		reportProgress(ctx, "backup: uploading %s to durable store", file)
 		store, err := uploadBackupArtifacts(ctx, spec.Backup.Store, spec.EnvFile, backupID, file, manifest, catalogPath, sha, bytes)
 		if err != nil {
 			return err
@@ -1263,6 +1271,9 @@ func executeBackupRun(ctx context.Context, result *Result, spec Spec) error {
 		}
 		if _, err := uploadBackupArtifacts(ctx, spec.Backup.Store, spec.EnvFile, backupID, file, manifest, catalogPath, sha, bytes); err != nil {
 			return err
+		}
+		if backup.Store != nil {
+			reportProgress(ctx, "backup: durable copy ready at %s", backup.Store.URI)
 		}
 	} else {
 		catalog = backupCatalogRecord(result, dbName, backup, "succeeded")
@@ -1285,6 +1296,7 @@ func executeBackupVerify(ctx context.Context, result *Result, spec Spec) error {
 	if file == "" && strings.TrimSpace(spec.Backup.ManifestPath) != "" {
 		file = manifestBackupFile(strings.TrimSpace(spec.Backup.ManifestPath))
 	}
+	reportProgress(ctx, "backup verify: checking %s", first(file, strings.TrimSpace(spec.Backup.ManifestPath)))
 	if _, err := ensureBackupLocalFromStore(ctx, spec, file); err != nil {
 		return err
 	}
@@ -1298,9 +1310,11 @@ func executeBackupVerify(ctx context.Context, result *Result, spec Spec) error {
 	if expected := strings.TrimSpace(spec.Backup.ExpectedSha256); expected != "" && expected != sha {
 		return fmt.Errorf("backup sha256 %s != expected %s", sha, expected)
 	}
+	reportProgress(ctx, "backup verify: digest %s", sha)
 	if err := runPostgresCommand(ctx, spec, spec.PGRestoreCommand, "--list", file); err != nil {
 		return err
 	}
+	reportProgress(ctx, "backup verify: pg_restore --list succeeded for %s", file)
 	backupID := backupID(result, spec, first(spec.Backup.Database, spec.Database), file)
 	catalogPath := backupCatalogPath(spec, strings.TrimSpace(spec.Backup.ManifestPath))
 	backup := BackupResult{ID: backupID, File: file, ManifestPath: strings.TrimSpace(spec.Backup.ManifestPath), CatalogPath: catalogPath, Sha256: sha, Bytes: bytes}
@@ -1319,6 +1333,7 @@ func executeRestoreDrill(ctx context.Context, result *Result, spec Spec) error {
 	if file == "" && strings.TrimSpace(spec.Backup.ManifestPath) != "" {
 		file = manifestBackupFile(strings.TrimSpace(spec.Backup.ManifestPath))
 	}
+	reportProgress(ctx, "restore: preparing backup %s", first(file, strings.TrimSpace(spec.Backup.ManifestPath)))
 	if _, err := ensureBackupLocalFromStore(ctx, spec, file); err != nil {
 		return err
 	}
@@ -1329,6 +1344,7 @@ func executeRestoreDrill(ctx context.Context, result *Result, spec Spec) error {
 	if dbName == "" {
 		return fmt.Errorf("restore.database is required")
 	}
+	reportProgress(ctx, "restore: opening admin connection for %s", dbName)
 	admin, err := openDB(ctx, spec, "postgres")
 	if err != nil {
 		return err
@@ -1341,12 +1357,15 @@ func executeRestoreDrill(ctx context.Context, result *Result, spec Spec) error {
 	if _, err := admin.ExecContext(ctx, "DROP DATABASE IF EXISTS "+pq.QuoteIdentifier(dbName)+" WITH (FORCE)"); err != nil {
 		return err
 	}
+	reportProgress(ctx, "restore: dropped database %s", dbName)
 	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+pq.QuoteIdentifier(dbName)); err != nil {
 		return err
 	}
+	reportProgress(ctx, "restore: created database %s", dbName)
 	if err := runPostgresCommand(ctx, spec, spec.PGRestoreCommand, "--no-owner", "-d", dbName, file); err != nil {
 		return err
 	}
+	reportProgress(ctx, "restore: pg_restore completed for %s", dbName)
 	verifyOutput := ""
 	if strings.TrimSpace(spec.Restore.VerifySQL) != "" {
 		restoreDB, err := openDB(ctx, spec, dbName)
@@ -1358,6 +1377,7 @@ func executeRestoreDrill(ctx context.Context, result *Result, spec Spec) error {
 		if err != nil {
 			return err
 		}
+		reportProgress(ctx, "restore: verify query returned %s", verifyOutput)
 		if expected := strings.TrimSpace(spec.Restore.Expect); expected != "" && verifyOutput != expected {
 			return fmt.Errorf("restore verify output %s != expected %s", verifyOutput, expected)
 		}
@@ -1366,6 +1386,7 @@ func executeRestoreDrill(ctx context.Context, result *Result, spec Spec) error {
 		if _, err := admin.ExecContext(ctx, "DROP DATABASE IF EXISTS "+pq.QuoteIdentifier(dbName)+" WITH (FORCE)"); err != nil {
 			return err
 		}
+		reportProgress(ctx, "restore: cleaned up database %s", dbName)
 	}
 	restore := RestoreResult{Database: dbName, BackupFile: file, VerifyOutput: verifyOutput}
 	result.Changed = true
@@ -1531,7 +1552,11 @@ func (r Runner) reexecAsUser(ctx context.Context, req ResourceRequest, runAs str
 	cmd.Env = os.Environ()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	if r.Stderr != nil {
+		cmd.Stderr = io.MultiWriter(&stderr, r.Stderr)
+	} else {
+		cmd.Stderr = &stderr
+	}
 	if err := cmd.Run(); err != nil {
 		parsed, parseErr := parseResult(stdout.Bytes())
 		if parseErr == nil && parsed.Status != "" {

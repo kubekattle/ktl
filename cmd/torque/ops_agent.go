@@ -25,6 +25,8 @@ func newOpsAgentCommand() *cobra.Command {
 		Use:   "agent",
 		Short: "Inspect and manage ops agents",
 	}
+	cmd.AddCommand(newOpsAgentBootstrapCommand())
+	cmd.AddCommand(newOpsAgentEnrollCommand())
 	cmd.AddCommand(newOpsAgentStatusCommand())
 	cmd.AddCommand(newOpsAgentRegistryCommand())
 	decorateCommandHelp(cmd, "Ops Agent Flags")
@@ -216,15 +218,16 @@ func newOpsAgentRegistryCompactCommand() *cobra.Command {
 
 func renderOpsAgentStatusTable(out io.Writer, snapshot heartbeat.Snapshot) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "AGENT\tTARGET\tHEALTH\tSTATE\tAGE\tWORKER_SLOTS\tVERSION\tLABELS\tCAPABILITIES")
+	fmt.Fprintln(tw, "AGENT\tTARGET\tHEALTH\tSTATE\tENROLLMENT\tAGE\tWORKER_SLOTS\tVERSION\tLABELS\tCAPABILITIES")
 	for _, agent := range snapshot.Agents {
 		fmt.Fprintf(
 			tw,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			emptyDash(agent.AgentID),
 			emptyDash(agent.TargetID),
 			emptyDash(agent.Health),
 			emptyDash(agent.State),
+			emptyDash(agent.Enrollment.State),
 			emptyDash(agent.Age),
 			formatAgentSlots(agent.WorkerSlots),
 			emptyDash(agent.Version),

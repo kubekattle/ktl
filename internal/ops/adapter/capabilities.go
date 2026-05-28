@@ -140,7 +140,7 @@ func Definitions() []Capability {
 			Status:            "implemented",
 			Classification:    "guarded",
 			TargetTypes:       []string{"host", "local"},
-			Transports:        []string{"local", "ssh"},
+			Transports:        []string{"local", "ssh", "nats"},
 			Mutating:          true,
 			RequiredPrivilege: "command execution as configured target user",
 			Idempotence:       "operator-declared",
@@ -151,7 +151,7 @@ func Definitions() []Capability {
 			RequiredPolicy:    []string{"target graph selection", "fresh facts", "target lock", "allow policy decision"},
 			Touches:           []string{"processes", "files and services reachable from command"},
 			SecretInputs:      []string{"secret refs redacted when emitted by transport"},
-			Description:       "Run one bounded command through local or SSH transport with observe/plan/execute/verify receipts.",
+			Description:       "Run one bounded command through local, SSH, or NATS transport with observe/plan/execute/verify receipts.",
 		},
 		{
 			Adapter:           "host.file.render",

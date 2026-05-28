@@ -159,14 +159,33 @@ var curatedExamples = map[string][]string{
 	"torque ops": {
 		"# Show a proof-safe target inventory\ntorque ops inventory show --targets ./targetgraph.yaml",
 		"# Collect cached host facts for selected targets\ntorque ops facts collect --targets ./targetgraph.yaml --selector role=web --cache-dir ./.torque/ops/facts",
+		"# Run a bounded ad-hoc command with automatic SSH/NATS resolution\ntorque ops exec --targets ./targetgraph.yaml --selector role=db --command 'uptime' --transport auto --durable",
 		"# Check guarded mutation policy before adding an adapter\ntorque ops policy check --mode guarded --operation host.command.run --mutating --format json",
 		"# Discover adapter capability contracts\ntorque ops adapter capabilities --format json",
 		"# Inspect live NATS-backed ops agents\ntorque ops agent status --nats-url nats://127.0.0.1:4222 --tenant lab --format json",
 	},
+	"torque ops exec": {
+		"# Run an ad-hoc command through automatic SSH/NATS resolution\ntorque ops exec --targets ./targetgraph.yaml --selector role=db --command 'uptime' --transport auto --durable",
+		"# Force direct execution on the selected hosts\ntorque ops exec --targets ./targetgraph.yaml --group web --command 'hostname' --transport ssh --format text",
+		"# Export a portable evidence bundle for the run\ntorque ops exec --targets ./targetgraph.yaml --selector role=mysql --command 'mysqladmin ping' --out-dir ./runs/mysql-ping",
+	},
 	"torque ops agent": {
+		"# Bootstrap torque-agent durable services onto a host over SSH\ntorque ops agent bootstrap --targets ./targetgraph.yaml --target-id host/mysql-01 --nats-url nats://141.105.65.227:4222",
+		"# Approve one enrolled agent and promote the same target toward durable NATS execution\ntorque ops agent enroll approve agent/mysql-01 --targets ./targetgraph.yaml --target host/mysql-01 --nats-url nats://141.105.65.227:4222",
 		"# Inspect live NATS-backed ops agents\ntorque ops agent status --nats-url nats://127.0.0.1:4222 --tenant lab",
 		"# Filter live agents by label\ntorque ops agent status --selector role=mysql --format json",
 		"# Compact durable heartbeat events into the registry\ntorque ops agent registry compact --store etcd --etcd-endpoints http://127.0.0.1:2379 --tenant lab",
+	},
+	"torque ops agent bootstrap": {
+		"# Bootstrap torque-agent from a TargetGraph SSH transport\ntorque ops agent bootstrap --targets ./targetgraph.yaml --target-id host/mysql-01 --nats-url nats://141.105.65.227:4222",
+		"# Bootstrap from an explicit SSH target with a prebuilt Linux binary\ntorque ops agent bootstrap --target ssh://root@141.105.65.227 --target-id host/mysql-01 --agent-binary ./bin/linux-amd64/torque-agent --nats-url nats://141.105.65.227:4222",
+		"# Remove the durable services and local state from the host\ntorque ops agent bootstrap --targets ./targetgraph.yaml --target-id host/mysql-01 --ensure absent",
+	},
+	"torque ops agent enroll": {
+		"# Approve one compacted agent and promote its target graph entry\ntorque ops agent enroll approve agent/mysql-01 --targets ./targetgraph.yaml --target host/mysql-01 --nats-url nats://141.105.65.227:4222",
+	},
+	"torque ops agent enroll approve": {
+		"# Promote one host to durable NATS execution and update the compact registry state\ntorque ops agent enroll approve agent/mysql-01 --targets ./targetgraph.yaml --target host/mysql-01 --nats-url nats://141.105.65.227:4222 --update-store --store file --store-path ./.torque/ops/agent-registry.json",
 	},
 	"torque ops agent status": {
 		"# Collect live heartbeat status as JSON\ntorque ops agent status --nats-url nats://127.0.0.1:4222 --tenant lab --format json",
@@ -441,6 +460,7 @@ var curatedExamples = map[string][]string{
 		"# Inspect topology, apply lifecycle policy gates, derive cert targets, verify, and export summary evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes",
 		"# Apply an approved lifecycle policy override with scoped approval evidence\ntorque stack apply --config ./stacks/cluster-lifecycle --yes --policy-override",
 		"# Run a durable PostgreSQL backup with S3 multipart catalog evidence\nAWS_REGION=us-east-1 torque stack apply --config ./stacks/postgres-backup-s3 --yes",
+		"# Apply with live per-task debug logs in the DETAILS panel\ntorque --log-level debug stack apply --config ./stacks/postgres-backup-s3 --yes",
 		"# Run the PostgreSQL S3 backup to disposable AWS RDS restore-drill showcase\nTORQUE_AWS_RDS_E2E_CONFIRM=1 AWS_REGION=ap-south-1 scripts/e2e/postgres-s3-rds-drill.sh",
 		"# Run the Oracle/APEX -> PostgreSQL local proof harness\ntorque stack apply --config ./docs/showcase/oracle-postgres-k8s/stack.sqlite.yaml --yes",
 		"# Enable manifest diffs (defaulted via env)\nTORQUE_STACK_APPLY_DIFF=1 torque stack apply --config ./stacks/prod --yes",

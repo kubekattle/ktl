@@ -45,24 +45,29 @@ VERIFY_BINARY ?= verify
 VERIFY_PKG ?= ./cmd/verify
 VERIFIER_BINARY ?= verifier
 VERIFIER_PKG ?= ./cmd/verifier
+HELMER_BINARY ?= helmer
+HELMER_PKG ?= ./cmd/torque
+HELMER_BUILD_MODE ?= helmer-only
+HELMER_LDFLAGS ?= $(LDFLAGS) -X main.buildMode=$(HELMER_BUILD_MODE)
 PACKAGECLI_BINARY ?= torque-package
 PACKAGECLI_PKG ?= ./cmd/package
 MCP_BINARY ?= torque-mcp
 MCP_PKG ?= ./cmd/torque-mcp
 AGENT_BINARY ?= torque-agent
 AGENT_PKG ?= ./cmd/torque-agent
+RELEASE_HELMER_ARTIFACTS := $(foreach platform,$(RELEASE_PLATFORMS),$(DIST_DIR)/$(HELMER_BINARY)-$(subst /,-,$(platform)))
 RELEASE_PACKAGECLI_ARTIFACTS := $(foreach platform,$(RELEASE_PLATFORMS),$(DIST_DIR)/$(PACKAGECLI_BINARY)-$(subst /,-,$(platform)))
-RELEASE_ARTIFACTS := $(RELEASE_TOOL_ARTIFACTS) $(RELEASE_PACKAGECLI_ARTIFACTS)
+RELEASE_ARTIFACTS := $(RELEASE_TOOL_ARTIFACTS) $(RELEASE_HELMER_ARTIFACTS) $(RELEASE_PACKAGECLI_ARTIFACTS)
 LOGS_BINARY ?= torque-logs
 LOGS_PKG ?= ./cmd/torque
 LOGS_BUILD_MODE ?= logs-only
-LOGS_LDFLAGS ?= $(LDFLAGS) -X github.com/ingresslabs/torque/cmd/torque.buildMode=$(LOGS_BUILD_MODE)
+LOGS_LDFLAGS ?= $(LDFLAGS) -X main.buildMode=$(LOGS_BUILD_MODE)
 
 .DEFAULT_GOAL := help
 
 .PHONY: help print-%
-.PHONY: build build-% build-cross build-verifier build-verify build-packagecli build-agent build-mcp build-logs build-all
-.PHONY: install install-verifier install-verify install-packagecli install-agent install-mcp install-all
+.PHONY: build build-% build-cross build-verifier build-verify build-helmer build-packagecli build-agent build-mcp build-logs build-all
+.PHONY: install install-verifier install-verify install-helmer install-packagecli install-agent install-mcp install-all
 .PHONY: release dist-checksums dist-checksums-all gh-release gh-release-all tag-release push-release changelog package
 .PHONY: test test-short test-integration test-ci smoke-package-verify verify-charts-e2e
 .PHONY: testpoint testpoint-ci testpoint-unit testpoint-integration testpoint-charts-e2e testpoint-e2e-real testpoint-all
@@ -89,6 +94,11 @@ build-verifier: ## Build verifier for the current platform into ./bin/verifier
 	@echo ">> building $(VERIFIER_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
 	@mkdir -p $(BIN_DIR)
 	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/$(VERIFIER_BINARY) $(VERIFIER_PKG)
+
+build-helmer: ## Build helmer for the current platform into ./bin/helmer
+	@echo ">> building $(HELMER_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
+	@mkdir -p $(BIN_DIR)
+	GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) $(GO) build $(GOFLAGS) -ldflags '$(HELMER_LDFLAGS)' -o $(BIN_DIR)/$(HELMER_BINARY) $(HELMER_PKG)
 
 build-packagecli: ## Build chart archive CLI for the current platform into ./bin/torque-package
 	@echo ">> building $(PACKAGECLI_BINARY) for $(HOST_GOOS)/$(HOST_GOARCH)"
@@ -130,7 +140,7 @@ build-%: ## Build torque for <os>-<arch> into ./bin/torque-<os>-<arch>[.exe]
 	echo ">> building $(BINARY) for $$os/$$arch -> $$out"; \
 	GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $$out $(PKG)
 
-build-all: build build-agent build-verifier build-verify build-packagecli build-mcp ## Build torque and standalone toolkit binaries
+build-all: build build-agent build-verifier build-verify build-helmer build-packagecli build-mcp ## Build torque and standalone toolkit binaries
 
 install: ## Install torque into GOPATH/bin or GOBIN
 	@echo ">> installing $(BINARY) ($(VERSION))"
@@ -143,6 +153,13 @@ install-verify: ## Install verify into GOPATH/bin or GOBIN
 install-verifier: ## Install verifier into GOPATH/bin or GOBIN
 	@echo ">> installing $(VERIFIER_BINARY) ($(VERSION))"
 	$(GO) install $(GOFLAGS) -ldflags '$(LDFLAGS)' $(VERIFIER_PKG)
+
+install-helmer: ## Install helmer into GOPATH/bin or GOBIN
+	@echo ">> installing $(HELMER_BINARY) ($(VERSION))"
+	@dest="$$($(GO) env GOBIN)"; \
+	if [ -z "$$dest" ]; then dest="$$($(GO) env GOPATH)/bin"; fi; \
+	mkdir -p "$$dest"; \
+	$(GO) build $(GOFLAGS) -ldflags '$(HELMER_LDFLAGS)' -o "$$dest/$(HELMER_BINARY)" $(HELMER_PKG)
 
 install-packagecli: ## Install torque-package into GOPATH/bin or GOBIN
 	@echo ">> installing $(PACKAGECLI_BINARY) ($(VERSION))"
@@ -164,6 +181,7 @@ install-all: ## Install torque and standalone toolkit binaries
 	$(MAKE) install-agent
 	$(MAKE) install-verifier
 	$(MAKE) install-verify
+	$(MAKE) install-helmer
 	$(MAKE) install-packagecli
 	$(MAKE) install-mcp
 
@@ -178,6 +196,10 @@ release: ## Cross-build release artifacts into ./dist
 			echo "   - $$os/$$arch -> $$out"; \
 			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $$out ./cmd/$$tool; \
 		done; \
+		out="$(DIST_DIR)/$(HELMER_BINARY)-$$os-$$arch"; \
+		if [ "$$os" = "windows" ]; then out="$$out.exe"; fi; \
+		echo "   - $$os/$$arch -> $$out"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags '$(HELMER_LDFLAGS)' -o $$out $(HELMER_PKG); \
 		out="$(DIST_DIR)/$(PACKAGECLI_BINARY)-$$os-$$arch"; \
 		if [ "$$os" = "windows" ]; then out="$$out.exe"; fi; \
 		echo "   - $$os/$$arch -> $$out"; \
