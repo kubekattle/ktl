@@ -70,6 +70,7 @@ type s3UploadSessionPart struct {
 
 type normalizedBackupStore struct {
 	Type               string
+	EnvFile            string
 	Ref                string
 	Bucket             string
 	Prefix             string
@@ -88,14 +89,19 @@ func backupStoreEnabled(spec BackupStoreSpec) bool {
 	return typ != "" || strings.TrimSpace(spec.Ref) != "" || strings.TrimSpace(spec.Bucket) != ""
 }
 
-func normalizeBackupStore(spec BackupStoreSpec) (normalizedBackupStore, error) {
+func normalizeBackupStore(spec BackupStoreSpec, envFileOpt ...string) (normalizedBackupStore, error) {
+	envFile := ""
+	if len(envFileOpt) > 0 {
+		envFile = strings.TrimSpace(envFileOpt[0])
+	}
 	out := normalizedBackupStore{
 		Type:               strings.ToLower(strings.TrimSpace(spec.Type)),
-		Ref:                first(strings.TrimSpace(spec.Ref), envValue(spec.RefEnv)),
-		Bucket:             first(strings.TrimSpace(spec.Bucket), envValue(spec.BucketEnv)),
-		Prefix:             first(strings.TrimSpace(spec.Prefix), envValue(spec.PrefixEnv)),
-		Region:             first(strings.TrimSpace(spec.Region), envValue(spec.RegionEnv), strings.TrimSpace(os.Getenv("AWS_REGION")), strings.TrimSpace(os.Getenv("AWS_DEFAULT_REGION")), "us-east-1"),
-		Endpoint:           first(strings.TrimSpace(spec.Endpoint), envValue(spec.EndpointEnv)),
+		EnvFile:            envFile,
+		Ref:                first(strings.TrimSpace(spec.Ref), envValueFrom(envFile, spec.RefEnv)),
+		Bucket:             first(strings.TrimSpace(spec.Bucket), envValueFrom(envFile, spec.BucketEnv)),
+		Prefix:             first(strings.TrimSpace(spec.Prefix), envValueFrom(envFile, spec.PrefixEnv)),
+		Region:             first(strings.TrimSpace(spec.Region), envValueFrom(envFile, spec.RegionEnv), envValueFrom(envFile, "AWS_REGION"), envValueFrom(envFile, "AWS_DEFAULT_REGION"), "us-east-1"),
+		Endpoint:           first(strings.TrimSpace(spec.Endpoint), envValueFrom(envFile, spec.EndpointEnv)),
 		PathStyle:          spec.PathStyle,
 		PartSizeBytes:      spec.PartSizeBytes,
 		SessionPath:        strings.TrimSpace(spec.SessionPath),
@@ -236,12 +242,12 @@ func s3URI(bucket string, key string) string {
 func newBackupS3Client(ctx context.Context, store normalizedBackupStore) (*s3.Client, error) {
 	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithRegion(store.Region)}
 	if store.AccessKeyIDEnv != "" || store.SecretAccessKeyEnv != "" {
-		accessKey := envValue(store.AccessKeyIDEnv)
-		secretKey := envValue(store.SecretAccessKeyEnv)
+		accessKey := envValueFrom(store.EnvFile, store.AccessKeyIDEnv)
+		secretKey := envValueFrom(store.EnvFile, store.SecretAccessKeyEnv)
 		if accessKey == "" || secretKey == "" {
 			return nil, fmt.Errorf("s3 backup store credential env values are incomplete")
 		}
-		opts = append(opts, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, envValue(store.SessionTokenEnv))))
+		opts = append(opts, awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, envValueFrom(store.EnvFile, store.SessionTokenEnv))))
 	}
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
@@ -255,8 +261,8 @@ func newBackupS3Client(ctx context.Context, store normalizedBackupStore) (*s3.Cl
 	}), nil
 }
 
-func uploadBackupArtifacts(ctx context.Context, spec BackupStoreSpec, backupID string, file string, manifest string, catalog string, sha string, bytes int64) (*BackupStoreResult, error) {
-	store, err := normalizeBackupStore(spec)
+func uploadBackupArtifacts(ctx context.Context, spec BackupStoreSpec, envFile string, backupID string, file string, manifest string, catalog string, sha string, bytes int64) (*BackupStoreResult, error) {
+	store, err := normalizeBackupStore(spec, envFile)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +338,7 @@ func ensureBackupLocalFromStore(ctx context.Context, spec Spec, file string) (bo
 	if file == "" || fileExists(file) || !backupStoreEnabled(spec.Backup.Store) {
 		return false, nil
 	}
-	store, err := normalizeBackupStore(spec.Backup.Store)
+	store, err := normalizeBackupStore(spec.Backup.Store, spec.EnvFile)
 	if err != nil {
 		return false, err
 	}

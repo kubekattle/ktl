@@ -17,6 +17,13 @@ cd /Users/antonvkrylov/work/torque
 torque stack apply --config docs/showcase/postgres-s3-rds-drill --yes
 ```
 
+This creates the disposable source container, S3 bucket, RDS instance, backup,
+restore drill, and local `runtime/manual.env`. Cleanup is also stack-owned:
+
+```bash
+torque stack delete --config docs/showcase/postgres-s3-rds-drill --yes
+```
+
 If you are already inside `docs/showcase/postgres-s3-rds-drill`, go back to the
 repository root first because the stack's backup paths are root-relative:
 
@@ -39,28 +46,33 @@ AWS_REGION=ap-south-1 \
 scripts/e2e/postgres-s3-rds-drill.sh
 ```
 
-## Generate A Live `manual.env`
+## Keep Resources For Manual Checks
 
-If you want to run `torque stack apply` yourself, first ask the harness to
-create live disposable resources and keep them:
+The harness deletes resources by default after proof. To keep the stack-owned
+resources for manual checks:
 
 ```bash
 cd /Users/antonvkrylov/work/torque
 
 TORQUE_AWS_RDS_E2E_CONFIRM=1 \
 TORQUE_AWS_RDS_E2E_KEEP_RESOURCES=1 \
-TORQUE_AWS_RDS_E2E_SETUP_ONLY=1 \
 AWS_REGION=ap-south-1 \
 scripts/e2e/postgres-s3-rds-drill.sh
 ```
 
-That writes:
+Or run the stack directly and simply do not delete yet:
+
+```bash
+./bin/torque stack apply --config docs/showcase/postgres-s3-rds-drill --yes
+```
+
+The stack writes:
 
 ```text
 docs/showcase/postgres-s3-rds-drill/runtime/manual.env
 ```
 
-Load it:
+Load it only for manual AWS/psql inspection commands:
 
 ```bash
 set -a
@@ -68,19 +80,13 @@ source docs/showcase/postgres-s3-rds-drill/runtime/manual.env
 set +a
 ```
 
-Then run:
+When done, destroy the stack-owned AWS resources and source container:
 
 ```bash
-./bin/torque stack apply --config docs/showcase/postgres-s3-rds-drill --yes
+./bin/torque stack delete --config docs/showcase/postgres-s3-rds-drill --yes
 ```
 
-When done, remove the kept AWS resources and source container:
-
-```bash
-docs/showcase/postgres-s3-rds-drill/runtime/cleanup-kept-resources.sh
-```
-
-## Manual Apply Against Existing Resources
+## Manual Apply
 
 Build the local Torque binary first:
 
@@ -88,22 +94,6 @@ Build the local Torque binary first:
 cd /Users/antonvkrylov/work/torque
 make build
 ```
-
-Export the resources the stackfile references:
-
-```bash
-export AWS_REGION=ap-south-1
-export TORQUE_DEMO_SOURCE_PGHOST=127.0.0.1
-export TORQUE_DEMO_SOURCE_PGPORT=5432
-export TORQUE_DEMO_SOURCE_PGPASSWORD='<source-postgres-password>'
-export TORQUE_DEMO_S3_BUCKET='<existing-s3-bucket>'
-export TORQUE_DEMO_S3_PREFIX='postgres-rds-drill/manual'
-export TORQUE_DEMO_RDS_ENDPOINT='<rds-endpoint>'
-export TORQUE_DEMO_RDS_PASSWORD='<rds-master-password>'
-```
-
-The source database must contain database `keycloak` with table `realm`, and
-the RDS target must be reachable from this machine.
 
 Plan first:
 
@@ -118,6 +108,14 @@ Apply:
   --config docs/showcase/postgres-s3-rds-drill \
   --yes \
   --capture docs/showcase/postgres-s3-rds-drill/runtime/manual-run.sqlite
+```
+
+Delete:
+
+```bash
+./bin/torque stack delete \
+  --config docs/showcase/postgres-s3-rds-drill \
+  --yes
 ```
 
 Export audit evidence:
@@ -163,9 +161,11 @@ Expected output:
 
 The DAG in `stack.yaml` does this:
 
-1. `postgres.backup.run`: native `pg_dump` backup from source Postgres.
-2. Uploads dump, manifest, catalog, and resumable upload session evidence to S3.
-3. `postgres.backup.verify`: validates the backup artifact.
-4. Removes the local dump so restore must fetch from S3.
-5. `postgres.restore.drill`: restores into RDS database `keycloak_restore_drill`.
-6. Runs SQL proof: `select count(*) from realm where name = 'torque'`.
+1. `host.command.run/demo-resources`: create source Postgres, S3, RDS, and `manual.env`.
+2. `postgres.backup.run`: native `pg_dump` backup from source Postgres.
+3. Uploads dump, manifest, catalog, and resumable upload session evidence to S3.
+4. `postgres.backup.verify`: validates the backup artifact.
+5. Removes the local dump so restore must fetch from S3.
+6. `postgres.restore.drill`: restores into RDS database `keycloak_restore_drill`.
+7. Runs SQL proof: `select count(*) from realm where name = 'torque'`.
+8. `torque stack delete`: runs `demo-resources.deleteCommand` and proves AWS/Docker cleanup.

@@ -97,6 +97,7 @@ type EffectivePostgresInput struct {
 	TargetEnv         string `json:"targetEnv,omitempty"`
 	Timeout           string `json:"timeout,omitempty"`
 	Database          string `json:"database,omitempty"`
+	EnvFile           string `json:"envFile,omitempty"`
 	HostDigest        string `json:"hostDigest,omitempty"`
 	Port              int    `json:"port,omitempty"`
 	User              string `json:"user,omitempty"`
@@ -630,6 +631,7 @@ func digestPostgresSpec(spec PostgresSpec) (EffectivePostgresInput, error) {
 		TargetID:         strings.TrimSpace(spec.TargetID),
 		TargetEnv:        strings.TrimSpace(spec.TargetEnv),
 		Database:         strings.TrimSpace(spec.Database),
+		EnvFile:          strings.TrimSpace(spec.EnvFile),
 		Port:             spec.Port,
 		User:             strings.TrimSpace(spec.User),
 		PasswordEnv:      strings.TrimSpace(spec.PasswordEnv),

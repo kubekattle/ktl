@@ -136,6 +136,32 @@ func TestNormalizeBackupStoreUsesEnvBackedTarget(t *testing.T) {
 	}
 }
 
+func TestNormalizeBackupStoreUsesEnvFileBackedTarget(t *testing.T) {
+	root := t.TempDir()
+	envPath := filepath.Join(root, "manual.env")
+	if err := os.WriteFile(envPath, []byte(strings.Join([]string{
+		"export TORQUE_TEST_S3_BUCKET=env-file-bucket",
+		"export TORQUE_TEST_S3_PREFIX='env-file-prefix'",
+		"export TORQUE_TEST_S3_REGION=eu-west-1",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+	t.Setenv("TORQUE_TEST_S3_BUCKET", "process-bucket")
+	store, err := normalizeBackupStore(BackupStoreSpec{
+		Type:      "s3",
+		BucketEnv: "TORQUE_TEST_S3_BUCKET",
+		PrefixEnv: "TORQUE_TEST_S3_PREFIX",
+		RegionEnv: "TORQUE_TEST_S3_REGION",
+	}, envPath)
+	if err != nil {
+		t.Fatalf("normalize env-file store: %v", err)
+	}
+	if store.Bucket != "env-file-bucket" || store.Prefix != "env-file-prefix/" || store.Region != "eu-west-1" {
+		t.Fatalf("env-file store = %#v", store)
+	}
+}
+
 func TestPostgresHostAndPortUseEnvBackedTarget(t *testing.T) {
 	t.Setenv("TORQUE_TEST_PGHOST", "rds.example.test")
 	t.Setenv("TORQUE_TEST_PGPORT", "6543")
@@ -147,6 +173,31 @@ func TestPostgresHostAndPortUseEnvBackedTarget(t *testing.T) {
 		t.Fatalf("postgres port = %d", got)
 	}
 	if got := conninfo(spec, "keycloak"); !strings.Contains(got, "host='rds.example.test'") || !strings.Contains(got, "port=6543") {
+		t.Fatalf("conninfo = %q", got)
+	}
+}
+
+func TestPostgresHostAndPortUseEnvFileBackedTarget(t *testing.T) {
+	root := t.TempDir()
+	envPath := filepath.Join(root, "manual.env")
+	if err := os.WriteFile(envPath, []byte(strings.Join([]string{
+		"export TORQUE_TEST_PGHOST=env-file-rds.example.test",
+		"export TORQUE_TEST_PGPORT=6544",
+		"export TORQUE_TEST_PGPASSWORD='secret-value'",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("write env file: %v", err)
+	}
+	t.Setenv("TORQUE_TEST_PGHOST", "process-rds.example.test")
+	spec := Spec{EnvFile: envPath, HostEnv: "TORQUE_TEST_PGHOST", PortEnv: "TORQUE_TEST_PGPORT", User: "postgres", PasswordEnv: "TORQUE_TEST_PGPASSWORD"}
+	if got := postgresHost(spec); got != "env-file-rds.example.test" {
+		t.Fatalf("postgres host = %q", got)
+	}
+	if got := postgresPort(spec); got != 6544 {
+		t.Fatalf("postgres port = %d", got)
+	}
+	got := conninfo(spec, "keycloak")
+	if !strings.Contains(got, "host='env-file-rds.example.test'") || !strings.Contains(got, "port=6544") || !strings.Contains(got, "password='secret-value'") {
 		t.Fatalf("conninfo = %q", got)
 	}
 }

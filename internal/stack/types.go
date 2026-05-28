@@ -837,6 +837,7 @@ type PostgresSpec struct {
 	Timeout   *time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
 	Database    string `yaml:"database,omitempty" json:"database,omitempty"`
+	EnvFile     string `yaml:"envFile,omitempty" json:"envFile,omitempty"`
 	Host        string `yaml:"host,omitempty" json:"host,omitempty"`
 	HostEnv     string `yaml:"hostEnv,omitempty" json:"hostEnv,omitempty"`
 	Port        int    `yaml:"port,omitempty" json:"port,omitempty"`

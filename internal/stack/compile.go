@@ -561,6 +561,7 @@ func validatePostgresSpec(kind string, name string, spec *PostgresSpec) error {
 	if spec.Database == "" {
 		spec.Database = "postgres"
 	}
+	spec.EnvFile = strings.TrimSpace(spec.EnvFile)
 	spec.Host = strings.TrimSpace(spec.Host)
 	spec.HostEnv = strings.TrimSpace(spec.HostEnv)
 	spec.PortEnv = strings.TrimSpace(spec.PortEnv)

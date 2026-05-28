@@ -380,6 +380,9 @@ func mergePostgresSpec(dst PostgresSpec, src PostgresSpec) PostgresSpec {
 	if src.Database != "" {
 		dst.Database = strings.TrimSpace(src.Database)
 	}
+	if src.EnvFile != "" {
+		dst.EnvFile = strings.TrimSpace(src.EnvFile)
+	}
 	if src.Host != "" {
 		dst.Host = strings.TrimSpace(src.Host)
 	}

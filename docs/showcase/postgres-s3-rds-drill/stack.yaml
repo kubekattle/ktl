@@ -5,13 +5,23 @@ defaults:
   cluster:
     name: local
 nodes:
+  - name: demo-resources
+    kind: host.command.run
+    host:
+      transport: local
+      timeout: 45m
+      command: "scripts/e2e/postgres-s3-rds-drill-resources.sh ensure --env-file docs/showcase/postgres-s3-rds-drill/runtime/manual.env --workdir docs/showcase/postgres-s3-rds-drill/runtime"
+      deleteCommand: "scripts/e2e/postgres-s3-rds-drill-resources.sh delete --env-file docs/showcase/postgres-s3-rds-drill/runtime/manual.env --workdir docs/showcase/postgres-s3-rds-drill/runtime"
+
   - name: source-backup-to-s3
     kind: postgres.backup.run
+    needs: [demo-resources]
     postgres:
       transport: local
       executionMode: native
       timeout: 30m
       database: keycloak
+      envFile: docs/showcase/postgres-s3-rds-drill/runtime/manual.env
       hostEnv: TORQUE_DEMO_SOURCE_PGHOST
       portEnv: TORQUE_DEMO_SOURCE_PGPORT
       user: postgres
@@ -40,6 +50,7 @@ nodes:
       executionMode: native
       timeout: 10m
       database: keycloak
+      envFile: docs/showcase/postgres-s3-rds-drill/runtime/manual.env
       hostEnv: TORQUE_DEMO_SOURCE_PGHOST
       portEnv: TORQUE_DEMO_SOURCE_PGPORT
       user: postgres
@@ -72,6 +83,7 @@ nodes:
       executionMode: native
       timeout: 30m
       database: postgres
+      envFile: docs/showcase/postgres-s3-rds-drill/runtime/manual.env
       hostEnv: TORQUE_DEMO_RDS_ENDPOINT
       port: 5432
       user: torque_demo

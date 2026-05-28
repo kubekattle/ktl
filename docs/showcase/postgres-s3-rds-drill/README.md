@@ -2,13 +2,13 @@
 
 This showcase is the database day-2 "killer demo":
 
-1. seed a small Keycloak-like PostgreSQL source database;
-2. run `postgres.backup.run` through Torque's native adapter;
-3. upload the dump, manifest, and catalog to S3 with multipart evidence;
-4. restore the backup into a disposable public RDS PostgreSQL instance;
-5. verify the restored `torque` realm exists;
-6. audit the stack receipts;
-7. delete every AWS object created by the harness.
+1. create a disposable Keycloak-like PostgreSQL source container;
+2. create a disposable S3 bucket and public RDS PostgreSQL instance;
+3. run `postgres.backup.run` through Torque's native adapter;
+4. upload the dump, manifest, and catalog to S3 with multipart evidence;
+5. restore the backup into RDS;
+6. verify the restored `torque` realm exists;
+7. delete every AWS object through `torque stack delete`.
 
 Run the full AWS E2E:
 
@@ -30,13 +30,12 @@ the same desired state works with disposable buckets and RDS endpoints:
 - `TORQUE_DEMO_RDS_PASSWORD`
 - `AWS_REGION`
 
-The harness writes proof under `docs/showcase/postgres-s3-rds-drill/runtime/`
-and removes AWS resources during cleanup. Local runtime files are ignored by
-Git.
+The stack writes proof under `docs/showcase/postgres-s3-rds-drill/runtime/`.
+Local runtime files are ignored by Git.
 
-For a step-by-step manual run against existing resources, see
-[MANUAL.md](./MANUAL.md). Run it from the repository root with
+For a step-by-step manual run, see [MANUAL.md](./MANUAL.md). Run it from the
+repository root with
 `torque stack apply --config docs/showcase/postgres-s3-rds-drill --yes`;
 plain `torque apply` is the Helm apply surface and expects `--chart` and
-`--release`. To generate a live local env file first, run the harness with
-`TORQUE_AWS_RDS_E2E_KEEP_RESOURCES=1` and `TORQUE_AWS_RDS_E2E_SETUP_ONLY=1`.
+`--release`. Cleanup is now stack-owned:
+`torque stack delete --config docs/showcase/postgres-s3-rds-drill --yes`.

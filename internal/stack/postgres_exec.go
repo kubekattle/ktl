@@ -717,6 +717,7 @@ func buildPostgresCommand(kind string, spec PostgresSpec, nodeID string, runID s
 	writeShellAssignment(&b, "TORQUE_NODE_ID", nodeID)
 	writeShellAssignment(&b, "TORQUE_RUN_ID", runID)
 	writeShellAssignment(&b, "PG_DATABASE", spec.Database)
+	writeShellAssignment(&b, "PG_ENV_FILE", spec.EnvFile)
 	writeShellAssignment(&b, "PG_HOST_VALUE", spec.Host)
 	writeShellAssignment(&b, "PG_USER_VALUE", spec.User)
 	writeShellAssignment(&b, "PG_PASSWORD_ENV", spec.PasswordEnv)
@@ -856,6 +857,13 @@ func writeBoolPtrAssignment(b *strings.Builder, setKey string, valueKey string, 
 }
 
 const postgresResourceScriptBody = `
+if [[ -n "${PG_ENV_FILE:-}" && -f "${PG_ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${PG_ENV_FILE}"
+  set +a
+fi
+
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 changed=0
 message="ok"

@@ -52,6 +52,7 @@ type LockPolicy struct {
 
 type Spec struct {
 	Database         string          `json:"database,omitempty"`
+	EnvFile          string          `json:"envFile,omitempty"`
 	Host             string          `json:"host,omitempty"`
 	HostEnv          string          `json:"hostEnv,omitempty"`
 	Port             int             `json:"port,omitempty"`
@@ -712,7 +713,7 @@ func executeRoleEnsure(ctx context.Context, result *Result, spec Spec) error {
 		sqls = append(sqls, "ALTER ROLE "+pq.QuoteIdentifier(name)+" "+value)
 		result.Diff = append(result.Diff, Diff{Path: "role.superuser", From: observed["superuser"], To: *spec.Role.Superuser, Action: "update"})
 	}
-	if pass := envValue(spec.Role.PasswordEnv); pass != "" {
+	if pass := envValueFrom(spec.EnvFile, spec.Role.PasswordEnv); pass != "" {
 		sqls = append(sqls, "ALTER ROLE "+pq.QuoteIdentifier(name)+" PASSWORD [REDACTED]")
 		result.Diff = append(result.Diff, Diff{Path: "role.password", From: "[unknown]", To: "[redacted]", Action: "update"})
 	}
@@ -746,7 +747,7 @@ func executeRoleEnsure(ctx context.Context, result *Result, spec Spec) error {
 				return err
 			}
 		}
-		if pass := envValue(spec.Role.PasswordEnv); pass != "" {
+		if pass := envValueFrom(spec.EnvFile, spec.Role.PasswordEnv); pass != "" {
 			if _, err := exec.ExecContext(ctx, "ALTER ROLE "+pq.QuoteIdentifier(name)+" PASSWORD "+pq.QuoteLiteral(pass)); err != nil {
 				return err
 			}
@@ -1248,7 +1249,7 @@ func executeBackupRun(ctx context.Context, result *Result, spec Spec) error {
 		return err
 	}
 	if backupStoreEnabled(spec.Backup.Store) {
-		store, err := uploadBackupArtifacts(ctx, spec.Backup.Store, backupID, file, manifest, catalogPath, sha, bytes)
+		store, err := uploadBackupArtifacts(ctx, spec.Backup.Store, spec.EnvFile, backupID, file, manifest, catalogPath, sha, bytes)
 		if err != nil {
 			return err
 		}
@@ -1260,7 +1261,7 @@ func executeBackupRun(ctx context.Context, result *Result, spec Spec) error {
 		if err := writeBackupCatalog(catalogPath, catalog); err != nil {
 			return err
 		}
-		if _, err := uploadBackupArtifacts(ctx, spec.Backup.Store, backupID, file, manifest, catalogPath, sha, bytes); err != nil {
+		if _, err := uploadBackupArtifacts(ctx, spec.Backup.Store, spec.EnvFile, backupID, file, manifest, catalogPath, sha, bytes); err != nil {
 			return err
 		}
 	} else {
@@ -1433,7 +1434,7 @@ func conninfo(spec Spec, dbName string) string {
 	if strings.TrimSpace(spec.User) != "" {
 		parts = append(parts, "user="+pqQuoteValue(strings.TrimSpace(spec.User)))
 	}
-	if pass := envValue(spec.PasswordEnv); pass != "" {
+	if pass := envValueFrom(spec.EnvFile, spec.PasswordEnv); pass != "" {
 		parts = append(parts, "password="+pqQuoteValue(pass))
 	}
 	if strings.TrimSpace(spec.SSLMode) != "" {
@@ -1446,7 +1447,7 @@ func postgresHost(spec Spec) string {
 	if strings.TrimSpace(spec.Host) != "" {
 		return strings.TrimSpace(spec.Host)
 	}
-	if host := envValue(spec.HostEnv); host != "" {
+	if host := envValueFrom(spec.EnvFile, spec.HostEnv); host != "" {
 		return host
 	}
 	if strings.TrimSpace(spec.PasswordEnv) == "" {
@@ -1461,7 +1462,7 @@ func postgresPort(spec Spec) int {
 	if spec.Port > 0 {
 		return spec.Port
 	}
-	value := envValue(spec.PortEnv)
+	value := envValueFrom(spec.EnvFile, spec.PortEnv)
 	if value == "" {
 		return 0
 	}
@@ -1492,7 +1493,7 @@ func pgEnv(spec Spec) []string {
 	var env []string
 	if strings.TrimSpace(spec.Host) != "" {
 		env = append(env, "PGHOST="+strings.TrimSpace(spec.Host))
-	} else if host := envValue(spec.HostEnv); host != "" {
+	} else if host := envValueFrom(spec.EnvFile, spec.HostEnv); host != "" {
 		env = append(env, "PGHOST="+host)
 	}
 	if port := postgresPort(spec); port > 0 {
@@ -1504,7 +1505,7 @@ func pgEnv(spec Spec) []string {
 	if strings.TrimSpace(spec.SSLMode) != "" {
 		env = append(env, "PGSSLMODE="+strings.TrimSpace(spec.SSLMode))
 	}
-	if pass := envValue(spec.PasswordEnv); pass != "" {
+	if pass := envValueFrom(spec.EnvFile, spec.PasswordEnv); pass != "" {
 		env = append(env, "PGPASSWORD="+pass)
 	}
 	return env
@@ -1749,9 +1750,18 @@ func pqQuoteValue(value string) string {
 }
 
 func envValue(name string) string {
+	return envValueFrom("", name)
+}
+
+func envValueFrom(envFile string, name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return ""
+	}
+	if values, err := readEnvFile(strings.TrimSpace(envFile)); err == nil {
+		if value, ok := values[name]; ok {
+			return strings.TrimSpace(value)
+		}
 	}
 	return os.Getenv(name)
 }
