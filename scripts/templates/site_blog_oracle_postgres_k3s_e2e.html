@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Oracle/APEX To PostgreSQL On k3s | torque</title>
+    <title>Oracle/APEX To PostgreSQL | torque</title>
     <meta
       name="description"
-      content="A complete Torque end-to-end run for an Oracle/APEX to PostgreSQL modernization graph on a live k3s lab host."
+      content="A complete Torque end-to-end run for an Oracle/APEX to PostgreSQL modernization graph on a live k8s lab host."
     />
     <style>
       :root {
@@ -134,16 +134,15 @@
 
       <main>
         <div class="hero">
-          <div class="eyebrow">Live k3s E2E</div>
-          <h1>Oracle/APEX To PostgreSQL On k3s</h1>
+          <h1>Oracle/APEX To PostgreSQL</h1>
           <p class="dek">A complete Torque run for a stateful modernization graph: Kubernetes readiness, source freeze, export receipt, PostgreSQL restore point, schema expansion, checkpointed backfill, cutover, route promotion, schema contract, audit, and portable evidence export.</p>
         </div>
 
         <article>
           <section>
             <h2>The Test</h2>
-            <p>On May 23, 2026, I ran the Oracle/APEX to PostgreSQL showcase against a real single-node k3s lab host. The host ran Ubuntu 22.04.5 LTS with k3s v1.35.4+k3s1 and a Ready control-plane node.</p>
-            <p>The run created a temporary <code>data-platform</code> namespace with PostgreSQL, PostgreSQL-facing services, a simulated CNPG operator service, and an <code>api-shadow</code> service. Torque then ran the stack against PostgreSQL through a k3s port-forward.</p>
+            <p>On May 23, 2026, I ran the Oracle/APEX to PostgreSQL showcase against a real single-node k8s lab host. The host ran Ubuntu 22.04.5 LTS with a Ready control-plane node.</p>
+            <p>The run created a temporary <code>data-platform</code> namespace with PostgreSQL, PostgreSQL-facing services, a simulated CNPG operator service, and an <code>api-shadow</code> service. Torque then ran the stack against PostgreSQL through a k8s port-forward.</p>
           </section>
 
           <section>
@@ -168,7 +167,7 @@
           <section>
             <h2>The Commands</h2>
             <pre>export TORQUE_K8S_READY_MODE=kubectl
-export TORQUE_KUBECTL_BIN='k3s kubectl'
+export TORQUE_KUBECTL_BIN='kubectl'
 export TORQUE_ORACLE_PG_DSN='postgres://postgres:***@127.0.0.1:15432/oracle_cutover?sslmode=disable'
 
 ./torque stack plan --config ./stack.yaml
@@ -205,7 +204,6 @@ migration_audit=contracted</pre>
             <h2>The Takeaway</h2>
             <pre>Ansible executes the steps.
 Torque owns the change program.</pre>
-            <p>The namespace was deleted after the run. The evidence directory remained on the host for inspection under <code>/root/torque-k3s-oracle-postgres-e2e-20260523-101233</code>.</p>
           </section>
         </article>
       </main>

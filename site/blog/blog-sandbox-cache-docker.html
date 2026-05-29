@@ -342,7 +342,7 @@
   <body>
     <div class="page">
       <header>
-        <a class="brand" href="./" aria-label="torque home">
+        <a class="brand" href="../" aria-label="torque home">
           <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
             <path d="M24 5.5 42.5 24 24 42.5 5.5 24Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round"></path>
             <path d="M18 19h12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
@@ -351,8 +351,8 @@
           <span>torque</span>
         </a>
         <nav aria-label="Primary">
-          <a class="docs-link" href="./docs.html">Docs</a>
-          <a href="./blog.html">Blog</a>
+          <a class="docs-link" href="../docs.html">Docs</a>
+          <a href="../blog.html">Blog</a>
           <a href="https://github.com/ingresslabs/torque">GitHub</a>
           <a href="https://github.com/ingresslabs/torque/releases">Releases</a>
         </nav>
@@ -370,7 +370,7 @@
           <p>Torque treats image builds as part of the delivery proof, not a side effect before Helm. The build can run through BuildKit, write capture evidence, scan for secret leaks, generate SBOM and provenance, use local or S3 cache, and optionally re-exec inside an nsjail sandbox. That makes the build path inspectable in the same way the apply path is inspectable.</p>
 
           <figure class="preface-figure">
-            <img src="./assets/blog/torque-sandbox-venus.png" alt="OpenAI-generated ultrarealistic sandbox floating in space near Venus with sand spilling from holes" loading="lazy" />
+            <img src="../assets/blog/torque-sandbox-venus.png" alt="OpenAI-generated ultrarealistic sandbox floating in space near Venus with sand spilling from holes" loading="lazy" />
             <figcaption>Docker without sandbox</figcaption>
           </figure>
 
@@ -413,7 +413,7 @@ torque build . \
 torque build . --sandbox --sandbox-config sandbox/linux-ci.cfg --sandbox-logs</code></pre>
 
           <figure class="inline-demo">
-            <img src="./assets/demos/torque-sandbox-secrets.gif" alt="torque sandboxed build and secret handling workflow demo" loading="lazy" />
+            <img src="../assets/demos/torque-sandbox-secrets.gif" alt="torque sandboxed build and secret handling workflow demo" loading="lazy" />
           </figure>
 
           <h2>Secret leaks are a build failure mode</h2>

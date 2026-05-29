@@ -236,7 +236,7 @@
         </a>
         <nav aria-label="Primary">
           <a class="docs-link" href="./docs.html">Docs</a>
-          <a href="./blog.html">Blog</a>
+          <a href="./blog/">Blog</a>
           <a href="https://github.com/ingresslabs/torque">GitHub</a>
           <a href="https://github.com/ingresslabs/torque/releases">Releases</a>
         </nav>
@@ -245,42 +245,49 @@
       <main>
         <section class="posts" aria-label="Blog posts">
           <article class="post">
-            <a class="post-link" href="./blog-firecracker-fraud-platform.html">
+            <a class="post-link" href="./blog/blog-deploy-kafka-gitlab-keycloak.html">
+              <h2>Gone in 60 Seconds</h2>
+              <p>Modern CI/CD became too complex and too centralized. Torque takes the opposite path: give agents and operators a real tool, keep deploys proof-based, and still bring up Kafka, GitLab, and Keycloak through one graph.</p>
+            </a>
+          </article>
+
+          <article class="post">
+            <a class="post-link" href="./blog/blog-firecracker-fraud-platform.html">
               <h2>Deploy Platforms Instead Of Charts</h2>
               <p>A real-world Torque stack package for Argo, Spark, Flink, Ray, Trino, Iceberg, Redpanda schema contracts, SigNoz, ClickHouse, a public payments API, S3-backed evidence, replay, and first-class verification.</p>
             </a>
           </article>
 
           <article class="post">
-            <a class="post-link" href="./blog-agentic-proof-gated-change-control.html">
+            <a class="post-link" href="./blog/blog-agentic-proof-gated-change-control.html">
               <h2>The Release Should Explain Itself</h2>
               <p>A production Kubernetes PostgreSQL migration where Torque denied an agent twice, authorized it only after proof and policy passed, then captured a replayable stack ledger.</p>
             </a>
           </article>
 
           <article class="post">
-            <a class="post-link" href="./blog-oracle-postgres-k3s-e2e.html">
-              <h2>Oracle/APEX To PostgreSQL On k3s</h2>
-              <p>A complete Torque end-to-end run for a stateful modernization graph: Kubernetes readiness, source freeze, export receipt, PostgreSQL restore point, checkpointed backfill, cutover, route promotion, schema contract, audit, and portable evidence export.</p>
+            <a class="post-link" href="./blog/blog-oracle-postgres-k3s-e2e.html">
+              <h2>Oracle/APEX To PostgreSQL</h2>
+              <p>A complete Torque end-to-end run for a stateful modernization graph on live k8s: Kubernetes readiness, source freeze, export receipt, PostgreSQL restore point, checkpointed backfill, cutover, route promotion, schema contract, audit, and portable evidence export.</p>
             </a>
           </article>
 
           <article class="post">
-            <a class="post-link" href="./blog-sandbox-cache-docker.html">
+            <a class="post-link" href="./blog/blog-sandbox-cache-docker.html">
               <h2>Sandboxing Docker like a Pro</h2>
               <p>A deep practical guide to Torque's build path: nsjail sandbox profiles, BuildKit builder topology, Docker auth boundaries, S3 cache import/export, cache warming, hermetic mode, and agent-safe build operations.</p>
             </a>
           </article>
 
           <article class="post">
-            <a class="post-link" href="./blog-atlassian-torque-case-study.html">
+            <a class="post-link" href="./blog/blog-atlassian-torque-case-study.html">
               <h2>Atlassian Data Center As A Torque Stack</h2>
               <p>Deploy Atlassian Data Center charts with Torque, convert the release commands into a stack, add secret:// references, generate verifier and Helmer evidence, promote through proof-backed canary and blue-green examples, build custom images, and debug the rollout with torque logs.</p>
             </a>
           </article>
 
           <article class="post">
-            <a class="post-link" href="./blog-mcp-s3-cache.html">
+            <a class="post-link" href="./blog/blog-mcp-s3-cache.html">
               <h2>One Torque Talking To Another</h2>
               <p>A practical pattern for agent-driven delivery through the MCP remote bridge, systemd daemon install path, and S3 BuildKit cache advisor workflow.</p>
             </a>
