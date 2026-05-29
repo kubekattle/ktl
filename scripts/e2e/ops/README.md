@@ -85,30 +85,6 @@ scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
   --cleanup
 ```
 
-## STACK-FC-PG-JIRA-001
-
-`STACK-FC-PG-JIRA-001.sh` proves a composite PostgreSQL plus Jira lab on the
-real SSH host. It generates a 7-node/2Gi-per-node variant of the existing
-Firecracker PostgreSQL stack so one spare node is reserved for Jira, plans,
-applies, reapplies, audits, and exports that stack, then prepares a Jira
-database on the live primary and deploys the official Atlassian Jira chart
-through `torque apply`. The proof captures Torque deploy evidence for both the
-initial Jira apply and the idempotent reapply, verifies the Jira setup UI over
-a live `kubectl port-forward`, and optionally deletes both the Jira release and
-the Firecracker lab. The harness records the generated cluster server version
-and fails early when it is below the Jira chart minimum (`>=1.21`). Use
-`--destroy-existing` when the `141` host should be scrubbed of older
-Firecracker labs first.
-
-```bash
-TORQUE_OPS_E2E_CONFIRM=1 \
-TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
-scripts/e2e/ops/STACK-FC-PG-JIRA-001.sh \
-  --destroy-existing \
-  --evidence-root /tmp/torque-ops-e2e \
-  --cleanup
-```
-
 ## STACK-FC-JENKINS-PG-BACKUP-001
 
 `STACK-FC-JENKINS-PG-BACKUP-001.sh` proves Torque can sit behind an existing
