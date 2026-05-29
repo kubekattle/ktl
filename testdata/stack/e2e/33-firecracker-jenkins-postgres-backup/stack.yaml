@@ -1,0 +1,42 @@
+apiVersion: torque.dev/v1
+kind: Stack
+name: firecracker-jenkins-postgres-backup
+cli:
+  inferDeps: false
+nodes:
+  - name: pg-backup-run
+    kind: postgres.backup.run
+    postgres:
+      transport: local
+      executionMode: native
+      timeout: 15m
+      database: torque
+      host: 127.0.0.1
+      portEnv: TORQUE_JENKINS_PG_LOCAL_PORT
+      user: postgres
+      sslMode: disable
+      backup:
+        database: torque
+        id: firecracker-direct/jenkins
+        path: runtime/backups
+        file: runtime/backups/torque-firecracker-direct.dump
+        manifestPath: runtime/backups/torque-firecracker-direct.manifest.json
+        catalogPath: runtime/backups/torque-firecracker-direct.catalog.json
+
+  - name: pg-backup-verify
+    kind: postgres.backup.verify
+    needs: [pg-backup-run]
+    postgres:
+      transport: local
+      executionMode: native
+      timeout: 10m
+      database: torque
+      host: 127.0.0.1
+      portEnv: TORQUE_JENKINS_PG_LOCAL_PORT
+      user: postgres
+      sslMode: disable
+      backup:
+        id: firecracker-direct/jenkins
+        file: runtime/backups/torque-firecracker-direct.dump
+        manifestPath: runtime/backups/torque-firecracker-direct.manifest.json
+        catalogPath: runtime/backups/torque-firecracker-direct.catalog.json

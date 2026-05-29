@@ -41,7 +41,7 @@ nodes:
         GATEWAY="${NET_PREFIX}.1"
         SERVER_IP="${NET_PREFIX}.10"
         CIDR="${NET_PREFIX}.0/24"
-        DIRECT_PACKAGES="openssh-server ca-certificates curl wget tar gzip postgresql-15 postgresql-client-15 openjdk-17-jre-headless rabbitmq-server python3"
+        DIRECT_PACKAGES="openssh-server ca-certificates curl wget tar gzip postgresql postgresql-client openjdk-21-jre rabbitmq-server python3"
         SSH_OPTS=(-i "${LAB_KEY}" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
 
         node_ip() { printf '%s.%d' "${NET_PREFIX}" "$((10 + $1))"; }
@@ -117,6 +117,13 @@ nodes:
           trap cleanup_mounts RETURN
           rm -f "${mnt}/etc/resolv.conf"
           printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
+          if ! grep -q 'jammy universe' "${mnt}/etc/apt/sources.list"; then
+            cat >>"${mnt}/etc/apt/sources.list" <<'EOF'
+        deb http://archive.ubuntu.com/ubuntu jammy universe
+        deb http://archive.ubuntu.com/ubuntu jammy-updates main universe
+        deb http://security.ubuntu.com/ubuntu jammy-security main universe
+        EOF
+          fi
           mount -t proc proc "${mnt}/proc"
           mount -t sysfs sysfs "${mnt}/sys"
           mount --bind /dev "${mnt}/dev"
@@ -206,6 +213,17 @@ nodes:
             netmask 255.255.255.0
             gateway ${GATEWAY}
         EOF
+            mkdir -p "${mnt}/etc/systemd/network"
+            cat >"${mnt}/etc/systemd/network/10-eth0.network" <<EOF
+        [Match]
+        Name=eth0
+
+        [Network]
+        Address=${ip}/24
+        Gateway=${GATEWAY}
+        DNS=1.1.1.1
+        DNS=8.8.8.8
+        EOF
             rm -f "${mnt}/etc/resolv.conf"
             printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >"${mnt}/etc/resolv.conf"
             rm -f "${mnt}/etc/machine-id" "${mnt}/var/lib/dbus/machine-id" 2>/dev/null || true
@@ -265,17 +283,20 @@ nodes:
           echo "configure-postgres-primary"
           guest 0 'bash -se' <<'PG_PRIMARY'
         set -euo pipefail
+        PG_MAJOR="$(psql --version | awk '{print $3}' | cut -d. -f1)"
+        PG_CONF_DIR="/etc/postgresql/${PG_MAJOR}/main"
         systemctl stop postgresql || true
-        pg_dropcluster --stop 15 main >/dev/null 2>&1 || true
-        pg_createcluster 15 main --start-conf=auto >/dev/null
-        cat >>/etc/postgresql/15/main/postgresql.conf <<'EOF'
+        if ! pg_lsclusters --no-header | awk '{print $1" "$2}' | grep -qx "${PG_MAJOR} main"; then
+          pg_createcluster "${PG_MAJOR}" main --start-conf=auto >/dev/null
+        fi
+        cat >>"${PG_CONF_DIR}/postgresql.conf" <<'EOF'
         listen_addresses = '*'
         wal_level = replica
         max_wal_senders = 20
         max_replication_slots = 20
         hot_standby = on
         EOF
-        cat >/etc/postgresql/15/main/pg_hba.conf <<'EOF'
+        cat >"${PG_CONF_DIR}/pg_hba.conf" <<'EOF'
         local all all trust
         host all all 127.0.0.1/32 trust
         host all all 172.31.240.0/24 trust
@@ -289,17 +310,29 @@ nodes:
             echo "configure-postgres-replica-${i}"
             guest "${i}" 'bash -se' <<'PG_REPLICA'
         set -euo pipefail
+        PG_MAJOR="$(psql --version | awk '{print $3}' | cut -d. -f1)"
+        PG_CONF_DIR="/etc/postgresql/${PG_MAJOR}/main"
+        PG_DATA_DIR="/var/lib/postgresql/${PG_MAJOR}/main"
         systemctl stop postgresql || true
-        pg_dropcluster --stop 15 main >/dev/null 2>&1 || true
-        pg_createcluster 15 main --start-conf=auto >/dev/null
+        if ! pg_lsclusters --no-header | awk '{print $1" "$2}' | grep -qx "${PG_MAJOR} main"; then
+          pg_createcluster "${PG_MAJOR}" main --start-conf=auto >/dev/null
+        fi
         systemctl stop postgresql || true
-        rm -rf /var/lib/postgresql/15/main
-        install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/15/main
+        rm -rf "${PG_DATA_DIR}"
+        install -d -o postgres -g postgres -m 0700 "${PG_DATA_DIR}"
         until pg_isready -h 172.31.240.10 -U postgres >/dev/null 2>&1; do sleep 2; done
-        su - postgres -c "pg_basebackup -h 172.31.240.10 -D /var/lib/postgresql/15/main -U postgres -Fp -Xs -R" >/dev/null
-        cat >>/etc/postgresql/15/main/postgresql.conf <<'EOF'
+        su - postgres -c "pg_basebackup -h 172.31.240.10 -D ${PG_DATA_DIR} -U postgres -Fp -Xs -R" >/dev/null
+        cat >>"${PG_CONF_DIR}/postgresql.conf" <<'EOF'
         listen_addresses = '*'
+        max_wal_senders = 20
+        max_replication_slots = 20
         hot_standby = on
+        EOF
+        cat >"${PG_CONF_DIR}/pg_hba.conf" <<'EOF'
+        local all all trust
+        host all all 127.0.0.1/32 trust
+        host all all 172.31.240.0/24 trust
+        host replication all 172.31.240.0/24 trust
         EOF
         systemctl enable --now postgresql >/dev/null
         until pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; do sleep 1; done
@@ -327,7 +360,7 @@ nodes:
         done
         PG_VERIFY
           local ok
-          ok="$(grep -c ' 1$' "${RUN_ROOT}/verify-postgres.txt" || true)"
+          ok="$(grep -Ec '^172\.31\.240\.[0-9]+ 1$' "${RUN_ROOT}/verify-postgres.txt" || true)"
           [[ "${ok}" == "5" ]] || { echo "postgres replica proof failed: ${ok}/5" >&2; exit 1; }
         }
 

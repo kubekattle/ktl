@@ -60,6 +60,273 @@ scripts/e2e/ops/STACK-FC-K8S-001.sh \
   --cleanup
 ```
 
+## STACK-FC-MYSQL-001
+
+`STACK-FC-MYSQL-001.sh` proves stack-native idempotent host/database
+automation on the real SSH lab host. The stackfile bootstraps three
+Firecracker VMs on `root@141.105.65.227`, configures a MySQL-compatible Galera
+cluster, verifies replicated writes through the typed
+`mysql.replication.verify` node, reapplies the stack for idempotence, audits
+and exports the run, then deletes the VM resources.
+
+The live lab fixture runs the verifier through SSH today. The same
+`mysql.replication.verify` node also accepts `transport: nats-mesh`, which
+publishes a typed command assignment to a NATS subject and consumes the same
+redacted operation receipt shape. Set the stack `mysql.target` or
+`mysql.targetEnv` to the NATS assignment subject; connection details come from
+`TORQUE_NATS_URL` or `TORQUE_NATS_SERVER`, with optional `TORQUE_NATS_CREDS` and
+`TORQUE_NATS_NKEY`.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## STACK-FC-JENKINS-PG-BACKUP-001
+
+`STACK-FC-JENKINS-PG-BACKUP-001.sh` proves Torque can sit behind an existing
+CI controller instead of replacing it. The harness boots a dedicated Jenkins
+controller inside a Firecracker VM on the real SSH host, cross-builds a Linux
+Torque workspace, installs a short-lived SSH credential for the job, and
+creates one Jenkins freestyle job named `torque-firecracker-postgres-backup`.
+That job first ensures the direct Firecracker PostgreSQL VM lab is running via
+the selected nodes from `18-firecracker-direct-data-services`, then applies the
+backup-only stack `33-firecracker-jenkins-postgres-backup`, which opens an SSH
+tunnel back to host `141`, runs `postgres.backup.run` and
+`postgres.backup.verify` locally in native mode, and leaves the dump, manifest,
+catalog, `pg_restore --list`, audit JSON, and export bundles in the Jenkins
+workspace. The harness verifies Jenkins over a local SSH tunnel, waits for the
+build to finish, pulls the workspace artifacts and journal, and optionally
+deletes both the Jenkins VM and the base PostgreSQL lab.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-JENKINS-PG-BACKUP-001.sh \
+  --destroy-existing \
+  --evidence-root /tmp/torque-ops-e2e \
+  --no-cleanup
+```
+
+## STACK-FC-KAFKA-RABBITMQ-001
+
+`STACK-FC-KAFKA-RABBITMQ-001.sh` proves two side-by-side NATS-dispatched
+Firecracker data-service labs on the real SSH host. It starts a NATS server on
+the lab host, starts one `torque-agent nats worker` subject for Kafka and one
+for RabbitMQ, applies/reapplies the NATS stackfiles, deploys continuous
+traffic generators, audits and exports both runs, then optionally deletes the
+labs through the same NATS workers.
+
+Kafka runs as five host-network pods on a five-node Firecracker/k3s cluster
+over `172.31.233.0/24`, verifies topic create, produce, consume, and leaves a
+`kafka-traffic-generator` deployment producing to and consuming from
+`torque-traffic`.
+RabbitMQ runs as five host-network pods on a separate five-node
+Firecracker/k3s cluster over `172.31.234.0/24` and verifies cluster membership
+plus quorum queue publish/consume, then leaves a
+`rabbitmq-traffic-generator` deployment publishing to and draining the
+`torque_traffic` quorum queue.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-KAFKA-RABBITMQ-001.sh \
+  --destroy-existing \
+  --evidence-root /tmp/torque-ops-e2e \
+  --no-cleanup
+```
+
+## OPS-HOST-001
+
+`OPS-HOST-001.sh` proves the first guarded host adapter on the real
+Firecracker lab host. It boots one microVM on `root@141.105.65.227`, collects
+facts over SSH through the lab host, seals TargetGraph/facts/lock/policy inputs
+into stack plan bundles, runs an approved `host.command.run` inside the VM,
+proves a policy-blocked command does not execute, proves a timeout receipt,
+then audits, exports, and cleans up.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-001.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-HOST-002
+
+`OPS-HOST-002.sh` proves `host.file.render` on the real SSH lab host. It
+renders a templated file to a temporary path, verifies owner/mode and content
+digest evidence, repeats apply as a no-op, audits and exports the stack run,
+then deletes the rendered file.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-002.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-HOST-003
+
+`OPS-HOST-003.sh` proves `host.file.copy` on the real SSH lab host. It copies a
+local source file to a temporary remote path, verifies checksum, owner/mode, and
+backup evidence, repeats apply as a no-op, audits and exports the stack run,
+then deletes through the stack and proves the original file was restored.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-003.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-HOST-004
+
+`OPS-HOST-004.sh` proves `host.package.install` on the real SSH lab host. It
+selects an absent harmless package from the host package cache, installs it,
+verifies package-manager before/after evidence, repeats apply as a no-op,
+audits and exports the stack run, then deletes through the stack and proves the
+package was removed.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-004.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-HOST-005
+
+`OPS-HOST-005.sh` proves `host.service.manage` on the real SSH lab host. It
+creates an isolated systemd test unit, starts and enables it through the stack,
+verifies service before/after evidence, repeats apply as a no-op, proves restart
+evidence, then deletes through the stack and proves the unit was stopped and
+disabled.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-005.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-HOST-006
+
+`OPS-HOST-006.sh` proves `host.user.manage` on the real SSH lab host. It
+selects an unused UID/GID, creates a temporary group and user through the stack,
+verifies UID/GID before/after evidence, repeats apply as a no-op, audits and
+exports the run, then deletes through the stack and proves the user, group, and
+home directory were removed.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-006.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-HOST-007
+
+`OPS-HOST-007.sh` proves `host.cron.manage` on the real SSH lab host. It writes
+a temporary cron.d file through the stack, verifies exact digest diff evidence,
+repeats apply as a no-op, audits and exports the run, then deletes through the
+stack and proves the cron file was removed.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-007.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-HOST-008
+
+`OPS-HOST-008.sh` proves `host.systemd.unit` on the real SSH lab host. It writes
+a temporary systemd unit, runs daemon-reload, starts and enables it, verifies
+journal evidence, repeats apply as a no-op, audits and exports the run, then
+deletes through the stack and proves the unit file, active state, and enablement
+were cleaned up.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-HOST-008.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-CLI-004b
+
+`OPS-CLI-004b.sh` reuses the same real Firecracker VM harness to prove approved
+stack apply replay. It runs an eligible `--from-bundle --yes` host command, then
+proves replay blocks before mutation when approval is missing, TargetGraph
+changes, fact evidence changes, policy changes, or the planned lock holder
+changes.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-CLI-004b.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-CLI-005
+
+`OPS-CLI-005.sh` reuses the approved replay Firecracker evidence, audits the
+exported stack run bundle with `torque stack audit --from-bundle`, and proves a
+tampered bundle fails ops verification when host command receipts or redaction
+proof are inconsistent.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-CLI-005.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-CLI-006
+
+`OPS-CLI-006.sh` proves `torque stack export` as a portable redacted evidence
+archive. It exports an explicit run and the default latest run, verifies
+`manifest.json` hashes and run digests, audits the exported bundle
+read-only, proves raw secret-like command material is absent from exported
+SQLite state, rejects a tampered `state.sqlite`, and cleans up the local
+fixture.
+
+```bash
+scripts/e2e/ops/OPS-CLI-006.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-CLI-007
+
+`OPS-CLI-007.sh` proves `torque ops adapter capabilities`. It verifies the
+local adapter contract catalog in table and JSON formats, proves the
+implemented `host.command.run` adapter can run a local redaction probe, and
+runs the same read-only probe over the lab SSH target without leaking raw probe
+secret material.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-CLI-007.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
 ## STACK-LIFE-008
 
 `STACK-LIFE-008.sh` proves the GitLab Firecracker hybrid Kubernetes lifecycle
@@ -221,6 +488,181 @@ cleanup.
 
 ```bash
 scripts/e2e/ops/OPS-TR-002.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-004
+
+`OPS-AGENT-004.sh` proves the first local NATS fleet-control slice. It starts
+or connects to NATS, runs two `torque-agent nats heartbeat` publishers, collects
+live status with `torque ops agent status`, verifies selector behavior, and
+exports a redacted evidence bundle.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-004.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-005
+
+`OPS-AGENT-005.sh` proves durable agent registry compaction. It starts
+JetStream-enabled NATS and etcd, publishes two `torque-agent nats heartbeat
+--jetstream --once` events, compacts them with `torque ops agent registry
+compact`, reads them back with `torque ops agent status --source store`, and
+exports a redacted evidence bundle.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-005.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-006
+
+`OPS-AGENT-006.sh` proves the stack fleet readiness and capability gate. It
+captures `torque-agent capabilities report`, starts JetStream-enabled NATS, runs
+a `torque-agent nats worker`, publishes one durable heartbeat with discovered
+capabilities plus one ready-but-incapable manual heartbeat, compacts the
+heartbeats into a file-backed registry, applies a `runner.mode: fleet` stack
+over NATS, and then proves insufficient-readiness and missing-capability stacks
+block before marker commands can run.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-006.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-007
+
+`OPS-AGENT-007.sh` proves targeted NATS fleet fan-out. It starts three
+per-target `torque-agent nats worker` processes, publishes and compacts three
+ready heartbeats, applies one `runner.mode: fleet` `host.command.run` node with
+`transport: nats` and no explicit `host.target`, then proves all three workers
+executed. It stops one worker and proves the next stack apply blocks with a
+missing receipt.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-007.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-008
+
+`OPS-AGENT-008.sh` proves JetStream durable assignments and worker
+idempotency. It publishes and compacts one ready agent, starts
+`torque stack apply` with `runner.fanout.delivery: jetstream` while the target
+worker is offline, starts a `torque-agent nats worker --delivery jetstream`
+afterward, and verifies the marker plus assignment and receipt offsets in
+`host-command-fanout.json`. It then republishes the same assignment and proves
+the SQLite ledger returns a deduped receipt without writing the marker again.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-008.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-009
+
+`OPS-AGENT-009.sh` proves durable assignment retry and dead-letter policy. It
+starts a JetStream worker with `--max-deliver`, `--ack-wait`, `--backoff`, and
+`--nak-delay`, runs a stack command that fails twice and succeeds on the third
+delivery, republishes the successful assignment to prove ledger dedupe, then
+runs an always-failing stack command and verifies the blocked dead-letter
+receipt includes retry metadata.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-009.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-010
+
+`OPS-AGENT-010.sh` proves signed assignment envelopes. It generates an
+ed25519 assignment key, starts a verified JetStream worker with
+`--verify-assignments --trusted-issuer-key`, runs one signed stack assignment,
+then injects unsigned, expired, wrong-policy, and wrong-target assignments and
+verifies they are blocked without command execution.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-010.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-011
+
+`OPS-AGENT-011.sh` proves durable receipt offset resume. It runs a
+JetStream-backed fleet stack once, verifies the receipt offset checkpoint in
+`.torque/stack/state.sqlite`, stops the worker, marks the first run as
+interrupted, then runs `torque stack apply --resume --run-id <first-run>`.
+The resumed apply must succeed from the stored receipt offset without writing
+the marker a second time.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-011.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-AGENT-012
+
+`OPS-AGENT-012.sh` proves target-local worker pools and durable slot leases. It
+starts two `torque-agent nats worker --delivery jetstream` processes on the
+same target subject, queue/durable consumer, and assignment ledger, publishes a
+heartbeat with `workerSlots`, runs stack apply with
+`runner.fanout.targetConcurrency.ledger`, and verifies each successful fan-out
+reserves a SQLite-backed target slot lease, grants the token to the selected
+worker, and proves that worker renews/releases the lease while the command runs
+longer than the original TTL. It stops the worker named in the first receipt,
+proves the second run succeeds through the surviving worker,
+injects a held target slot lease to prove a concurrent apply blocks before
+assignment, expires that lease, and proves the next run reclaims it. Receipts
+must include `workerId`, `queue`, `assignmentConsumer`, slot lease metadata,
+`slotLeaseDecision`, `slotLeaseRenewedBy=worker`, and redacted grant digests.
+
+```bash
+scripts/e2e/ops/OPS-AGENT-012.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-TR-007
+
+`OPS-TR-007.sh` proves the first local SSH/NATS bridge slice. It starts or
+connects to NATS, starts `torque-agent nats worker`, applies a stack with
+`mysql.replication.verify` using `transport: nats-mesh`, audits the resulting
+stack artifacts for replicated-node and `nats.request` evidence, and exports a
+redacted run bundle. Durable JetStream retries, signed assignments, and
+fleet control-plane hardening build on top of that bridge.
+
+```bash
+scripts/e2e/ops/OPS-TR-007.sh \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## OPS-TR-008
+
+`OPS-TR-008.sh` benchmarks the same external `host.file.ensure` typed module
+over SSH and NATS inside real Firecracker VMs on the lab host. It boots the
+requested VM counts, starts a NATS worker per VM, runs changed and no-op stack
+applies for each transport, records p50/p95 node duration, total runtime,
+operation count, and proof bundle size, then validates the standard ops
+evidence contract.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/OPS-TR-008.sh \
+  --counts 1,10,100 \
+  --vm-mem 192 \
+  --destroy-existing-labs \
   --evidence-root /tmp/torque-ops-e2e \
   --cleanup
 ```
