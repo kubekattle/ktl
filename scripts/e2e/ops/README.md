@@ -85,6 +85,56 @@ scripts/e2e/ops/STACK-FC-MYSQL-001.sh \
   --cleanup
 ```
 
+## STACK-FC-PG-JIRA-001
+
+`STACK-FC-PG-JIRA-001.sh` proves a composite PostgreSQL plus Jira lab on the
+real SSH host. It generates a 7-node/2Gi-per-node variant of the existing
+Firecracker PostgreSQL stack so one spare node is reserved for Jira, plans,
+applies, reapplies, audits, and exports that stack, then prepares a Jira
+database on the live primary and deploys the official Atlassian Jira chart
+through `torque apply`. The proof captures Torque deploy evidence for both the
+initial Jira apply and the idempotent reapply, verifies the Jira setup UI over
+a live `kubectl port-forward`, and optionally deletes both the Jira release and
+the Firecracker lab. The harness records the generated cluster server version
+and fails early when it is below the Jira chart minimum (`>=1.21`). Use
+`--destroy-existing` when the `141` host should be scrubbed of older
+Firecracker labs first.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-PG-JIRA-001.sh \
+  --destroy-existing \
+  --evidence-root /tmp/torque-ops-e2e \
+  --cleanup
+```
+
+## STACK-FC-JENKINS-PG-BACKUP-001
+
+`STACK-FC-JENKINS-PG-BACKUP-001.sh` proves Torque can sit behind an existing
+CI controller instead of replacing it. The harness boots a dedicated Jenkins
+controller inside a Firecracker VM on the real SSH host, cross-builds a Linux
+Torque workspace, installs a short-lived SSH credential for the job, and
+creates one Jenkins freestyle job named `torque-firecracker-postgres-backup`.
+That job first ensures the direct Firecracker PostgreSQL VM lab is running via
+the selected nodes from `18-firecracker-direct-data-services`, then applies the
+backup-only stack `33-firecracker-jenkins-postgres-backup`, which opens an SSH
+tunnel back to host `141`, runs `postgres.backup.run` and
+`postgres.backup.verify` locally in native mode, and leaves the dump, manifest,
+catalog, `pg_restore --list`, audit JSON, and export bundles in the Jenkins
+workspace. The harness verifies Jenkins over a local SSH tunnel, waits for the
+build to finish, pulls the workspace artifacts and journal, and optionally
+deletes both the Jenkins VM and the base PostgreSQL lab.
+
+```bash
+TORQUE_OPS_E2E_CONFIRM=1 \
+TORQUE_LAB_SSH="ssh://root@141.105.65.227" \
+scripts/e2e/ops/STACK-FC-JENKINS-PG-BACKUP-001.sh \
+  --destroy-existing \
+  --evidence-root /tmp/torque-ops-e2e \
+  --no-cleanup
+```
+
 ## STACK-FC-KAFKA-RABBITMQ-001
 
 `STACK-FC-KAFKA-RABBITMQ-001.sh` proves two side-by-side NATS-dispatched

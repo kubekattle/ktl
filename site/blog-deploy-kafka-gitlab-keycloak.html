@@ -259,6 +259,41 @@
         font: 0.88rem/1.55 var(--font-mono);
       }
 
+      details {
+        margin: 8px 0 0;
+        border: 1px solid rgba(237, 241, 245, 0.13);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.06), rgba(184, 189, 196, 0.02)),
+          rgba(10, 10, 12, 0.78);
+        overflow: hidden;
+      }
+
+      summary {
+        cursor: pointer;
+        padding: 16px 18px;
+        color: var(--text);
+        font: 0.8rem/1.35 var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        user-select: none;
+      }
+
+      summary::-webkit-details-marker {
+        display: none;
+      }
+
+      details[open] summary {
+        border-bottom: 1px solid rgba(237, 241, 245, 0.12);
+      }
+
+      details pre {
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+      }
+
       @media (max-width: 860px) {
         .signal-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -349,6 +384,46 @@ kind: postgres.grant.ensure</code></pre>
           <blockquote>This is not just <code>pg_dump</code>.</blockquote>
 
           <p>Torque has to prove that the database was live, which backup was created, what SHA256 it has, where the S3 object was uploaded, whether the restore works, and whether SQL verification passed.</p>
+
+          <h2>Works With Jenkins Too</h2>
+          <p>Torque is not asking you to rip out the CI/CD you already have. We proved that by booting Jenkins inside a Firecracker VM, pointing it at a second Firecracker PostgreSQL lab, and running a backup-only Torque stack from a plain job. Jenkins stayed the scheduler and artifact store. Torque handled the part Jenkins is bad at: typed planning, backup execution, verification, audit, and export.</p>
+
+          <p>The job was parameterized through an env file instead of hardcoded pipeline glue. That file carried the lab host, SSH identity path, PostgreSQL primary address, and local tunnel settings. Jenkins triggered one script, Torque planned the stack, executed <code>postgres.backup.run</code> and <code>postgres.backup.verify</code>, and archived proof instead of just printing logs. In the live run, Jenkins build <code>#3</code> produced a dump at <code>runtime/backups/torque-firecracker-direct.dump</code> with SHA256 <code>a7cd7639e2eeac09b18382d7356eb74cedd89fa1727bfc20f3bd50bbe1c9eb65</code>. The build artifacts included the dump, manifest, catalog, summary, audit output, and export bundle. That is the practical point: keep Jenkins, GitLab CI, or another runner as the entrypoint, and let Torque become the typed engine underneath.</p>
+
+          <details>
+            <summary>Equivalent Jenkinsfile</summary>
+            <pre><code>pipeline {
+  agent any
+
+  stages {
+    stage('Torque PostgreSQL Backup') {
+      steps {
+        writeFile file: 'ci/jenkins/jenkins-job.env', text: '''
+TORQUE_JENKINS_SKIP_BASE_STACK=1
+TORQUE_LAB_SSH=ssh://root@141.105.65.227
+TORQUE_LAB_SSH_IDENTITY=/var/lib/jenkins/torque/keys/host_ed25519
+TORQUE_FIRECRACKER_PG_PRIMARY_HOST=172.31.240.10
+TORQUE_JENKINS_PG_LOCAL_PORT=15432
+TORQUE_JENKINS_PG_CONTROL=/tmp/torque-jenkins-pg.ctl
+TORQUE_JENKINS_BACKUP_RUNTIME=runtime
+'''.stripIndent()
+
+        sh '''
+          set -euo pipefail
+          bash testdata/stack/e2e/33-firecracker-jenkins-postgres-backup/jenkins-job.sh \
+            ci/jenkins/jenkins-job.env
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'evidence/**,torque-firecracker-postgres-backup-evidence.tgz', fingerprint: true
+    }
+  }
+}</code></pre>
+          </details>
 
           <h2>What Comes Next</h2>
           <p>Soon Torque will be able to manage a fleet of 10,000 machines. Ansible does not handle that, even in the paid Red Hat distribution. Existing Ansible automation will be easy to move into a Torque stack, and Terraform or OpenTofu providers will be transformable into Torque adapters with one command, because everything the community has already built should remain usable.</p>

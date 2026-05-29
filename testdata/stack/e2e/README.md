@@ -51,6 +51,31 @@ These fixtures are used by `scripts/stack-e2e-suite.sh` to exercise `torque stac
   `scripts/e2e/ops/STACK-LIFE-008.sh` runs the destructive lifecycle proof for
   this fixture: clean delete, recreate/apply, lifecycle verify, idempotent
   rerun, delete, recreate, and final proof export.
+- `31-firecracker-gitlab-hybrid-nats-day2` is a real-lab durable NATS day-2
+  overlay for the same GitLab hybrid lab. It assumes the base SSH GitLab stack
+  is running, then executes stateful verification, typed PostgreSQL
+  role/grant/extension/maintenance/replication/backup/restore-drill resources,
+  GitLab runner re-preparation, runner service restart, runner pipeline proof,
+  and final GitLab verification through one approved JetStream-backed
+  `torque-agent` on host `141`. `scripts/e2e/ops/STACK-GITLAB-NATS-001.sh`
+  automates the full flow: base lab apply, private lab-host NATS broker,
+  signed agent enrollment, durable `ops exec` proof, NATS day-2 stack apply,
+  audit/export, and evidence bundle generation. If the base lab has already
+  converged, the same script supports `--skip-base-apply --base-run-id <run>`
+  so reruns can jump straight to the durable NATS portion.
+- `32-firecracker-jira-postgres-lab` contains the Jira values fixture used by
+  `scripts/e2e/ops/STACK-FC-PG-JIRA-001.sh`. That harness generates a
+  7-node/2Gi Firecracker PostgreSQL stack variant from
+  `15-firecracker-postgres-cluster`, keeps six PostgreSQL pods on `fc-00..05`,
+  pins Jira to spare node `fc-06`, deploys the official Atlassian Jira chart
+  through `torque apply`, and verifies the setup UI over a live port-forward
+  before audit/export and optional teardown.
+- `33-firecracker-jenkins-postgres-backup` is a Jenkins-oriented backup stack
+  that assumes the direct Firecracker PostgreSQL lab is already running. It
+  opens a short-lived SSH tunnel from the Jenkins worker to host `141`,
+  executes `postgres.backup.run` and `postgres.backup.verify` locally in native
+  mode, and leaves the dump, manifest, catalog, and `pg_restore --list`
+  evidence in the Jenkins workspace for artifact capture.
 - `STACK-LIFE-011` provider matrix hardening is covered by
   `TestRun_KubernetesLifecycleProviderMatrix`, which runs the same local stack
   lifecycle DAG across kubeadm, k3s, RKE2, and explicit custom certificate
