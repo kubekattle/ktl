@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>One Torque Talking To Another | torque</title>
+    <meta
+      name="description"
+      content="Medium-style Torque engineering note covering the MCP remote gRPC bridge, systemd daemon install path, and S3 BuildKit cache advisor workflow."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050505;
+        --surface: #0a0a0c;
+        --elevated: #101014;
+        --text: #ffffff;
+        --muted: #a0a0aa;
+        --muted-strong: #b8bdc4;
+        --accent: #edf1f5;
+        --line: rgba(255, 255, 255, 0.10);
+        --code: #f7f9fb;
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+        --radius: 10px;
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --font-mono: "SF Mono", "Monaco", "Inconsolata", "Fira Code", ui-monospace, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html {
+        min-height: 100%;
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        min-height: 100%;
+        margin: 0;
+        color: var(--text);
+        background:
+          linear-gradient(rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(237,241,245,0.09), rgba(5,5,5,0.76) 36%, rgba(5,5,5,0.98)),
+          var(--bg);
+        background-size: 80px 80px, 80px 80px, auto, auto;
+        font: 16px/1.6 var(--font);
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      a:hover { color: var(--accent); }
+
+      .page {
+        position: relative;
+        z-index: 1;
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+        min-height: 100svh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 28px;
+        padding: 28px 0 36px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--text);
+        font-weight: 740;
+        font-size: 1.55rem;
+        line-height: 1;
+      }
+
+      .brand-mark {
+        width: 52px;
+        height: 52px;
+        color: currentColor;
+        flex: 0 0 auto;
+      }
+
+      nav {
+        display: flex;
+        gap: 28px;
+        align-items: center;
+        color: var(--muted);
+        font: 0.78rem/1 var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 13px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.02)),
+          rgba(10, 10, 12, 0.70);
+      }
+
+      nav a.docs-link {
+        color: var(--text);
+        padding: 9px 12px;
+        margin: -9px -2px;
+        border: 1px solid rgba(237, 241, 245, 0.28);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.14), rgba(184, 189, 196, 0.04)),
+          rgba(16, 16, 20, 0.78);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+      }
+
+      main {
+        display: grid;
+        gap: clamp(58px, 8vw, 104px);
+        padding: 8px 0 66px;
+      }
+
+      .article-hero {
+        display: grid;
+        gap: 22px;
+        max-width: 980px;
+      }
+
+      .eyebrow {
+        justify-self: start;
+        color: var(--accent);
+        font: clamp(0.88rem, 1.4vw, 1.08rem)/1 var(--font-mono);
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 14px 16px;
+        border: 1px solid rgba(237, 241, 245, 0.18);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.13), rgba(184, 189, 196, 0.035)),
+          rgba(10, 10, 12, 0.78);
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--text);
+        font-size: clamp(3.25rem, 8vw, 7.1rem);
+        line-height: 0.91;
+        font-weight: 780;
+        letter-spacing: 0;
+      }
+
+      .dek {
+        margin: 0;
+        max-width: 780px;
+        color: var(--muted);
+        font-size: clamp(1.06rem, 1.55vw, 1.28rem);
+        line-height: 1.55;
+      }
+
+      .article-body {
+        width: min(760px, 100%);
+        display: grid;
+        gap: 24px;
+      }
+
+      .article-body p {
+        margin: 0;
+        color: #d7dbe0;
+        font-size: clamp(1.05rem, 1.45vw, 1.2rem);
+        line-height: 1.78;
+      }
+
+      .article-body a {
+        color: var(--text);
+        border-bottom: 1px solid rgba(237, 241, 245, 0.36);
+        overflow-wrap: anywhere;
+      }
+
+      .article-body code {
+        color: var(--code);
+        font: 0.92em/1 var(--font-mono);
+        padding: 0.08em 0.28em;
+        border: 1px solid rgba(237, 241, 245, 0.14);
+        border-radius: 5px;
+        background: rgba(237, 241, 245, 0.055);
+      }
+
+      .inline-demo {
+        display: grid;
+        gap: 10px;
+        margin: clamp(8px, 2vw, 18px) 0 clamp(18px, 4vw, 34px);
+      }
+
+      .showcase-panel {
+        position: relative;
+        display: grid;
+        align-content: stretch;
+        gap: clamp(18px, 2.5vw, 28px);
+        width: 100%;
+        aspect-ratio: 1200 / 620;
+        padding: clamp(18px, 3vw, 36px);
+        border: 1px solid rgba(237, 241, 245, 0.12);
+        border-radius: 7px;
+        overflow: hidden;
+        background: rgba(10, 10, 12, 0.94);
+      }
+
+      .showcase-panel > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .showcase-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .showcase-kicker,
+      .showcase-label {
+        color: var(--muted-strong);
+        font: 0.72rem/1 var(--font-mono);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .showcase-title {
+        margin: 8px 0 0;
+        color: #ffffff;
+        font-size: clamp(1.35rem, 2.7vw, 2.25rem);
+        line-height: 1.05;
+        font-weight: 820;
+      }
+
+      .showcase-flow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        align-items: center;
+        gap: clamp(10px, 1.7vw, 18px);
+      }
+
+      .showcase-flow.with-links {
+        grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr) 42px minmax(0, 1fr) 42px minmax(0, 1fr);
+      }
+
+      .flow-node {
+        min-width: 0;
+        padding: clamp(11px, 1.4vw, 16px);
+        border: 1px solid rgba(237, 241, 245, 0.16);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.10), rgba(184, 189, 196, 0.025)),
+          rgba(16, 16, 20, 0.78);
+      }
+
+      .flow-node strong {
+        display: block;
+        color: #ffffff;
+        font-size: clamp(0.9rem, 1.4vw, 1.1rem);
+        line-height: 1.15;
+        overflow-wrap: anywhere;
+      }
+
+      .flow-node span {
+        display: block;
+        color: var(--muted);
+        font: 0.72rem/1.35 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .flow-link {
+        position: relative;
+        height: 2px;
+        min-width: 28px;
+        background: linear-gradient(90deg, rgba(237, 241, 245, 0.18), rgba(237, 241, 245, 0.74));
+      }
+
+      .flow-link::after {
+        content: "";
+        position: absolute;
+        right: -1px;
+        top: 50%;
+        width: 9px;
+        height: 9px;
+        border-top: 2px solid rgba(237, 241, 245, 0.82);
+        border-right: 2px solid rgba(237, 241, 245, 0.82);
+        transform: translateY(-50%) rotate(45deg);
+      }
+
+      .showcase-flow.cache-flow {
+        grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr) 42px minmax(0, 1fr);
+      }
+
+      .terminal-shot {
+        display: grid;
+        gap: 6px;
+        padding: clamp(10px, 1.3vw, 15px);
+        border: 1px solid rgba(237, 241, 245, 0.22);
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.82);
+        color: #f7f9fb;
+        font: clamp(0.64rem, 0.9vw, 0.76rem)/1.38 var(--font-mono);
+        overflow: visible;
+      }
+
+      .terminal-shot span {
+        display: block;
+        min-width: 0;
+        white-space: normal;
+        overflow: visible;
+        overflow-wrap: anywhere;
+      }
+
+      .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric {
+        min-width: 0;
+        padding: 12px 13px;
+        border-top: 1px solid rgba(237, 241, 245, 0.20);
+        background: rgba(237, 241, 245, 0.035);
+      }
+
+      .metric strong {
+        display: block;
+        color: #ffffff;
+        font-size: clamp(1.06rem, 1.8vw, 1.55rem);
+        line-height: 1;
+        font-weight: 820;
+      }
+
+      .metric span {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font: 0.66rem/1.25 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      footer {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+        align-items: center;
+        gap: 28px;
+        margin-top: 48px;
+        min-height: 118px;
+        padding: 24px 28px;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.09), rgba(184, 189, 196, 0.025)),
+          rgba(10, 10, 12, 0.82);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 22px 58px rgba(0, 0, 0, 0.26);
+        font-size: 0.82rem;
+      }
+
+      footer span:first-child {
+        min-width: 0;
+        color: transparent;
+        background: linear-gradient(180deg, #ffffff, #aeb4bb 64%, #f7f9fb);
+        -webkit-background-clip: text;
+        background-clip: text;
+        font-size: clamp(1.5rem, 3.4vw, 2.55rem);
+        font-weight: 840;
+        line-height: 1.02;
+        letter-spacing: 0;
+      }
+
+      footer span:last-child {
+        min-width: 0;
+        max-width: 410px;
+        color: #f3f5f7;
+        font: 0.72rem/1.45 var(--font-mono);
+        font-weight: 760;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        text-align: right;
+      }
+
+      @media (max-width: 820px) {
+        .showcase-flow,
+        .showcase-flow.with-links,
+        .showcase-flow.cache-flow,
+        .metric-strip {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .flow-link {
+          width: 2px;
+          min-width: 2px;
+          height: 22px;
+          justify-self: center;
+          background: linear-gradient(180deg, rgba(237, 241, 245, 0.18), rgba(237, 241, 245, 0.74));
+        }
+        .flow-link::after {
+          right: auto;
+          top: auto;
+          bottom: -1px;
+          left: 50%;
+          transform: translateX(-50%) rotate(135deg);
+        }
+        .showcase-panel {
+          aspect-ratio: auto;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .page { width: min(100% - 28px, 1080px); }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 22px;
+          padding-bottom: 36px;
+        }
+        .brand {
+          gap: 10px;
+          font-size: 1.42rem;
+        }
+        .brand-mark {
+          width: 46px;
+          height: 46px;
+        }
+        nav {
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+        h1 {
+          font-size: clamp(3.05rem, 16vw, 5.2rem);
+        }
+        .eyebrow {
+          font-size: 0.88rem;
+          line-height: 1.25;
+          padding: 13px 14px;
+        }
+        .showcase-head {
+          display: grid;
+        }
+        footer {
+          grid-template-columns: minmax(0, 1fr);
+          align-items: flex-start;
+          margin-top: 34px;
+        }
+        footer span:last-child {
+          max-width: none;
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <a class="brand" href="../" aria-label="torque home">
+          <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
+            <path d="M24 5.5 42.5 24 24 42.5 5.5 24Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round"></path>
+            <path d="M18 19h12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+            <path d="M24 19v12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+          </svg>
+          <span>torque</span>
+        </a>
+        <nav aria-label="Primary">
+          <a class="docs-link" href="../docs.html">Docs</a>
+          <a href="../blog.html">Blog</a>
+          <a href="https://github.com/ingresslabs/torque">GitHub</a>
+          <a href="https://github.com/ingresslabs/torque/releases">Releases</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="article-hero" aria-labelledby="title">
+          <h1 id="title">One Torque Talking To Another</h1>
+          <p class="dek">
+            A practical pattern for giving agents real delivery powers without
+            turning them into a privileged shell.
+          </p>
+        </section>
+
+        <article class="article-body" aria-label="Article">
+          <p>Torque exists because not every delivery loop belongs in a hosted CI control plane. Some teams work in air-gapped networks, regulated environments, edge sites, customer labs, or recovery drills where runners cannot phone home and artifacts must stay close. In those places, the useful shape is CI in a box: build, verify, plan, apply, capture, and explain from one workstation, VM, or isolated build host.</p>
+
+          <p>Agentic engineering is not vibing. It is closer to serious programming with a larger test bench: you set up labs, virtual infrastructure, physical infrastructure when the problem needs it, and repeatable tasks that prove the agent can operate under real constraints. The agent still needs guidance, review, and product judgment. Someone has to shape the goal, sequence the work, check the evidence, and decide what is acceptable, much like a product manager or product owner does before a release. That is the operating style behind <a href="https://ingresslabs.net/blog/">Ingress Labs</a>: agents are useful when they are driven through real systems, not when they are left to improvise in a blank prompt.</p>
+
+          <p>Modern DevOps tools should be easy for an agent to drive and still comfortable for a human to inspect. The operator should not have to click every button by hand, but the agent should not get an open shell either. Torque sits in the middle: it gives agents named actions for building images, shipping releases, checking charts, reading logs, replaying sessions, warming caches, and reviewing evidence. Every action has inputs, outputs, and a trail another person or process can read later.</p>
+
+          <p>The bridge is the key idea. A Mac-based agent can call <code>torque-mcp</code> as a local tool server, while a Linux host does the real build and deploy work through <code>torque-agent</code>. The model asks for a task in a small, typed format. Torque forwards it to the remote service, redacts sensitive output, and returns evidence instead of a wall of terminal noise.</p>
+
+          <figure class="inline-demo">
+            <div class="showcase-panel">
+              <div class="showcase-head">
+                <div>
+                  <div class="showcase-kicker">MCP remote bridge</div>
+                  <h3 class="showcase-title">macOS agent, Linux execution.</h3>
+                </div>
+              </div>
+              <div class="showcase-flow with-links">
+                <div class="flow-node">
+                  <strong>macOS agent</strong>
+                  <span>tools/call</span>
+                </div>
+                <div class="flow-link" aria-hidden="true"></div>
+                <div class="flow-node">
+                  <strong>torque-mcp</strong>
+                  <span>confirm + redact</span>
+                </div>
+                <div class="flow-link" aria-hidden="true"></div>
+                <div class="flow-node">
+                  <strong>Linux MCP agent</strong>
+                  <span>loopback HTTP</span>
+                </div>
+                <div class="flow-link" aria-hidden="true"></div>
+                <div class="flow-node">
+                  <strong>torque-agent</strong>
+                  <span>gRPC services</span>
+                </div>
+              </div>
+              <div class="terminal-shot">
+                <span>{ "tool": "torque.ship.run", "safety": { "confirm": true } }</span>
+                <span>bridge: MCP request -> remote gRPC operation</span>
+                <span>session: mirror evidence returned, token redacted</span>
+              </div>
+            </div>
+          </figure>
+
+          <p>The safety model is deliberately plain. Local agent calls use stdio or authenticated loopback HTTP. Remote work uses a dedicated agent service, scoped credentials, and durable session storage. Write actions stay off until they are enabled, and mutating requests still need confirmation. Tokens live in environment files instead of command arguments, secrets are scrubbed from responses, and every build or deploy leaves a capture, report, summary, or replayable session behind.</p>
+
+          <p>The same posture is now installable as a Linux daemon path. <code>install.sh --mode systemd-daemon</code> installs <code>torque</code>, <code>torque-agent</code>, and <code>torque-mcp</code>, writes <code>/etc/torque/agent.env</code>, and starts systemd services for the remote agent and local MCP server. The agent runs in durable mode, stores session frames under <code>/var/lib/torque/agent/mirror.sqlite</code>, and turns sandboxing on for remote builds. That makes the agent suitable for long-running build hosts instead of one-off terminals.</p>
+
+          <p>The cache workflow follows the same agent-first design. Instead of making a model read BuildKit logs and guess what happened, Torque gives it three clear tools: inspect the cache setup, plan which layers are affected by changed files, and warm the remote cache when a human or policy allows it. The agent can prepare the build path, but the project keeps cache writes bounded and reviewable.</p>
+
+          <figure class="inline-demo">
+            <div class="showcase-panel">
+              <div class="showcase-head">
+                <div>
+                  <div class="showcase-kicker">S3 BuildKit cache advisor</div>
+                  <h3 class="showcase-title">Bytes move, logs stay boring.</h3>
+                </div>
+              </div>
+              <div class="showcase-flow cache-flow">
+                <div class="flow-node">
+                  <strong>Client developer</strong>
+                  <span>changed paths</span>
+                </div>
+                <div class="flow-link" aria-hidden="true"></div>
+                <div class="flow-node">
+                  <strong>Linux agent</strong>
+                  <span>BuildService.RunBuild</span>
+                </div>
+                <div class="flow-link" aria-hidden="true"></div>
+                <div class="flow-node">
+                  <strong>S3 cloud</strong>
+                  <span>cache import/export</span>
+                </div>
+              </div>
+              <div class="metric-strip" aria-hidden="true">
+                <div class="metric"><strong>3</strong><span>MCP tools</span></div>
+                <div class="metric"><strong>15</strong><span>warm runs</span></div>
+                <div class="metric"><strong>30</strong><span>S3 imports</span></div>
+                <div class="metric"><strong>30</strong><span>S3 exports</span></div>
+              </div>
+            </div>
+          </figure>
+
+          <p>Two of the nicer human-facing features are the verifier report (<a href="https://ingresslabs.github.io/torque/showcase/reports/verifier-report.html">https://ingresslabs.github.io/torque/showcase/reports/verifier-report.html</a>) and Helmer plan report (<a href="https://ingresslabs.github.io/torque/showcase/reports/helmer-plan.html#resource=showcase:deployment:verify-findings-showcase">https://ingresslabs.github.io/torque/showcase/reports/helmer-plan.html#resource=showcase:deployment:verify-findings-showcase</a>). The verifier report turns policy findings, risk levels, skipped checks, and release blockers into a reviewable page instead of raw JSON. The Helmer report does the same for rendered Kubernetes resources: reviewers can inspect the plan, jump to a specific deployment, and compare what an agent proposes before anything touches the cluster.</p>
+
+          <p>The broader project is built around the same idea. Torque can build containers, package charts, verify policy, plan Kubernetes changes, apply or delete stacks, follow logs, explain captured runs, and preserve evidence as files that move with the incident or release. The new agent surface does not replace those capabilities. It makes them callable by an agent without hiding what happened.</p>
+
+          <p>That is the direction modern DevOps tooling needs to move. Humans should design policy, approve risky actions, and debug the hard cases. Agents should handle the repeatable path: gather context, propose a plan, run bounded tools, warm caches, collect logs, and return evidence. Torque gives that loop a narrow interface and a durable paper trail, so automation can move faster without turning delivery into a black box.</p>
+        </article>
+      </main>
+
+      <footer>
+        <span>Reviewable delivery, agent-ready.</span>
+        <span>Typed tools, remote services, cache evidence, and no hidden control plane.</span>
+      </footer>
+    </div>
+  </body>
+</html>

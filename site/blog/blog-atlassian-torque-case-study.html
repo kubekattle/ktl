@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Atlassian Data Center As A Torque Stack | torque</title>
+    <meta
+      name="description"
+      content="A Torque case study for deploying Atlassian Data Center Helm charts, moving them into a stack, replacing plaintext secrets, generating verifier and Helmer evidence, building custom images, and promoting releases through proof-backed canary and blue-green flows."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050505;
+        --surface: #0a0a0c;
+        --elevated: #101014;
+        --text: #ffffff;
+        --muted: #a0a0aa;
+        --muted-strong: #b8bdc4;
+        --accent: #edf1f5;
+        --line: rgba(255, 255, 255, 0.10);
+        --code: #f7f9fb;
+        --radius: 10px;
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --font-mono: "SF Mono", "Monaco", "Inconsolata", "Fira Code", ui-monospace, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html {
+        min-height: 100%;
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        min-height: 100%;
+        margin: 0;
+        color: var(--text);
+        background:
+          linear-gradient(rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(237,241,245,0.09), rgba(5,5,5,0.78) 36%, rgba(5,5,5,0.98)),
+          var(--bg);
+        background-size: 80px 80px, 80px 80px, auto, auto;
+        font: 16px/1.6 var(--font);
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      a:hover { color: var(--accent); }
+
+      .page {
+        position: relative;
+        z-index: 1;
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+        min-height: 100svh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 28px;
+        padding: 28px 0 36px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--text);
+        font-weight: 740;
+        font-size: 1.55rem;
+        line-height: 1;
+      }
+
+      .brand-mark {
+        width: 52px;
+        height: 52px;
+        color: currentColor;
+        flex: 0 0 auto;
+      }
+
+      nav {
+        display: flex;
+        gap: 28px;
+        align-items: center;
+        color: var(--muted);
+        font: 0.78rem/1 var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 13px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.02)),
+          rgba(10, 10, 12, 0.70);
+      }
+
+      nav a.docs-link {
+        color: var(--text);
+        padding: 9px 12px;
+        margin: -9px -2px;
+        border: 1px solid rgba(237, 241, 245, 0.28);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.14), rgba(184, 189, 196, 0.04)),
+          rgba(16, 16, 20, 0.78);
+      }
+
+      main {
+        display: grid;
+        gap: clamp(54px, 7vw, 92px);
+        padding: 8px 0 66px;
+      }
+
+      .article-hero {
+        display: grid;
+        gap: 22px;
+        max-width: 980px;
+      }
+
+      .eyebrow {
+        justify-self: start;
+        color: var(--accent);
+        font: clamp(0.88rem, 1.4vw, 1.08rem)/1 var(--font-mono);
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 14px 16px;
+        border: 1px solid rgba(237, 241, 245, 0.18);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.13), rgba(184, 189, 196, 0.035)),
+          rgba(10, 10, 12, 0.78);
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--text);
+        font-size: clamp(3.1rem, 7vw, 6.7rem);
+        line-height: 0.94;
+        font-weight: 780;
+        letter-spacing: 0;
+      }
+
+      .dek {
+        margin: 0;
+        max-width: 780px;
+        color: var(--muted);
+        font-size: clamp(1.06rem, 1.55vw, 1.28rem);
+        line-height: 1.55;
+      }
+
+      .article-body {
+        width: min(780px, 100%);
+        display: grid;
+        gap: 24px;
+      }
+
+      .article-body p {
+        margin: 0;
+        color: #d7dbe0;
+        font-size: clamp(1.04rem, 1.42vw, 1.18rem);
+        line-height: 1.78;
+      }
+
+      .article-body a {
+        color: var(--text);
+        border-bottom: 1px solid rgba(237, 241, 245, 0.36);
+        overflow-wrap: anywhere;
+      }
+
+      .article-body code {
+        color: var(--code);
+        font: 0.92em/1 var(--font-mono);
+        padding: 0.08em 0.28em;
+        border: 1px solid rgba(237, 241, 245, 0.14);
+        border-radius: 5px;
+        background: rgba(237, 241, 245, 0.055);
+      }
+
+      .evidence-panel {
+        display: grid;
+        gap: 18px;
+        margin: clamp(8px, 2vw, 18px) 0 clamp(18px, 4vw, 34px);
+        padding: clamp(18px, 3vw, 30px);
+        border: 1px solid rgba(237, 241, 245, 0.12);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.07), rgba(184, 189, 196, 0.015)),
+          rgba(10, 10, 12, 0.94);
+      }
+
+      .evidence-panel h2 {
+        margin: 0;
+        color: #ffffff;
+        font-size: clamp(1.25rem, 2vw, 1.8rem);
+        line-height: 1.12;
+      }
+
+      .evidence-list a {
+        min-width: 0;
+        padding: 12px 13px;
+        border: 1px solid rgba(237, 241, 245, 0.14);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.045);
+      }
+
+      details {
+        border-top: 1px solid rgba(237, 241, 245, 0.12);
+        padding-top: 16px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: var(--text);
+        font: 0.82rem/1.3 var(--font-mono);
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .evidence-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .evidence-list a {
+        display: block;
+        color: #f3f5f7;
+        font: 0.82rem/1.35 var(--font-mono);
+        border-bottom: 0;
+      }
+
+      .preface-figure {
+        display: grid;
+        gap: 10px;
+        margin: clamp(4px, 2vw, 14px) 0 clamp(18px, 4vw, 34px);
+      }
+
+      .preface-figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid rgba(237, 241, 245, 0.14);
+        border-radius: 8px;
+        background: #0f1012;
+      }
+
+      .preface-figure figcaption {
+        width: 100%;
+        color: var(--muted);
+        font: 0.76rem/1.35 var(--font-mono);
+        justify-self: center;
+        text-align: center;
+      }
+
+      .logs-examples {
+        display: grid;
+        gap: 14px;
+        margin: clamp(8px, 2vw, 18px) 0 clamp(18px, 4vw, 34px);
+      }
+
+      .logs-examples h2 {
+        margin: 0;
+        color: #ffffff;
+        font-size: clamp(1.25rem, 2vw, 1.8rem);
+        line-height: 1.12;
+      }
+
+      .log-cut {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .log-cut pre {
+        margin: 14px 0 0;
+        padding: 0;
+        color: #f7f9fb;
+        border: 0;
+        background: transparent;
+        font: clamp(0.9rem, 1.25vw, 1.04rem)/1.5 var(--font-mono);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      footer {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+        align-items: center;
+        gap: 28px;
+        margin-top: 48px;
+        min-height: 118px;
+        padding: 24px 28px;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.09), rgba(184, 189, 196, 0.025)),
+          rgba(10, 10, 12, 0.82);
+        font-size: 0.82rem;
+      }
+
+      footer span:first-child {
+        min-width: 0;
+        color: transparent;
+        background: linear-gradient(180deg, #ffffff, #aeb4bb 64%, #f7f9fb);
+        -webkit-background-clip: text;
+        background-clip: text;
+        font-size: clamp(1.5rem, 3.4vw, 2.55rem);
+        font-weight: 840;
+        line-height: 1.02;
+        letter-spacing: 0;
+      }
+
+      footer span:last-child {
+        min-width: 0;
+        max-width: 410px;
+        color: #f3f5f7;
+        font: 0.72rem/1.45 var(--font-mono);
+        font-weight: 760;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        text-align: right;
+      }
+
+      @media (max-width: 820px) {
+        .evidence-list {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 720px) {
+        .page { width: min(100% - 28px, 1080px); }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 22px;
+          padding-bottom: 36px;
+        }
+        .brand {
+          gap: 10px;
+          font-size: 1.42rem;
+        }
+        .brand-mark {
+          width: 46px;
+          height: 46px;
+        }
+        nav {
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+        h1 {
+          font-size: clamp(3.05rem, 15vw, 5rem);
+        }
+        .eyebrow {
+          font-size: 0.88rem;
+          line-height: 1.25;
+          padding: 13px 14px;
+        }
+        footer {
+          grid-template-columns: minmax(0, 1fr);
+          align-items: flex-start;
+          margin-top: 34px;
+        }
+        footer span:last-child {
+          max-width: none;
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <a class="brand" href="../" aria-label="torque home">
+          <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
+            <path d="M24 5.5 42.5 24 24 42.5 5.5 24Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round"></path>
+            <path d="M18 19h12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+            <path d="M24 19v12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+          </svg>
+          <span>torque</span>
+        </a>
+        <nav aria-label="Primary">
+          <a class="docs-link" href="../docs.html">Docs</a>
+          <a href="../blog.html">Blog</a>
+          <a href="https://github.com/ingresslabs/torque">GitHub</a>
+          <a href="https://github.com/ingresslabs/torque/releases">Releases</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="article-hero" aria-labelledby="title">
+          <h1 id="title">Atlassian Data Center As A Torque Stack</h1>
+          <p class="dek">
+            A simple field note from a two-node k3s deployment environment: start with Atlassian
+            Helm charts, turn them into a Torque stack, replace plaintext
+            passwords, gate the rollout, and build custom images for the same
+            delivery path.
+          </p>
+        </section>
+
+        <article class="article-body" aria-label="Article">
+          <p>Torque cuts DevOps tool sprawl and restores development velocity for agentic delivery flows.</p>
+
+          <figure class="preface-figure">
+            <img src="../assets/blog/atlassian-devops-tooling.png" alt="Complex DevOps tooling represented as a Rube Goldberg machine" loading="lazy" />
+            <figcaption>DevOps tooling</figcaption>
+          </figure>
+
+          <p>The starting point was intentionally ordinary: the public Atlassian Data Center Helm charts, a pair of Linux hosts, and a need to prove that a real multi-application stack could be shipped without falling back to a hand-written runbook. The target stack was not a toy. It included Jira, Confluence, Bitbucket, Bamboo, Crowd, a Bamboo agent, PostgreSQL backing databases, and shared storage for the products that need it. That mix is useful because it behaves like enterprise software usually behaves: stateful services, chart defaults, long startup times, product setup screens, secret material, persistent volumes, and several places where a deployment tool has to show its work.</p>
+
+          <p>The first pass was direct. I installed k3s across the two hosts, prepared NFS-backed shared storage, pulled the Atlassian charts from <code>atlassian/data-center-helm-charts</code>, and used Torque to apply each release. That step mattered because it kept the baseline boring. Before turning the setup into a stack, I wanted to know the charts rendered, the services came up, the NodePorts were reachable, and the product pods could get to their databases. Torque was already useful there because the apply path gave me a consistent release loop and verifier output instead of a collection of one-off Helm commands.</p>
+
+          <p>After the first successful deploy, I converted the release commands into a Torque stack. The stack made the dependency order explicit: storage first, prerequisite databases and Kubernetes Secrets next, application releases after that, and the Bamboo agent last. This is where Torque becomes more than a wrapper around Helm. The stack file gives the whole system a shape that can be reviewed, replayed, resumed, and debugged. If a downstream release fails, the operator does not need to reconstruct which values file or namespace was used. The stack has that context.</p>
+
+          <p>The next problem was secrets. Plaintext database passwords in values files are exactly the kind of shortcut that becomes permanent if nobody removes it early. I added a local Torque secret provider and changed the prerequisite values to use <code>secret://local/...</code> references for the database passwords and Bamboo agent security token. One practical lesson came out of that work: secret resolution belongs in the supplied values path, not buried in a chart default file that the deploy tool does not own. Moving the references into the explicit values file made the behavior obvious, and the generated Kubernetes Secrets were then checked to confirm that the cluster received resolved values instead of literal <code>secret://</code> strings.</p>
+
+          <p><strong>Verifier as a hard gate.</strong> With the stack and secret provider in place, the deployment path became stricter. I used <code>verifier --mode block --fail-on high</code>, generated per-release evidence, and required that evidence before apply. The actual apply path used <code>torque apply --require-verified</code> with <code>--drift-guard</code>, so the rollout had to match the verified plan instead of silently accepting a changed render. This turns "I think this is safe" into "this exact render passed these checks." Helmer was used beside that flow to produce HTML plans for review. In practice, this is the part that makes a Torque case study different from a normal install note. The output is not just "the pods are running"; it is a bundle of stack files, rendered plans, verifier reports, and apply evidence that another operator can inspect later.</p>
+
+          <p>The newer proof features push that same idea past the initial rollout. <code>torque apply simulate</code> can create a Live Apply Twin before a risky change touches the cluster. After the change, <code>torque guardian diff</code> compares that simulation proof with live Kubernetes objects, managed-field owners, events, aftercare state, and secret-boundary evidence. If a product pod later fails because an image cannot be pulled, a webhook mutates a field, a ConfigMap starts carrying secret-like data, or an operator edits a live object by hand, Guardian turns the runtime difference into evidence instead of guesswork. <code>torque incident capture</code> and <code>torque incident replay</code> then make the failure portable: resource state, events, bounded logs, root cause, and PR-ready notes can be reviewed without keeping access to the original terminal. The newest layer, <code>torque contract synthesize</code> and <code>torque contract test</code>, converts those incident and drift proofs into recurrence rules. For an Atlassian stack, that means the next deploy can prove "no image pull failure, no secret-boundary regression, no unexplained managed-field owner, and no failed aftercare" with a machine-checkable contract instead of a Slack memory.</p>
+
+          <section class="logs-examples" aria-labelledby="promotion-examples-title">
+            <h2 id="promotion-examples-title">Proof-backed promotion examples</h2>
+            <details class="log-cut" open>
+              <summary>Show examples</summary>
+              <pre><code>torque release promote ./reports/proof.graph.json \
+  --strategy canary \
+  --steps 5,25,50,100 \
+  --analysis-window 5m \
+  --slo ./reports/slo.yaml \
+  --rollback-on-fail \
+  --key .torque/stack/keys/ed25519.json \
+  --out-dir ./reports/promote-canary
+
+torque release promote ./reports/proof.graph.json \
+  --strategy blue-green \
+  --preview \
+  --smoke ./reports/smoke.json \
+  --switch-traffic \
+  --key .torque/stack/keys/ed25519.json \
+  --out-dir ./reports/promote-blue-green
+
+torque release promote ./reports/proof.graph.json \
+  --strategy blue-green \
+  --preview --smoke ./reports/smoke.json --switch-traffic \
+  --provider file --state-out ./reports/traffic-state.json \
+  --execute --yes --format json</code></pre>
+            </details>
+          </section>
+
+          <p>I also built custom images for the same stack. The goal was not to fork Atlassian products or bake configuration into images. The goal was to prove that Torque could own the image build step as part of the same delivery story. The Dockerfiles pinned the upstream Atlassian, PostgreSQL, and NFS provisioner bases by digest, added only small operational changes where useful, and ran through Torque build with secret scanning enabled. The Bamboo agent image is the clearest example: it keeps the upstream agent base but adds common diagnostic and CI tools such as <code>curl</code>, <code>git</code>, <code>jq</code>, <code>openssh-client</code>, <code>tar</code>, and <code>unzip</code>. The built OCI layouts were imported into k3s containerd on both nodes and then referenced from the stack values as <code>torque.local/atlassian/...</code> images.</p>
+
+          <p>There were two useful debugging moments. First, generated reports showed that some chart warnings were acceptable for this proof run only because the verifier gate was set to fail on high and above, not because all findings should be ignored in production. Second, one image build tripped a secret scanner false positive on packaged OpenSSH binaries inside the Bitbucket image. That is exactly the kind of case where policy should be adjustable but not disabled. I added a small scanner rules file that kept build argument and log scanning strict while avoiding that OCI-content false positive.</p>
+
+          <p><strong>Torque logs as an operational graph.</strong> The useful log view was not just "show me this pod." It was logs by stack dependency, active ReplicaSet, readiness condition, and event context. The same command family handled dependency-aware context with <code>--deps</code>, namespace-wide unhealthy pods with <code>--condition</code>, Kubernetes events with <code>--events</code>, active rollouts with <code>--deploy-mode active</code>, and durable handoff evidence with <code>--capture</code>. That is especially strong for agents because they can inspect failure context from the stack graph without guessing Kubernetes object names first.</p>
+
+          <section class="logs-examples" aria-labelledby="logs-title">
+            <h2 id="logs-title">Advanced Torque logs examples</h2>
+            <details class="log-cut">
+              <summary>Show examples</summary>
+              <pre><code>torque logs deploy/jira -n atlassian --events --tail 80 --highlight 'ERROR|FATAL|Failed|ImagePull|BackOff'
+
+torque logs deploy/bamboo-agent -n atlassian --deploy-mode active --events --tail 60 --highlight 'FATAL|fingerprint|setup|redirect'
+
+torque logs -n atlassian --condition ready=false --events --tail 30 --exclude 'healthcheck|heartbeat'
+
+torque logs jira -n atlassian --config ./stack.yaml --deps --events --tail 60
+
+torque logs deploy/bamboo-agent -n atlassian --events --tail 200 --capture ./reports/logs/bamboo-agent.sqlite</code></pre>
+            </details>
+          </section>
+
+          <p>The result is a repeatable path for a difficult stack. Atlassian first-run screens and license entry still exist, and Bamboo agents still depend on Bamboo being initialized. Torque does not remove product lifecycle steps. What it does is make the infrastructure side reviewable: the charts are rendered through one path, secrets come from a provider, verifier decides whether the release can proceed, drift guard protects the apply, Helmer produces readable plan evidence, and image builds can be attached to the same operational story. That is the practical value: less magic, more files, and a deployment that can be replayed without depending on terminal memory.</p>
+
+          <section class="evidence-panel" aria-labelledby="evidence-title">
+            <h2 id="evidence-title">Stack files and evidence</h2>
+            <p>The attachments below are sanitized. They include stack and values files with <code>secret://</code> references, not resolved secret values. Verifier and Helmer attachments are HTML-only reports used during the case study.</p>
+            <details open>
+              <summary>Stack files</summary>
+              <div class="evidence-list">
+                <a href="../showcase/atlassian/stack.yaml">stack.yaml</a>
+                <a href="../showcase/atlassian/torque-secret-provider.yaml">torque-secret-provider.yaml</a>
+                <a href="../showcase/atlassian/values-atlassian-prereqs.yaml">values-atlassian-prereqs.yaml</a>
+                <a href="../showcase/atlassian/values-nfs-client.yaml">values-nfs-client.yaml</a>
+                <a href="../showcase/atlassian/values-jira.yaml">values-jira.yaml</a>
+                <a href="../showcase/atlassian/values-confluence.yaml">values-confluence.yaml</a>
+                <a href="../showcase/atlassian/values-bitbucket.yaml">values-bitbucket.yaml</a>
+                <a href="../showcase/atlassian/values-bamboo.yaml">values-bamboo.yaml</a>
+                <a href="../showcase/atlassian/values-crowd.yaml">values-crowd.yaml</a>
+                <a href="../showcase/atlassian/values-bamboo-agent.yaml">values-bamboo-agent.yaml</a>
+                <a href="../showcase/atlassian/secrets-rules.yaml">secrets-rules.yaml</a>
+              </div>
+            </details>
+            <details>
+              <summary>Verifier reports</summary>
+              <div class="evidence-list">
+                <a href="../showcase/atlassian/reports/verifier-atlassian-prereqs.html">verifier-atlassian-prereqs.html</a>
+                <a href="../showcase/atlassian/reports/verifier-nfs-client.html">verifier-nfs-client.html</a>
+                <a href="../showcase/atlassian/reports/verifier-jira.html">verifier-jira.html</a>
+                <a href="../showcase/atlassian/reports/verifier-confluence.html">verifier-confluence.html</a>
+                <a href="../showcase/atlassian/reports/verifier-bitbucket.html">verifier-bitbucket.html</a>
+                <a href="../showcase/atlassian/reports/verifier-bamboo.html">verifier-bamboo.html</a>
+                <a href="../showcase/atlassian/reports/verifier-crowd.html">verifier-crowd.html</a>
+                <a href="../showcase/atlassian/reports/verifier-bamboo-agent.html">verifier-bamboo-agent.html</a>
+              </div>
+            </details>
+            <details>
+              <summary>Helmer plans</summary>
+              <div class="evidence-list">
+                <a href="../showcase/atlassian/reports/helmer-nfs-client-plan.html">helmer-nfs-client-plan.html</a>
+                <a href="../showcase/atlassian/reports/helmer-jira-plan.html">helmer-jira-plan.html</a>
+                <a href="../showcase/atlassian/reports/helmer-confluence-plan.html">helmer-confluence-plan.html</a>
+                <a href="../showcase/atlassian/reports/helmer-bitbucket-plan.html">helmer-bitbucket-plan.html</a>
+                <a href="../showcase/atlassian/reports/helmer-bamboo-plan.html">helmer-bamboo-plan.html</a>
+                <a href="../showcase/atlassian/reports/helmer-crowd-plan.html">helmer-crowd-plan.html</a>
+                <a href="../showcase/atlassian/reports/helmer-bamboo-agent-plan.html">helmer-bamboo-agent-plan.html</a>
+              </div>
+            </details>
+          </section>
+
+          <p><strong>Agent-native execution.</strong> This is also why Torque is perfect for working with agentic systems. Codex, Claude, Gemini, CI, or humans should not shell-script DevOps from scratch; they should operate the same Torque workflows through an MCP or API surface. That gives the workflow durable jobs, resumable steps, an audit trail, permissions, approvals, verifier evidence, and log context instead of an unreviewable terminal transcript. The final capture shows Codex using Torque on the same Atlassian deployment.</p>
+
+          <figure class="preface-figure">
+            <img src="../assets/blog/atlassian-codex-torque.png" alt="Codex redeploy summary for the Atlassian Torque stack" loading="lazy" />
+            <figcaption>Codex with Torque</figcaption>
+          </figure>
+        </article>
+      </main>
+
+      <footer>
+        <span>Stateful delivery, captured.</span>
+        <span>Stack files, secret refs, verifier gates, Helmer plans, and custom images.</span>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gone in 60 Seconds | torque</title>
+    <meta
+      name="description"
+      content="Modern CI/CD became needlessly complex and centralized. Torque takes the opposite path: give operators and agents a real tool, keep deploys proof-based, and still handle Kafka, GitLab, and Keycloak through one stack graph."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050505;
+        --surface: #0a0a0c;
+        --elevated: #101014;
+        --text: #ffffff;
+        --muted: #a0a0aa;
+        --muted-strong: #c4c8cf;
+        --accent: #edf1f5;
+        --line: rgba(255, 255, 255, 0.10);
+        --code: #f7f9fb;
+        --radius: 10px;
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --font-mono: "SF Mono", "Monaco", "Inconsolata", "Fira Code", ui-monospace, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html {
+        min-height: 100%;
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        min-height: 100%;
+        margin: 0;
+        color: var(--text);
+        background:
+          linear-gradient(rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(237,241,245,0.09), rgba(5,5,5,0.76) 36%, rgba(5,5,5,0.98)),
+          var(--bg);
+        background-size: 80px 80px, 80px 80px, auto, auto;
+        font: 16px/1.6 var(--font);
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      a:hover { color: var(--accent); }
+
+      .page {
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+        min-height: 100svh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 28px;
+        padding: 28px 0 36px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--text);
+        font-weight: 740;
+        font-size: 1.55rem;
+        line-height: 1;
+      }
+
+      .brand-mark {
+        width: 52px;
+        height: 52px;
+        color: currentColor;
+        flex: 0 0 auto;
+      }
+
+      nav {
+        display: flex;
+        gap: 28px;
+        align-items: center;
+        color: var(--muted);
+        font: 0.78rem/1 var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 13px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.02)),
+          rgba(10, 10, 12, 0.70);
+      }
+
+      nav a.docs-link {
+        color: var(--text);
+        padding: 9px 12px;
+        margin: -9px -2px;
+        border: 1px solid rgba(237, 241, 245, 0.28);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.14), rgba(184, 189, 196, 0.04)),
+          rgba(16, 16, 20, 0.78);
+      }
+
+      main {
+        display: grid;
+        gap: clamp(54px, 7vw, 92px);
+        padding: 8px 0 66px;
+      }
+
+      .article-hero {
+        display: grid;
+        gap: 8px;
+        max-width: 1040px;
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--text);
+        font-size: clamp(3rem, 7vw, 6.6rem);
+        line-height: 0.94;
+        font-weight: 780;
+        letter-spacing: 0;
+      }
+
+      .article-body {
+        width: min(820px, 100%);
+        display: grid;
+        gap: 24px;
+      }
+
+      .article-body p {
+        margin: 0;
+        color: #d7dbe0;
+        font-size: clamp(1.04rem, 1.42vw, 1.18rem);
+        line-height: 1.78;
+      }
+
+      .article-body a {
+        color: var(--text);
+        border-bottom: 1px solid rgba(237, 241, 245, 0.36);
+        overflow-wrap: anywhere;
+      }
+
+      .article-body h2 {
+        margin: 34px 0 0;
+        color: var(--text);
+        font-size: clamp(1.68rem, 3.2vw, 2.65rem);
+        line-height: 1.08;
+      }
+
+      .article-body ul {
+        margin: 0;
+        padding-left: 1.15rem;
+        color: #d7dbe0;
+        display: grid;
+        gap: 10px;
+      }
+
+      .article-body li {
+        padding-left: 0.2rem;
+        font-size: clamp(1.01rem, 1.34vw, 1.14rem);
+        line-height: 1.68;
+      }
+
+      .inline-demo {
+        display: grid;
+        gap: 10px;
+        margin: clamp(8px, 2vw, 18px) 0 clamp(18px, 4vw, 34px);
+      }
+
+      .inline-demo img {
+        display: block;
+        width: 100%;
+        border: 1px solid rgba(237, 241, 245, 0.14);
+        border-radius: var(--radius);
+        background: rgba(10, 10, 12, 0.80);
+        aspect-ratio: 1200 / 620;
+        object-fit: cover;
+      }
+
+      .inline-demo figcaption {
+        color: var(--muted);
+        font: 0.78rem/1.45 var(--font-mono);
+        text-align: center;
+      }
+
+      .signal-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .signal {
+        padding: 16px;
+        border: 1px solid rgba(237, 241, 245, 0.12);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.10), rgba(184, 189, 196, 0.03)),
+          rgba(16, 16, 20, 0.78);
+      }
+
+      .signal strong {
+        display: block;
+        color: #ffffff;
+        font-size: 0.96rem;
+        line-height: 1.2;
+      }
+
+      .signal span {
+        display: block;
+        margin-top: 10px;
+        color: var(--muted);
+        font: 0.76rem/1.45 var(--font-mono);
+      }
+
+      blockquote {
+        margin: 4px 0 0;
+        padding: 18px 20px;
+        border-left: 3px solid rgba(237, 241, 245, 0.38);
+        border-radius: 0 var(--radius) var(--radius) 0;
+        background: rgba(237, 241, 245, 0.04);
+        color: #ffffff;
+        font-size: clamp(1.18rem, 2vw, 1.44rem);
+        line-height: 1.46;
+      }
+
+      code {
+        color: var(--code);
+        font-family: var(--font-mono);
+        font-size: 0.93em;
+      }
+
+      pre {
+        margin: 4px 0 0;
+        padding: 18px;
+        overflow-x: auto;
+        color: #eef2f7;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.025)),
+          rgba(10, 10, 12, 0.88);
+        border: 1px solid rgba(237, 241, 245, 0.13);
+        border-radius: var(--radius);
+        font: 0.88rem/1.55 var(--font-mono);
+      }
+
+      @media (max-width: 860px) {
+        .signal-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 720px) {
+        .page { width: min(100% - 28px, 1080px); }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 22px;
+        }
+        nav {
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+        .signal-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <a class="brand" href="../" aria-label="torque home">
+          <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
+            <path d="M24 5.5 42.5 24 24 42.5 5.5 24Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round"></path>
+            <path d="M18 19h12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+            <path d="M24 19v12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+          </svg>
+          <span>torque</span>
+        </a>
+        <nav aria-label="Primary">
+          <a class="docs-link" href="../docs.html">Docs</a>
+          <a href="../blog.html">Blog</a>
+          <a href="https://github.com/ingresslabs/torque">GitHub</a>
+          <a href="https://github.com/ingresslabs/torque/releases">Releases</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="article-hero">
+          <h1>Gone in 60 Seconds</h1>
+        </section>
+
+        <article class="article-body">
+          <p>Modern CI/CD became needlessly complex and needlessly centralized. It drifted into the same kind of heavyweight workflow that IDEs had before agentic AI showed that a better pattern is often to give the model a real tool instead of burying it under another giant control plane.</p>
+
+          <p>That is what <a href="https://ingresslabs.github.io/torque/">Torque</a> is doing for delivery. It simplifies the process and moves it toward proof-based deploys, but that does not mean the underlying system is simple. It means complexity is handled inside typed resources, verification paths, and audit artifacts instead of being sprayed across controllers, YAML glue, CronJobs, sidecars, and runbooks.</p>
+
+          <p>So if you want to bring up a <a href="https://github.com/ingresslabs/torque/blob/devel/testdata/stack/e2e/26-firecracker-kafka-nats-cluster/stack.yaml">Kafka</a> cluster, <a href="https://github.com/ingresslabs/torque/blob/devel/testdata/stack/e2e/19-firecracker-gitlab-hybrid/stack.yaml">GitLab</a>, or <a href="https://github.com/ingresslabs/torque/blob/devel/testdata/stack/e2e/28-firecracker-keycloak-systemd-public/stack.yaml">Keycloak</a> in a few minutes, the point is not only that one command starts the lab. The point is that the command sits on top of a graph that knows what it is doing.</p>
+
+          <figure class="inline-demo">
+            <img src="https://habrastorage.org/getpro/habr/upload_files/de4/ab2/246/de4ab2246cbb519ff198b7c1debde474.gif" alt="Torque DAG could be faster than Ansible" loading="lazy" />
+            <figcaption>Torque DAG could be faster than Ansible</figcaption>
+          </figure>
+
+          <p>A <a href="https://github.com/ingresslabs/torque/blob/devel/docs/showcase/postgres-s3-rds-drill/stack.yaml">stackfile</a> in Torque is a DAG that can deploy a Postgres cluster, S3, and RDS on its own; back up Postgres to S3; delete the local dump; restore from S3 into RDS; verify the database in RDS; and then remove the AWS, Docker, and VM resources with <code>torque stack delete</code>.</p>
+
+          <div class="signal-grid" aria-label="Torque stack capabilities">
+            <div class="signal"><strong>Deploy</strong><span>Bring up Kafka, GitLab, Keycloak, Postgres, S3, and RDS from one stack graph.</span></div>
+            <div class="signal"><strong>Verify</strong><span>Attach first-class checks instead of reading logs and guessing what changed.</span></div>
+            <div class="signal"><strong>Restore</strong><span>Run backup and restore drills as typed resources, not shell fragments.</span></div>
+            <div class="signal"><strong>Clean up</strong><span>Delete AWS, Docker, and VM resources through the same graph when the drill is done.</span></div>
+          </div>
+
+          <h2>Not Another Command Runner</h2>
+          <p>Ansible and Salt were written in a dynamic language, Python, and their model historically grew out of command runners: execute a module, return a log, and show <code>changed=true/false</code>. Salt has a message bus, but it is still mostly transport for launching commands and collecting the result.</p>
+
+          <p>Torque is fundamentally different: a typed runtime where every resource knows its own semantics, plan, verification, and audit path. Torque is written in Go.</p>
+
+          <blockquote>Ansible and Salt run commands. Torque manages system state.</blockquote>
+
+          <h2>Everything In One Stackfile</h2>
+          <p>Everything Torque needs can live in a single stackfile:</p>
+
+          <pre><code>kind: postgres.backup.run
+kind: postgres.backup.verify
+kind: postgres.restore.drill
+kind: postgres.replication.verify
+kind: postgres.role.ensure
+kind: postgres.grant.ensure</code></pre>
+
+          <p>To get a similar result in Kubernetes, you usually have to assemble a thousand components: an operator, a CronJob, a sidecar, a secret manager, object storage glue, a restore job, monitoring, runbooks, and audit logs.</p>
+
+          <blockquote>This is not just <code>pg_dump</code>.</blockquote>
+
+          <p>Torque has to prove that the database was live, which backup was created, what SHA256 it has, where the S3 object was uploaded, whether the restore works, and whether SQL verification passed.</p>
+
+          <h2>What Comes Next</h2>
+          <p>Soon Torque will be able to manage a fleet of 10,000 machines. Ansible does not handle that, even in the paid Red Hat distribution. Existing Ansible automation will be easy to move into a Torque stack, and Terraform or OpenTofu providers will be transformable into Torque adapters with one command, because everything the community has already built should remain usable.</p>
+
+          <p>The goal is simple: keep the ecosystem, but replace log scraping and glue scripts with a typed, auditable, high-speed runtime.</p>
+        </article>
+      </main>
+    </div>
+  </body>
+</html>

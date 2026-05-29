@@ -117,12 +117,14 @@ PY
 
 install -m 0644 scripts/templates/site_landing.html "${OUT_DIR}/index.html"
 install -m 0644 scripts/templates/site_blog_index.html "${OUT_DIR}/blog.html"
+install -m 0644 scripts/templates/site_blog_deploy_kafka_gitlab_keycloak.html "${OUT_DIR}/blog-deploy-kafka-gitlab-keycloak.html"
 install -m 0644 scripts/templates/site_blog_firecracker_fraud_platform.html "${OUT_DIR}/blog-firecracker-fraud-platform.html"
 install -m 0644 scripts/templates/site_blog_agentic_proof_gated_change_control.html "${OUT_DIR}/blog-agentic-proof-gated-change-control.html"
 install -m 0644 scripts/templates/site_blog_sandbox_cache_docker.html "${OUT_DIR}/blog-sandbox-cache-docker.html"
 install -m 0644 scripts/templates/site_blog_mcp_s3_cache.html "${OUT_DIR}/blog-mcp-s3-cache.html"
 install -m 0644 scripts/templates/site_blog_atlassian_torque_case_study.html "${OUT_DIR}/blog-atlassian-torque-case-study.html"
 install -m 0644 scripts/templates/site_blog_oracle_postgres_k3s_e2e.html "${OUT_DIR}/blog-oracle-postgres-k3s-e2e.html"
+mkdir -p "${OUT_DIR}/blog"
 mv "${tmp_docs_html}" "${OUT_DIR}/docs.html"
 mv "${tmp_json}" "${OUT_DIR}/index.json"
 install -m 0644 scripts/install.sh "${OUT_DIR}/install.sh"
@@ -167,5 +169,38 @@ install -m 0644 stacks/fraud-platform/values/lab.yaml "${OUT_DIR}/showcase/firec
 install -m 0644 stacks/fraud-platform/values/stage.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/values-stage.yaml"
 install -m 0644 stacks/fraud-platform/values/prod.yaml "${OUT_DIR}/showcase/firecracker-fraud-platform/values-prod.yaml"
 
+python3 - "${OUT_DIR}/blog.html" "${OUT_DIR}/blog/index.html" <<'PY'
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1]).read_text(encoding="utf-8")
+src = src.replace('<a href="./blog/">Blog</a>', '<a href="__BLOG_INDEX__">Blog</a>')
+src = src.replace('href="./blog/', 'href="./')
+src = src.replace('href="./blog.html"', 'href="./"')
+src = src.replace('href="./docs.html"', 'href="../docs.html"')
+src = src.replace('href="./"', 'href="../"')
+src = src.replace('__BLOG_INDEX__', './')
+Path(sys.argv[2]).write_text(src, encoding="utf-8")
+PY
+
+for blog_page in \
+  blog-deploy-kafka-gitlab-keycloak.html \
+  blog-firecracker-fraud-platform.html \
+  blog-agentic-proof-gated-change-control.html \
+  blog-oracle-postgres-k3s-e2e.html \
+  blog-sandbox-cache-docker.html \
+  blog-atlassian-torque-case-study.html \
+  blog-mcp-s3-cache.html; do
+  python3 - "${OUT_DIR}/${blog_page}" "${OUT_DIR}/blog/${blog_page}" <<'PY'
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1]).read_text(encoding="utf-8")
+src = src.replace('href="./', 'href="../')
+src = src.replace('src="./', 'src="../')
+Path(sys.argv[2]).write_text(src, encoding="utf-8")
+PY
+done
+
 echo ">> wrote:"
-ls -la "${OUT_DIR}/index.html" "${OUT_DIR}/blog.html" "${OUT_DIR}/blog-firecracker-fraud-platform.html" "${OUT_DIR}/blog-agentic-proof-gated-change-control.html" "${OUT_DIR}/blog-sandbox-cache-docker.html" "${OUT_DIR}/blog-mcp-s3-cache.html" "${OUT_DIR}/blog-atlassian-torque-case-study.html" "${OUT_DIR}/docs.html" "${OUT_DIR}/index.json" "${OUT_DIR}/install.sh" "${OUT_DIR}/.nojekyll" | sed -n '1,200p'
+ls -la "${OUT_DIR}/index.html" "${OUT_DIR}/blog.html" "${OUT_DIR}/blog/index.html" "${OUT_DIR}/blog/blog-deploy-kafka-gitlab-keycloak.html" "${OUT_DIR}/blog-deploy-kafka-gitlab-keycloak.html" "${OUT_DIR}/blog-firecracker-fraud-platform.html" "${OUT_DIR}/blog-agentic-proof-gated-change-control.html" "${OUT_DIR}/blog-sandbox-cache-docker.html" "${OUT_DIR}/blog-mcp-s3-cache.html" "${OUT_DIR}/blog-atlassian-torque-case-study.html" "${OUT_DIR}/docs.html" "${OUT_DIR}/index.json" "${OUT_DIR}/install.sh" "${OUT_DIR}/.nojekyll" | sed -n '1,200p'

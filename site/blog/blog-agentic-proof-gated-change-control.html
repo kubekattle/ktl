@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Release Should Explain Itself | torque</title>
+    <meta
+      name="description"
+      content="A production Kubernetes PostgreSQL workload showing Torque proof gates, agent policy, authorization records, and replayable production change evidence."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050505;
+        --surface: #0a0a0c;
+        --elevated: #101014;
+        --text: #ffffff;
+        --muted: #a0a0aa;
+        --muted-strong: #c8ccd2;
+        --accent: #edf1f5;
+        --line: rgba(255, 255, 255, 0.12);
+        --line-strong: rgba(237, 241, 245, 0.24);
+        --code: #f7f9fb;
+        --ok: #7dd3a8;
+        --warn: #f7c76b;
+        --danger: #f08c8c;
+        --radius: 10px;
+        --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --font-mono: "SF Mono", "Monaco", "Inconsolata", "Fira Code", ui-monospace, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html {
+        min-height: 100%;
+        background: var(--bg);
+        scroll-behavior: smooth;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        min-height: 100%;
+        margin: 0;
+        color: var(--text);
+        background:
+          linear-gradient(rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.034) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(237,241,245,0.09), rgba(5,5,5,0.76) 36%, rgba(5,5,5,0.98)),
+          var(--bg);
+        background-size: 80px 80px, 80px 80px, auto, auto;
+        font: 16px/1.6 var(--font);
+        letter-spacing: 0;
+        font-variant-numeric: tabular-nums;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      a:hover { color: var(--accent); }
+
+      ::selection {
+        color: var(--bg);
+        background: rgba(237, 241, 245, 0.72);
+      }
+
+      .page {
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+        min-height: 100svh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 28px;
+        padding: 28px 0 36px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--text);
+        font-weight: 740;
+        font-size: 1.55rem;
+        line-height: 1;
+      }
+
+      .brand-mark {
+        width: 52px;
+        height: 52px;
+        color: currentColor;
+        flex: 0 0 auto;
+      }
+
+      nav {
+        display: flex;
+        gap: 28px;
+        align-items: center;
+        color: var(--muted);
+        font: 0.78rem/1 var(--font-mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 13px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.02)),
+          rgba(10, 10, 12, 0.70);
+      }
+
+      nav a.docs-link {
+        color: var(--text);
+        padding: 9px 12px;
+        margin: -9px -2px;
+        border: 1px solid rgba(237, 241, 245, 0.28);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.14), rgba(184, 189, 196, 0.04)),
+          rgba(16, 16, 20, 0.78);
+      }
+
+      main {
+        display: grid;
+        gap: clamp(48px, 8vw, 86px);
+        padding: 8px 0 66px;
+        min-width: 0;
+      }
+
+      .article-hero {
+        position: relative;
+        display: grid;
+        gap: 22px;
+        max-width: 1040px;
+        animation: article-rise 0.92s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .article-hero::before {
+        content: "";
+        position: absolute;
+        inset: -34px -24px auto;
+        height: 220px;
+        pointer-events: none;
+        border-top: 1px solid rgba(237, 241, 245, 0.10);
+        background:
+          linear-gradient(100deg, transparent 0 32%, rgba(237, 241, 245, 0.16) 46%, transparent 62% 100%),
+          linear-gradient(rgba(255,255,255,0.026) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.026) 1px, transparent 1px);
+        background-size: auto, 44px 44px, 44px 44px;
+        opacity: 0.52;
+        transform: translateX(-54%);
+        animation: hero-scan 8.2s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+        mask-image: linear-gradient(180deg, black, transparent);
+        -webkit-mask-image: linear-gradient(180deg, black, transparent);
+      }
+
+      .article-hero > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .eyebrow {
+        justify-self: start;
+        color: var(--accent);
+        font: clamp(0.88rem, 1.4vw, 1.05rem)/1 var(--font-mono);
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 14px 16px;
+        border: 1px solid rgba(237, 241, 245, 0.18);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.13), rgba(184, 189, 196, 0.035)),
+          rgba(10, 10, 12, 0.78);
+        box-shadow:
+          0 18px 44px rgba(0, 0, 0, 0.22),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 1000px;
+        color: var(--text);
+        font-size: clamp(3.25rem, 8vw, 7.2rem);
+        line-height: 0.91;
+        font-weight: 780;
+        letter-spacing: 0;
+        text-wrap: balance;
+        overflow-wrap: anywhere;
+      }
+
+      .dek {
+        margin: 0;
+        max-width: 860px;
+        color: var(--muted);
+        font-size: clamp(1.06rem, 1.55vw, 1.28rem);
+        line-height: 1.55;
+      }
+
+      .evidence-board {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+        gap: 18px;
+        align-items: stretch;
+        min-width: 0;
+        animation: article-rise 1s cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+      }
+
+      .panel {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid rgba(237, 241, 245, 0.12);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(16, 16, 20, 0.96), rgba(10, 10, 12, 0.90)),
+          var(--surface);
+        padding: clamp(18px, 3vw, 30px);
+        min-width: 0;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 18px 48px rgba(0, 0, 0, 0.28);
+      }
+
+      .panel::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(115deg, transparent 0 34%, rgba(255,255,255,0.10) 44%, transparent 56% 100%);
+        opacity: 0;
+        transform: translateX(-48%);
+        transition: opacity 0.42s ease, transform 0.78s ease;
+      }
+
+      .panel:hover::after,
+      .panel:focus-within::after {
+        opacity: 1;
+        transform: translateX(48%);
+      }
+
+      .flow {
+        display: grid;
+        gap: 10px;
+      }
+
+      .flow::before {
+        content: "";
+        position: absolute;
+        top: 54px;
+        bottom: 54px;
+        left: calc(clamp(18px, 3vw, 30px) + 14px);
+        width: 1px;
+        background:
+          linear-gradient(180deg, transparent, rgba(125, 211, 168, 0.66), rgba(237, 241, 245, 0.18), transparent);
+        transform-origin: top;
+        animation: gate-line 5.8s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .flow-row {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 28px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        min-height: 48px;
+        min-width: 0;
+        color: #d7dbe0;
+      }
+
+      .flow-row > div {
+        min-width: 0;
+      }
+
+      .dot {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        border: 1px solid rgba(237, 241, 245, 0.22);
+        background: rgba(10, 10, 12, 0.96);
+        color: var(--ok);
+        font: 0.72rem/1 var(--font-mono);
+        box-shadow: 0 0 0 rgba(125, 211, 168, 0);
+        animation: gate-dot 5.8s ease-in-out infinite;
+      }
+
+      .flow-row:nth-child(2) .dot { animation-delay: 0.42s; }
+      .flow-row:nth-child(3) .dot { animation-delay: 0.84s; }
+      .flow-row:nth-child(4) .dot { animation-delay: 1.26s; }
+      .flow-row:nth-child(5) .dot { animation-delay: 1.68s; }
+
+      .flow-row strong {
+        display: block;
+        color: var(--text);
+        font-size: 1rem;
+        line-height: 1.2;
+      }
+
+      .flow-row span {
+        display: block;
+        min-width: 0;
+        color: var(--muted);
+        font: 0.78rem/1.3 var(--font-mono);
+        overflow-wrap: anywhere;
+      }
+
+      .badge {
+        color: var(--ok);
+        font: 0.74rem/1 var(--font-mono);
+        padding: 8px 10px;
+        border: 1px solid rgba(125, 211, 168, 0.26);
+        border-radius: 7px;
+        background: rgba(125, 211, 168, 0.06);
+        animation: badge-flash 5.8s ease-in-out infinite;
+      }
+
+      .flow-row:nth-child(3) .badge {
+        color: var(--warn);
+        border-color: rgba(247, 199, 107, 0.30);
+        background: rgba(247, 199, 107, 0.07);
+      }
+
+      .flow-row:nth-child(4) .badge,
+      .flow-row:nth-child(5) .badge {
+        animation-delay: 1s;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .metric {
+        position: relative;
+        overflow: hidden;
+        min-height: 104px;
+        padding: 14px;
+        border: 1px solid rgba(237, 241, 245, 0.12);
+        border-radius: 7px;
+        background: rgba(237, 241, 245, 0.045);
+        animation: metric-rise 0.86s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .metric:nth-child(2) { animation-delay: 0.08s; }
+      .metric:nth-child(3) { animation-delay: 0.16s; }
+      .metric:nth-child(4) { animation-delay: 0.24s; }
+
+      .metric::after {
+        content: "";
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 12px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(125, 211, 168, 0), rgba(125, 211, 168, 0.72), rgba(237, 241, 245, 0));
+        opacity: 0.44;
+        transform: scaleX(0.22);
+        transform-origin: left;
+        animation: metric-scan 5.6s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .metric:nth-child(2)::after { animation-delay: 0.5s; }
+      .metric:nth-child(3)::after { animation-delay: 1s; }
+      .metric:nth-child(4)::after { animation-delay: 1.5s; }
+
+      .metric strong {
+        display: block;
+        color: var(--text);
+        font-size: clamp(1.8rem, 4vw, 3rem);
+        line-height: 1;
+      }
+
+      .metric span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font: 0.78rem/1.3 var(--font-mono);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .article-body {
+        width: min(820px, 100%);
+        display: grid;
+        gap: 24px;
+        min-width: 0;
+      }
+
+      .article-body > * {
+        animation: article-rise 0.88s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .article-body > :nth-child(2n) { animation-delay: 0.05s; }
+      .article-body > :nth-child(3n) { animation-delay: 0.10s; }
+
+      .article-body h2 {
+        margin: 18px 0 0;
+        color: var(--text);
+        font-size: clamp(1.8rem, 4vw, 3rem);
+        line-height: 1.05;
+        letter-spacing: 0;
+        text-wrap: balance;
+      }
+
+      .article-body p,
+      .article-body li {
+        color: #d7dbe0;
+        font-size: clamp(1.05rem, 1.45vw, 1.2rem);
+        line-height: 1.78;
+      }
+
+      .article-body p,
+      .article-body ul,
+      .article-body ol,
+      .article-body blockquote {
+        margin: 0;
+      }
+
+      .article-body ul {
+        padding-left: 1.2em;
+      }
+
+      .article-body ol {
+        padding-left: 1.35em;
+      }
+
+      .article-body blockquote {
+        border-left: 2px solid rgba(237, 241, 245, 0.38);
+        border-radius: 0 8px 8px 0;
+        padding: 18px 20px;
+        background: rgba(237, 241, 245, 0.055);
+        color: var(--muted-strong);
+        font-size: clamp(1.12rem, 1.7vw, 1.34rem);
+        line-height: 1.62;
+      }
+
+      .article-body code {
+        color: var(--code);
+        font: 0.92em/1 var(--font-mono);
+        padding: 0.08em 0.28em;
+        border: 1px solid rgba(237, 241, 245, 0.14);
+        border-radius: 5px;
+        background: rgba(237, 241, 245, 0.055);
+        overflow-wrap: anywhere;
+      }
+
+      pre {
+        position: relative;
+        isolation: isolate;
+        max-width: 100%;
+        margin: 0;
+        overflow-x: auto;
+        color: #eef2f7;
+        font: 0.88rem/1.55 var(--font-mono);
+        padding: 18px;
+        border: 1px solid rgba(237, 241, 245, 0.12);
+        border-radius: 7px;
+        background: #08080a;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.05),
+          0 18px 46px rgba(0, 0, 0, 0.22);
+      }
+
+      pre::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background: linear-gradient(110deg, transparent 0 38%, rgba(237, 241, 245, 0.09) 48%, transparent 58% 100%);
+        opacity: 0;
+        transform: translateX(-54%);
+        animation: terminal-scan 8.4s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .proof-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .proof-chip {
+        position: relative;
+        overflow: hidden;
+        min-width: 0;
+        min-height: 88px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.08), rgba(184, 189, 196, 0.02)),
+          rgba(10, 10, 12, 0.78);
+      }
+
+      .proof-chip::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(120deg, transparent 0 34%, rgba(255, 255, 255, 0.11) 48%, transparent 62% 100%);
+        opacity: 0;
+        transform: translateX(-58%);
+        animation: chip-sweep 7.4s cubic-bezier(0.37, 0, 0.2, 1) infinite;
+      }
+
+      .proof-chip:nth-child(2)::after { animation-delay: 0.5s; }
+      .proof-chip:nth-child(3)::after { animation-delay: 1s; }
+      .proof-chip:nth-child(4)::after { animation-delay: 1.5s; }
+
+      .proof-chip > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .proof-chip strong,
+      .proof-chip span {
+        display: block;
+      }
+
+      .proof-chip strong {
+        color: var(--accent);
+        font: 0.76rem/1.2 var(--font-mono);
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .proof-chip span {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 0.94rem;
+        line-height: 1.4;
+      }
+
+      footer {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+        align-items: center;
+        gap: 28px;
+        margin-top: 8px;
+        min-height: 118px;
+        padding: 24px 28px;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(180deg, rgba(237, 241, 245, 0.09), rgba(184, 189, 196, 0.025)),
+          rgba(10, 10, 12, 0.82);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 22px 58px rgba(0, 0, 0, 0.26);
+        font-size: 0.82rem;
+        animation: article-rise 0.88s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      footer span:first-child {
+        min-width: 0;
+        color: transparent;
+        background: linear-gradient(180deg, #ffffff, #aeb4bb 64%, #f7f9fb);
+        -webkit-background-clip: text;
+        background-clip: text;
+        font-size: clamp(1.5rem, 3.4vw, 2.55rem);
+        font-weight: 840;
+        line-height: 1.02;
+        letter-spacing: 0;
+        text-wrap: balance;
+      }
+
+      footer span:last-child {
+        min-width: 0;
+        max-width: 410px;
+        color: #f3f5f7;
+        font: 0.72rem/1.45 var(--font-mono);
+        font-weight: 760;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        text-align: right;
+      }
+
+      @keyframes article-rise {
+        from {
+          opacity: 0;
+          transform: translate3d(-18px, 64px, -40px) rotateX(7deg) scale(0.968);
+          filter: blur(5px) saturate(0.72) contrast(0.9);
+        }
+        to {
+          opacity: 1;
+          transform: translate3d(0, 0, 0) rotateX(0deg) scale(1);
+          filter: blur(0) saturate(1) contrast(1);
+        }
+      }
+
+      @keyframes metric-rise {
+        from {
+          opacity: 0;
+          transform: translateY(34px) scale(0.94);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @keyframes metric-scan {
+        0%, 100% {
+          opacity: 0.24;
+          transform: scaleX(0.18) translateX(0);
+        }
+        42%, 58% {
+          opacity: 0.72;
+          transform: scaleX(0.82) translateX(10%);
+        }
+      }
+
+      @keyframes hero-scan {
+        0%, 18% {
+          opacity: 0;
+          transform: translateX(-54%);
+        }
+        34%, 64% {
+          opacity: 0.52;
+        }
+        82%, 100% {
+          opacity: 0;
+          transform: translateX(54%);
+        }
+      }
+
+      @keyframes gate-line {
+        0%, 100% {
+          opacity: 0.22;
+          transform: scaleY(0.32);
+        }
+        44%, 62% {
+          opacity: 0.9;
+          transform: scaleY(1);
+        }
+      }
+
+      @keyframes gate-dot {
+        0%, 100% {
+          color: var(--ok);
+          transform: scale(0.88);
+          box-shadow: 0 0 0 rgba(125, 211, 168, 0);
+        }
+        44%, 62% {
+          color: #ffffff;
+          transform: scale(1.12);
+          border-color: rgba(125, 211, 168, 0.58);
+          box-shadow: 0 0 26px rgba(125, 211, 168, 0.22);
+        }
+      }
+
+      @keyframes badge-flash {
+        0%, 100% {
+          filter: brightness(1);
+        }
+        44%, 62% {
+          filter: brightness(1.34);
+        }
+      }
+
+      @keyframes terminal-scan {
+        0%, 22% {
+          opacity: 0;
+          transform: translateX(-54%);
+        }
+        38%, 62% {
+          opacity: 0.58;
+        }
+        86%, 100% {
+          opacity: 0;
+          transform: translateX(54%);
+        }
+      }
+
+      @keyframes chip-sweep {
+        0%, 24% {
+          opacity: 0;
+          transform: translateX(-58%);
+        }
+        42%, 58% {
+          opacity: 0.82;
+        }
+        82%, 100% {
+          opacity: 0;
+          transform: translateX(58%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          transform: none !important;
+          filter: none !important;
+        }
+      }
+
+      @supports (animation-timeline: view()) {
+        .article-body > *,
+        footer {
+          animation-name: article-rise;
+          animation-duration: auto;
+          animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+          animation-fill-mode: both;
+          animation-timeline: view();
+          animation-range: entry 0% cover 34%;
+          animation-delay: 0s;
+        }
+      }
+
+      @media (max-width: 860px) {
+        .evidence-board,
+        .proof-strip {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .page { width: min(100% - 28px, 1080px); }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 22px;
+        }
+        nav {
+          gap: 14px;
+          flex-wrap: wrap;
+        }
+        h1 {
+          max-width: 8.4ch;
+          font-size: clamp(2.75rem, 13vw, 4.35rem);
+        }
+        .metric-grid {
+          grid-template-columns: 1fr;
+        }
+        .dek {
+          max-width: 32ch;
+        }
+        .flow-row {
+          grid-template-columns: 28px minmax(0, 1fr);
+        }
+        .badge {
+          grid-column: 2;
+          justify-self: start;
+        }
+        footer {
+          grid-template-columns: minmax(0, 1fr);
+          align-items: flex-start;
+          margin-top: 0;
+        }
+        footer span:last-child {
+          max-width: none;
+          text-align: left;
+        }
+        pre {
+          font-size: 0.8rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <a class="brand" href="../" aria-label="torque home">
+          <svg class="brand-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true" focusable="false">
+            <path d="M24 5.5 42.5 24 24 42.5 5.5 24Z" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round"></path>
+            <path d="M18 19h12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+            <path d="M24 19v12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
+          </svg>
+          <span>torque</span>
+        </a>
+        <nav aria-label="Primary">
+          <a class="docs-link" href="../docs.html">Docs</a>
+          <a href="../blog.html">Blog</a>
+          <a href="https://github.com/ingresslabs/torque">GitHub</a>
+          <a href="https://github.com/ingresslabs/torque/releases">Releases</a>
+        </nav>
+      </header>
+
+      <main>
+        <section class="article-hero">
+          <h1>The Release Should Explain Itself</h1>
+          <p class="dek">A production Kubernetes PostgreSQL migration where Torque denied an agent twice, authorized it only after proof and policy passed, then captured a replayable stack ledger.</p>
+        </section>
+
+        <section class="evidence-board" aria-label="Run evidence summary">
+          <div class="panel flow">
+            <div class="flow-row">
+              <div class="dot">1</div>
+              <div><strong>Agent asks to mutate</strong><span>stack-apply for oracle-postgres-k8s</span></div>
+              <div class="badge">requested</div>
+            </div>
+            <div class="flow-row">
+              <div class="dot">2</div>
+              <div><strong>Torque checks proof</strong><span>signed graph, hashes, gate, score, flight</span></div>
+              <div class="badge">23/23</div>
+            </div>
+            <div class="flow-row">
+              <div class="dot">3</div>
+              <div><strong>Torque checks policy</strong><span>deny without allow, deny tampered proof</span></div>
+              <div class="badge">enforced</div>
+            </div>
+            <div class="flow-row">
+              <div class="dot">4</div>
+              <div><strong>Torque records authorization</strong><span>agent-run.json, executed=false</span></div>
+              <div class="badge">recorded</div>
+            </div>
+            <div class="flow-row">
+              <div class="dot">5</div>
+              <div><strong>Mutation runs explicitly</strong><span>stack apply with SQLite capture and export</span></div>
+              <div class="badge">succeeded</div>
+            </div>
+          </div>
+
+          <div class="panel metric-grid">
+            <div class="metric"><strong>100</strong><span>release score</span></div>
+            <div class="metric"><strong>20</strong><span>proof graph artifacts</span></div>
+            <div class="metric"><strong>30</strong><span>stack audit artifacts</span></div>
+            <div class="metric"><strong>108</strong><span>stack audit events</span></div>
+          </div>
+        </section>
+
+        <article class="article-body">
+          <p>Production Kubernetes delivery is no longer only human operators running Helm from CI. Teams are beginning to let AI agents inspect incidents, prepare migrations, and request changes. That changes the acceptance bar. RBAC can say who may write. GitOps can say what desired state should be. Neither explains why this particular stateful mutation is safe right now. Torque fills that gap by turning the change into evidence before execution: proof graph, gate report, policy decision, authorization record, and replayable stack ledger. The result is a production change surface where a human, CI job, or agent can propose work, but the write proceeds only when the proof matches the policy and the final run is inspectable later.</p>
+
+          <p>Argo CD and Crossplane were designed before agentic operations became the center of gravity. That is not a criticism of either project. Argo CD is a strong GitOps control plane: it compares Git state with cluster state and keeps applications synced. Crossplane is a strong infrastructure control plane: it turns cloud and platform resources into Kubernetes APIs. Both are useful.</p>
+
+          <p>But an AI agent asking to mutate production creates a different problem:</p>
+
+          <blockquote>What proof makes this write safe enough to allow?</blockquote>
+
+          <p>Torque's operating loop is intentionally narrow and proof-gated:</p>
+
+          <ol>
+            <li>The agent asks to mutate.</li>
+            <li>Torque checks the proof.</li>
+            <li>Torque checks the policy.</li>
+            <li>Torque records authorization.</li>
+            <li>The mutation is allowed only with a passing gate.</li>
+          </ol>
+
+          <p>I tested that loop end to end against a production Kubernetes cluster. The workload was not a synthetic terminal transcript and not a hello world chart. It was an Oracle/APEX-to-PostgreSQL modernization stack running against a live PostgreSQL target inside Kubernetes.</p>
+
+          <p>The durable evidence for the run stayed with the release artifacts under <code>/root/torque-agentic-ops-e2e-20260523-095146</code>.</p>
+
+          <h2>The Workload</h2>
+          <p>The stack was deliberately stateful. It modeled the kind of production change that usually falls between infrastructure-as-code, ticket comments, and a shell script someone hopes they can reconstruct later:</p>
+
+          <ul>
+            <li>prove the Kubernetes target side is ready;</li>
+            <li>record change-window approval;</li>
+            <li>freeze the source Oracle/APEX system;</li>
+            <li>export source data;</li>
+            <li>create a PostgreSQL restore point;</li>
+            <li>expand the target schema;</li>
+            <li>backfill rows into shadow tables;</li>
+            <li>verify row counts and route state;</li>
+            <li>commit the cutover;</li>
+            <li>promote the application route;</li>
+            <li>contract the schema;</li>
+            <li>run a post-cutover check;</li>
+            <li>audit and export the run ledger.</li>
+          </ul>
+
+          <p>The Kubernetes side created an isolated namespace, deployed PostgreSQL in the production cluster, and port-forwarded it to the Torque process. After the authorized stack apply completed, PostgreSQL reported:</p>
+
+          <pre><code>stage rows: 3
+shadow rows: 3
+route flags: true,true,true
+migration audit phase: contracted</code></pre>
+
+          <p>That matters because this was not only "agent ran a command." The agent was asking to run a stateful production change program with sequencing, evidence, and irreversible-looking steps.</p>
+
+          <h2>The Proof Gate</h2>
+          <p>Before the mutation, Torque built a signed proof graph around the proposed change. The graph linked the stack plan, verifier report, digest-pinned image reference, BuildKit capture placeholder, SBOM, provenance, server dry-run evidence, runtime drift proof, rollout event proof, logs capture, SLO outcome, and repair channel.</p>
+
+          <pre><code>proof gate: passed
+gate checks: 23
+release score: 100
+flight events: 20
+proof graph artifacts: 20
+checked files: 12</code></pre>
+
+          <p>The graph was signed with an ed25519 key generated for the run, and <code>torque proof verify --require-signature</code> verified the signature and file hashes.</p>
+
+          <div class="proof-strip" aria-label="Proof artifacts">
+            <div class="proof-chip"><strong>Graph</strong><span>Signed file and artifact hashes.</span></div>
+            <div class="proof-chip"><strong>Gate</strong><span>Required checks passed before mutation.</span></div>
+            <div class="proof-chip"><strong>Policy</strong><span>Operation had to be explicitly allowed.</span></div>
+            <div class="proof-chip"><strong>Ledger</strong><span>Stack run captured and exported.</span></div>
+          </div>
+
+          <p>The useful output was not only that the database ended in the right state. The run left behind a signed graph, a gate report, a score report, a flight file, replay output, an agent policy record, a release attestation, stack capture, stack audit, stack export, and event-chain integrity checks.</p>
+
+          <h2>The Agent Was Denied Twice</h2>
+          <p>The first request looked like an agent asking to perform a mutating stack apply:</p>
+
+          <pre><code>{
+  "actor": "codex-agent",
+  "operation": "stack-apply",
+  "command": ["torque", "stack", "apply", "--config", "./stack.yaml", "--yes"],
+  "release": "oracle-postgres-k8s",
+  "namespace": "data-platform",
+  "reason": "migrate Oracle/APEX account data to the PostgreSQL target stack"
+}</code></pre>
+
+          <p>Torque denied it without an explicit allow-list entry:</p>
+
+          <pre><code>torque agent policy check agent-request.json \
+  --proof proof.graph.json \
+  --require-gate \
+  --out agent-policy-denied-no-allow.json</code></pre>
+
+          <p>That failure is important. A passing proof graph is not enough by itself. The requested operation still has to be explicitly allowed.</p>
+
+          <p>Then I tampered with the verifier evidence and tried again with the operation allowed:</p>
+
+          <pre><code>torque agent policy check agent-request.json \
+  --proof proof.graph.json \
+  --allow stack-apply \
+  --require-gate \
+  --out agent-policy-denied-tampered.json</code></pre>
+
+          <p>Torque denied the request again because the proof gate no longer passed. The agent had permission, but the evidence had been changed after the graph was signed.</p>
+
+          <p>This is the operating model demonstrated by the run: no permission-only writes, and no proof-only writes. Mutating automation needs both.</p>
+
+          <h2>The Agent Was Authorized, But Did Not Execute</h2>
+          <p>After restoring the evidence, the policy check passed:</p>
+
+          <pre><code>torque agent policy check agent-request.json \
+  --proof proof.graph.json \
+  --allow stack-apply \
+  --require-gate \
+  --out agent-policy-allowed.json</code></pre>
+
+          <p>Then Torque wrote the authorization record:</p>
+
+          <pre><code>torque agent run agent-request.json \
+  --proof proof.graph.json \
+  --allow stack-apply \
+  --require-gate \
+  --out agent-run.json</code></pre>
+
+          <p>The run record said <code>authorized: true</code> and <code>executed: false</code>. That is the boundary. <code>agent run</code> does not mutate the cluster or the database. It records that the caller is allowed to perform the write.</p>
+
+          <p>Only after that did the actual write happen as a separate, explicit operation:</p>
+
+          <pre><code>torque stack apply \
+  --config ./stack.yaml \
+  --yes \
+  --capture=./runtime/stack-apply.sqlite</code></pre>
+
+          <p>That separation is the right shape for agents in production. They should not be trusted because a prompt says the change is safe. They should carry a signed graph, pass a gate, match an explicit policy, and leave behind a record that a human can read later.</p>
+
+          <h2>The Mutation</h2>
+          <p>Once proof and policy passed, Torque ran the stack apply against the live PostgreSQL target in Kubernetes. The run succeeded and produced:</p>
+
+          <pre><code>stack run status: succeeded
+stack run id: 2026-05-23T10-02-37.032394298Z
+stack audit artifacts: 30
+stack audit events: 108
+event-chain integrity: true
+run-digest integrity: true</code></pre>
+
+          <p>Torque then exported the stack run:</p>
+
+          <pre><code>oracle-postgres-run.tgz
+sha256: 22399861e1073d24219512d5a323c23c0c92295ceea88d905a06495d69af72f9</code></pre>
+
+          <p>The stack capture was also preserved:</p>
+
+          <pre><code>stack-apply.sqlite
+sha256: 8893d62ed389ed3f8d23a19de9109a2fb1aa2bba5616cfac8bb0fc0ca250f0ba</code></pre>
+
+          <p>So the final state is reviewable in three ways:</p>
+
+          <ul>
+            <li>the signed proof graph explains why the mutation was allowed;</li>
+            <li>the agent policy and run records explain who was authorized and why;</li>
+            <li>the stack audit/export artifacts explain what happened during execution.</li>
+          </ul>
+
+          <h2>Why This Beats A Generic GitOps Story</h2>
+          <p>Argo CD can keep ordinary applications synced. Crossplane can provision infrastructure. Torque is not a slightly different version of either one.</p>
+
+          <p>Torque owns high-assurance production change control:</p>
+
+          <ul>
+            <li>this proposed write is tied to these exact files;</li>
+            <li>those files still hash to the signed graph;</li>
+            <li>the graph includes the required evidence;</li>
+            <li>the release gate passed;</li>
+            <li>the requested operation is explicitly allowed;</li>
+            <li>the request matches the proof release and namespace;</li>
+            <li>the agent authorization is recorded;</li>
+            <li>the actual mutation produced a replayable run ledger.</li>
+          </ul>
+
+          <p>That is not just sync. It is production change control.</p>
+
+          <p>This is where Torque is strongest: database migration, backfill, cutover, contract, cleanup, incident recurrence, rollback evidence, and risky repair. These changes do not fit cleanly into "desired state equals live state." They are programs with risk, sequence, checkpoints, approval, and audit requirements.</p>
+
+          <p>Most tools help you deploy. Torque makes the whole release explainable after the fact.</p>
+
+          <blockquote>Agents can ask to change production, but Torque only lets them proceed when proof, policy, and authorization all line up.</blockquote>
+
+          <p>That gives Torque a sharper category than "another GitOps tool": proof-gated change control, replayable production evidence, agent authorization before mutation, stateful workload graphs, and audit artifacts that survive the terminal session.</p>
+
+          <p>The completed flow is concrete: Torque built a signed proof graph, verified the gate, denied requests that lacked an explicit allow decision, rejected tampered evidence, recorded a non-mutating authorization, executed the stack change separately, and preserved the audit/export ledger. Argo CD can sync ordinary apps. Crossplane can provision infrastructure. The production path shown here is where an agent requests a risky mutation and the decision needs evidence, not just RBAC.</p>
+        </article>
+      </main>
+
+      <footer>
+        <span>Proof-gated production change control.</span>
+        <span>Agents can ask. Torque decides from evidence.</span>
+      </footer>
+    </div>
+  </body>
+</html>
